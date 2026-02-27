@@ -173,7 +173,12 @@ export async function createDocument(
     }
 
     const data: any = await res.json();
-    return data.invoice.id;
+    const doc = data.invoice || data.invoice_receipt || data.credit_note;
+    if (!doc?.id) {
+        console.error("[IX] Unexpected creation response:", data);
+        throw new Error(`InvoiceXpress creation succeeded but ID not found in response: ${JSON.stringify(data)}`);
+    }
+    return doc.id;
 }
 
 export async function findDocumentByReference(env: Env, orderNumber: string | number): Promise<string | null> {
@@ -283,5 +288,9 @@ export async function createCreditNote(
     }
 
     const data: any = await res.json();
-    return data.invoice.id;
+    const doc = data.invoice || data.invoice_receipt || data.credit_note;
+    if (!doc?.id) {
+        throw new Error(`InvoiceXpress Credit Note success but ID not found: ${JSON.stringify(data)}`);
+    }
+    return doc.id;
 }

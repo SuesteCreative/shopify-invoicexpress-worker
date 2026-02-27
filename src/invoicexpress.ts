@@ -143,10 +143,15 @@ export async function createDocument(
         invoice: {
             date: formattedDate,
             due_date: formattedDate,
-            client: { id: clientId }, // Trying id first, if it fails we might need to store/use 'code'
+            client: {
+                id: clientId,
+                name: order.billing_address?.name || `${order.customer?.first_name} ${order.customer?.last_name}`,
+                email: order.customer?.email || order.billing_address?.email
+            },
             items: items,
             reference: `Shopify Order #${order.order_number}`,
-            observations: `Shopify ID: ${order.id}`
+            observations: `Shopify ID: ${order.id}`,
+            currency_code: order.currency || "EUR"
         }
     };
 
@@ -224,6 +229,7 @@ export async function createCreditNote(
             description: item.name,
             unit_price: item.price,
             quantity: rli.quantity,
+            unit: "service",
             tax: { name: `IVA${determineVATRate(item)}` }
         };
     });
@@ -240,13 +246,21 @@ export async function createCreditNote(
         });
     }
 
+    const today = new Date();
+    const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+
     const body = {
         invoice: {
-            date: new Date().toLocaleDateString('pt-PT').split('/').reverse().join('-'),
-            client: { id: clientId },
+            date: formattedDate,
+            client: {
+                id: clientId,
+                name: order.billing_address?.name || `${order.customer?.first_name} ${order.customer?.last_name}`,
+                email: order.customer?.email || order.billing_address?.email
+            },
             items: items,
             reference: `Refund for Order #${order.order_number}`,
-            observations: `Original Document ID: ${originalDocumentId}. Shopify Refund ID: ${refund.id}`
+            observations: `Original Document ID: ${originalDocumentId}. Shopify Refund ID: ${refund.id}`,
+            currency_code: order.currency || "EUR"
         }
     };
 

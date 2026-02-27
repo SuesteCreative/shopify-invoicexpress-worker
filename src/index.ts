@@ -77,11 +77,25 @@ export default {
             if (existing) return new Response("Refund already processed", { status: 200 });
 
             try {
-                // Fetch full order to get order number and customer details
                 const orderRes = await fetch(`https://${env.SHOPIFY_SHOP_DOMAIN}/admin/api/${env.SHOPIFY_API_VERSION}/orders/${orderId}.json`, {
                     headers: { "X-Shopify-Access-Token": env.SHOPIFY_ACCESS_TOKEN }
                 });
-                const { order } = await orderRes.json() as any;
+
+                if (!orderRes.ok) {
+                    const err = await orderRes.text();
+                    console.error(`[Shopify] Failed to fetch order ${orderId}: ${orderRes.status} - ${err}`);
+                    // Return 200 to Shopify to stop retries if the order doesn't exist anymore
+                    if (orderRes.status === 404) return new Response("Order not found, skipping", { status: 200 });
+                    throw new Error(`Shopify API Error: ${orderRes.status}`);
+                }
+
+                const data: any = await orderRes.json();
+                const order = data.order;
+
+                if (!order) {
+                    console.error("[Shopify] Order object missing in response:", data);
+                    throw new Error("Invalid order data from Shopify");
+                }
 
                 // Find the original document in InvoiceXpress
                 const originalId = await findDocumentByReference(env, order.order_number, order.id);

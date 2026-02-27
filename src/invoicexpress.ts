@@ -43,14 +43,21 @@ export async function getOrCreateClient(
         }
     }
 
-    // 2. Search by email as fallback
+    // 2. Search by email or name as fallback
     const listUrl = `${baseUrl}/clients.json?api_key=${apiKey}`;
-    const searchEmailRes = await fetch(listUrl, { headers: authHeaders });
+    const listRes = await fetch(listUrl, { headers: authHeaders });
 
-    if (searchEmailRes.status === 200) {
+    if (listRes.status === 200) {
         try {
-            const data: any = await searchEmailRes.json();
-            const found = data.clients.find((c: any) => c.email === clientData.email);
+            const data: any = await listRes.json();
+            const clients = data.clients || [];
+
+            // Try to find by email
+            let found = clients.find((c: any) => c.email === clientData.email);
+            if (found) return found.id;
+
+            // Try to find by exact name
+            found = clients.find((c: any) => c.name === clientData.name);
             if (found) return found.id;
         } catch (e) {
             console.error("Failed to parse IX client list response", e);
@@ -73,6 +80,17 @@ export async function getOrCreateClient(
 
     if (!createRes.ok) {
         const txt = await createRes.text();
+
+        // If name is taken, try one last time to find the ID by name
+        if (txt.includes("Nome não está disponível")) {
+            const retryRes = await fetch(listUrl, { headers: authHeaders });
+            if (retryRes.status === 200) {
+                const data: any = await retryRes.json();
+                const found = (data.clients || []).find((c: any) => c.name === clientData.name);
+                if (found) return found.id;
+            }
+        }
+
         throw new Error(`InvoiceXpress Client Creation Error (${createRes.status}): ${txt}. Used URL: ${createUrl.replace(apiKey, 'REDACTED')}`);
     }
 

@@ -43,21 +43,21 @@ export async function getOrCreateClient(
         }
     }
 
-    // 2. Search by Email or Name (Using the List API)
-    // We search with 'text' to filter as much as possible
-    const listUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(email || name)}&api_key=${apiKey}`;
-    const listRes = await fetch(listUrl, { headers: authHeaders });
+    // 2. Search by Email or Name (Exhaustive check)
+    const listRes = await fetch(`${baseUrl}/clients.json?text=${encodeURIComponent(email || name)}&api_key=${apiKey}`, { headers: authHeaders });
 
     if (listRes.status === 200) {
         try {
             const data: any = await listRes.json();
             const clients = data.clients || [];
 
-            // Try to find exact match
-            const found = clients.find((c: any) =>
-                (email && c.email?.toLowerCase() === email.toLowerCase()) ||
-                (c.name?.toLowerCase() === name.toLowerCase())
-            );
+            // Do a very thorough match check
+            const found = clients.find((c: any) => {
+                const sameEmail = email && c.email?.toLowerCase().trim() === email.toLowerCase().trim();
+                const sameName = c.name?.toLowerCase().trim() === name.toLowerCase().trim();
+                return sameEmail || sameName;
+            });
+
             if (found) return found.id;
         } catch (e) { }
     }

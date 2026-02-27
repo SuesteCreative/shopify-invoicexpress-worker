@@ -34,6 +34,14 @@ export default {
                 const clientName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || order.billing_address?.name || "Client";
                 const clientEmail = order.customer?.email || order.email;
 
+                // Anti-duplication check: Check IX directly if local check failed
+                const ixExisting = await findDocumentByReference(env, order.order_number);
+                if (ixExisting) {
+                    console.log(`[IX] Document already exists in IX: ${ixExisting}`);
+                    await markAsInvoiced(order.id, ixExisting, env);
+                    return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting }), { status: 200 });
+                }
+
                 const clientId = await getOrCreateClient(env, {
                     name: clientName,
                     email: clientEmail,

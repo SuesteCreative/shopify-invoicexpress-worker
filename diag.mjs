@@ -1,31 +1,24 @@
 
 const account = 'ultramegasonico';
-const apiKey = '0e26099bd0c9fde9600f6ed01ec6a9926a350df2';
+const apiKey = '8b30a86ecc847a9212ae4f109741c6943b4696fe';
 const baseUrl = `https://${account}.macewindu.invoicexpress.com`;
 
-async function findMe() {
+async function findRecent() {
     const headers = {
         'X-InvoiceXpress-API-Key': apiKey,
         'Accept': 'application/json'
     };
-    const targetName = "Aaron Kafiki";
-    console.log(`Searching for Client: ${targetName}`);
 
     try {
-        const url = `${baseUrl}/clients.json?api_key=${apiKey}`;
-        const res = await fetch(url, { headers });
+        const res = await fetch(`${baseUrl}/invoice_receipts.json?per_page=10&api_key=${apiKey}`, { headers });
         const data = await res.json();
-        const list = data.clients || [];
-        const found = list.find(c => c.name.includes(targetName));
-
-        if (found) {
-            console.log(`CLIENT FOUND! ID: ${found.id}`);
-        } else {
-            console.log("CLIENT NOT FOUND in this account.");
-        }
+        console.log("Top 10 Faturas-Recibo:");
+        (data.invoice_receipts || []).forEach(d => {
+            console.log(`ID: ${d.id} | Ref: "${d.reference}" | Client: ${d.client?.name} | State: ${d.state} | Date: ${d.date}`);
+        });
     } catch (e) {
         console.log(`Error: ${e.message}`);
     }
 }
 
-findMe(); 
+findRecent(); 

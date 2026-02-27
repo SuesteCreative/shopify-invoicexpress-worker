@@ -146,7 +146,7 @@ export async function createDocument(
                 fiscal_id: nif
             },
             items: items,
-            reference: `Shopify Order #${order.order_number}`,
+            reference: `Order #${order.order_number} (ID: ${order.id})`,
             observations: `Shopify ID: ${order.id}`,
             currency_code: order.currency || "EUR"
         }
@@ -181,12 +181,12 @@ export async function createDocument(
     return doc.id;
 }
 
-export async function findDocumentByReference(env: Env, orderNumber: string | number): Promise<string | null> {
+export async function findDocumentByReference(env: Env, orderNumber: string | number, orderId: string | number): Promise<string | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
-    const reference = `Shopify Order #${orderNumber}`;
+    const reference = `Order #${orderNumber} (ID: ${orderId})`;
 
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,

@@ -30,71 +30,91 @@ export async function getOrCreateClient(
 
     const name = clientData.name.trim();
     const email = (clientData.email || "").trim();
+    const fiscalId = clientData.fiscal_id;
 
-    // 1. Search by fiscal_id if available (Standard IX unique field)
-    if (clientData.fiscal_id) {
-        const searchUrl = `${baseUrl}/clients/find-by-code.json?client_code=${clientData.fiscal_id}&api_key=${apiKey}`;
-        const res = await fetch(searchUrl, { headers: authHeaders });
-        if (res.status === 200) {
-            try {
+    console.log(`[IX] getOrCreateClient: Starting lookup for ${name} (${email}, NIF: ${fiscalId})`);
+
+    // Helper to find client in a list
+    const findMatch = (clients: any[]) => {
+        return clients.find(c =>
+            (fiscalId && c.fiscal_id === fiscalId) ||
+            (c.name?.toLowerCase().trim() === name.toLowerCase()) ||
+            (email && c.email?.toLowerCase().trim() === email.toLowerCase())
+        );
+    };
+
+    // 1. Search by NIF if available
+    if (fiscalId) {
+        try {
+            const url = `${baseUrl}/clients/find-by-code.json?client_code=${fiscalId}&api_key=${apiKey}`;
+            const res = await fetch(url, { headers: authHeaders });
+            if (res.status === 200) {
                 const data: any = await res.json();
-                return data.client.id;
-            } catch (e) { }
+                if (data?.client?.id) {
+                    console.log(`[IX] Found client by NIF: ${data.client.id}`);
+                    return data.client.id;
+                }
+            }
+        } catch (e) {
+            console.error("[IX] NIF search failed:", e);
         }
     }
 
-    // 2. Search by Email or Name (Exhaustive check)
-    const listRes = await fetch(`${baseUrl}/clients.json?text=${encodeURIComponent(email || name)}&api_key=${apiKey}`, { headers: authHeaders });
-
-    if (listRes.status === 200) {
-        try {
-            const data: any = await listRes.json();
-            const clients = data.clients || [];
-
-            // Do a very thorough match check
-            const found = clients.find((c: any) => {
-                const sameEmail = email && c.email?.toLowerCase().trim() === email.toLowerCase().trim();
-                const sameName = c.name?.toLowerCase().trim() === name.toLowerCase().trim();
-                return sameEmail || sameName;
-            });
-
-            if (found) return found.id;
-        } catch (e) { }
+    // 2. Search by Name
+    try {
+        const searchUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(name)}&api_key=${apiKey}`;
+        const res = await fetch(searchUrl, { headers: authHeaders });
+        if (res.status === 200) {
+            const data: any = await res.json();
+            const found = findMatch(data.clients || []);
+            if (found?.id) {
+                console.log(`[IX] Found client by name search: ${found.id}`);
+                return found.id;
+            }
+        }
+    } catch (e) {
+        console.error("[IX] Name search failed:", e);
     }
 
     // 3. Create new client
-    const createUrl = `${baseUrl}/clients.json?api_key=${apiKey}`;
-    const createRes = await fetch(createUrl, {
+    console.log(`[IX] Client not found. Attempting to create: ${name}`);
+    const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify({
             client: {
                 name: name,
                 email: email || undefined,
-                fiscal_id: clientData.fiscal_id || "999999990",
+                fiscal_id: fiscalId || "999999990",
             }
         })
     });
 
-    if (!createRes.ok) {
-        const txt = await createRes.text();
-
-        // If name is taken, we MUST find the existing client ID
-        if (txt.includes("Nome não está disponível")) {
-            // Fetch clients WITHOUT the text filter to get the latest ones
-            const retryRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, { headers: authHeaders });
-            if (retryRes.status === 200) {
-                const data: any = await retryRes.json();
-                const found = (data.clients || []).find((c: any) => c.name?.toLowerCase() === name.toLowerCase());
-                if (found) return found.id;
-            }
-        }
-
-        throw new Error(`IX Client Error (${createRes.status}): ${txt}`);
+    if (createRes.ok) {
+        const created: any = await createRes.json();
+        console.log(`[IX] Client created successfully: ${created.client.id}`);
+        return created.client.id;
     }
 
-    const created: any = await createRes.json();
-    return created.client.id;
+    const txt = await createRes.text();
+    console.warn(`[IX] Creation failed: ${createRes.status} - ${txt}`);
+
+    // 4. Emergency Recovery: If name is taken, we MUST find it
+    if (txt.includes("Nome não está disponível") || createRes.status === 422) {
+        console.log(`[IX] Conflict detected. Performing deep scan...`);
+        // Fetch a larger set/page to find the conflict
+        const retryRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+        if (retryRes.status === 200) {
+            const data: any = await retryRes.json();
+            const found = findMatch(data.clients || []);
+            if (found?.id) {
+                console.log(`[IX] Recovered client ID after conflict: ${found.id}`);
+                return found.id;
+            }
+        }
+    }
+
+    throw new Error(`IX Client Error: ${txt}`);
 }
 
 export async function createDocument(

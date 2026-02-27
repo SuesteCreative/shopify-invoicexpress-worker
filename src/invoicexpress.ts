@@ -76,9 +76,17 @@ export async function getOrCreateClient(
         return created.client.id;
     }
 
-    // 5. Emergency conflict recovery (if they were created while we were searching)
+    // 5. Emergency conflict recovery (if they were created while we were searching or exist beyond page 1)
     const txt = await createRes.text();
     if (txt.includes("Nome não está disponível") || createRes.status === 422) {
+        // Try direct name search - more robust than scanning page 1
+        const findRes = await fetch(`${baseUrl}/clients/find-by-name.json?client_name=${encodeURIComponent(name)}&api_key=${apiKey}`, { headers: authHeaders });
+        if (findRes.status === 200) {
+            const data: any = await findRes.json();
+            if (data.client?.id) return data.client.id;
+        }
+
+        // Final desperation: scan page 1 one last time (in case find-by-name has lag)
         const retryRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
         if (retryRes.status === 200) {
             const data: any = await retryRes.json();

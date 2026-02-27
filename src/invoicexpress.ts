@@ -101,16 +101,24 @@ export async function getOrCreateClient(
 
     // 4. Emergency Recovery: If name is taken, we MUST find it
     if (txt.includes("Nome não está disponível") || createRes.status === 422) {
-        console.log(`[IX] Conflict detected. Performing deep scan...`);
-        // Fetch a larger set/page to find the conflict
-        const retryRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+        console.log(`[IX] Conflict detected for ${name}. Performing exhaustive deep scan...`);
+        // Try searching by name specifically first
+        const retryRes = await fetch(`${baseUrl}/clients.json?text=${encodeURIComponent(name)}&per_page=100&api_key=${apiKey}`, { headers: authHeaders });
         if (retryRes.status === 200) {
             const data: any = await retryRes.json();
-            const found = findMatch(data.clients || []);
+            const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
             if (found?.id) {
                 console.log(`[IX] Recovered client ID after conflict: ${found.id}`);
                 return found.id;
             }
+        }
+
+        // Final fallback: just get the client list and look for the name
+        const finalRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+        if (finalRes.status === 200) {
+            const data: any = await finalRes.json();
+            const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
+            if (found?.id) return found.id;
         }
     }
 
@@ -162,11 +170,7 @@ export async function createDocument(
         invoice: {
             date: formattedDate,
             due_date: formattedDate,
-            client: {
-                id: clientId,
-                name: order.billing_address?.name || `${order.customer?.first_name} ${order.customer?.last_name}`,
-                email: order.customer?.email || order.billing_address?.email
-            },
+            client: { id: clientId },
             items: items,
             reference: `Shopify Order #${order.order_number}`,
             observations: `Shopify ID: ${order.id}`,
@@ -271,11 +275,7 @@ export async function createCreditNote(
     const body = {
         invoice: {
             date: formattedDate,
-            client: {
-                id: clientId,
-                name: order.billing_address?.name || `${order.customer?.first_name} ${order.customer?.last_name}`,
-                email: order.customer?.email || order.billing_address?.email
-            },
+            client: { id: clientId },
             items: items,
             reference: `Refund for Order #${order.order_number}`,
             observations: `Original Document ID: ${originalDocumentId}. Shopify Refund ID: ${refund.id}`,

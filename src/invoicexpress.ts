@@ -28,36 +28,38 @@ export async function getOrCreateClient(
         "Accept": "application/json"
     };
 
-    // 1. Search for client by fiscal_id if available
-    if (clientData.fiscal_id) {
-        const url = `${baseUrl}/clients/find-by-code.json?client_code=${clientData.fiscal_id}&api_key=${apiKey}`;
-        const searchRes = await fetch(url, { headers: authHeaders });
+    const name = clientData.name.trim();
+    const email = (clientData.email || "").trim();
 
-        if (searchRes.status === 200) {
+    // 1. Search by fiscal_id if available (Standard IX unique field)
+    if (clientData.fiscal_id) {
+        const searchUrl = `${baseUrl}/clients/find-by-code.json?client_code=${clientData.fiscal_id}&api_key=${apiKey}`;
+        const res = await fetch(searchUrl, { headers: authHeaders });
+        if (res.status === 200) {
             try {
-                const data: any = await searchRes.json();
+                const data: any = await res.json();
                 return data.client.id;
-            } catch (e) {
-                console.error("Failed to parse IX client search response", e);
-            }
+            } catch (e) { }
         }
     }
 
-    // 2. Search by name using the 'text' filter (standard IX API search)
-    const searchUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(clientData.name)}&api_key=${apiKey}`;
-    const searchRes = await fetch(searchUrl, { headers: authHeaders });
+    // 2. Search by Email or Name (Using the List API)
+    // We search with 'text' to filter as much as possible
+    const listUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(email || name)}&api_key=${apiKey}`;
+    const listRes = await fetch(listUrl, { headers: authHeaders });
 
-    if (searchRes.status === 200) {
+    if (listRes.status === 200) {
         try {
-            const data: any = await searchRes.json();
+            const data: any = await listRes.json();
             const clients = data.clients || [];
 
-            // Find the perfect match (IX search is "starts with" or "contains")
-            const found = clients.find((c: any) => c.name === clientData.name || c.email === clientData.email);
+            // Try to find exact match
+            const found = clients.find((c: any) =>
+                (email && c.email?.toLowerCase() === email.toLowerCase()) ||
+                (c.name?.toLowerCase() === name.toLowerCase())
+            );
             if (found) return found.id;
-        } catch (e) {
-            console.error("Failed to parse IX client search response", e);
-        }
+        } catch (e) { }
     }
 
     // 3. Create new client
@@ -67,8 +69,8 @@ export async function getOrCreateClient(
         headers: authHeaders,
         body: JSON.stringify({
             client: {
-                name: clientData.name,
-                email: clientData.email,
+                name: name,
+                email: email || undefined,
                 fiscal_id: clientData.fiscal_id || "999999990",
             }
         })
@@ -77,18 +79,18 @@ export async function getOrCreateClient(
     if (!createRes.ok) {
         const txt = await createRes.text();
 
-        // If name is taken, try one last time to find the ID by searching for the name
+        // If name is taken, we MUST find the existing client ID
         if (txt.includes("Nome não está disponível")) {
-            const recoveryUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(clientData.name)}&api_key=${apiKey}`;
-            const retryRes = await fetch(recoveryUrl, { headers: authHeaders });
+            // Fetch clients WITHOUT the text filter to get the latest ones
+            const retryRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, { headers: authHeaders });
             if (retryRes.status === 200) {
                 const data: any = await retryRes.json();
-                const found = (data.clients || []).find((c: any) => c.name === clientData.name);
+                const found = (data.clients || []).find((c: any) => c.name?.toLowerCase() === name.toLowerCase());
                 if (found) return found.id;
             }
         }
 
-        throw new Error(`InvoiceXpress Client Creation Error (${createRes.status}): ${txt}. Used URL: ${createUrl.replace(apiKey, 'REDACTED')}`);
+        throw new Error(`IX Client Error (${createRes.status}): ${txt}`);
     }
 
     const created: any = await createRes.json();

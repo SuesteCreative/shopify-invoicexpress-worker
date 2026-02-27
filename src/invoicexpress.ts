@@ -43,24 +43,20 @@ export async function getOrCreateClient(
         }
     }
 
-    // 2. Search by email or name as fallback
-    const listUrl = `${baseUrl}/clients.json?api_key=${apiKey}`;
-    const listRes = await fetch(listUrl, { headers: authHeaders });
+    // 2. Search by name using the 'text' filter (standard IX API search)
+    const searchUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(clientData.name)}&api_key=${apiKey}`;
+    const searchRes = await fetch(searchUrl, { headers: authHeaders });
 
-    if (listRes.status === 200) {
+    if (searchRes.status === 200) {
         try {
-            const data: any = await listRes.json();
+            const data: any = await searchRes.json();
             const clients = data.clients || [];
 
-            // Try to find by email
-            let found = clients.find((c: any) => c.email === clientData.email);
-            if (found) return found.id;
-
-            // Try to find by exact name
-            found = clients.find((c: any) => c.name === clientData.name);
+            // Find the perfect match (IX search is "starts with" or "contains")
+            const found = clients.find((c: any) => c.name === clientData.name || c.email === clientData.email);
             if (found) return found.id;
         } catch (e) {
-            console.error("Failed to parse IX client list response", e);
+            console.error("Failed to parse IX client search response", e);
         }
     }
 
@@ -81,9 +77,10 @@ export async function getOrCreateClient(
     if (!createRes.ok) {
         const txt = await createRes.text();
 
-        // If name is taken, try one last time to find the ID by name
+        // If name is taken, try one last time to find the ID by searching for the name
         if (txt.includes("Nome não está disponível")) {
-            const retryRes = await fetch(listUrl, { headers: authHeaders });
+            const recoveryUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(clientData.name)}&api_key=${apiKey}`;
+            const retryRes = await fetch(recoveryUrl, { headers: authHeaders });
             if (retryRes.status === 200) {
                 const data: any = await retryRes.json();
                 const found = (data.clients || []).find((c: any) => c.name === clientData.name);

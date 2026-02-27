@@ -18,7 +18,10 @@ export async function getOrCreateClient(
     if (!apiKey) throw new Error("INVOICEXPRESS_API_KEY is not defined in environment variables/secrets");
     if (!account) throw new Error("INVOICEXPRESS_ACCOUNT_NAME is not defined in environment variables");
 
-    const baseUrl = `https://${account}.app.invoicexpress.com`;
+    // Support macewindu test domain or standard app domain
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
+    const baseUrl = `https://${domain}`;
+
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,
         "Content-Type": "application/json",
@@ -85,7 +88,8 @@ export async function createDocument(
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const baseUrl = `https://${account}.app.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
+    const baseUrl = `https://${domain}`;
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,
         "Content-Type": "application/json",
@@ -151,11 +155,17 @@ export async function createDocument(
 export async function findDocumentByReference(env: Env, orderNumber: string | number): Promise<string | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const baseUrl = `https://${account}.app.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
+    const baseUrl = `https://${domain}`;
     const reference = `Shopify Order #${orderNumber}`;
 
+    const authHeaders = {
+        "X-InvoiceXpress-API-Key": apiKey,
+        "Accept": "application/json"
+    };
+
     // Search in faturas_recibo (English: invoice_receipts)
-    const res = await fetch(`${baseUrl}/invoice_receipts.json?api_key=${apiKey}`);
+    const res = await fetch(`${baseUrl}/invoice_receipts.json?api_key=${apiKey}`, { headers: authHeaders });
     if (res.status === 200) {
         const data: any = await res.json();
         const found = data.invoice_receipts?.find((d: any) => d.reference === reference);
@@ -163,7 +173,7 @@ export async function findDocumentByReference(env: Env, orderNumber: string | nu
     }
 
     // Search in invoices if not found
-    const resInv = await fetch(`${baseUrl}/invoices.json?api_key=${apiKey}`);
+    const resInv = await fetch(`${baseUrl}/invoices.json?api_key=${apiKey}`, { headers: authHeaders });
     if (resInv.status === 200) {
         const data: any = await resInv.json();
         const found = data.invoices?.find((d: any) => d.reference === reference);
@@ -182,7 +192,8 @@ export async function createCreditNote(
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const baseUrl = `https://${account}.app.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
+    const baseUrl = `https://${domain}`;
 
     const items = refund.refund_line_items.map((rli: any) => {
         const item = rli.line_item;
@@ -217,9 +228,15 @@ export async function createCreditNote(
         }
     };
 
+    const authHeaders = {
+        "X-InvoiceXpress-API-Key": apiKey,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    };
+
     const res = await fetch(`${baseUrl}/credit_notes.json?api_key=${apiKey}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify(body)
     });
 

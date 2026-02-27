@@ -9,7 +9,7 @@ INVOICEXPRESS_ACCOUNT_NAME = "ultramegasonico"
 
 [[kv_namespaces]]
 binding = "INVOICE_KV"
-id = "your-kv-namespace-id-dev"
+id = "396a96276266418ba7fc6ee08a487b6d"
 
 [env.production]
 [env.production.vars]
@@ -19,4 +19,4 @@ INVOICEXPRESS_ACCOUNT_NAME = "your-client-account-name"
 
 [[env.production.kv_namespaces]]
 binding = "INVOICE_KV"
-id = "your-kv-namespace-id-prod"
+id = "490b5fedae3e428d977d93745c1061b2"

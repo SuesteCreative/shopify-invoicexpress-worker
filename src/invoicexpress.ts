@@ -10,7 +10,7 @@ export interface IXClient {
 
 export async function getOrCreateClient(
     env: Env,
-    clientData: { name: string; email: string; fiscal_id: string | null }
+    clientData: { name: string; email: string; fiscal_id: string | null; code: string }
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
@@ -30,37 +30,47 @@ export async function getOrCreateClient(
 
     const name = clientData.name.trim();
     const email = (clientData.email || "").trim();
-    const fiscalId = clientData.fiscal_id === "999999990" ? null : clientData.fiscal_id; // Never use the generic consumer NIF as a unique key
+    const fiscalId = (clientData.fiscal_id && clientData.fiscal_id !== "999999990") ? clientData.fiscal_id : null;
+    const code = clientData.code;
 
-    console.log(`[IX] Starting lookup for: ${name} (${email})`);
+    console.log(`[IX] Looking up client by code: ${code} or NIF: ${fiscalId}`);
 
-    // Helper for thorough matching
-    const isMatch = (c: any) => {
-        const nMatch = c.name?.toLowerCase().trim() === name.toLowerCase();
-        const eMatch = email && c.email?.toLowerCase().trim() === email.toLowerCase();
-        const fMatch = fiscalId && c.fiscal_id === fiscalId;
-        return nMatch || eMatch || fMatch;
-    };
+    // 1. Try finding by our Unique Shopify Code
+    const codeSearchUrl = `${baseUrl}/clients/find-by-code.json?client_code=${code}&api_key=${apiKey}`;
+    const codeRes = await fetch(codeSearchUrl, { headers: authHeaders });
+    if (codeRes.status === 200) {
+        const data: any = await codeRes.json();
+        return data.client.id;
+    }
 
-    // 1. Search by Name/Email using the raw list (more reliable than 'text' search)
-    const listRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
-    if (listRes.status === 200) {
-        const data: any = await listRes.json();
-        const found = (data.clients || []).find(isMatch);
-        if (found?.id) {
-            console.log(`[IX] Found existing client: ${found.id}`);
-            return found.id;
+    // 2. Try finding by NIF (Portuguese unique ID)
+    if (fiscalId) {
+        const nifSearchUrl = `${baseUrl}/clients/find-by-code.json?client_code=${fiscalId}&api_key=${apiKey}`;
+        const nifRes = await fetch(nifSearchUrl, { headers: authHeaders });
+        if (nifRes.status === 200) {
+            const data: any = await nifRes.json();
+            return data.client.id;
         }
     }
 
-    // 2. Create new client
-    console.log(`[IX] Not found. Creating new client: ${name}`);
+    // 3. Last chance search by name (to avoid 'Nome não disponível')
+    const nameSearchUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(name)}&api_key=${apiKey}`;
+    const nameRes = await fetch(nameSearchUrl, { headers: authHeaders });
+    if (nameRes.status === 200) {
+        const data: any = await nameRes.json();
+        const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
+        if (found) return found.id;
+    }
+
+    // 4. Creation with unique code
+    console.log(`[IX] Creating new client: ${name} with code: ${code}`);
     const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify({
             client: {
                 name: name,
+                code: code,
                 email: email || undefined,
                 fiscal_id: fiscalId || undefined,
             }
@@ -69,24 +79,17 @@ export async function getOrCreateClient(
 
     if (createRes.ok) {
         const created: any = await createRes.json();
-        console.log(`[IX] Success! Created: ${created.client.id}`);
         return created.client.id;
     }
 
-    // 3. Emergency Recovery: Wait and Scrutinize
+    // Final recovery if it STILL fails for some reason
     const txt = await createRes.text();
     if (txt.includes("Nome não está disponível") || createRes.status === 422) {
-        console.log(`[IX] Conflict detected for ${name}. Waiting for index...`);
-        await new Promise(r => setTimeout(r, 1500)); // Allow IX internal sync
-
         const finalRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
         if (finalRes.status === 200) {
             const data: any = await finalRes.json();
-            const found = (data.clients || []).find(isMatch);
-            if (found?.id) {
-                console.log(`[IX] Recovered ID after conflict: ${found.id}`);
-                return found.id;
-            }
+            const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
+            if (found) return found.id;
         }
     }
 

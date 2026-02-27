@@ -30,54 +30,31 @@ export async function getOrCreateClient(
 
     const name = clientData.name.trim();
     const email = (clientData.email || "").trim();
-    const fiscalId = clientData.fiscal_id;
+    const fiscalId = clientData.fiscal_id === "999999990" ? null : clientData.fiscal_id; // Never use the generic consumer NIF as a unique key
 
-    console.log(`[IX] getOrCreateClient: Starting lookup for ${name} (${email}, NIF: ${fiscalId})`);
+    console.log(`[IX] Starting lookup for: ${name} (${email})`);
 
-    // Helper to find client in a list
-    const findMatch = (clients: any[]) => {
-        return clients.find(c =>
-            (fiscalId && c.fiscal_id === fiscalId) ||
-            (c.name?.toLowerCase().trim() === name.toLowerCase()) ||
-            (email && c.email?.toLowerCase().trim() === email.toLowerCase())
-        );
+    // Helper for thorough matching
+    const isMatch = (c: any) => {
+        const nMatch = c.name?.toLowerCase().trim() === name.toLowerCase();
+        const eMatch = email && c.email?.toLowerCase().trim() === email.toLowerCase();
+        const fMatch = fiscalId && c.fiscal_id === fiscalId;
+        return nMatch || eMatch || fMatch;
     };
 
-    // 1. Search by NIF if available
-    if (fiscalId) {
-        try {
-            const url = `${baseUrl}/clients/find-by-code.json?client_code=${fiscalId}&api_key=${apiKey}`;
-            const res = await fetch(url, { headers: authHeaders });
-            if (res.status === 200) {
-                const data: any = await res.json();
-                if (data?.client?.id) {
-                    console.log(`[IX] Found client by NIF: ${data.client.id}`);
-                    return data.client.id;
-                }
-            }
-        } catch (e) {
-            console.error("[IX] NIF search failed:", e);
+    // 1. Search by Name/Email using the raw list (more reliable than 'text' search)
+    const listRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+    if (listRes.status === 200) {
+        const data: any = await listRes.json();
+        const found = (data.clients || []).find(isMatch);
+        if (found?.id) {
+            console.log(`[IX] Found existing client: ${found.id}`);
+            return found.id;
         }
     }
 
-    // 2. Search by Name
-    try {
-        const searchUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(name)}&api_key=${apiKey}`;
-        const res = await fetch(searchUrl, { headers: authHeaders });
-        if (res.status === 200) {
-            const data: any = await res.json();
-            const found = findMatch(data.clients || []);
-            if (found?.id) {
-                console.log(`[IX] Found client by name search: ${found.id}`);
-                return found.id;
-            }
-        }
-    } catch (e) {
-        console.error("[IX] Name search failed:", e);
-    }
-
-    // 3. Create new client
-    console.log(`[IX] Client not found. Attempting to create: ${name}`);
+    // 2. Create new client
+    console.log(`[IX] Not found. Creating new client: ${name}`);
     const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
@@ -85,40 +62,31 @@ export async function getOrCreateClient(
             client: {
                 name: name,
                 email: email || undefined,
-                fiscal_id: fiscalId || "999999990",
+                fiscal_id: fiscalId || undefined,
             }
         })
     });
 
     if (createRes.ok) {
         const created: any = await createRes.json();
-        console.log(`[IX] Client created successfully: ${created.client.id}`);
+        console.log(`[IX] Success! Created: ${created.client.id}`);
         return created.client.id;
     }
 
+    // 3. Emergency Recovery: Wait and Scrutinize
     const txt = await createRes.text();
-    console.warn(`[IX] Creation failed: ${createRes.status} - ${txt}`);
-
-    // 4. Emergency Recovery: If name is taken, we MUST find it
     if (txt.includes("Nome não está disponível") || createRes.status === 422) {
-        console.log(`[IX] Conflict detected for ${name}. Performing exhaustive deep scan...`);
-        // Try searching by name specifically first
-        const retryRes = await fetch(`${baseUrl}/clients.json?text=${encodeURIComponent(name)}&per_page=100&api_key=${apiKey}`, { headers: authHeaders });
-        if (retryRes.status === 200) {
-            const data: any = await retryRes.json();
-            const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
-            if (found?.id) {
-                console.log(`[IX] Recovered client ID after conflict: ${found.id}`);
-                return found.id;
-            }
-        }
+        console.log(`[IX] Conflict detected for ${name}. Waiting for index...`);
+        await new Promise(r => setTimeout(r, 1500)); // Allow IX internal sync
 
-        // Final fallback: just get the client list and look for the name
         const finalRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
         if (finalRes.status === 200) {
             const data: any = await finalRes.json();
-            const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
-            if (found?.id) return found.id;
+            const found = (data.clients || []).find(isMatch);
+            if (found?.id) {
+                console.log(`[IX] Recovered ID after conflict: ${found.id}`);
+                return found.id;
+            }
         }
     }
 

@@ -3,6 +3,7 @@ import { verifyShopifyWebhook } from "./shopify";
 import { extractAndValidateNIF } from "./nif";
 import { getOrCreateClient, createInvoice } from "./invoicexpress";
 
+// Version: 1.0.1 - Stable Deployment
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(request.url);

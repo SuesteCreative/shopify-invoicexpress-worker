@@ -1,6 +1,6 @@
 name = "shopify-invoicexpress-worker"
 main = "src/index.ts"
-compatibility_date = "2024-04-01"
+compatibility_date = "2024-11-01"
 
 [vars]
 SHOPIFY_SHOP_DOMAIN = "quickstart-66f9e5ef.myshopify.com"

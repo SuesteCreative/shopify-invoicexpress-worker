@@ -10,7 +10,7 @@ export interface IXClient {
 
 export async function getOrCreateClient(
     env: Env,
-    clientData: { name: string; email: string; fiscal_id: string | null; code: string }
+    clientData: { name: string; email: string; fiscal_id: string | null }
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
@@ -29,48 +29,42 @@ export async function getOrCreateClient(
     };
 
     const name = clientData.name.trim();
-    const email = (clientData.email || "").trim();
+    const email = (clientData.email || "").trim().toLowerCase();
     const fiscalId = (clientData.fiscal_id && clientData.fiscal_id !== "999999990") ? clientData.fiscal_id : null;
-    const code = clientData.code;
 
-    console.log(`[IX] Looking up client by code: ${code} or NIF: ${fiscalId}`);
+    console.log(`[IX] Identifying client: ${name} | Email: ${email} | NIF: ${fiscalId}`);
 
-    // 1. Try finding by our Unique Shopify Code
-    const codeSearchUrl = `${baseUrl}/clients/find-by-code.json?client_code=${code}&api_key=${apiKey}`;
-    const codeRes = await fetch(codeSearchUrl, { headers: authHeaders });
-    if (codeRes.status === 200) {
-        const data: any = await codeRes.json();
-        return data.client.id;
-    }
+    // Fetch the latest client list to find matches locally (more reliable than IX search index)
+    const listRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+    if (listRes.status === 200) {
+        const data: any = await listRes.json();
+        const clients = data.clients || [];
 
-    // 2. Try finding by NIF (Portuguese unique ID)
-    if (fiscalId) {
-        const nifSearchUrl = `${baseUrl}/clients/find-by-code.json?client_code=${fiscalId}&api_key=${apiKey}`;
-        const nifRes = await fetch(nifSearchUrl, { headers: authHeaders });
-        if (nifRes.status === 200) {
-            const data: any = await nifRes.json();
-            return data.client.id;
+        // 1. Cross-reference by NIF
+        if (fiscalId) {
+            const foundByNif = clients.find((c: any) => c.fiscal_id === fiscalId);
+            if (foundByNif) return foundByNif.id;
         }
+
+        // 2. Cross-reference by Email
+        if (email) {
+            const foundByEmail = clients.find((c: any) => c.email?.toLowerCase().trim() === email);
+            if (foundByEmail) return foundByEmail.id;
+        }
+
+        // 3. Fallback: Group by exact Name (to avoid duplication errors)
+        const foundByName = clients.find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
+        if (foundByName) return foundByName.id;
     }
 
-    // 3. Last chance search by name (to avoid 'Nome não disponível')
-    const nameSearchUrl = `${baseUrl}/clients.json?text=${encodeURIComponent(name)}&api_key=${apiKey}`;
-    const nameRes = await fetch(nameSearchUrl, { headers: authHeaders });
-    if (nameRes.status === 200) {
-        const data: any = await nameRes.json();
-        const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
-        if (found) return found.id;
-    }
-
-    // 4. Creation with unique code
-    console.log(`[IX] Creating new client: ${name} with code: ${code}`);
+    // 4. Create if truly new
+    console.log(`[IX] No match found. Creating: ${name}`);
     const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify({
             client: {
                 name: name,
-                code: code,
                 email: email || undefined,
                 fiscal_id: fiscalId || undefined,
             }
@@ -82,12 +76,12 @@ export async function getOrCreateClient(
         return created.client.id;
     }
 
-    // Final recovery if it STILL fails for some reason
+    // 5. Emergency conflict recovery (if they were created while we were searching)
     const txt = await createRes.text();
     if (txt.includes("Nome não está disponível") || createRes.status === 422) {
-        const finalRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
-        if (finalRes.status === 200) {
-            const data: any = await finalRes.json();
+        const retryRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+        if (retryRes.status === 200) {
+            const data: any = await retryRes.json();
             const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
             if (found) return found.id;
         }

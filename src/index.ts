@@ -34,12 +34,10 @@ export default {
                 const clientName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || order.billing_address?.name || "Client";
                 const clientEmail = order.customer?.email || order.email;
 
-                const customerId = order.customer?.id || order.checkout_id || `guest_${Date.now()}`;
                 const clientId = await getOrCreateClient(env, {
                     name: clientName,
                     email: clientEmail,
-                    fiscal_id: nif,
-                    code: `shopify_${customerId}`
+                    fiscal_id: nif
                 });
 
                 // Create Fatura-Recibo
@@ -85,12 +83,10 @@ export default {
                 }
 
                 const nif = extractAndValidateNIF(order);
-                const customerId = order.customer?.id || order.checkout_id || `guest_${Date.now()}`;
                 const clientId = await getOrCreateClient(env, {
                     name: `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || "Client",
                     email: order.customer?.email || order.email,
-                    fiscal_id: nif,
-                    code: `shopify_${customerId}`
+                    fiscal_id: nif
                 });
 
                 // Create Credit Note

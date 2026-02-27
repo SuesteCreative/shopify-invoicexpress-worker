@@ -212,6 +212,27 @@ export async function findDocumentByReference(env: Env, orderNumber: string | nu
     return null;
 }
 
+export async function findCreditNoteByReference(env: Env, reference: string): Promise<string | null> {
+    const account = env.INVOICEXPRESS_ACCOUNT_NAME;
+    const apiKey = env.INVOICEXPRESS_API_KEY;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
+    const baseUrl = `https://${domain}`;
+
+    const authHeaders = {
+        "X-InvoiceXpress-API-Key": apiKey,
+        "Accept": "application/json"
+    };
+
+    const res = await fetch(`${baseUrl}/credit_notes.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+    if (res.status === 200) {
+        const data: any = await res.json();
+        const found = data.credit_notes?.find((d: any) => d.reference === reference);
+        if (found) return found.id;
+    }
+
+    return null;
+}
+
 export async function createCreditNote(
     env: Env,
     clientId: string,
@@ -264,7 +285,7 @@ export async function createCreditNote(
                 fiscal_id: nif
             },
             items: items,
-            reference: `Refund for Order #${order.order_number}`,
+            reference: `Refund #${refund.id} for Order #${order.order_number}`,
             observations: `Original Document ID: ${originalDocumentId}. Shopify Refund ID: ${refund.id}`,
             currency_code: order.currency || "EUR"
         }

@@ -1,7 +1,7 @@
 import { Env, isIdempotent, markAsInvoiced } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { extractAndValidateNIF } from "./nif";
-import { getOrCreateClient, createDocument, findDocumentByReference, createCreditNote } from "./invoicexpress";
+import { getOrCreateClient, createDocument, findDocumentByReference, findCreditNoteByReference, createCreditNote } from "./invoicexpress";
 
 // Version: 1.1.1 - Fixed IX API endpoints and base URL
 export default {
@@ -91,9 +91,21 @@ export default {
                 }
 
                 const nif = extractAndValidateNIF(order);
+                const clientName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || "Client";
+                const clientEmail = order.customer?.email || order.email;
+
+                // Anti-duplication check for credit notes
+                const refundRef = `Refund #${refundId} for Order #${order.order_number}`;
+                const cxExisting = await findCreditNoteByReference(env, refundRef);
+                if (cxExisting) {
+                    console.log(`[IX] Credit Note already exists for refund ${refundId}: ${cxExisting}`);
+                    await markAsInvoiced(`refund_${refundId}`, cxExisting, env);
+                    return new Response(JSON.stringify({ message: "Refund already in IX", credit_note_id: cxExisting }), { status: 200 });
+                }
+
                 const clientId = await getOrCreateClient(env, {
-                    name: `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || "Client",
-                    email: order.customer?.email || order.email,
+                    name: clientName,
+                    email: clientEmail,
                     fiscal_id: nif
                 });
 

@@ -3,7 +3,7 @@ import { verifyShopifyWebhook } from "./shopify";
 import { extractAndValidateNIF } from "./nif";
 import { getOrCreateClient, createDocument, findDocumentByReference, createCreditNote } from "./invoicexpress";
 
-// Version: 1.1.0 - Support for Fatura-Recibo and Credit Notes
+// Version: 1.1.1 - Fixed IX API endpoints and base URL
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(request.url);

@@ -193,7 +193,7 @@ export async function createCreditNote(
     }
 
     const body = {
-        credit_note: {
+        invoice: {
             date: new Date().toLocaleDateString('pt-PT').split('/').reverse().join('-'),
             client: { id: clientId },
             items: items,
@@ -214,5 +214,5 @@ export async function createCreditNote(
     }
 
     const data: any = await res.json();
-    return data.credit_note.id;
+    return data.invoice.id;
 }

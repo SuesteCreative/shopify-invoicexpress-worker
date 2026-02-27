@@ -14,11 +14,22 @@ export async function getOrCreateClient(
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
+
+    if (!apiKey) throw new Error("INVOICEXPRESS_API_KEY is not defined in environment variables/secrets");
+    if (!account) throw new Error("INVOICEXPRESS_ACCOUNT_NAME is not defined in environment variables");
+
     const baseUrl = `https://${account}.app.invoicexpress.com`;
+    const authHeaders = {
+        "X-InvoiceXpress-API-Key": apiKey,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    };
 
     // 1. Search for client by fiscal_id if available
     if (clientData.fiscal_id) {
-        const searchRes = await fetch(`${baseUrl}/clients/find-by-code.json?client_code=${clientData.fiscal_id}&api_key=${apiKey}`);
+        const url = `${baseUrl}/clients/find-by-code.json?client_code=${clientData.fiscal_id}&api_key=${apiKey}`;
+        const searchRes = await fetch(url, { headers: authHeaders });
+
         if (searchRes.status === 200) {
             try {
                 const data: any = await searchRes.json();
@@ -30,7 +41,9 @@ export async function getOrCreateClient(
     }
 
     // 2. Search by email as fallback
-    const searchEmailRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`);
+    const listUrl = `${baseUrl}/clients.json?api_key=${apiKey}`;
+    const searchEmailRes = await fetch(listUrl, { headers: authHeaders });
+
     if (searchEmailRes.status === 200) {
         try {
             const data: any = await searchEmailRes.json();
@@ -42,9 +55,10 @@ export async function getOrCreateClient(
     }
 
     // 3. Create new client
-    const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
+    const createUrl = `${baseUrl}/clients.json?api_key=${apiKey}`;
+    const createRes = await fetch(createUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify({
             client: {
                 name: clientData.name,
@@ -56,7 +70,7 @@ export async function getOrCreateClient(
 
     if (!createRes.ok) {
         const txt = await createRes.text();
-        throw new Error(`InvoiceXpress Client Creation Error: ${createRes.status} - ${txt}`);
+        throw new Error(`InvoiceXpress Client Creation Error (${createRes.status}): ${txt}. Used URL: ${createUrl.replace(apiKey, 'REDACTED')}`);
     }
 
     const created: any = await createRes.json();
@@ -72,13 +86,18 @@ export async function createDocument(
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const baseUrl = `https://${account}.app.invoicexpress.com`;
+    const authHeaders = {
+        "X-InvoiceXpress-API-Key": apiKey,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    };
 
     const items = order.line_items.map((item: any) => ({
         name: item.title,
         description: item.name,
         unit_price: item.price,
         quantity: item.quantity,
-        tax: { name: `IVA${determineVATRate(item)}` } // IX often uses IVA23 or IVA6 format
+        tax: { name: `IVA${determineVATRate(item)}` }
     }));
 
     if (parseFloat(order.shipping_lines?.[0]?.price || "0") > 0) {
@@ -101,11 +120,7 @@ export async function createDocument(
         });
     }
 
-    // Endpoint mapping
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
-
-    // Note: The API v2 documentation shows that the root wrapper is "invoice" 
-    // for both invoices and invoice_receipts (faturas-recibo) when creating.
     const body = {
         invoice: {
             date: new Date().toLocaleDateString('pt-PT').split('/').reverse().join('-'),
@@ -117,19 +132,19 @@ export async function createDocument(
         }
     };
 
-    const res = await fetch(`${baseUrl}/${endpoint}.json?api_key=${apiKey}`, {
+    const docUrl = `${baseUrl}/${endpoint}.json?api_key=${apiKey}`;
+    const res = await fetch(docUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify(body)
     });
 
     if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`InvoiceXpress Error (${type}): ${res.status} - ${errText}`);
+        throw new Error(`InvoiceXpress Document Creation Error (${type}, ${res.status}): ${errText}`);
     }
 
     const data: any = await res.json();
-    // In success response, the wrapper matches the documentation's "invoice"
     return data.invoice.id;
 }
 

@@ -130,21 +130,21 @@ export async function createDocument(
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    // Extract client details for linking
+    // Extract client details for linking (IX will find or create based on these)
     const clientName = (order.billing_address?.name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`).trim() || "Client";
     const clientEmail = order.customer?.email || order.billing_address?.email || order.email;
-
-    // Extract NIF locally for the document block
-    // We import it at the top or just pass it in? Let's just pass it in for safety if we can.
-    // Actually, createDocument is called after NIF is already extracted in index.ts.
-    // But for now, let's keep it simple and just use the name/email/fiscal_id we have.
+    const nif = order.note?.match(/\b\d{9}\b/)?.[0] || undefined;
 
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
     const body: any = {
         invoice: {
             date: formattedDate,
             due_date: formattedDate,
-            client: { id: clientId },
+            client: {
+                name: clientName,
+                email: clientEmail || undefined,
+                fiscal_id: nif
+            },
             items: items,
             reference: `Shopify Order #${order.order_number}`,
             observations: `Shopify ID: ${order.id}`,
@@ -247,12 +247,17 @@ export async function createCreditNote(
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
     const clientName = (order.billing_address?.name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`).trim() || "Client";
-    const clientEmail = order.customer?.[0]?.email || order.email;
+    const clientEmail = order.customer?.email || order.email;
+    const nif = order.note?.match(/\b\d{9}\b/)?.[0] || undefined;
 
     const body = {
         invoice: {
             date: formattedDate,
-            client: { id: clientId },
+            client: {
+                name: clientName,
+                email: clientEmail || undefined,
+                fiscal_id: nif
+            },
             items: items,
             reference: `Refund for Order #${order.order_number}`,
             observations: `Original Document ID: ${originalDocumentId}. Shopify Refund ID: ${refund.id}`,

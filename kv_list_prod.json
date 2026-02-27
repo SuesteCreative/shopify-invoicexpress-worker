@@ -1,0 +1,12 @@
+[
+  {
+    "id": "396a96276266418ba7fc6ee08a487b6d",
+    "title": "INVOICE_KV",
+    "supports_url_encoding": true
+  },
+  {
+    "id": "490b5fedae3e428d977d93745c1061b2",
+    "title": "production-INVOICE_KV",
+    "supports_url_encoding": true
+  }
+]

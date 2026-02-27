@@ -12,14 +12,10 @@ binding = "INVOICE_KV"
 id = "396a96276266418ba7fc6ee08a487b6d"
 
 [env.production]
-[env.production.vars]
-SHOPIFY_SHOP_DOMAIN = "your-client-store.myshopify.com"
-SHOPIFY_API_VERSION = "2026-01"
-INVOICEXPRESS_ACCOUNT_NAME = "your-client-account-name"
-
-[[env.production.kv_namespaces]]
-binding = "INVOICE_KV"
-id = "490b5fedae3e428d977d93745c1061b2"
+vars = { SHOPIFY_SHOP_DOMAIN = "your-client-store.myshopify.com", SHOPIFY_API_VERSION = "2026-01", INVOICEXPRESS_ACCOUNT_NAME = "your-client-account-name" }
+kv_namespaces = [
+  { binding = "INVOICE_KV", id = "490b5fedae3e428d977d93745c1061b2" }
+]
 
 [observability.logs]
 enabled = true

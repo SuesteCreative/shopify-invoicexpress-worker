@@ -101,6 +101,7 @@ export async function createDocument(
         description: item.name,
         unit_price: item.price,
         quantity: item.quantity,
+        unit: "service",
         tax: { name: `IVA${determineVATRate(item)}` }
     }));
 
@@ -110,31 +111,34 @@ export async function createDocument(
             description: order.shipping_lines[0].title,
             unit_price: order.shipping_lines[0].price,
             quantity: 1,
+            unit: "service",
             tax: { name: "IVA23" }
         });
     }
 
-    if (parseFloat(order.total_discounts) > 0) {
-        items.push({
-            name: "Discount",
-            description: "Order Discount",
-            unit_price: `-${order.total_discounts}`,
-            quantity: 1,
-            tax: { name: "IVA23" }
-        });
-    }
+    // Date format must be dd/mm/yyyy for InvoiceXpress API v2
+    const today = new Date();
+    const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
-    const body = {
+    const body: any = {
         invoice: {
-            date: new Date().toLocaleDateString('pt-PT').split('/').reverse().join('-'),
-            due_date: new Date().toLocaleDateString('pt-PT').split('/').reverse().join('-'),
-            client: { id: clientId },
+            date: formattedDate,
+            due_date: formattedDate,
+            client: { id: clientId }, // Trying id first, if it fails we might need to store/use 'code'
             items: items,
             reference: `Shopify Order #${order.order_number}`,
             observations: `Shopify ID: ${order.id}`
         }
     };
+
+    // Add global discount if present, instead of negative item
+    if (parseFloat(order.total_discounts) > 0) {
+        body.invoice.global_discount = {
+            value_type: "amount",
+            value: order.total_discounts
+        };
+    }
 
     const docUrl = `${baseUrl}/${endpoint}.json?api_key=${apiKey}`;
     const res = await fetch(docUrl, {

@@ -4,7 +4,7 @@ compatibility_date = "2024-01-01"
 
 [vars]
 SHOPIFY_SHOP_DOMAIN = "quickstart-66f9e5ef.myshopify.com"
-SHOPIFY_API_VERSION = "2024-01"
+SHOPIFY_API_VERSION = "2026-01"
 INVOICEXPRESS_ACCOUNT_NAME = "ultramegasonico"
 
 [[kv_namespaces]]

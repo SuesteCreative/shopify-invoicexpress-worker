@@ -4,6 +4,7 @@ export interface LineItem {
     tax_lines?: Array<{ rate: number }>;
     vendor?: string;
     tags?: string;
+    taxable?: boolean;
 }
 
 export function determineVATRate(item: LineItem): number {
@@ -17,7 +18,12 @@ export function determineVATRate(item: LineItem): number {
         return 6; // Reduced VAT for books
     }
 
-    // 2. Shopify Tax Lines
+    // 2. Explicitly non-taxable in Shopify
+    if (item.taxable === false) {
+        return 0;
+    }
+
+    // 3. Shopify Tax Lines
     if (item.tax_lines && item.tax_lines.length > 0) {
         const rate = item.tax_lines[0].rate;
         if (Math.abs(rate - 0.06) < 0.001) return 6;

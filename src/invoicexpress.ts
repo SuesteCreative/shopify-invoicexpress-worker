@@ -254,13 +254,6 @@ export async function createDocument(
         }
     };
 
-    // Add global discount if present, instead of negative item
-    if (parseFloat(order.total_discounts) > 0) {
-        body.invoice.global_discount = {
-            value_type: "amount",
-            value: order.total_discounts
-        };
-    }
 
     const docUrl = `${baseUrl}/${endpoint}.json?api_key=${apiKey}`;
     const res = await fetch(docUrl, {

@@ -231,7 +231,7 @@ export async function createDocument(
     return doc.id;
 }
 
-export async function findDocumentDetailsByReference(env: Env, reference: string): Promise<{ id: string, type: string } | null> {
+export async function findDocumentDetailsByReference(env: Env, reference: string): Promise<{ id: string, type: string, state: string } | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
@@ -253,48 +253,14 @@ export async function findDocumentDetailsByReference(env: Env, reference: string
         if (res.status === 200) {
             const data: any = await res.json();
             const found = data[t.list]?.find((d: any) => d.reference === reference);
-            if (found) return { id: found.id, type: t.type };
+            if (found) return { id: found.id, type: t.type, state: found.state };
         }
     }
 
     return null;
 }
 
-export async function finalizeDocument(env: Env, docId: string, type: string): Promise<boolean> {
-    const account = env.INVOICEXPRESS_ACCOUNT_NAME;
-    const apiKey = env.INVOICEXPRESS_API_KEY;
-    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
-    const baseUrl = `https://${domain}`;
 
-    const authHeaders = {
-        "X-InvoiceXpress-API-Key": apiKey,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    };
-
-    // Map internal types to body keys
-    const rootKeyMap: any = {
-        "invoice_receipts": "invoice_receipt",
-        "invoices": "invoice"
-    };
-    const rootKey = rootKeyMap[type] || "invoice";
-
-    console.log(`[IX] Attempting to finalize document ${docId} (${type})`);
-    const res = await fetch(`${baseUrl}/${type}/${docId}/change-state.json?api_key=${apiKey}`, {
-        method: "PUT",
-        headers: authHeaders,
-        body: JSON.stringify({
-            [rootKey]: { state: "finalized" }
-        })
-    });
-
-    if (!res.ok) {
-        const err = await res.text();
-        console.error(`[IX] Failed to finalize document: ${err}`);
-        return false;
-    }
-    return true;
-}
 
 export async function findCreditNoteByReference(env: Env, reference: string): Promise<string | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
@@ -393,34 +359,20 @@ export async function createCreditNote(
         "Accept": "application/json"
     };
 
-    const sendRequest = async () => {
-        return fetch(`${baseUrl}/credit_notes.json?api_key=${apiKey}`, {
-            method: "POST",
-            headers: authHeaders,
-            body: JSON.stringify(body)
-        });
-    };
+    // 2. State Check: If original is Draft, throw a specific Hold error
+    if (original.state === "draft") {
+        throw new Error("DOCUMENT_IS_DRAFT");
+    }
 
-    let res = await sendRequest();
+    const res = await fetch(`${baseUrl}/credit_notes.json?api_key=${apiKey}`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify(body)
+    });
 
-    // 2. Self-Healing Logic: If original is Draft, finalize and retry
     if (!res.ok) {
         const errText = await res.text();
-        if (errText.includes("Estado não é válido") || errText.includes("draft")) {
-            console.log(`[IX] Original document ${original.id} is in Draft state. Finalizing to allow Credit Note...`);
-            const finalized = await finalizeDocument(env, original.id, original.type);
-            if (finalized) {
-                console.log(`[IX] Document finalized. Retrying Credit Note creation...`);
-                res = await sendRequest();
-            } else {
-                throw new Error(`Refund failed: Original document is a Draft and cannot be finalized automatically. Error: ${errText}`);
-            }
-        }
-
-        if (!res.ok) {
-            const finalErr = await res.status === 422 ? errText : `HTTP ${res.status}`;
-            throw new Error(`InvoiceXpress Error (Credit Note): ${finalErr}`);
-        }
+        throw new Error(`InvoiceXpress Error (Credit Note): ${res.status} - ${errText}`);
     }
 
     const data: any = await res.json();

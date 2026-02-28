@@ -143,6 +143,13 @@ export default {
                     headers: { "Content-Type": "application/json" }
                 });
             } catch (error: any) {
+                if (error.message === "DOCUMENT_IS_DRAFT") {
+                    console.log(`[HOLD] Original document for Order #${orderId} is still a Draft. Credit Note is on hold (Shopify will retry).`);
+                    return new Response(JSON.stringify({
+                        message: "HOLD: Original document is a Draft. Please finalize it in InvoiceXpress to allow Credit Note creation.",
+                        state: "waiting"
+                    }), { status: 422 });
+                }
                 console.error(`Error processing refund ${refundId}:`, error.message);
                 return new Response(JSON.stringify({ error: error.message }), { status: 500 });
             }

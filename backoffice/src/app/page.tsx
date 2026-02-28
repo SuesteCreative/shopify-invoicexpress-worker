@@ -1,8 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState } from "react";
-import { Check, Lock, ChevronRight, Store, CreditCard, Settings2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -13,10 +13,64 @@ function cn(...inputs: ClassValue[]) {
 
 export default function Dashboard() {
   const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Form State
   const [shopifyDomain, setShopifyDomain] = useState("");
   const [shopifyToken, setShopifyToken] = useState("");
   const [ixAccount, setIxAccount] = useState("");
   const [ixApiKey, setIxApiKey] = useState("");
+  const [vatIncluded, setVatIncluded] = useState(true);
+  const [autoFinalize, setAutoFinalize] = useState(false);
+
+  // Load existing data
+  useEffect(() => {
+    fetch("/api/integrations")
+      .then(res => res.json())
+      .then(data => {
+        if (data.shopify_domain) setShopifyDomain(data.shopify_domain);
+        if (data.shopify_token) setShopifyToken(data.shopify_token);
+        if (data.ix_account_name) setIxAccount(data.ix_account_name);
+        if (data.ix_api_key) setIxApiKey(data.ix_api_key);
+        if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
+        if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
+
+        // Determine current step based on completed data
+        if (data.ix_api_key && data.shopify_token) setStep(3);
+        else if (data.shopify_token) setStep(2);
+        else setStep(1);
+      })
+      .catch(err => console.error("Fetch error:", err))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleConnect = async () => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopify_domain: shopifyDomain,
+          shopify_token: shopifyToken,
+          ix_account_name: ixAccount,
+          ix_api_key: ixApiKey,
+          vat_included: vatIncluded,
+          auto_finalize: autoFinalize
+        })
+      });
+
+      if (response.ok) {
+        if (step < 3) setStep(step + 1);
+        // If we are on step 3, we just save the final config
+      }
+    } catch (error) {
+      console.error("Save error:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const steps = [
     {
@@ -24,8 +78,11 @@ export default function Dashboard() {
       title: "Step 1: Shopify Bridge",
       description: "Connect your store to start the integration process.",
       icon: Store,
-      logo: "/images/shopify-logo.webp", // Use local logo
-      color: "emerald"
+      logo: "/images/shopify-logo.webp",
+      fields: [
+        { label: "Shopify Domain (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "quickstart-66f9e5ef.myshopify.com", type: "text" },
+        { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password" }
+      ]
     },
     {
       id: 2,
@@ -33,16 +90,27 @@ export default function Dashboard() {
       description: "Enter your account details to bridge the finances.",
       icon: CreditCard,
       logo: "/images/invoicexpress_logo.png",
-      color: "blue"
+      fields: [
+        { label: "Account Name", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
+        { label: "API Key", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" }
+      ]
     },
     {
       id: 3,
       title: "Step 3: Command Center",
       description: "Define the rules, taxes, and finalization levels.",
       icon: Settings2,
-      color: "purple"
+      isConfig: true
     }
   ];
+
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 text-accent-blue animate-spin opacity-50" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -74,13 +142,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* The Set-up Bars (The Triple Path) */}
+      {/* The Set-up Bars */}
       <div className="grid gap-8">
         {steps.map((s) => {
           const isActive = step === s.id;
           const isComplete = step > s.id;
           const isLocked = step < s.id;
-
           const Icon = s.icon;
 
           return (
@@ -100,8 +167,6 @@ export default function Dashboard() {
               )}
             >
               <div className="p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
-
-                {/* Step Indicator */}
                 <div className={cn(
                   "w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner",
                   isActive ? "bg-accent-blue/20 text-accent-blue ring-1 ring-accent-blue/30" :
@@ -111,7 +176,6 @@ export default function Dashboard() {
                   {isComplete ? <Check className="w-10 h-10 stroke-[3]" /> : (isLocked ? <Lock className="w-8 h-8 opacity-30" /> : <Icon className="w-10 h-10 stroke-[1.5]" />)}
                 </div>
 
-                {/* Text Content */}
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-bold tracking-tight">{s.title}</h2>
@@ -121,64 +185,94 @@ export default function Dashboard() {
                   <p className="text-slate-400 font-medium leading-relaxed max-w-xl">{s.description}</p>
                 </div>
 
-                {/* Actions / Logos Area */}
                 <div className="flex items-center gap-10 w-full lg:w-auto">
                   {s.logo && (
                     <div className={cn(
                       "hidden xl:block transition-all duration-700",
                       isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale"
                     )}>
-                      <Image
-                        src={s.logo}
-                        alt={`${s.title} Logo`}
-                        width={s.id === 1 ? 130 : 160}
-                        height={45}
-                        className="object-contain"
-                      />
+                      <Image src={s.logo} alt={s.title} width={s.id === 1 ? 130 : 160} height={45} className="object-contain" />
                     </div>
                   )}
 
                   {isActive && (
                     <button
-                      onClick={() => setStep(step + 1)}
-                      className="ml-auto bg-white text-black px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-accent-blue hover:text-white transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5"
+                      onClick={handleConnect}
+                      disabled={saving}
+                      className="ml-auto bg-white text-black px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-accent-blue hover:text-white transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-50 disabled:cursor-not-wait"
                     >
-                      Connect
-                      <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (s.id === 3 ? "Save Rules" : "Connect")}
+                      {!saving && <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />}
+                    </button>
+                  )}
+
+                  {isComplete && (
+                    <button
+                      onClick={() => setStep(s.id)}
+                      className="ml-auto text-slate-500 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-colors"
+                    >
+                      Edit
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* Expanded Content Area with REAL labels */}
               <motion.div
                 animate={{ height: isActive ? 'auto' : 0 }}
                 className="overflow-hidden bg-slate-950/40 border-t border-slate-800/30"
               >
                 {isActive && (
                   <div className="p-10 pt-8 grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-700">
-                    <div className="space-y-3">
-                      <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
-                        <span className="w-1 h-1 rounded-full bg-accent-blue" />
-                        {s.id === 1 ? "Shopify Domain (.myshopify.com)" : "Account Name"}
-                      </label>
-                      <input
-                        type="text"
-                        placeholder={s.id === 1 ? "your-store.myshopify.com" : "account-name"}
-                        className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent-blue/20 focus:border-accent-blue outline-none transition-all placeholder:text-slate-800"
-                      />
-                    </div>
-                    <div className="space-y-3">
-                      <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
-                        <span className="w-1 h-1 rounded-full bg-accent-blue" />
-                        {s.id === 1 ? "Admin API Access Token" : "API Key"}
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="••••••••••••••••••••••••"
-                        className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent-blue/20 focus:border-accent-blue outline-none transition-all placeholder:text-slate-800"
-                      />
-                    </div>
+                    {s.isConfig ? (
+                      <>
+                        <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
+                          <div>
+                            <h3 className="font-bold text-sm">Unit with Tax</h3>
+                            <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Prices already include VAT</p>
+                          </div>
+                          <button
+                            onClick={() => setVatIncluded(!vatIncluded)}
+                            className={cn(
+                              "w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20",
+                              vatIncluded ? "bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]" : "bg-slate-800"
+                            )}
+                          >
+                            <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", vatIncluded ? "left-7" : "left-1")} />
+                          </button>
+                        </div>
+                        <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
+                          <div>
+                            <h3 className="font-bold text-sm">Auto Finalize</h3>
+                            <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Authorize documents immediately</p>
+                          </div>
+                          <button
+                            onClick={() => setAutoFinalize(!autoFinalize)}
+                            className={cn(
+                              "w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20",
+                              autoFinalize ? "bg-accent-blue shadow-[0_0_15px_rgba(56,189,248,0.3)]" : "bg-slate-800"
+                            )}
+                          >
+                            <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      s.fields?.map((f, i) => (
+                        <div key={i} className="space-y-3">
+                          <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
+                            <span className="w-1 h-1 rounded-full bg-accent-blue" />
+                            {f.label}
+                          </label>
+                          <input
+                            type={f.type}
+                            value={f.value}
+                            onChange={(e) => f.setter(e.target.value)}
+                            placeholder={f.placeholder}
+                            className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent-blue/20 focus:border-accent-blue outline-none transition-all placeholder:text-slate-800"
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -187,14 +281,12 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* Footer System Status */}
       <div className="pt-12 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800">
-          <div className="w-2 h-2 rounded-full bg-amber-500" />
-          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Database Setup Pending</span>
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">D1 DATABASE CONNECTED</span>
         </div>
       </div>
-
     </div>
   );
 }

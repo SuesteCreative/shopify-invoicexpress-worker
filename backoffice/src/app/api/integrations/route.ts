@@ -6,7 +6,7 @@ export const runtime = "edge";
 
 export async function GET(request: NextRequest) {
     const { userId } = await auth();
-    if (!userId) return new NextResponse("Unauthorized", { status: 401 });
+    if (!userId) return NextResponse.json({ error: "Unauthorized: No active session" }, { status: 401 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
     const { userId } = await auth();
-    if (!userId) return new NextResponse("Unauthorized", { status: 401 });
+    if (!userId) return NextResponse.json({ error: "Unauthorized: Session missing or invalid" }, { status: 401 });
 
     const body: any = await request.json();
     const { env } = getRequestContext();

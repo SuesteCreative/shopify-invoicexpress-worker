@@ -68,10 +68,15 @@ export default function Dashboard() {
 
       if (response.ok) {
         if (step < 3) setStep(step + 1);
-        // If we are on step 3, we just save the final config
       } else {
-        const data = await response.json() as any;
-        alert(`Error: ${data.error || "Failed to save integration"}`);
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await response.json() as any;
+          alert(`Error: ${data.error || "Failed to save integration"}`);
+        } else {
+          const text = await response.text();
+          alert(`Server Error (${response.status}): ${text || "Please check your Clerk session or Cloudflare environment variables."}`);
+        }
       }
     } catch (error: any) {
       console.error("Save error:", error);

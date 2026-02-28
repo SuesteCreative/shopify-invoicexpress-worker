@@ -119,15 +119,35 @@ function cleanNIF(nif: string | null): string | null {
 }
 
 export function extractAndValidateNIF(order: any): string | null {
-    // Check note_attributes for specific NIF field
+    // 1. Check order note_attributes for specific NIF field (from apps)
     const nifAttr = order.note_attributes?.find((a: any) =>
         ["nif", "vat", "contribuinte", "fiscal", "tax id"].includes(a.name.toLowerCase())
     );
     if (nifAttr?.value) return cleanNIF(nifAttr.value);
 
-    // Check notes for a 9-digit sequence
-    const noteMatch = order.note?.match(/\b\d{9}\b/);
-    if (noteMatch) return cleanNIF(noteMatch[0]);
+    // 2. Check Customer Tags (common for permanent NIFs)
+    if (order.customer?.tags) {
+        const tagMatch = order.customer.tags.match(/\b\d{9}\b/);
+        if (tagMatch) return cleanNIF(tagMatch[0]);
+    }
+
+    // 3. Check Customer Note
+    if (order.customer?.note) {
+        const customerNoteMatch = order.customer.note.match(/\b\d{9}\b/);
+        if (customerNoteMatch) return cleanNIF(customerNoteMatch[0]);
+    }
+
+    // 4. Check Order Note
+    if (order.note) {
+        const orderNoteMatch = order.note.match(/\b\d{9}\b/);
+        if (orderNoteMatch) return cleanNIF(orderNoteMatch[0]);
+    }
+
+    // 5. Check Billing Address Company (sometimes people put NIF there)
+    if (order.billing_address?.company) {
+        const companyMatch = order.billing_address.company.match(/\b\d{9}\b/);
+        if (companyMatch) return cleanNIF(companyMatch[0]);
+    }
 
     return null;
 }

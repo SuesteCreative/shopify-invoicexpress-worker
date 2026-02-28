@@ -13,6 +13,7 @@ export function determineVATRate(item: LineItem): number {
         // Map shopify rate (decimal) to percentage
         if (Math.abs(rate - 0.06) < 0.001) return 6;
         if (Math.abs(rate - 0.23) < 0.001) return 23;
+        if (rate === 0) return 0;
     }
 
     // 2. Fallback to product keywords
@@ -22,5 +23,6 @@ export function determineVATRate(item: LineItem): number {
         return 6;
     }
 
-    return 23;
+    // 3. User request: if no info, assume Isento (0%)
+    return 0;
 }

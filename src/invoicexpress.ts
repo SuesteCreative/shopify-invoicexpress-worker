@@ -10,7 +10,17 @@ export interface IXClient {
 
 export async function getOrCreateClient(
     env: Env,
-    clientData: { name: string; email: string; fiscal_id: string | null }
+    clientData: {
+        name: string;
+        email: string;
+        fiscal_id: string | null;
+        code: string;
+        address?: string;
+        city?: string;
+        zip?: string;
+        country?: string;
+        phone?: string;
+    }
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
@@ -31,42 +41,43 @@ export async function getOrCreateClient(
     const name = clientData.name.trim();
     const email = (clientData.email || "").trim().toLowerCase();
     const fiscalId = (clientData.fiscal_id && clientData.fiscal_id !== "999999990") ? clientData.fiscal_id : null;
+    const code = clientData.code;
 
-    console.log(`[IX] Identifying client: ${name} | Email: ${email} | NIF: ${fiscalId}`);
+    console.log(`[IX] Identifying client: ${name} (${code}) | Email: ${email} | NIF: ${fiscalId}`);
 
-    // Fetch the latest client list to find matches locally (more reliable than IX search index)
+    // Fetch the latest client list to find matches locally
     const listRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
     if (listRes.status === 200) {
         const data: any = await listRes.json();
         const clients = data.clients || [];
 
-        // 1. Cross-reference by NIF
+        // 1. Primary Check: Unique Code (Shopify ID)
+        const foundByCode = clients.find((c: any) => c.code === code);
+        if (foundByCode) return foundByCode.id;
+
+        // 2. Cross-reference by NIF
         if (fiscalId) {
             const foundByNif = clients.find((c: any) => c.fiscal_id === fiscalId);
             if (foundByNif) return foundByNif.id;
         }
-
-        // 2. Cross-reference by Email
-        if (email) {
-            const foundByEmail = clients.find((c: any) => c.email?.toLowerCase().trim() === email);
-            if (foundByEmail) return foundByEmail.id;
-        }
-
-        // 3. Fallback: Group by exact Name (to avoid duplication errors)
-        const foundByName = clients.find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
-        if (foundByName) return foundByName.id;
     }
 
     // 4. Create if truly new
-    console.log(`[IX] No match found. Creating: ${name}`);
+    console.log(`[IX] No match found. Creating: ${name} code: ${code}`);
     const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify({
             client: {
                 name: name,
+                code: code,
                 email: email || undefined,
                 fiscal_id: fiscalId || undefined,
+                address: clientData.address,
+                city: clientData.city,
+                postal_code: clientData.zip,
+                country: clientData.country,
+                phone: clientData.phone
             }
         })
     });
@@ -146,6 +157,7 @@ export async function createDocument(
             due_date: formattedDate,
             client: {
                 name: clientMetadata.name,
+                code: clientMetadata.code || undefined, // Add client code
                 email: clientMetadata.email || undefined,
                 fiscal_id: clientMetadata.fiscal_id || undefined
             },

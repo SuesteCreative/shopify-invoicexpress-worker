@@ -42,11 +42,21 @@ export default {
                     return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting }), { status: 200 });
                 }
 
-                const clientMetadata = { name: clientName, email: clientEmail, fiscal_id: nif };
+                const clientMetadata = {
+                    name: clientName,
+                    email: clientEmail,
+                    fiscal_id: nif,
+                    code: String(order.customer?.id || order.id),
+                    address: order.billing_address?.address1,
+                    city: order.billing_address?.city,
+                    zip: order.billing_address?.zip,
+                    country: order.billing_address?.country_code,
+                    phone: order.customer?.phone || order.billing_address?.phone
+                };
                 const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Fatura-Recibo
-                const invoiceId = await createDocument(env, clientId, order, clientMetadata, "fatura_recibo");
+                const invoiceId = await createDocument(env, clientId, order, clientMetadata as any, "fatura_recibo");
 
                 await markAsInvoiced(orderId, invoiceId, env);
 
@@ -114,11 +124,21 @@ export default {
                     return new Response(JSON.stringify({ message: "Refund already in IX", credit_note_id: cxExisting }), { status: 200 });
                 }
 
-                const clientMetadata = { name: clientName, email: clientEmail, fiscal_id: nif };
+                const clientMetadata = {
+                    name: clientName,
+                    email: clientEmail,
+                    fiscal_id: nif,
+                    code: String(order.customer?.id || order.id),
+                    address: order.billing_address?.address1,
+                    city: order.billing_address?.city,
+                    zip: order.billing_address?.zip,
+                    country: order.billing_address?.country,
+                    phone: order.customer?.phone || order.billing_address?.phone
+                };
                 const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Credit Note
-                const creditNoteId = await createCreditNote(env, clientId, originalId, order, refund, clientMetadata);
+                const creditNoteId = await createCreditNote(env, clientId, originalId, order, refund, clientMetadata as any);
 
                 await markAsInvoiced(`refund_${refundId}`, creditNoteId, env);
 

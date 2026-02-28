@@ -33,32 +33,35 @@ export default function RootLayout({
             {/* Sidebar (Kapta Branded) */}
             <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0">
               <div className="mb-14 flex flex-col items-center md:items-start">
-                <div className="flex items-center gap-4">
+                <div className="flex items-start gap-4">
                   <Image
                     src="/images/logo-rioko-white.svg"
                     alt="Rioko Logo"
-                    width={140}
-                    height={35}
-                    className="brightness-125"
+                    width={130}
+                    height={32}
+                    className="brightness-125 pt-1.5"
                     priority
                   />
-                  <span className="text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-md text-[11px] font-bold tracking-tight border border-accent-blue/20">2.0</span>
+                  <span className="text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-md text-[11px] font-black tracking-tight border border-accent-blue/20">2.0</span>
                 </div>
-                <div className="mt-3 text-[10px] text-slate-500 uppercase tracking-[0.25em] font-bold flex items-center gap-2">
-                  <span className="opacity-50">developed by</span>
-                  <Image
-                    src="/images/logo-kapta-white.webp"
-                    alt="Kapta Logo"
-                    width={55}
-                    height={16}
-                    className="opacity-40 grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500 cursor-default"
-                  />
+                <div className="mt-4 text-[10px] text-slate-500 uppercase tracking-[0.25em] font-bold flex items-center gap-2">
+                  <span className="opacity-50">dev by</span>
+                  <a href="https://kapta.pt/" target="_blank" rel="noopener noreferrer" className="inline-block transition-transform hover:scale-105">
+                    <Image
+                      src="/images/logo-kapta-white.webp"
+                      alt="Kapta Logo"
+                      width={50}
+                      height={14}
+                      className="opacity-40 grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500"
+                    />
+                  </a>
                 </div>
               </div>
 
               <nav className="flex-1 w-full space-y-3">
-                <div className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] opacity-60">
-                  Main Account
+                <div className="px-4 py-2 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] opacity-60">Main Account</span>
+                  <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 text-[8px] font-black uppercase tracking-widest border border-rose-500/20">Beta</span>
                 </div>
                 <button className="w-full text-left px-4 py-3 rounded-xl bg-accent-blue/5 text-accent-blue font-semibold flex items-center gap-3 border border-accent-blue/20 shadow-[0_0_15px_rgba(56,189,248,0.05)]">
                   <div className="w-2 h-2 rounded-full bg-accent-blue shadow-[0_0_8px_rgba(56,189,248,0.5)] animate-pulse" />
@@ -66,8 +69,9 @@ export default function RootLayout({
                 </button>
               </nav>
 
-              <div className="mt-auto pt-6 border-t border-slate-800/50 w-full text-center md:text-left">
-                <div className="text-[10px] text-slate-500 font-medium">© 2026 Rioko & Kapta.</div>
+              <div className="mt-auto pt-6 border-t border-slate-800/50 w-full text-center md:text-left space-y-1">
+                <div className="text-[10px] text-slate-500 font-bold whitespace-nowrap">© 2026 Kapta. Todos os direitos reservados.</div>
+                <div className="text-[9px] text-slate-700 font-black tracking-widest uppercase">v2.0.0 Stable Build</div>
               </div>
             </aside>
 

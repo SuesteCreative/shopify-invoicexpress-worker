@@ -47,6 +47,10 @@ export default function Dashboard() {
   }, []);
 
   const handleConnect = async () => {
+    // Basic validation: Prevent empty submissions
+    if (step === 1 && (!shopifyDomain || !shopifyToken)) return;
+    if (step === 2 && (!ixAccount || !ixApiKey)) return;
+
     setSaving(true);
     try {
       const response = await fetch("/api/integrations", {
@@ -94,6 +98,7 @@ export default function Dashboard() {
       description: "Connect your store to start the integration process.",
       icon: Store,
       logo: "/images/shopify-logo.webp",
+      logoWidth: 100, // Reduced from 130
       fields: [
         { label: "Shopify Domain (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "quickstart-66f9e5ef.myshopify.com", type: "text" },
         { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password" }
@@ -104,7 +109,8 @@ export default function Dashboard() {
       title: "Step 2: InvoiceXpress Nexus",
       description: "Enter your account details to bridge the finances.",
       icon: CreditCard,
-      logo: "/images/invoicexpress_logo.png",
+      logo: "/images/logo-invoicexpress2.png",
+      logoWidth: 120, // Adjusted for balance
       fields: [
         { label: "Account Name", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
         { label: "API Key", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" }
@@ -206,27 +212,37 @@ export default function Dashboard() {
                       "hidden xl:block transition-all duration-700",
                       isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale"
                     )}>
-                      <Image src={s.logo} alt={s.title} width={s.id === 1 ? 130 : 160} height={45} className="object-contain" />
+                      <Image src={s.logo} alt={s.title} width={s.logoWidth} height={40} className="object-contain" />
                     </div>
                   )}
 
                   {isActive && (
-                    <button
-                      onClick={handleConnect}
-                      disabled={saving}
-                      className="ml-auto bg-white text-black px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-accent-blue hover:text-white transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-50 disabled:cursor-not-wait"
-                    >
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (s.id === 3 ? "Save Rules" : "Connect")}
-                      {!saving && <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />}
-                    </button>
+                    <div className="flex items-center gap-4 ml-auto">
+                      {step > 1 && (
+                        <button
+                          onClick={() => setStep(step - 1)}
+                          className="text-slate-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all px-4"
+                        >
+                          Go Back
+                        </button>
+                      )}
+                      <button
+                        onClick={handleConnect}
+                        disabled={saving || (s.id === 1 && (!shopifyDomain || !shopifyToken)) || (s.id === 2 && (!ixAccount || !ixApiKey))}
+                        className="bg-white text-black px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-accent-blue hover:text-white transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                      >
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (s.id === 3 ? "Save Rules" : "Connect")}
+                        {!saving && <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />}
+                      </button>
+                    </div>
                   )}
 
                   {isComplete && (
                     <button
                       onClick={() => setStep(s.id)}
-                      className="ml-auto text-slate-500 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-colors"
+                      className="ml-auto bg-slate-800/50 hover:bg-slate-800 text-slate-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50"
                     >
-                      Edit
+                      Update
                     </button>
                   )}
                 </div>

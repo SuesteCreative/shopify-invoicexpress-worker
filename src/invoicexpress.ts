@@ -126,14 +126,19 @@ export async function createDocument(
         "Accept": "application/json"
     };
 
-    const items = order.line_items.map((item: any) => ({
-        name: item.title,
-        description: item.name,
-        unit_price: parseFloat(item.price),
-        quantity: item.quantity,
-        unit: "service",
-        tax: { name: `IVA${determineVATRate(item)}` }
-    }));
+    const items = order.line_items.map((item: any) => {
+        // Hierarchy for Item ID: SKU -> Barcode -> Variant ID
+        const itemCode = (item.sku || item.barcode || item.variant_id || item.title).trim();
+
+        return {
+            name: itemCode,
+            description: item.name, // Full product + variant name
+            unit_price: parseFloat(item.price),
+            quantity: item.quantity,
+            unit: "service",
+            tax: { name: `IVA${determineVATRate(item)}` }
+        };
+    });
 
     // Handle Shipping
     if (parseFloat(order.shipping_lines?.[0]?.price || "0") > 0) {
@@ -275,13 +280,15 @@ export async function createCreditNote(
     const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
 
-    const items = refund.refund_line_items.map((rli: any) => {
-        const item = rli.line_item;
+    const items = refund.refund_line_items.map((ri: any) => {
+        const item = ri.line_item;
+        const itemCode = (item.sku || item.barcode || item.variant_id || item.title).trim();
+
         return {
-            name: item.title,
+            name: itemCode,
             description: item.name,
-            unit_price: item.price,
-            quantity: rli.quantity,
+            unit_price: parseFloat(item.price),
+            quantity: ri.quantity,
             unit: "service",
             tax: { name: `IVA${determineVATRate(item)}` }
         };

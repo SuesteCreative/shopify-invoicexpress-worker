@@ -51,20 +51,31 @@ export async function getOrCreateClient(
         (fiscalId && c.fiscal_id === fiscalId) ||
         (email && c.email?.toLowerCase() === email);
 
-    // 1. Quick check Page 1
+    // 1. Primary Check: Direct Search by Name
+    const findRes = await fetch(`${baseUrl}/clients/find-by-name.json?client_name=${encodeURIComponent(name)}&api_key=${apiKey}`, { headers: authHeaders });
+    if (findRes.status === 200) {
+        const findData: any = await findRes.json();
+        const existing = findData.client;
+        if (existing && isExactMatch(existing)) {
+            console.log(`[IX] Direct match found: ${existing.name} (${existing.id})`);
+            return existing.id;
+        }
+    }
+
+    // 2. Secondary Check: Quick Page 1 Scan
     const listRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
     if (listRes.status === 200) {
         const data: any = await listRes.json();
         const clients = data.clients || [];
         const found = clients.find(isExactMatch);
         if (found) {
-            console.log(`[IX] Found existing match on Page 1: ${found.name} (${found.id})`);
+            console.log(`[IX] Match found on Page 1: ${found.name} (${found.id})`);
             return found.id;
         }
     }
 
-    // 2. Attempt Creation
-    console.log(`[IX] No strict match found on Page 1. Attempting to create: ${name}`);
+    // 3. Attempt Creation
+    console.log(`[IX] No strict match found. Attempting to create: ${name}`);
     const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
@@ -88,35 +99,21 @@ export async function getOrCreateClient(
         return created.client.id;
     }
 
-    // 3. Conflict Resolution (If Name Taken)
+    // 4. Conflict Disambiguation
     const errTxt = await createRes.text();
     if (errTxt.includes("Nome não está disponível") || createRes.status === 422) {
-        console.log(`[IX] Name collision for "${name}". Seeking owner...`);
-
-        const findRes = await fetch(`${baseUrl}/clients/find-by-name.json?client_name=${encodeURIComponent(name)}&api_key=${apiKey}`, { headers: authHeaders });
-        if (findRes.status === 200) {
-            const findData: any = await findRes.json();
-            const existing = findData.client;
-
-            if (existing && isExactMatch(existing)) {
-                console.log(`[IX] Name belongs to the same customer (${existing.id}). Recycling ID.`);
-                return existing.id;
-            }
-
-            // If it's a different customer with the SAME name
-            console.log(`[IX] Name exists but belongs to a DIFFERENT customer. Creating disambiguated entry.`);
-            const disambiguatedName = `${name} [${code.slice(-4)}]`;
-            const retryCreate = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
-                method: "POST",
-                headers: authHeaders,
-                body: JSON.stringify({
-                    client: { ...clientData, name: disambiguatedName, code: code, fiscal_id: fiscalId || undefined }
-                })
-            });
-            if (retryCreate.ok) {
-                const retryData: any = await retryCreate.json();
-                return retryData.client.id;
-            }
+        const disambiguatedName = `${name} [${code.slice(-4)}]`;
+        console.log(`[IX] Name exists but belongs to a different client. Creating: ${disambiguatedName}`);
+        const retryCreate = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({
+                client: { ...clientData, name: disambiguatedName, code: code, fiscal_id: fiscalId || undefined }
+            })
+        });
+        if (retryCreate.ok) {
+            const retryData: any = await retryCreate.json();
+            return retryData.client.id;
         }
     }
 

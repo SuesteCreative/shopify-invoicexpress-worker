@@ -215,17 +215,6 @@ export async function createDocument(
         });
     }
 
-    if (parseFloat(order.total_discounts || "0") > 0) {
-        items.push({
-            name: "Desconto",
-            description: "Desconto aplicado no checkout",
-            unit_price: -parseFloat(order.total_discounts),
-            quantity: 1,
-            unit: "service",
-            tax: { name: mapTaxName(0) }
-        });
-    }
-
     // Date format must be dd/mm/yyyy for InvoiceXpress API v2
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
@@ -233,23 +222,32 @@ export async function createDocument(
     const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
-    const body: any = {
-        invoice: {
-            date: formattedDate,
-            due_date: formattedDate,
-            tax_exemption: hasExemptItems ? "M99" : undefined,
-            client: {
-                name: clientMetadata.name,
-                code: clientMetadata.code,
-                email: clientMetadata.email || undefined,
-                fiscal_id: clientMetadata.fiscal_id || undefined
-            },
-            items: items,
-            reference: `Order #${order.order_number} (ID: ${order.id})`,
-            observations: `Shopify ID: ${order.id}`,
-            currency_code: order.currency || "EUR"
-        }
+    const rootKey = type === "fatura_recibo" ? "invoice_receipt" : "invoice";
+
+    const body: any = {};
+    body[rootKey] = {
+        date: formattedDate,
+        due_date: formattedDate,
+        tax_exemption: hasExemptItems ? "M99" : undefined,
+        client: {
+            name: clientMetadata.name,
+            code: clientMetadata.code,
+            email: clientMetadata.email || undefined,
+            fiscal_id: clientMetadata.fiscal_id || undefined
+        },
+        items: items,
+        reference: `Order #${order.order_number} (ID: ${order.id})`,
+        observations: `Shopify ID: ${order.id}`,
+        currency_code: order.currency || "EUR"
     };
+
+    // Apply Discount as Global Discount (Correct for IX API v2)
+    if (parseFloat(order.total_discounts || "0") > 0) {
+        body[rootKey].global_discount = {
+            value_type: "absolute",
+            value: order.total_discounts
+        };
+    }
 
 
     const docUrl = `${baseUrl}/${endpoint}.json?api_key=${apiKey}`;

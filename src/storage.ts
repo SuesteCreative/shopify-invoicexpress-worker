@@ -6,6 +6,8 @@ export interface Env {
     SHOPIFY_API_VERSION: string;
     INVOICEXPRESS_ACCOUNT_NAME: string;
     INVOICEXPRESS_API_KEY: string;
+    INVOICEXPRESS_TAX_INCLUDED?: string; // "true" or "false"
+    INVOICEXPRESS_AUTO_FINALIZE?: string; // "true" or "false"
 }
 
 export async function isIdempotent(orderId: number | string, env: Env): Promise<string | null> {

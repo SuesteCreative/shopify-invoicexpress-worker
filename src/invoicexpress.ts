@@ -153,13 +153,16 @@ export async function createDocument(
         const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
 
+        const unitWithTax = env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0;
+
         return {
             name: itemCode,
             description: item.name, // Full product + variant name
             unit_price: parseFloat(item.price),
             quantity: item.quantity,
             unit: "service",
-            tax: { name: mapTaxName(vatRate) }
+            tax: { name: mapTaxName(vatRate) },
+            unit_with_tax: unitWithTax
         };
     });
 
@@ -171,7 +174,8 @@ export async function createDocument(
             unit_price: parseFloat(order.shipping_lines[0].price),
             quantity: 1,
             unit: "service",
-            tax: { name: mapTaxName(23) }
+            tax: { name: mapTaxName(23) },
+            unit_with_tax: env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0
         });
     }
 
@@ -228,6 +232,13 @@ export async function createDocument(
         console.error("[IX] Unexpected creation response:", data);
         throw new Error(`InvoiceXpress creation succeeded but ID not found in response: ${JSON.stringify(data)}`);
     }
+
+    // Auto-Finalize Option
+    if (env.INVOICEXPRESS_AUTO_FINALIZE === "true") {
+        console.log(`[IX] Auto-finalizing ${type} ${doc.id}...`);
+        await finalizeDocument(env, doc.id, endpoint);
+    }
+
     return doc.id;
 }
 
@@ -260,7 +271,41 @@ export async function findDocumentDetailsByReference(env: Env, reference: string
     return null;
 }
 
+export async function finalizeDocument(env: Env, docId: string, type: string): Promise<boolean> {
+    const account = env.INVOICEXPRESS_ACCOUNT_NAME;
+    const apiKey = env.INVOICEXPRESS_API_KEY;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
+    const baseUrl = `https://${domain}`;
 
+    const authHeaders = {
+        "X-InvoiceXpress-API-Key": apiKey,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    };
+
+    // Map internal types to body keys (API endpoints use plural, body uses singular)
+    const rootKeyMap: any = {
+        "invoice_receipts": "invoice_receipt",
+        "invoices": "invoice",
+        "credit_notes": "credit_note"
+    };
+    const rootKey = rootKeyMap[type] || "invoice";
+
+    const res = await fetch(`${baseUrl}/${type}/${docId}/change-state.json?api_key=${apiKey}`, {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({
+            [rootKey]: { state: "finalized" }
+        })
+    });
+
+    if (!res.ok) {
+        const err = await res.text();
+        console.error(`[IX] Failed to finalize document ${docId}: ${err}`);
+        return false;
+    }
+    return true;
+}
 
 export async function findCreditNoteByReference(env: Env, reference: string): Promise<string | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
@@ -314,7 +359,8 @@ export async function createCreditNote(
             unit_price: unitPrice,
             quantity: ri.quantity,
             unit: "service",
-            tax: { name: mapTaxName(vatRate) }
+            tax: { name: mapTaxName(vatRate) },
+            unit_with_tax: env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0
         };
     });
 
@@ -327,7 +373,8 @@ export async function createCreditNote(
             unit_price: Math.abs(parseFloat(shippingRefund.amount)),
             quantity: 1,
             unit: "service",
-            tax: { name: mapTaxName(23) }
+            tax: { name: mapTaxName(23) },
+            unit_with_tax: env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0
         });
     }
 
@@ -380,5 +427,12 @@ export async function createCreditNote(
     if (!doc?.id) {
         throw new Error(`InvoiceXpress Credit Note success but ID not found: ${JSON.stringify(data)}`);
     }
+
+    // Auto-Finalize Option for Credit Note
+    if (env.INVOICEXPRESS_AUTO_FINALIZE === "true") {
+        console.log(`[IX] Auto-finalizing Credit Note ${doc.id}...`);
+        await finalizeDocument(env, doc.id, "credit_notes");
+    }
+
     return doc.id;
 }

@@ -6,16 +6,17 @@ export const runtime = "edge";
 
 const WORKER_URL = "https://shopify-invoicexpress-worker.pedro.workers.dev"; // We might want this to be an env var
 
-interface CloudflareEnv {
-    DB: D1Database;
-}
-
 export async function POST(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return new NextResponse("Unauthorized", { status: 401 });
 
-    const { env } = getRequestContext<{ env: CloudflareEnv }>();
-    const db = env.DB;
+    const { env } = getRequestContext();
+    const db = (env as any).DB;
+
+    if (!db) {
+        console.error("D1 Binding 'DB' not found in env");
+        return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+    }
 
     try {
         const integration: any = await db

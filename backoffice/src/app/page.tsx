@@ -69,9 +69,13 @@ export default function Dashboard() {
       if (response.ok) {
         if (step < 3) setStep(step + 1);
         // If we are on step 3, we just save the final config
+      } else {
+        const data = await response.json() as any;
+        alert(`Error: ${data.error || "Failed to save integration"}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Save error:", error);
+      alert(`Network Error: ${error.message || "Please check your connection"}`);
     } finally {
       setSaving(false);
     }

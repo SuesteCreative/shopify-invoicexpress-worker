@@ -9,7 +9,12 @@ export async function GET(request: NextRequest) {
     if (!userId) return new NextResponse("Unauthorized", { status: 401 });
 
     const { env } = getRequestContext();
-    const db = env.DB;
+    const db = (env as any).DB;
+
+    if (!db) {
+        console.error("D1 Binding 'DB' not found in env");
+        return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+    }
 
     try {
         const integration = await db
@@ -28,12 +33,16 @@ export async function POST(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return new NextResponse("Unauthorized", { status: 401 });
 
-    const body = await request.json();
+    const body: any = await request.json();
     const { env } = getRequestContext();
-    const db = env.DB;
+    const db = (env as any).DB;
+
+    if (!db) {
+        console.error("D1 Binding 'DB' not found in env");
+        return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+    }
 
     try {
-        // Basic validation could be added here
         const { shopify_domain, shopify_token, ix_account_name, ix_api_key, vat_included, auto_finalize } = body;
 
         // Check if integration exists

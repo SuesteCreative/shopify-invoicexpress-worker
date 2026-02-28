@@ -166,6 +166,14 @@ export function extractAndValidateNIF(order: any): string | null {
     return null;
 }
 
+function mapTaxName(rate: number | string): string {
+    const r = parseFloat(String(rate));
+    if (r === 0) return "Isento";
+    if (r === 6) return "IVA6";
+    if (r === 23) return "PT23";
+    return `IVA${r}`; // Fallback
+}
+
 export async function createDocument(
     env: Env,
     clientId: string,
@@ -194,7 +202,7 @@ export async function createDocument(
             unit_price: parseFloat(item.price),
             quantity: item.quantity,
             unit: "service",
-            tax: { name: `IVA${vatRate}` }
+            tax: { name: mapTaxName(vatRate) }
         };
     });
 
@@ -206,7 +214,7 @@ export async function createDocument(
             unit_price: parseFloat(order.shipping_lines[0].price),
             quantity: 1,
             unit: "service",
-            tax: { name: "IVA23" }
+            tax: { name: mapTaxName(23) }
         });
     }
 
@@ -217,7 +225,7 @@ export async function createDocument(
             unit_price: -parseFloat(order.total_discounts),
             quantity: 1,
             unit: "service",
-            tax: { name: "IVA0" }
+            tax: { name: mapTaxName(0) }
         });
     }
 
@@ -225,7 +233,7 @@ export async function createDocument(
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    const hasExemptItems = items.some((i: any) => i.tax.name === "IVA0");
+    const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
     const body: any = {
@@ -351,7 +359,7 @@ export async function createCreditNote(
             unit_price: parseFloat(item.price),
             quantity: ri.quantity,
             unit: "service",
-            tax: { name: `IVA${vatRate}` }
+            tax: { name: mapTaxName(vatRate) }
         };
     });
 
@@ -363,14 +371,14 @@ export async function createCreditNote(
             description: "Refund of shipping costs",
             unit_price: Math.abs(parseFloat(shippingRefund.amount)).toString(),
             quantity: 1,
-            tax: { name: "IVA23" }
+            tax: { name: mapTaxName(23) }
         });
     }
 
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    const hasExemptItems = items.some((i: any) => i.tax.name === "IVA0");
+    const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
     const body = {
         credit_note: {

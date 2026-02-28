@@ -41,29 +41,30 @@ export async function getOrCreateClient(
     const name = clientData.name.trim();
     const email = (clientData.email || "").trim().toLowerCase();
     const fiscalId = (clientData.fiscal_id && clientData.fiscal_id !== "999999990") ? clientData.fiscal_id : null;
-    const code = clientData.code;
+    const code = String(clientData.code);
 
     console.log(`[IX] Identifying client: ${name} (${code}) | Email: ${email} | NIF: ${fiscalId}`);
 
-    // Fetch the latest client list to find matches locally
+    // Helper: Exact comparison check
+    const isExactMatch = (c: any) =>
+        String(c.code) === code ||
+        (fiscalId && c.fiscal_id === fiscalId) ||
+        (email && c.email?.toLowerCase() === email);
+
+    // 1. Quick check Page 1
     const listRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
     if (listRes.status === 200) {
         const data: any = await listRes.json();
         const clients = data.clients || [];
-
-        // 1. Primary Check: Unique Code (Shopify ID)
-        const foundByCode = clients.find((c: any) => c.code === code);
-        if (foundByCode) return foundByCode.id;
-
-        // 2. Cross-reference by NIF
-        if (fiscalId) {
-            const foundByNif = clients.find((c: any) => c.fiscal_id === fiscalId);
-            if (foundByNif) return foundByNif.id;
+        const found = clients.find(isExactMatch);
+        if (found) {
+            console.log(`[IX] Found existing match on Page 1: ${found.name} (${found.id})`);
+            return found.id;
         }
     }
 
-    // 4. Create if truly new
-    console.log(`[IX] No match found. Creating: ${name} code: ${code}`);
+    // 2. Attempt Creation
+    console.log(`[IX] No strict match found on Page 1. Attempting to create: ${name}`);
     const createRes = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
@@ -87,26 +88,39 @@ export async function getOrCreateClient(
         return created.client.id;
     }
 
-    // 5. Emergency conflict recovery (if they were created while we were searching or exist beyond page 1)
-    const txt = await createRes.text();
-    if (txt.includes("Nome não está disponível") || createRes.status === 422) {
-        // Try direct name search - more robust than scanning page 1
+    // 3. Conflict Resolution (If Name Taken)
+    const errTxt = await createRes.text();
+    if (errTxt.includes("Nome não está disponível") || createRes.status === 422) {
+        console.log(`[IX] Name collision for "${name}". Seeking owner...`);
+
         const findRes = await fetch(`${baseUrl}/clients/find-by-name.json?client_name=${encodeURIComponent(name)}&api_key=${apiKey}`, { headers: authHeaders });
         if (findRes.status === 200) {
-            const data: any = await findRes.json();
-            if (data.client?.id) return data.client.id;
-        }
+            const findData: any = await findRes.json();
+            const existing = findData.client;
 
-        // Final desperation: scan page 1 one last time (in case find-by-name has lag)
-        const retryRes = await fetch(`${baseUrl}/clients.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
-        if (retryRes.status === 200) {
-            const data: any = await retryRes.json();
-            const found = (data.clients || []).find((c: any) => c.name?.toLowerCase().trim() === name.toLowerCase());
-            if (found) return found.id;
+            if (existing && isExactMatch(existing)) {
+                console.log(`[IX] Name belongs to the same customer (${existing.id}). Recycling ID.`);
+                return existing.id;
+            }
+
+            // If it's a different customer with the SAME name
+            console.log(`[IX] Name exists but belongs to a DIFFERENT customer. Creating disambiguated entry.`);
+            const disambiguatedName = `${name} [${code.slice(-4)}]`;
+            const retryCreate = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
+                method: "POST",
+                headers: authHeaders,
+                body: JSON.stringify({
+                    client: { ...clientData, name: disambiguatedName, code: code, fiscal_id: fiscalId || undefined }
+                })
+            });
+            if (retryCreate.ok) {
+                const retryData: any = await retryCreate.json();
+                return retryData.client.id;
+            }
         }
     }
 
-    throw new Error(`IX Client Error: ${txt}`);
+    throw new Error(`IX Client Error: ${createRes.status} - ${errTxt}`);
 }
 
 /**

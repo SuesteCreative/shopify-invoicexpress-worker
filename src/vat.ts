@@ -7,22 +7,24 @@ export interface LineItem {
 }
 
 export function determineVATRate(item: LineItem): number {
-    // 1. Check Shopify tax lines
+    const content = `${item.title} ${item.product_type || ''} ${item.vendor || ''} ${item.tags || ''}`.toLowerCase();
+
+    // 1. Keywords (Priority for specific Portuguese tax rules)
+    if (content.includes('workshop')) {
+        return 0; // Workshops are typically exempt (Isento)
+    }
+    if (content.includes('book') || content.includes('livro')) {
+        return 6; // Reduced VAT for books
+    }
+
+    // 2. Shopify Tax Lines
     if (item.tax_lines && item.tax_lines.length > 0) {
         const rate = item.tax_lines[0].rate;
-        // Map shopify rate (decimal) to percentage
         if (Math.abs(rate - 0.06) < 0.001) return 6;
         if (Math.abs(rate - 0.23) < 0.001) return 23;
         if (rate === 0) return 0;
     }
 
-    // 2. Fallback to product keywords
-    const content = `${item.title} ${item.product_type || ''} ${item.vendor || ''} ${item.tags || ''}`.toLowerCase();
-
-    if (content.includes('book') || content.includes('livro')) {
-        return 6;
-    }
-
-    // 3. User request: if no info, assume Isento (0%)
+    // 3. Fallback: Assume 0% (Isento) as per user request for unknown items
     return 0;
 }

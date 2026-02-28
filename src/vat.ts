@@ -10,20 +10,12 @@ export interface LineItem {
 export function determineVATRate(item: LineItem): number {
     const content = `${item.title} ${item.product_type || ''} ${item.vendor || ''} ${item.tags || ''}`.toLowerCase();
 
-    // 1. Keywords (Priority for specific Portuguese tax rules)
+    // 1. High-Priority Override: Workshops (usually 0% regardless of Shopify settings)
     if (content.includes('workshop')) {
-        return 0; // Workshops are typically exempt (Isento)
-    }
-    if (content.includes('book') || content.includes('livro')) {
-        return 6; // Reduced VAT for books
-    }
-
-    // 2. Explicitly non-taxable in Shopify
-    if (item.taxable === false) {
         return 0;
     }
 
-    // 3. Shopify Tax Lines
+    // 2. Primary Source: Shopify Tax Lines (Explicitly set on the product/order)
     if (item.tax_lines && item.tax_lines.length > 0) {
         const rate = item.tax_lines[0].rate;
         if (Math.abs(rate - 0.06) < 0.001) return 6;
@@ -31,6 +23,16 @@ export function determineVATRate(item: LineItem): number {
         if (rate === 0) return 0;
     }
 
-    // 3. Fallback: Assume 0% (Isento) as per user request for unknown items
+    // 3. Explicitly non-taxable in Shopify
+    if (item.taxable === false) {
+        return 0;
+    }
+
+    // 4. Fallback Keyword Detection (Only if Shopify has no tax info listed)
+    if (content.includes('book') || content.includes('livro')) {
+        return 6;
+    }
+
+    // 5. Global Fallback
     return 0;
 }

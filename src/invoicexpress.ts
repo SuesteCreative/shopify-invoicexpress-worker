@@ -160,9 +160,7 @@ export async function createDocument(
             unit_price: parseFloat(item.price),
             quantity: item.quantity,
             unit: "service",
-            tax: { name: `IVA${vatRate}` },
-            // Required in PT for 0% tax items
-            exemption_reason: String(vatRate) === "0" ? "M99" : undefined
+            tax: { name: `IVA${vatRate}` }
         };
     });
 
@@ -178,7 +176,6 @@ export async function createDocument(
         });
     }
 
-    // Handle Discounts
     if (parseFloat(order.total_discounts || "0") > 0) {
         items.push({
             name: "Desconto",
@@ -186,8 +183,7 @@ export async function createDocument(
             unit_price: -parseFloat(order.total_discounts),
             quantity: 1,
             unit: "service",
-            tax: { name: "IVA0" },
-            exemption_reason: "M99"
+            tax: { name: "IVA0" }
         });
     }
 
@@ -195,11 +191,14 @@ export async function createDocument(
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
+    const hasExemptItems = items.some((i: any) => i.tax.name === "IVA0");
+
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
     const body: any = {
         invoice: {
             date: formattedDate,
             due_date: formattedDate,
+            tax_exemption: hasExemptItems ? "M99" : undefined,
             client: {
                 name: clientMetadata.name,
                 code: clientMetadata.code,
@@ -318,8 +317,7 @@ export async function createCreditNote(
             unit_price: parseFloat(item.price),
             quantity: ri.quantity,
             unit: "service",
-            tax: { name: `IVA${vatRate}` },
-            exemption_reason: String(vatRate) === "0" ? "M99" : undefined
+            tax: { name: `IVA${vatRate}` }
         };
     });
 
@@ -338,9 +336,12 @@ export async function createCreditNote(
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
+    const hasExemptItems = items.some((i: any) => i.tax.name === "IVA0");
+
     const body = {
         credit_note: {
             date: formattedDate,
+            tax_exemption: hasExemptItems ? "M99" : undefined,
             client: {
                 name: clientMetadata.name,
                 code: clientMetadata.code,

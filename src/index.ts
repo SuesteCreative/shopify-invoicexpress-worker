@@ -56,7 +56,7 @@ export default {
                 const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Fatura-Recibo
-                const invoiceId = await createDocument(env, clientId, order, clientMetadata as any, "fatura_recibo");
+                const invoiceId = await createDocument(env, clientId, order, clientMetadata, "fatura_recibo");
 
                 await markAsInvoiced(orderId, invoiceId, env);
 
@@ -138,7 +138,7 @@ export default {
                 const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Credit Note
-                const creditNoteId = await createCreditNote(env, clientId, originalId, order, refund, clientMetadata as any);
+                const creditNoteId = await createCreditNote(env, clientId, originalId, order, refund, clientMetadata);
 
                 await markAsInvoiced(`refund_${refundId}`, creditNoteId, env);
 

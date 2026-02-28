@@ -113,7 +113,7 @@ export async function createDocument(
     env: Env,
     clientId: string,
     order: any,
-    clientMetadata: { name: string; email: string; fiscal_id: string | null },
+    clientMetadata: { name: string; email: string; fiscal_id: string | null; code: string },
     type: "invoice" | "fatura_recibo" = "fatura_recibo"
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
@@ -129,20 +129,33 @@ export async function createDocument(
     const items = order.line_items.map((item: any) => ({
         name: item.title,
         description: item.name,
-        unit_price: item.price,
+        unit_price: parseFloat(item.price),
         quantity: item.quantity,
         unit: "service",
         tax: { name: `IVA${determineVATRate(item)}` }
     }));
 
+    // Handle Shipping
     if (parseFloat(order.shipping_lines?.[0]?.price || "0") > 0) {
         items.push({
-            name: "Shipping",
+            name: "Portes de Envio",
             description: order.shipping_lines[0].title,
-            unit_price: order.shipping_lines[0].price,
+            unit_price: parseFloat(order.shipping_lines[0].price),
             quantity: 1,
             unit: "service",
             tax: { name: "IVA23" }
+        });
+    }
+
+    // Handle Discounts (total_discounts is a string in Shopify)
+    if (parseFloat(order.total_discounts || "0") > 0) {
+        items.push({
+            name: "Desconto",
+            description: "Desconto aplicado no checkout",
+            unit_price: -parseFloat(order.total_discounts),
+            quantity: 1,
+            unit: "service",
+            tax: { name: "IVA0" } // Discounts usually don't carry their own tax line, or carry 0
         });
     }
 
@@ -157,7 +170,7 @@ export async function createDocument(
             due_date: formattedDate,
             client: {
                 name: clientMetadata.name,
-                code: clientMetadata.code || undefined, // Add client code
+                code: clientMetadata.code,
                 email: clientMetadata.email || undefined,
                 fiscal_id: clientMetadata.fiscal_id || undefined
             },
@@ -252,10 +265,10 @@ export async function findCreditNoteByReference(env: Env, reference: string): Pr
 export async function createCreditNote(
     env: Env,
     clientId: string,
-    originalDocumentId: string,
+    originalId: string,
     order: any,
     refund: any,
-    clientMetadata: { name: string; email: string; fiscal_id: string | null }
+    clientMetadata: { name: string; email: string; fiscal_id: string | null; code: string }
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
@@ -294,12 +307,13 @@ export async function createCreditNote(
             date: formattedDate,
             client: {
                 name: clientMetadata.name,
+                code: clientMetadata.code,
                 email: clientMetadata.email || undefined,
                 fiscal_id: clientMetadata.fiscal_id || undefined
             },
             items: items,
             reference: `Refund #${refund.id} for Order #${order.order_number}`,
-            observations: `Original Document ID: ${originalDocumentId}. Shopify Refund ID: ${refund.id}`,
+            observations: `Original Document ID: ${originalId}. Shopify Refund ID: ${refund.id}`,
             currency_code: order.currency || "EUR"
         }
     };

@@ -31,36 +31,37 @@ export default function RootLayout({
           <div className="relative min-h-screen flex flex-col md:flex-row">
 
             {/* Sidebar (Kapta Branded) */}
-            <aside className="w-full md:w-64 glass border-r-0 md:border-r border-slate-800 p-6 flex flex-col items-center md:items-start">
-              <div className="mb-12 flex flex-col items-center md:items-start">
-                <div className="flex items-center gap-3">
+            <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0">
+              <div className="mb-14 flex flex-col items-center md:items-start">
+                <div className="flex items-center gap-4">
                   <Image
                     src="/images/logo-rioko-white.svg"
                     alt="Rioko Logo"
-                    width={120}
-                    height={30}
-                    className="brightness-110"
+                    width={140}
+                    height={35}
+                    className="brightness-125"
+                    priority
                   />
-                  <span className="text-accent-blue bg-accent-blue/10 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-tight">2.0</span>
+                  <span className="text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-md text-[11px] font-bold tracking-tight border border-accent-blue/20">2.0</span>
                 </div>
-                <div className="mt-2 text-[10px] text-slate-500 uppercase tracking-[0.2em] font-semibold flex items-center gap-1.5">
-                  <span className="opacity-70">powered by</span>
+                <div className="mt-3 text-[10px] text-slate-500 uppercase tracking-[0.25em] font-bold flex items-center gap-2">
+                  <span className="opacity-50">developed by</span>
                   <Image
                     src="/images/logo-kapta-white.webp"
                     alt="Kapta Logo"
-                    width={50}
-                    height={15}
-                    className="opacity-90 grayscale brightness-125 hover:grayscale-0 transition-all duration-300"
+                    width={55}
+                    height={16}
+                    className="opacity-40 grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500 cursor-default"
                   />
                 </div>
               </div>
 
-              <nav className="flex-1 w-full space-y-2">
-                <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-widest">
+              <nav className="flex-1 w-full space-y-3">
+                <div className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] opacity-60">
                   Main Account
                 </div>
-                <button className="w-full text-left px-3 py-2.5 rounded-lg bg-accent-blue/10 text-accent-blue font-medium flex items-center gap-3 glass">
-                  <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse" />
+                <button className="w-full text-left px-4 py-3 rounded-xl bg-accent-blue/5 text-accent-blue font-semibold flex items-center gap-3 border border-accent-blue/20 shadow-[0_0_15px_rgba(56,189,248,0.05)]">
+                  <div className="w-2 h-2 rounded-full bg-accent-blue shadow-[0_0_8px_rgba(56,189,248,0.5)] animate-pulse" />
                   Integrations
                 </button>
               </nav>

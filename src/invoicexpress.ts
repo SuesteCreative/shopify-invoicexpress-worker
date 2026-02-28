@@ -151,7 +151,7 @@ export async function createDocument(
 
     const items = order.line_items.map((item: any) => {
         // Hierarchy for Item ID: SKU -> Barcode -> Variant ID
-        const itemCode = (item.sku || item.barcode || item.variant_id || item.title).trim();
+        const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
 
         return {
@@ -309,7 +309,7 @@ export async function createCreditNote(
 
     const items = refund.refund_line_items.map((ri: any) => {
         const item = ri.line_item;
-        const itemCode = (item.sku || item.barcode || item.variant_id || item.title).trim();
+        const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
 
         return {

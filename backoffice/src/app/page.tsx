@@ -15,6 +15,8 @@ export default function Dashboard() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [activeStatus, setActiveStatus] = useState<"idle" | "success" | "error">("idle");
 
   // Form State
   const [shopifyDomain, setShopifyDomain] = useState("");
@@ -28,7 +30,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetch("/api/integrations")
       .then(res => res.json())
-      .then(data => {
+      .then((data: any) => {
         if (data.shopify_domain) setShopifyDomain(data.shopify_domain);
         if (data.shopify_token) setShopifyToken(data.shopify_token);
         if (data.ix_account_name) setIxAccount(data.ix_account_name);
@@ -41,7 +43,6 @@ export default function Dashboard() {
         else if (data.shopify_token) setStep(2);
         else setStep(1);
       })
-      .catch(err => console.error("Fetch error:", err))
       .finally(() => setLoading(false));
   }, []);
 
@@ -69,6 +70,20 @@ export default function Dashboard() {
       console.error("Save error:", error);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleActivate = async () => {
+    setActivating(true);
+    setActiveStatus("idle");
+    try {
+      const response = await fetch("/api/integrations/activate", { method: "POST" });
+      if (response.ok) setActiveStatus("success");
+      else setActiveStatus("error");
+    } catch (error) {
+      setActiveStatus("error");
+    } finally {
+      setActivating(false);
     }
   };
 
@@ -254,6 +269,28 @@ export default function Dashboard() {
                           >
                             <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} />
                           </button>
+                        </div>
+                        <div className="md:col-span-2 pt-4">
+                          <button
+                            onClick={handleActivate}
+                            disabled={activating}
+                            className={cn(
+                              "w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl",
+                              activeStatus === "success" ? "bg-emerald-500 text-white" :
+                                activeStatus === "error" ? "bg-rose-500 text-white" :
+                                  "bg-white text-black hover:bg-slate-100"
+                            )}
+                          >
+                            {activating ? <Loader2 className="w-5 h-5 animate-spin" /> :
+                              activeStatus === "success" ? <Check className="w-5 h-5" /> :
+                                activeStatus === "error" ? "Retry Activation" : "Activate & Sync Webhooks"}
+                            {activeStatus === "success" ? "Webhooks Active" : activeStatus === "error" ? "" : ""}
+                          </button>
+                          {activeStatus === "success" && (
+                            <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider text-center mt-3 animate-in fade-in slide-in-from-top-2">
+                              Successfully registered webhooks for {shopifyDomain}
+                            </p>
+                          )}
                         </div>
                       </>
                     ) : (

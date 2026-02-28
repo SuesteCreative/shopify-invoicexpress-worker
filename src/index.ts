@@ -1,4 +1,4 @@
-import { Env, isIdempotent, markAsInvoiced } from "./storage";
+import { Env, isIdempotent, markAsInvoiced, getConfig } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { extractAndValidateNIF } from "./nif";
 import {
@@ -38,6 +38,9 @@ export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(request.url);
 
+        // Load Dynamic Config from D1 (fallback to wrangler.toml if not found)
+        const config = await getConfig(request, env);
+
         // 1. Health check
         if (url.pathname === "/health" && request.method === "GET") {
             return new Response("OK", { status: 200 });
@@ -45,13 +48,13 @@ export default {
 
         // 2. Webhook handler: Order Paid
         if (url.pathname === "/webhooks/shopify/orders-paid" && request.method === "POST") {
-            const isValid = await verifyShopifyWebhook(request, env.SHOPIFY_WEBHOOK_SECRET);
+            const isValid = await verifyShopifyWebhook(request, config.SHOPIFY_WEBHOOK_SECRET);
             if (!isValid) return new Response("Invalid Signature", { status: 401 });
 
             const order = await request.clone().json<any>();
             const orderId = order.id;
 
-            const existing = await isIdempotent(orderId, env);
+            const existing = await isIdempotent(orderId, config);
             if (existing) {
                 return new Response(JSON.stringify({ message: "already invoiced", data: JSON.parse(existing) }), {
                     status: 200,
@@ -62,20 +65,20 @@ export default {
             try {
                 // Anti-duplication check: Check IX directly
                 const ixRef = `Order #${order.order_number} (ID: ${order.id})`;
-                const ixExisting = await findDocumentDetailsByReference(env, ixRef);
+                const ixExisting = await findDocumentDetailsByReference(config, ixRef);
                 if (ixExisting) {
                     console.log(`[IX] Document already exists in IX: ${ixExisting.id}`);
-                    await markAsInvoiced(order.id, ixExisting.id, env);
+                    await markAsInvoiced(order.id, ixExisting.id, config);
                     return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting.id }), { status: 200 });
                 }
 
                 const clientMetadata = mapClientMetadata(order);
-                const clientId = await getOrCreateClient(env, clientMetadata);
+                const clientId = await getOrCreateClient(config, clientMetadata);
 
                 // Create Fatura-Recibo
-                const invoiceId = await createDocument(env, clientId, order, clientMetadata, "fatura_recibo");
+                const invoiceId = await createDocument(config, clientId, order, clientMetadata, "fatura_recibo");
 
-                await markAsInvoiced(orderId, invoiceId, env);
+                await markAsInvoiced(orderId, invoiceId, config);
 
                 return new Response(JSON.stringify({ message: "Fatura-Recibo created", invoice_id: invoiceId }), {
                     status: 200,
@@ -89,7 +92,7 @@ export default {
 
         // 3. Webhook handler: Refund Created
         if (url.pathname === "/webhooks/shopify/refunds-create" && request.method === "POST") {
-            const isValid = await verifyShopifyWebhook(request, env.SHOPIFY_WEBHOOK_SECRET);
+            const isValid = await verifyShopifyWebhook(request, config.SHOPIFY_WEBHOOK_SECRET);
             if (!isValid) return new Response("Invalid Signature", { status: 401 });
 
             const refund = await request.clone().json<any>();
@@ -97,13 +100,13 @@ export default {
             const orderId = refund.order_id;
 
             // Idempotency for refunds
-            const existing = await isIdempotent(`refund_${refundId}`, env);
+            const existing = await isIdempotent(`refund_${refundId}`, config);
             if (existing) return new Response("Refund already processed", { status: 200 });
 
             try {
                 console.log(`[Shopify] Processing refund ${refundId} (Order ${orderId})`);
-                const orderRes = await fetch(`https://${env.SHOPIFY_SHOP_DOMAIN}/admin/api/${env.SHOPIFY_API_VERSION}/orders/${orderId}.json`, {
-                    headers: { "X-Shopify-Access-Token": env.SHOPIFY_ACCESS_TOKEN }
+                const orderRes = await fetch(`https://${config.SHOPIFY_SHOP_DOMAIN}/admin/api/${config.SHOPIFY_API_VERSION}/orders/${orderId}.json`, {
+                    headers: { "X-Shopify-Access-Token": config.SHOPIFY_ACCESS_TOKEN }
                 });
 
                 if (!orderRes.ok) {
@@ -122,21 +125,21 @@ export default {
 
                 // Anti-duplication check for credit notes
                 const refundRef = `Refund #${refundId} for Order #${order.order_number}`;
-                const cxExisting = await findCreditNoteByReference(env, refundRef);
+                const cxExisting = await findCreditNoteByReference(config, refundRef);
                 if (cxExisting) {
                     console.log(`[IX] Credit Note already exists for refund ${refundId}: ${cxExisting}`);
-                    await markAsInvoiced(`refund_${refundId}`, cxExisting, env);
+                    await markAsInvoiced(`refund_${refundId}`, cxExisting, config);
                     return new Response(JSON.stringify({ message: "Refund already in IX", credit_note_id: cxExisting }), { status: 200 });
                 }
 
                 const clientMetadata = mapClientMetadata(order);
-                const clientId = await getOrCreateClient(env, clientMetadata);
+                const clientId = await getOrCreateClient(config, clientMetadata);
 
                 // Create Credit Note
                 const originalRef = `Order #${order.order_number} (ID: ${order.id})`;
-                const creditNoteId = await createCreditNote(env, clientId, originalRef, order, refund, clientMetadata);
+                const creditNoteId = await createCreditNote(config, clientId, originalRef, order, refund, clientMetadata);
 
-                await markAsInvoiced(`refund_${refundId}`, creditNoteId, env);
+                await markAsInvoiced(`refund_${refundId}`, creditNoteId, config);
 
                 return new Response(JSON.stringify({ message: "Credit Note created", credit_note_id: creditNoteId }), {
                     status: 200,

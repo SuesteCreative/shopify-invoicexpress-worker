@@ -109,6 +109,29 @@ export async function getOrCreateClient(
     throw new Error(`IX Client Error: ${txt}`);
 }
 
+/**
+ * Clears common NIF issues like "PT" prefix or spaces/dashes
+ */
+function cleanNIF(nif: string | null): string | null {
+    if (!nif) return null;
+    const cleaned = nif.replace(/^(PT|ES|FR|IT)/i, "").replace(/\D/g, "");
+    return cleaned.length >= 9 ? cleaned : null;
+}
+
+export function extractAndValidateNIF(order: any): string | null {
+    // Check note_attributes for specific NIF field
+    const nifAttr = order.note_attributes?.find((a: any) =>
+        ["nif", "vat", "contribuinte", "fiscal", "tax id"].includes(a.name.toLowerCase())
+    );
+    if (nifAttr?.value) return cleanNIF(nifAttr.value);
+
+    // Check notes for a 9-digit sequence
+    const noteMatch = order.note?.match(/\b\d{9}\b/);
+    if (noteMatch) return cleanNIF(noteMatch[0]);
+
+    return null;
+}
+
 export async function createDocument(
     env: Env,
     clientId: string,
@@ -129,6 +152,7 @@ export async function createDocument(
     const items = order.line_items.map((item: any) => {
         // Hierarchy for Item ID: SKU -> Barcode -> Variant ID
         const itemCode = (item.sku || item.barcode || item.variant_id || item.title).trim();
+        const vatRate = determineVATRate(item);
 
         return {
             name: itemCode,
@@ -136,7 +160,9 @@ export async function createDocument(
             unit_price: parseFloat(item.price),
             quantity: item.quantity,
             unit: "service",
-            tax: { name: `IVA${determineVATRate(item)}` }
+            tax: { name: `IVA${vatRate}` },
+            // Required in PT for 0% tax items
+            exemption_reason: String(vatRate) === "0" ? "M99" : undefined
         };
     });
 
@@ -152,7 +178,7 @@ export async function createDocument(
         });
     }
 
-    // Handle Discounts (total_discounts is a string in Shopify)
+    // Handle Discounts
     if (parseFloat(order.total_discounts || "0") > 0) {
         items.push({
             name: "Desconto",
@@ -160,7 +186,8 @@ export async function createDocument(
             unit_price: -parseFloat(order.total_discounts),
             quantity: 1,
             unit: "service",
-            tax: { name: "IVA0" } // Discounts usually don't carry their own tax line, or carry 0
+            tax: { name: "IVA0" },
+            exemption_reason: "M99"
         });
     }
 
@@ -283,6 +310,7 @@ export async function createCreditNote(
     const items = refund.refund_line_items.map((ri: any) => {
         const item = ri.line_item;
         const itemCode = (item.sku || item.barcode || item.variant_id || item.title).trim();
+        const vatRate = determineVATRate(item);
 
         return {
             name: itemCode,
@@ -290,7 +318,8 @@ export async function createCreditNote(
             unit_price: parseFloat(item.price),
             quantity: ri.quantity,
             unit: "service",
-            tax: { name: `IVA${determineVATRate(item)}` }
+            tax: { name: `IVA${vatRate}` },
+            exemption_reason: String(vatRate) === "0" ? "M99" : undefined
         };
     });
 

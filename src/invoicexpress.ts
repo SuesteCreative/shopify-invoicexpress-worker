@@ -102,6 +102,7 @@ export async function createDocument(
     env: Env,
     clientId: string,
     order: any,
+    clientMetadata: { name: string; email: string; fiscal_id: string | null },
     type: "invoice" | "fatura_recibo" = "fatura_recibo"
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
@@ -138,20 +139,15 @@ export async function createDocument(
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    // Extract client details for linking (IX will find or create based on these)
-    const clientName = (order.billing_address?.name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`).trim() || "Client";
-    const clientEmail = order.customer?.email || order.billing_address?.email || order.email;
-    const nif = order.note?.match(/\b\d{9}\b/)?.[0] || undefined;
-
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
     const body: any = {
         invoice: {
             date: formattedDate,
             due_date: formattedDate,
             client: {
-                name: clientName,
-                email: clientEmail || undefined,
-                fiscal_id: nif
+                name: clientMetadata.name,
+                email: clientMetadata.email || undefined,
+                fiscal_id: clientMetadata.fiscal_id || undefined
             },
             items: items,
             reference: `Order #${order.order_number} (ID: ${order.id})`,
@@ -246,7 +242,8 @@ export async function createCreditNote(
     clientId: string,
     originalDocumentId: string,
     order: any,
-    refund: any
+    refund: any,
+    clientMetadata: { name: string; email: string; fiscal_id: string | null }
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
@@ -280,17 +277,13 @@ export async function createCreditNote(
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    const clientName = (order.billing_address?.name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`).trim() || "Client";
-    const clientEmail = order.customer?.email || order.email;
-    const nif = order.note?.match(/\b\d{9}\b/)?.[0] || undefined;
-
     const body = {
-        invoice: {
+        credit_note: {
             date: formattedDate,
             client: {
-                name: clientName,
-                email: clientEmail || undefined,
-                fiscal_id: nif
+                name: clientMetadata.name,
+                email: clientMetadata.email || undefined,
+                fiscal_id: clientMetadata.fiscal_id || undefined
             },
             items: items,
             reference: `Refund #${refund.id} for Order #${order.order_number}`,

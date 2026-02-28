@@ -42,14 +42,11 @@ export default {
                     return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting }), { status: 200 });
                 }
 
-                const clientId = await getOrCreateClient(env, {
-                    name: clientName,
-                    email: clientEmail,
-                    fiscal_id: nif
-                });
+                const clientMetadata = { name: clientName, email: clientEmail, fiscal_id: nif };
+                const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Fatura-Recibo
-                const invoiceId = await createDocument(env, clientId, order, "fatura_recibo");
+                const invoiceId = await createDocument(env, clientId, order, clientMetadata, "fatura_recibo");
 
                 await markAsInvoiced(orderId, invoiceId, env);
 
@@ -117,14 +114,11 @@ export default {
                     return new Response(JSON.stringify({ message: "Refund already in IX", credit_note_id: cxExisting }), { status: 200 });
                 }
 
-                const clientId = await getOrCreateClient(env, {
-                    name: clientName,
-                    email: clientEmail,
-                    fiscal_id: nif
-                });
+                const clientMetadata = { name: clientName, email: clientEmail, fiscal_id: nif };
+                const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Credit Note
-                const creditNoteId = await createCreditNote(env, clientId, originalId, order, refund);
+                const creditNoteId = await createCreditNote(env, clientId, originalId, order, refund, clientMetadata);
 
                 await markAsInvoiced(`refund_${refundId}`, creditNoteId, env);
 

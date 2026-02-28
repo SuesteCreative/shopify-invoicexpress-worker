@@ -341,10 +341,13 @@ export async function createCreditNote(
         const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
 
+        // Calculate unit price from subtotal to include line-level discounts
+        const unitPrice = ri.subtotal / ri.quantity;
+
         return {
             name: itemCode,
             description: item.name,
-            unit_price: parseFloat(item.price),
+            unit_price: unitPrice,
             quantity: ri.quantity,
             unit: "service",
             tax: { name: mapTaxName(vatRate) }

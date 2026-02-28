@@ -1,40 +1,60 @@
 export function extractAndValidateNIF(order: any): string | null {
     const candidates: string[] = [];
 
-    // 1. Extract from note
-    if (order.note) {
-        const noteMatches = order.note.match(/\b\d{9}\b/g);
-        if (noteMatches) candidates.push(...noteMatches);
-    }
-
-    // 2. Extract from note_attributes
+    // 1. Extract from note_attributes (Dedicated NIF/VAT fields from Shopify apps)
     if (order.note_attributes) {
         for (const attr of order.note_attributes) {
-            if (attr.value) {
-                const attrMatches = String(attr.value).match(/\b\d{9}\b/g);
-                if (attrMatches) candidates.push(...attrMatches);
+            const name = String(attr.name).toLowerCase();
+            if (["nif", "vat", "contribuinte", "fiscal", "tax id"].includes(name) && attr.value) {
+                const clean = String(attr.value).replace(/\D/g, "");
+                if (clean.length >= 9) candidates.push(clean.slice(-9));
             }
         }
     }
 
-    // 3. Extract from address line 2 (billing and shipping)
-    const addresses = [order.billing_address, order.shipping_address];
-    for (const addr of addresses) {
-        if (addr?.address2) {
-            const addrMatches = String(addr.address2).match(/\b\d{9}\b/g);
-            if (addrMatches) candidates.push(...addrMatches);
+    // 2. Extract from Customer Note
+    if (order.customer?.note) {
+        const matches = order.customer.note.match(/\b\d{9}\b/g);
+        if (matches) candidates.push(...matches);
+    }
+
+    // 3. Extract from Customer Tags
+    if (order.customer?.tags) {
+        const matches = order.customer.tags.match(/\b\d{9}\b/g);
+        if (matches) candidates.push(...matches);
+    }
+
+    // 4. Extract from General Order Note
+    if (order.note) {
+        const matches = order.note.match(/\b\d{9}\b/g);
+        if (matches) candidates.push(...matches);
+    }
+
+    // 5. Extract from Billing Address fields (Company, Address2)
+    const billing = order.billing_address;
+    if (billing) {
+        if (billing.company) {
+            const matches = billing.company.match(/\b\d{9}\b/g);
+            if (matches) candidates.push(...matches);
+        }
+        if (billing.address2) {
+            const matches = billing.address2.match(/\b\d{9}\b/g);
+            if (matches) candidates.push(...matches);
         }
     }
 
-    // Validate candidates
+    // 6. Validate candidates for Portuguese algorithm
     for (const nif of candidates) {
         if (validatePTNIF(nif)) return nif;
     }
 
+    // 7. If no algorithm match, pick the first 9-digit candidate if any (for international or just in case)
+    if (candidates.length > 0) return candidates[0];
+
     return null;
 }
 
-function validatePTNIF(nif: string): boolean {
+export function validatePTNIF(nif: string): boolean {
     if (!/^\d{9}$/.test(nif)) return false;
 
     const firstDigit = parseInt(nif[0]);

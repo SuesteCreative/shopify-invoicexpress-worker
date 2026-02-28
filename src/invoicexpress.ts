@@ -123,46 +123,6 @@ export async function getOrCreateClient(
 /**
  * Clears common NIF issues like "PT" prefix or spaces/dashes
  */
-function cleanNIF(nif: string | null): string | null {
-    if (!nif) return null;
-    const cleaned = nif.replace(/^(PT|ES|FR|IT)/i, "").replace(/\D/g, "");
-    return cleaned.length >= 9 ? cleaned : null;
-}
-
-export function extractAndValidateNIF(order: any): string | null {
-    // 1. Check order note_attributes for specific NIF field (from apps)
-    const nifAttr = order.note_attributes?.find((a: any) =>
-        ["nif", "vat", "contribuinte", "fiscal", "tax id"].includes(a.name.toLowerCase())
-    );
-    if (nifAttr?.value) return cleanNIF(nifAttr.value);
-
-    // 2. Check Customer Tags (common for permanent NIFs)
-    if (order.customer?.tags) {
-        const tagMatch = order.customer.tags.match(/\b\d{9}\b/);
-        if (tagMatch) return cleanNIF(tagMatch[0]);
-    }
-
-    // 3. Check Customer Note
-    if (order.customer?.note) {
-        const customerNoteMatch = order.customer.note.match(/\b\d{9}\b/);
-        if (customerNoteMatch) return cleanNIF(customerNoteMatch[0]);
-    }
-
-    // 4. Check Order Note
-    if (order.note) {
-        const orderNoteMatch = order.note.match(/\b\d{9}\b/);
-        if (orderNoteMatch) return cleanNIF(orderNoteMatch[0]);
-    }
-
-    // 5. Check Billing Address Company (sometimes people put NIF there)
-    if (order.billing_address?.company) {
-        const companyMatch = order.billing_address.company.match(/\b\d{9}\b/);
-        if (companyMatch) return cleanNIF(companyMatch[0]);
-    }
-
-    return null;
-}
-
 function mapTaxName(rate: number | string): string {
     const r = parseFloat(String(rate));
     if (r === 0) return "Isento";
@@ -271,35 +231,69 @@ export async function createDocument(
     return doc.id;
 }
 
-export async function findDocumentByReference(env: Env, orderNumber: string | number, orderId: string | number): Promise<string | null> {
+export async function findDocumentDetailsByReference(env: Env, reference: string): Promise<{ id: string, type: string } | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
-    const reference = `Order #${orderNumber} (ID: ${orderId})`;
 
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,
         "Accept": "application/json"
     };
 
-    // Search in faturas_recibo (English: invoice_receipts)
-    const res = await fetch(`${baseUrl}/invoice_receipts.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
-    if (res.status === 200) {
-        const data: any = await res.json();
-        const found = data.invoice_receipts?.find((d: any) => d.reference === reference);
-        if (found) return found.id;
-    }
+    // Types to search
+    const types = [
+        { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
+        { endpoint: "invoices", list: "invoices", type: "invoices" }
+    ];
 
-    // Search in invoices if not found
-    const resInv = await fetch(`${baseUrl}/invoices.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
-    if (resInv.status === 200) {
-        const data: any = await resInv.json();
-        const found = data.invoices?.find((d: any) => d.reference === reference);
-        if (found) return found.id;
+    for (const t of types) {
+        const res = await fetch(`${baseUrl}/${t.endpoint}.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+        if (res.status === 200) {
+            const data: any = await res.json();
+            const found = data[t.list]?.find((d: any) => d.reference === reference);
+            if (found) return { id: found.id, type: t.type };
+        }
     }
 
     return null;
+}
+
+export async function finalizeDocument(env: Env, docId: string, type: string): Promise<boolean> {
+    const account = env.INVOICEXPRESS_ACCOUNT_NAME;
+    const apiKey = env.INVOICEXPRESS_API_KEY;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
+    const baseUrl = `https://${domain}`;
+
+    const authHeaders = {
+        "X-InvoiceXpress-API-Key": apiKey,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    };
+
+    // Map internal types to body keys
+    const rootKeyMap: any = {
+        "invoice_receipts": "invoice_receipt",
+        "invoices": "invoice"
+    };
+    const rootKey = rootKeyMap[type] || "invoice";
+
+    console.log(`[IX] Attempting to finalize document ${docId} (${type})`);
+    const res = await fetch(`${baseUrl}/${type}/${docId}/change-state.json?api_key=${apiKey}`, {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({
+            [rootKey]: { state: "finalized" }
+        })
+    });
+
+    if (!res.ok) {
+        const err = await res.text();
+        console.error(`[IX] Failed to finalize document: ${err}`);
+        return false;
+    }
+    return true;
 }
 
 export async function findCreditNoteByReference(env: Env, reference: string): Promise<string | null> {
@@ -326,7 +320,7 @@ export async function findCreditNoteByReference(env: Env, reference: string): Pr
 export async function createCreditNote(
     env: Env,
     clientId: string,
-    originalId: string,
+    originalRef: string,
     order: any,
     refund: any,
     clientMetadata: { name: string; email: string; fiscal_id: string | null; code: string }
@@ -335,6 +329,10 @@ export async function createCreditNote(
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
+
+    // 1. Get original document details
+    const original = await findDocumentDetailsByReference(env, `Order #${order.order_number} (ID: ${order.id})`);
+    if (!original) throw new Error(`Original document for reference "Order #${order.order_number}" not found in IX.`);
 
     const items = refund.refund_line_items.map((ri: any) => {
         const item = ri.line_item;
@@ -360,8 +358,9 @@ export async function createCreditNote(
         items.push({
             name: "Shipping Refund",
             description: "Refund of shipping costs",
-            unit_price: Math.abs(parseFloat(shippingRefund.amount)).toString(),
+            unit_price: Math.abs(parseFloat(shippingRefund.amount)),
             quantity: 1,
+            unit: "service",
             tax: { name: mapTaxName(23) }
         });
     }
@@ -383,7 +382,7 @@ export async function createCreditNote(
             },
             items: items,
             reference: `Refund #${refund.id} for Order #${order.order_number}`,
-            observations: `Original Document ID: ${originalId}. Shopify Refund ID: ${refund.id}`,
+            observations: `Shopify Refund ID: ${refund.id}. Original Doc ID: ${original.id}`,
             currency_code: order.currency || "EUR"
         }
     };
@@ -394,19 +393,38 @@ export async function createCreditNote(
         "Accept": "application/json"
     };
 
-    const res = await fetch(`${baseUrl}/credit_notes.json?api_key=${apiKey}`, {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify(body)
-    });
+    const sendRequest = async () => {
+        return fetch(`${baseUrl}/credit_notes.json?api_key=${apiKey}`, {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify(body)
+        });
+    };
 
+    let res = await sendRequest();
+
+    // 2. Self-Healing Logic: If original is Draft, finalize and retry
     if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`InvoiceXpress Error (Credit Note): ${res.status} - ${errText}`);
+        if (errText.includes("Estado não é válido") || errText.includes("draft")) {
+            console.log(`[IX] Original document ${original.id} is in Draft state. Finalizing to allow Credit Note...`);
+            const finalized = await finalizeDocument(env, original.id, original.type);
+            if (finalized) {
+                console.log(`[IX] Document finalized. Retrying Credit Note creation...`);
+                res = await sendRequest();
+            } else {
+                throw new Error(`Refund failed: Original document is a Draft and cannot be finalized automatically. Error: ${errText}`);
+            }
+        }
+
+        if (!res.ok) {
+            const finalErr = await res.status === 422 ? errText : `HTTP ${res.status}`;
+            throw new Error(`InvoiceXpress Error (Credit Note): ${finalErr}`);
+        }
     }
 
     const data: any = await res.json();
-    const doc = data.invoice || data.invoice_receipt || data.credit_note;
+    const doc = data.credit_note;
     if (!doc?.id) {
         throw new Error(`InvoiceXpress Credit Note success but ID not found: ${JSON.stringify(data)}`);
     }

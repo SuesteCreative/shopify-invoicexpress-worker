@@ -1,9 +1,39 @@
 import { Env, isIdempotent, markAsInvoiced } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { extractAndValidateNIF } from "./nif";
-import { getOrCreateClient, createDocument, findDocumentByReference, findCreditNoteByReference, createCreditNote } from "./invoicexpress";
+import {
+    getOrCreateClient,
+    createDocument,
+    findDocumentDetailsByReference,
+    findCreditNoteByReference,
+    createCreditNote
+} from "./invoicexpress";
 
-// Version: 1.1.1 - Fixed IX API endpoints and base URL
+function mapClientMetadata(order: any) {
+    const nif = extractAndValidateNIF(order);
+    const firstName = order.customer?.first_name || "";
+    const lastName = order.customer?.last_name || "";
+    const name = `${firstName} ${lastName}`.trim() || order.billing_address?.name || "Client";
+    const email = order.customer?.email || order.email;
+
+    // Country mapping: Prefer ISO codes as requested
+    let country = order.billing_address?.country_code || order.billing_address?.country || "PT";
+    if (country.toLowerCase() === "portugal") country = "PT";
+    if (country.toLowerCase() === "spain") country = "ES";
+
+    return {
+        name,
+        email,
+        fiscal_id: nif,
+        code: String(order.customer?.id || order.id),
+        address: order.billing_address?.address1,
+        city: order.billing_address?.city,
+        zip: order.billing_address?.zip,
+        country: country,
+        phone: order.customer?.phone || order.billing_address?.phone
+    };
+}
+
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(request.url);
@@ -30,29 +60,16 @@ export default {
             }
 
             try {
-                const nif = extractAndValidateNIF(order);
-                const clientName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || order.billing_address?.name || "Client";
-                const clientEmail = order.customer?.email || order.email;
-
                 // Anti-duplication check: Check IX directly
-                const ixExisting = await findDocumentByReference(env, order.order_number, order.id);
+                const ixRef = `Order #${order.order_number} (ID: ${order.id})`;
+                const ixExisting = await findDocumentDetailsByReference(env, ixRef);
                 if (ixExisting) {
-                    console.log(`[IX] Document already exists in IX: ${ixExisting}`);
-                    await markAsInvoiced(order.id, ixExisting, env);
-                    return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting }), { status: 200 });
+                    console.log(`[IX] Document already exists in IX: ${ixExisting.id}`);
+                    await markAsInvoiced(order.id, ixExisting.id, env);
+                    return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting.id }), { status: 200 });
                 }
 
-                const clientMetadata = {
-                    name: clientName,
-                    email: clientEmail,
-                    fiscal_id: nif,
-                    code: String(order.customer?.id || order.id),
-                    address: order.billing_address?.address1,
-                    city: order.billing_address?.city,
-                    zip: order.billing_address?.zip,
-                    country: order.billing_address?.country === "Portugal" || order.billing_address?.country_code === "PT" ? "Portugal" : (order.billing_address?.country || "Portugal"),
-                    phone: order.customer?.phone || order.billing_address?.phone
-                };
+                const clientMetadata = mapClientMetadata(order);
                 const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Fatura-Recibo
@@ -84,6 +101,7 @@ export default {
             if (existing) return new Response("Refund already processed", { status: 200 });
 
             try {
+                console.log(`[Shopify] Processing refund ${refundId} (Order ${orderId})`);
                 const orderRes = await fetch(`https://${env.SHOPIFY_SHOP_DOMAIN}/admin/api/${env.SHOPIFY_API_VERSION}/orders/${orderId}.json`, {
                     headers: { "X-Shopify-Access-Token": env.SHOPIFY_ACCESS_TOKEN }
                 });
@@ -91,29 +109,16 @@ export default {
                 if (!orderRes.ok) {
                     const err = await orderRes.text();
                     console.error(`[Shopify] Failed to fetch order ${orderId}: ${orderRes.status} - ${err}`);
-                    // Return 200 to Shopify to stop retries if the order doesn't exist anymore
+                    if (orderRes.status === 403) {
+                        throw new Error("ACCESS_DENIED: App lacks 'Protected Customer Data' permissions. Please enable them in Shopify App settings.");
+                    }
                     if (orderRes.status === 404) return new Response("Order not found, skipping", { status: 200 });
                     throw new Error(`Shopify API Error: ${orderRes.status}`);
                 }
 
                 const data: any = await orderRes.json();
                 const order = data.order;
-
-                if (!order) {
-                    console.error("[Shopify] Order object missing in response:", data);
-                    throw new Error("Invalid order data from Shopify");
-                }
-
-                // Find the original document in InvoiceXpress
-                const originalId = await findDocumentByReference(env, order.order_number, order.id);
-                if (!originalId) {
-                    console.error(`Original document for order #${order.order_number} not found in IX`);
-                    return new Response("Original document not found", { status: 404 });
-                }
-
-                const nif = extractAndValidateNIF(order);
-                const clientName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || "Client";
-                const clientEmail = order.customer?.email || order.email;
+                if (!order) throw new Error("Invalid order data from Shopify");
 
                 // Anti-duplication check for credit notes
                 const refundRef = `Refund #${refundId} for Order #${order.order_number}`;
@@ -124,21 +129,12 @@ export default {
                     return new Response(JSON.stringify({ message: "Refund already in IX", credit_note_id: cxExisting }), { status: 200 });
                 }
 
-                const clientMetadata = {
-                    name: clientName,
-                    email: clientEmail,
-                    fiscal_id: nif,
-                    code: String(order.customer?.id || order.id),
-                    address: order.billing_address?.address1,
-                    city: order.billing_address?.city,
-                    zip: order.billing_address?.zip,
-                    country: order.billing_address?.country === "Portugal" || order.billing_address?.country_code === "PT" ? "Portugal" : (order.billing_address?.country || "Portugal"),
-                    phone: order.customer?.phone || order.billing_address?.phone
-                };
+                const clientMetadata = mapClientMetadata(order);
                 const clientId = await getOrCreateClient(env, clientMetadata);
 
                 // Create Credit Note
-                const creditNoteId = await createCreditNote(env, clientId, originalId, order, refund, clientMetadata);
+                const originalRef = `Order #${order.order_number} (ID: ${order.id})`;
+                const creditNoteId = await createCreditNote(env, clientId, originalRef, order, refund, clientMetadata);
 
                 await markAsInvoiced(`refund_${refundId}`, creditNoteId, env);
 

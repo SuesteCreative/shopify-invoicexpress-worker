@@ -50,7 +50,7 @@ export default {
                     address: order.billing_address?.address1,
                     city: order.billing_address?.city,
                     zip: order.billing_address?.zip,
-                    country: order.billing_address?.country_code,
+                    country: order.billing_address?.country === "Portugal" || order.billing_address?.country_code === "PT" ? "Portugal" : (order.billing_address?.country || "Portugal"),
                     phone: order.customer?.phone || order.billing_address?.phone
                 };
                 const clientId = await getOrCreateClient(env, clientMetadata);
@@ -132,7 +132,7 @@ export default {
                     address: order.billing_address?.address1,
                     city: order.billing_address?.city,
                     zip: order.billing_address?.zip,
-                    country: order.billing_address?.country,
+                    country: order.billing_address?.country === "Portugal" || order.billing_address?.country_code === "PT" ? "Portugal" : (order.billing_address?.country || "Portugal"),
                     phone: order.customer?.phone || order.billing_address?.phone
                 };
                 const clientId = await getOrCreateClient(env, clientMetadata);

@@ -1,8 +1,29 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
-## � Version 2.0.0 (Global Alpha) - March 1, 2026
+## 💎 Version 2.1.8 (SaaS-Ready & Security Build) - March 1, 2026
 
-### �🚀 Major Breakthroughs (The "Bridge" Era)
+### 🛡️ Security & Integrity
+- **Webhook Signature Verification**: Finalized HMAC-SHA256 validation. The system now rejects unauthorized Shopify signals using a unique `shopify_webhook_secret` per client.
+- **Dynamic API Versioning**: Added support for specific Shopify API versions (e.g., `2024-04`, `2026-01`) manageable via the dashboard.
+
+### SaaS-Ready Architecture
+- **Environment Multi-Domain Support**: Implemented a smart toggle for **Production** vs **Test (macewindu)** environments. Account names no longer require manual domain suffixes.
+- **Dynamic Worker Routing**: Corrected subdomain detection for Workers (e.g., `pedrotovarporto.workers.dev`), ensuring "Activate & Sync" works across different Cloudflare accounts.
+
+### 🔍 Reliability & Observability
+- **Real-time Webhook Audit**: Introduced a **D1 Logging System**. Every incoming signal, signature result, and IX response is now logged in the `logs` table for instant debugging.
+- **Fallback Configurations**: Improved the `getConfig` utility to prioritize D1 settings while maintaining `wrangler.toml` defaults as a safe fallback.
+
+### 🎨 UI/UX Mastery (Rioko 2.0)
+- **Account Dashboard Fixes**: Fixed logo alignment, footer branding ("Developed by Kapta"), and improved sidebar visual hierarchy.
+- **Clerk Identity Integration**: Added profile management, logout controls, and inactivity timeouts for enhanced security.
+- **Performance**: Optimized all routes with `Edge Runtime` for lightning-fast Cloudflare Pages execution.
+
+---
+
+##  Version 2.0.0 (Global Alpha) - March 1, 2026
+
+### 🚀 Major Breakthroughs (The "Bridge" Era)
 - **Dynamic Multi-Client Engine**: The Worker now detects the Shopify `X-Shopify-Shop-Domain` and dynamically pulls integration credentials from Cloudflare D1. 
 - **One-Click Activation**: Implemented remote webhook installation. Users can now "Activate & Sync" directly from the dashboard without touching Shopify settings.
 - **Persistent Command Center**: Configuration for VAT (Tax-Included) and Auto-Finalize is now saved per user in the database.

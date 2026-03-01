@@ -11,7 +11,15 @@ A production-lean integration that automatically creates InvoiceXpress invoices 
 
 ## Setup Instructions
 
-### 1. Shopify Configuration
+### 1. Ready-to-use with Rioko 2.0 Dashboard
+The easiest way to configure this integration is using the **Rioko Command Center**.
+1. Log in to your Rioko 2.0 instance.
+2. **Step 1 (Shopify Bridge)**: Enter your Shopify domain, Admin API Token, and the **Webhook signing secret**.
+3. **Step 2 (InvoiceXpress Bridge)**: Enter your Account Name, API Key, and select the environment (**Production** or **macewindu**).
+4. **Step 3 (Activation)**: Click **Activate & Sync**. The system will automatically register the webhooks in your Shopify store.
+
+### 2. (Advanced) Manual Configuration
+If you prefer manual control via CLI:
 1. In your Shopify Admin, go to **Settings > Apps and sales channels > Develop apps**.
 2. Create a new custom app and configure **Admin API scopes**:
    - `read_orders`
@@ -24,7 +32,7 @@ A production-lean integration that automatically creates InvoiceXpress invoices 
    - API version: Select the one matching `SHOPIFY_API_VERSION` in `wrangler.toml`.
 6. Copy the **Webhook secret**.
 
-### 2. InvoiceXpress Configuration
+### 3. InvoiceXpress Configuration
 1. Log in to your InvoiceXpress account.
 2. Go to **Account Settings > API**.
 3. Enable API and copy your **API Key**.

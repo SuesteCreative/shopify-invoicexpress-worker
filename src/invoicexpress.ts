@@ -196,11 +196,17 @@ export async function createDocument(
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
     const rootKey = type === "fatura_recibo" ? "invoice_receipt" : "invoice";
 
+    const exemptionReason = env.INVOICEXPRESS_EXEMPTION_REASON || "M01";
+    let observations = `Shopify ID: ${order.id}`;
+    if (hasExemptItems) {
+        observations += `\nRazão de Isenção: ${exemptionReason}`;
+    }
+
     const body: any = {};
     body[rootKey] = {
         date: formattedDate,
         due_date: formattedDate,
-        tax_exemption: hasExemptItems ? (env.INVOICEXPRESS_EXEMPTION_REASON || "M01") : undefined,
+        tax_exemption: hasExemptItems ? exemptionReason : undefined,
         client: {
             name: clientMetadata.name,
             code: clientMetadata.code,
@@ -209,7 +215,7 @@ export async function createDocument(
         },
         items: items,
         reference: `Order #${order.order_number}`,
-        observations: `Shopify ID: ${order.id}`,
+        observations: observations,
         currency_code: order.currency || "EUR"
     };
 
@@ -340,14 +346,21 @@ export async function createCreditNote(
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
     const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
+    const exemptionReason = env.INVOICEXPRESS_EXEMPTION_REASON || "M01";
+    let observations = `Shopify Refund ID: ${refund.id}. Original Doc ID: ${original.id}`;
+    if (hasExemptItems) {
+        observations += `\nRazão de Isenção: ${exemptionReason}`;
+    }
+
     const body = {
         credit_note: {
             date: formattedDate,
             owner_invoice_id: original.id,
-            tax_exemption: hasExemptItems ? (env.INVOICEXPRESS_EXEMPTION_REASON || "M01") : undefined,
+            tax_exemption: hasExemptItems ? exemptionReason : undefined,
             client: { name: clientMetadata.name, email: clientMetadata.email || undefined, fiscal_id: clientMetadata.fiscal_id || undefined },
             items: items,
             reference: `Refund #${refund.id} for Order #${order.order_number}`,
+            observations: observations,
             currency_code: order.currency || "EUR"
         }
     };

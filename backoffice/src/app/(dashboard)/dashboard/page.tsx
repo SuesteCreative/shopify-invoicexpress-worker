@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, XCircle, ShieldCheck, Webhook, AlertTriangle } from "lucide-react";
+import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -18,7 +18,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activating, setActivating] = useState(false);
-  const [activeStatus, setActiveStatus] = useState<"idle" | "success" | "error">("idle");
+  const [webhookStatus, setWebhookStatus] = useState<"idle" | "success" | "error">("idle");
 
   // Form State
   const [shopifyDomain, setShopifyDomain] = useState("");
@@ -31,11 +31,15 @@ export default function Dashboard() {
   const [vatIncluded, setVatIncluded] = useState(true);
   const [autoFinalize, setAutoFinalize] = useState(false);
   const [exemptionReason, setExemptionReason] = useState("M01");
+
+  // Validation State
   const [shopifyAuthorized, setShopifyAuthorized] = useState(false);
-  const [ixAuthorized, setIxAuthorized] = useState(false);
   const [webhooksActive, setWebhooksActive] = useState(false);
+  const [ixAuthorized, setIxAuthorized] = useState(false);
   const [shopifyError, setShopifyError] = useState("");
   const [ixError, setIxError] = useState("");
+
+  const allComplete = shopifyAuthorized && webhooksActive && ixAuthorized;
 
   const exemptionOptions = [
     { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
@@ -73,7 +77,6 @@ export default function Dashboard() {
 
   // Load existing data
   useEffect(() => {
-    // Sync user data first
     fetch("/api/auth/sync", { method: "POST" }).catch(console.error);
 
     fetch("/api/integrations")
@@ -95,22 +98,65 @@ export default function Dashboard() {
         if (data.shopify_error) setShopifyError(data.shopify_error);
         if (data.ix_error) setIxError(data.ix_error);
 
-        // Determine current step based on completed data
-        if (data.ix_api_key && data.shopify_token) setStep(3);
+        // Smart step resume
+        if (data.ix_api_key && data.webhooks_active) setStep(4);
+        else if (data.webhooks_active) setStep(3);
         else if (data.shopify_token) setStep(2);
         else setStep(1);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const handleConnect = async () => {
-    // Basic validation: Prevent empty submissions
-    if (step === 1 && (!shopifyDomain || !shopifyToken)) return;
-    if (step === 2 && (!ixAccount || !ixApiKey)) return;
-
+  // --- Step 1: Save Shopify credentials & validate ---
+  const handleShopifyConnect = async () => {
+    if (!shopifyDomain || !shopifyToken) return;
     setSaving(true);
     try {
-      const response = await fetch("/api/integrations", {
+      const saveRes = await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopify_domain: shopifyDomain,
+          shopify_token: shopifyToken,
+          shopify_webhook_secret: shopifyWebhookSecret,
+          shopify_api_version: shopifyApiVersion,
+          ix_account_name: ixAccount,
+          ix_api_key: ixApiKey,
+          ix_environment: ixEnvironment,
+          ix_exemption_reason: exemptionReason,
+          vat_included: vatIncluded,
+          auto_finalize: autoFinalize
+        })
+      });
+      if (!saveRes.ok) { alert("Erro ao guardar. Tenta novamente."); return; }
+
+      const valRes = await fetch("/api/integrations/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "shopify" })
+      });
+      const valData = await valRes.json() as any;
+      setShopifyAuthorized(valData.isValid);
+      setShopifyError(valData.error || "");
+      setWebhooksActive(false); // reset webhooks since credentials changed
+
+      if (valData.isValid) setStep(2);
+    } catch (e: any) {
+      alert(`Erro de rede: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // --- Step 2: Install webhooks & verify ---
+  const handleWebhooksInstall = async () => {
+    if (!shopifyWebhookSecret) return;
+    setSaving(true);
+    setActivating(true);
+    setWebhookStatus("idle");
+    try {
+      // Save the webhook secret first
+      await fetch("/api/integrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -127,98 +173,99 @@ export default function Dashboard() {
         })
       });
 
-      if (response.ok) {
-        // Run validation for the current step
-        const type = step === 1 ? "shopify" : (step === 2 ? "ix" : null);
-        if (type) {
-          const valRes = await fetch("/api/integrations/validate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type })
-          });
-          const valData = await valRes.json() as any;
-          if (type === "shopify") {
-            setShopifyAuthorized(valData.isValid);
-            setShopifyError(valData.error || "");
-          }
-          if (type === "ix") {
-            setIxAuthorized(valData.isValid);
-            setIxError(valData.error || "");
-          }
-        }
+      // Install webhooks
+      const actRes = await fetch("/api/integrations/activate", { method: "POST" });
+      if (actRes.ok) {
+        setWebhookStatus("success");
+        setWebhooksActive(true);
 
-        if (step < 3) setStep(step + 1);
+        // Re-validate Shopify to get fresh webhooks_active from DB
+        const valRes = await fetch("/api/integrations/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "shopify" })
+        });
+        const valData = await valRes.json() as any;
+        setWebhooksActive(valData.isValid ? true : webhooksActive);
+
+        setStep(3);
       } else {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          const data = await response.json() as any;
-          alert(`Error: ${data.error || "Failed to save integration"}`);
-        } else {
-          const text = await response.text();
-          alert(`Server Error (${response.status}): ${text || "Please check your Clerk session or Cloudflare environment variables."}`);
-        }
+        setWebhookStatus("error");
       }
-    } catch (error: any) {
-      console.error("Save error:", error);
-      alert(`Network Error: ${error.message || "Please check your connection"}`);
+    } catch {
+      setWebhookStatus("error");
+    } finally {
+      setSaving(false);
+      setActivating(false);
+    }
+  };
+
+  // --- Step 3: Save IX credentials & validate ---
+  const handleIxConnect = async () => {
+    if (!ixAccount || !ixApiKey) return;
+    setSaving(true);
+    try {
+      const saveRes = await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopify_domain: shopifyDomain,
+          shopify_token: shopifyToken,
+          shopify_webhook_secret: shopifyWebhookSecret,
+          shopify_api_version: shopifyApiVersion,
+          ix_account_name: ixAccount,
+          ix_api_key: ixApiKey,
+          ix_environment: ixEnvironment,
+          ix_exemption_reason: exemptionReason,
+          vat_included: vatIncluded,
+          auto_finalize: autoFinalize
+        })
+      });
+      if (!saveRes.ok) { alert("Erro ao guardar. Tenta novamente."); return; }
+
+      const valRes = await fetch("/api/integrations/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "ix" })
+      });
+      const valData = await valRes.json() as any;
+      setIxAuthorized(valData.isValid);
+      setIxError(valData.error || "");
+
+      if (valData.isValid) setStep(4);
+    } catch (e: any) {
+      alert(`Erro de rede: ${e.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleActivate = async () => {
-    // Pro-tip: Always save the latest config (toggles) before activating
-    await handleConnect();
-
-    setActivating(true);
-    setActiveStatus("idle");
+  // --- Step 4: Save settings ---
+  const handleSaveSettings = async () => {
+    setSaving(true);
     try {
-      const response = await fetch("/api/integrations/activate", { method: "POST" });
-      if (response.ok) setActiveStatus("success");
-      else setActiveStatus("error");
-    } catch (error) {
-      setActiveStatus("error");
+      await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopify_domain: shopifyDomain,
+          shopify_token: shopifyToken,
+          shopify_webhook_secret: shopifyWebhookSecret,
+          shopify_api_version: shopifyApiVersion,
+          ix_account_name: ixAccount,
+          ix_api_key: ixApiKey,
+          ix_environment: ixEnvironment,
+          ix_exemption_reason: exemptionReason,
+          vat_included: vatIncluded,
+          auto_finalize: autoFinalize
+        })
+      });
+    } catch (e: any) {
+      alert(`Erro ao guardar: ${e.message}`);
     } finally {
-      setActivating(false);
+      setSaving(false);
     }
   };
-
-  const steps = [
-    {
-      id: 1,
-      title: "Passo 1: Ligação Shopify",
-      description: "Ligue a sua loja para iniciar o processo de integração.",
-      icon: Store,
-      logo: "/images/shopify-logo.webp",
-      logoWidth: 80, // Reduced from 100
-      fields: [
-        { label: "Domínio Shopify (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "exemplo.myshopify.com", type: "text" },
-        { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password" },
-        { label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "Ver Shopify Notifications > Webhooks", type: "password" },
-        { label: "Versão da API", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text" }
-      ]
-    },
-    {
-      id: 2,
-      title: "Passo 2: Conexão InvoiceXpress",
-      description: "Introduza os detalhes da sua conta para ligar as finanças.",
-      icon: CreditCard,
-      logo: "/images/invoicexpress_logo2.png",
-      logoWidth: 100, // Adjusted for balance
-      fields: [
-        { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
-        { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" },
-        { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'sandbox'", type: "text" }
-      ]
-    },
-    {
-      id: 3,
-      title: "Passo 3: Definições de Integração",
-      description: "Defina as regras, impostos e níveis de finalização.",
-      icon: Settings2,
-      isConfig: true
-    }
-  ];
 
   if (loading) {
     return (
@@ -227,6 +274,107 @@ export default function Dashboard() {
       </div>
     );
   }
+
+  // ── Helper: status badge for completed steps ──
+  const StatusBadge = ({ isAuthorized, errorMsg }: { isAuthorized: boolean; errorMsg?: string }) => (
+    <div className="relative group/badge">
+      <span className={cn(
+        "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all",
+        isAuthorized
+          ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+          : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+      )}>
+        {isAuthorized ? "Autorizado" : "Pendente"}
+        {!isAuthorized && <HelpCircle className="w-3 h-3 animate-pulse cursor-help" />}
+      </span>
+      {!isAuthorized && errorMsg && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
+          <div className="flex items-center gap-3 mb-4 text-amber-400">
+            <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
+              <Info className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico de Ligação</p>
+              <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko 2.0 Engine</p>
+            </div>
+          </div>
+          <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5">
+            <p className="text-[13px] text-amber-50/90 font-bold leading-relaxed">{errorMsg}</p>
+          </div>
+          <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-slate-900 rotate-45 border-r-2 border-b-2 border-amber-500/10" />
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Step definitions ──
+  const steps = [
+    {
+      id: 1,
+      title: "Passo 1: Ligação Shopify",
+      description: "Conecte a sua loja Shopify através das credenciais de API.",
+      icon: Store,
+      logo: "/images/shopify-logo.webp",
+      logoWidth: 80,
+      isAuthorized: shopifyAuthorized,
+      errorMsg: shopifyError,
+      fields: [
+        { label: "Domínio Shopify (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "exemplo.myshopify.com", type: "text" },
+        { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password" },
+        { label: "Versão da API", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text" }
+      ],
+      action: handleShopifyConnect,
+      actionLabel: "Verificar Ligação",
+      isDisabled: !shopifyDomain || !shopifyToken,
+    },
+    {
+      id: 2,
+      title: "Passo 2: Criação de Webhooks",
+      description: "Instale os webhooks para que o Rioko receba as encomendas automaticamente.",
+      icon: Webhook,
+      logo: "/images/shopify-logo.webp",
+      logoWidth: 80,
+      isAuthorized: webhooksActive,
+      errorMsg: webhookStatus === "error" ? "Falha ao instalar webhooks. Verifica se o token tem permissão write_webhooks." : "",
+      fields: [
+        { label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "Ver Shopify Notificações > Webhooks", type: "password" }
+      ],
+      action: handleWebhooksInstall,
+      actionLabel: webhookStatus === "error" ? "Tentar novamente" : "Instalar Webhooks",
+      isDisabled: !shopifyWebhookSecret,
+      isWebhookStep: true,
+    },
+    {
+      id: 3,
+      title: "Passo 3: Conexão InvoiceXpress",
+      description: "Introduza os detalhes da sua conta InvoiceXpress para ligar as finanças.",
+      icon: CreditCard,
+      logo: "/images/invoicexpress_logo2.png",
+      logoWidth: 100,
+      isAuthorized: ixAuthorized,
+      errorMsg: ixError,
+      fields: [
+        { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
+        { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" },
+        { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'sandbox'", type: "text" }
+      ],
+      action: handleIxConnect,
+      actionLabel: "Verificar Ligação",
+      isDisabled: !ixAccount || !ixApiKey,
+    },
+    {
+      id: 4,
+      title: "Passo 4: Definições de Integração",
+      description: "Defina as regras fiscais e o comportamento da emissão de documentos.",
+      icon: Settings2,
+      isAuthorized: true,
+      errorMsg: "",
+      isConfig: true,
+      action: handleSaveSettings,
+      actionLabel: "Guardar",
+      isDisabled: false,
+    }
+  ];
 
   return (
     <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -241,21 +389,24 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-5 glass px-5 py-3 rounded-2xl border-slate-800/50">
           <div className="flex -space-x-2.5">
-            <div className="h-9 w-9 rounded-full ring-4 ring-slate-950 bg-emerald-500/10 flex items-center justify-center border border-emerald-500/30">
-              <Store className="w-4.5 h-4.5 text-emerald-400" />
+            <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", shopifyAuthorized ? "bg-emerald-500/10 border-emerald-500/30" : "bg-slate-800/50 border-slate-700/30")}>
+              <Store className={cn("w-4 h-4", shopifyAuthorized ? "text-emerald-400" : "text-slate-600")} />
             </div>
-            <div className="h-9 w-9 rounded-full ring-4 ring-slate-950 bg-blue-500/10 flex items-center justify-center border border-blue-500/30">
-              <CreditCard className="w-4.5 h-4.5 text-blue-400" />
+            <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", webhooksActive ? "bg-violet-500/10 border-violet-500/30" : "bg-slate-800/50 border-slate-700/30")}>
+              <Webhook className={cn("w-4 h-4", webhooksActive ? "text-violet-400" : "text-slate-600")} />
+            </div>
+            <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", ixAuthorized ? "bg-blue-500/10 border-blue-500/30" : "bg-slate-800/50 border-slate-700/30")}>
+              <CreditCard className={cn("w-4 h-4", ixAuthorized ? "text-blue-400" : "text-slate-600")} />
             </div>
           </div>
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Estado da Sincronização</span>
             <span className={cn(
               "text-xs font-bold flex items-center gap-1.5",
-              activeStatus === "success" ? "text-emerald-400" : "text-slate-500 animate-pulse"
+              allComplete ? "text-emerald-400" : "text-slate-500 animate-pulse"
             )}>
-              <span className={cn("w-1.5 h-1.5 rounded-full", activeStatus === "success" ? "bg-emerald-400 animate-pulse" : "bg-slate-700")} />
-              {activeStatus === "success" ? "Tempo Real ATIVO" : "A aguardar ligação..."}
+              <span className={cn("w-1.5 h-1.5 rounded-full", allComplete ? "bg-emerald-400 animate-pulse" : "bg-slate-700")} />
+              {allComplete ? "Tempo Real ATIVO" : "A aguardar ligação..."}
             </span>
           </div>
         </div>
@@ -264,13 +415,10 @@ export default function Dashboard() {
       {/* The Set-up Bars */}
       <div className="grid gap-8">
         {steps.map((s) => {
-          const isActive = step === s.id && !(s.id === 3 && activeStatus === "success");
-          const isComplete = step > s.id || (s.id === 3 && activeStatus === "success");
+          const isActive = step === s.id;
+          const isComplete = step > s.id;
           const isLocked = step < s.id;
           const Icon = s.icon;
-
-          const isAuthorized = s.id === 1 ? shopifyAuthorized : (s.id === 2 ? ixAuthorized : true);
-          const errorMsg = s.id === 1 ? shopifyError : (s.id === 2 ? ixError : "");
 
           return (
             <motion.div
@@ -284,71 +432,44 @@ export default function Dashboard() {
               className={cn(
                 "glass rounded-[2rem] overflow-visible relative group transition-all duration-700",
                 isActive && "border-accent-blue/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_30px_rgba(56,189,248,0.1)]",
-                isComplete && isAuthorized && "border-emerald-500/30 bg-emerald-500/[0.02]",
-                isComplete && !isAuthorized && "border-amber-500/30 bg-amber-500/[0.02]",
+                isComplete && s.isAuthorized && "border-emerald-500/30 bg-emerald-500/[0.02]",
+                isComplete && !s.isAuthorized && "border-amber-500/30 bg-amber-500/[0.02]",
                 isLocked && "grayscale scale-[0.98] !overflow-hidden"
               )}
             >
               <div className="p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
+                {/* Step Icon */}
                 <div className={cn(
                   "w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner p-1",
                   isActive ? "bg-accent-blue/20 text-accent-blue ring-1 ring-accent-blue/30" :
-                    isComplete ? (isAuthorized ? "bg-emerald-500/20 text-emerald-500 ring-1 ring-emerald-500/30" : "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/30") :
+                    isComplete ? (s.isAuthorized ? "bg-emerald-500/20 text-emerald-500 ring-1 ring-emerald-500/30" : "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/30") :
                       "bg-slate-900/50 text-slate-700 ring-1 ring-slate-800"
                 )}>
                   {isComplete ? (
-                    isAuthorized ? <Check className="w-10 h-10 stroke-[3]" /> : <Circle className="w-10 h-10 stroke-[4] text-amber-500" />
+                    s.isAuthorized ? <Check className="w-10 h-10 stroke-[3]" /> : <Circle className="w-10 h-10 stroke-[4] text-amber-500" />
                   ) : (
                     isLocked ? <Lock className="w-8 h-8 opacity-30" /> : <Icon className="w-10 h-10 stroke-[1.5]" />
                   )}
                 </div>
 
+                {/* Step Title & Status */}
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-bold tracking-tight">{s.title}</h2>
-                    {isComplete && (
-                      <div className="relative group/badge">
-                        <span className={cn(
-                          "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all",
-                          isAuthorized
-                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                            : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                        )}>
-                          {isAuthorized ? "Autorizado" : "Pendente"}
-                          {!isAuthorized && <HelpCircle className="w-3 h-3 animate-pulse cursor-help" />}
-                        </span>
-
-                        {!isAuthorized && errorMsg && (
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
-                            <div className="flex items-center gap-3 mb-4 text-amber-400">
-                              <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
-                                <Info className="w-5 h-5" />
-                              </div>
-                              <div className="flex flex-col">
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico de Ligação</p>
-                                <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko 2.0 Engine</p>
-                              </div>
-                            </div>
-                            <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5">
-                              <p className="text-[13px] text-amber-50/90 font-bold leading-relaxed">{errorMsg}</p>
-                            </div>
-                            <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-slate-900 rotate-45 border-r-2 border-b-2 border-amber-500/10" />
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {isComplete && <StatusBadge isAuthorized={s.isAuthorized} errorMsg={s.errorMsg} />}
                     {isActive && <div className="h-1.5 w-1.5 rounded-full bg-accent-blue animate-ping" />}
                   </div>
                   <p className="text-slate-400 font-medium leading-relaxed max-w-xl">{s.description}</p>
                 </div>
 
+                {/* Logo + Buttons */}
                 <div className="flex items-center gap-10 w-full lg:w-auto">
                   {s.logo && (
                     <div className={cn(
                       "hidden xl:block transition-all duration-700",
                       isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale"
                     )}>
-                      <Image src={s.logo} alt={s.title} width={s.logoWidth} height={40} className="object-contain" />
+                      <Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" />
                     </div>
                   )}
 
@@ -362,14 +483,21 @@ export default function Dashboard() {
                           Voltar
                         </button>
                       )}
-                      <button
-                        onClick={handleConnect}
-                        disabled={saving || (s.id === 1 && (!shopifyDomain || !shopifyToken)) || (s.id === 2 && (!ixAccount || !ixApiKey))}
-                        className="bg-white text-black px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-accent-blue hover:text-white transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
-                      >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (s.id === 3 ? "Guardar Regras" : "Ligar")}
-                        {!saving && <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />}
-                      </button>
+                      {!s.isConfig && (
+                        <button
+                          onClick={s.action}
+                          disabled={saving || activating || s.isDisabled}
+                          className={cn(
+                            "px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed",
+                            s.isWebhookStep && webhookStatus === "error"
+                              ? "bg-rose-500 text-white hover:bg-rose-600"
+                              : "bg-white text-black hover:bg-accent-blue hover:text-white"
+                          )}
+                        >
+                          {(saving || activating) ? <Loader2 className="w-4 h-4 animate-spin" /> : s.actionLabel}
+                          {!(saving || activating) && <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />}
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -384,14 +512,16 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Expanded Content */}
               <motion.div
-                animate={{ height: (isActive && activeStatus !== "success") ? 'auto' : 0 }}
+                animate={{ height: isActive ? "auto" : 0 }}
                 className="overflow-hidden bg-slate-950/40 border-t border-slate-800/30"
               >
-                {isActive && activeStatus !== "success" && (
+                {isActive && (
                   <div className="p-10 pt-8 grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-700">
                     {s.isConfig ? (
                       <>
+                        {/* IVA Incluído */}
                         <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
                           <div>
                             <h3 className="font-bold text-sm">IVA Incluído</h3>
@@ -407,6 +537,8 @@ export default function Dashboard() {
                             <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", vatIncluded ? "left-7" : "left-1")} />
                           </button>
                         </div>
+
+                        {/* Auto Finalizar */}
                         <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
                           <div>
                             <h3 className="font-bold text-sm">Auto Finalizar</h3>
@@ -422,6 +554,8 @@ export default function Dashboard() {
                             <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} />
                           </button>
                         </div>
+
+                        {/* Razão de Isenção */}
                         <div className="md:col-span-2 glass p-8 rounded-[2rem] border-slate-800/50 space-y-4">
                           <div className="flex items-center gap-3 mb-2">
                             <div className="p-2 bg-amber-500/10 rounded-xl">
@@ -449,21 +583,20 @@ export default function Dashboard() {
                             </div>
                           </div>
                         </div>
+
+                        {/* Save Button */}
                         <div className="md:col-span-2 pt-4">
                           <button
-                            onClick={handleActivate}
-                            disabled={activating}
-                            className={cn(
-                              "w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl",
-                              activeStatus === "error" ? "bg-rose-500 text-white" : "bg-white text-black hover:bg-slate-100"
-                            )}
+                            onClick={handleSaveSettings}
+                            disabled={saving}
+                            className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-emerald-400 hover:text-white"
                           >
-                            {activating ? <Loader2 className="w-5 h-5 animate-spin" /> :
-                              activeStatus === "error" ? "Tentar Ativação novamente" : "Guardar & Ativar Webhooks"}
+                            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> Guardar Definições</>}
                           </button>
                         </div>
                       </>
                     ) : (
+                      /* Regular field grid */
                       s.fields?.map((f, i) => (
                         <div key={i} className="space-y-3">
                           <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
@@ -480,138 +613,92 @@ export default function Dashboard() {
                         </div>
                       ))
                     )}
+
+                    {/* Webhooks step: additional install notes */}
+                    {s.isWebhookStep && (
+                      <div className="md:col-span-2 flex items-start gap-4 bg-violet-500/5 border border-violet-500/20 rounded-2xl px-6 py-4">
+                        <Webhook className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-bold text-violet-300">O que são os Webhooks?</p>
+                          <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                            Os webhooks são notificações automáticas que a Shopify envia ao Rioko quando uma encomenda é paga ou um reembolso é criado. O Webhook Signing Secret valida que as notificações são autênticas. Encontra-o em <span className="text-violet-300 font-semibold">Shopify Admin → Definições → Notificações → Webhooks</span>.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )
-                }
+                )}
               </motion.div>
             </motion.div>
           );
         })}
 
-        {/* Passo 4: Integration Status Bar */}
-        {
-          (activeStatus === "success" || step === 3) && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={cn(
-                "rounded-[2.5rem] p-1 shadow-2xl transition-all duration-1000",
-                (shopifyAuthorized && ixAuthorized && webhooksActive)
-                  ? "bg-gradient-to-r from-emerald-500/40 via-emerald-400/10 to-emerald-500/40 shadow-[0_0_50px_rgba(16,185,129,0.2)]"
-                  : "bg-gradient-to-r from-amber-500/40 via-amber-400/10 to-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.2)]"
-              )}
-            >
-              <div className="bg-slate-950 rounded-[2.3rem] p-10 flex flex-col gap-8 border border-white/5">
-                {/* Top Row: Main Status */}
-                <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-                  <div className="flex items-center gap-8">
-                    <div className={cn(
-                      "w-20 h-20 rounded-[1.8rem] flex items-center justify-center p-0.5",
-                      (shopifyAuthorized && ixAuthorized && webhooksActive)
-                        ? "bg-emerald-500/20 ring-2 ring-emerald-400 ring-offset-4 ring-offset-slate-950"
-                        : "bg-amber-500/10 ring-2 ring-amber-400 ring-offset-4 ring-offset-slate-950"
-                    )}>
-                      {(shopifyAuthorized && ixAuthorized && webhooksActive) ? (
-                        <ShieldCheck className="w-10 h-10 text-emerald-400" />
-                      ) : (
-                        <Circle className="w-10 h-10 text-amber-500 stroke-[3]" />
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <h3 className="text-2xl font-black tracking-tight">
-                        {(shopifyAuthorized && ixAuthorized && webhooksActive) ? "Integração Concluída" : "Integração Incompleta"}
-                      </h3>
-                      <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
-                        {(shopifyAuthorized && ixAuthorized && webhooksActive)
-                          ? "A sua conta está configurada e protegida no Rioko 2.0"
-                          : "Corrija os campos assinalados abaixo para ativar a sincronização"}
-                      </p>
-                    </div>
+        {/* Integration Complete Card — only shows when ALL 4 steps are validated */}
+        {allComplete && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+            className="rounded-[2.5rem] p-1 shadow-2xl bg-gradient-to-r from-emerald-500/40 via-emerald-400/10 to-emerald-500/40 shadow-[0_0_60px_rgba(16,185,129,0.25)]"
+          >
+            <div className="bg-slate-950 rounded-[2.3rem] p-10 flex flex-col gap-8 border border-white/5">
+              {/* Header */}
+              <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                <div className="flex items-center gap-8">
+                  <div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-emerald-500/20 ring-2 ring-emerald-400 ring-offset-4 ring-offset-slate-950">
+                    <ShieldCheck className="w-10 h-10 text-emerald-400" />
                   </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className={cn(
-                      "px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border transition-all duration-1000",
-                      (shopifyAuthorized && ixAuthorized && webhooksActive)
-                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                        : "bg-amber-500/10 text-amber-500 border-amber-500/30"
-                    )}>
-                      {(shopifyAuthorized && ixAuthorized && webhooksActive) ? "ONLINE • REAL-TIME" : "PENDENTE • REQUER AÇÃO"}
-                    </div>
+                  <div className="space-y-1">
+                    <h3 className="text-2xl font-black tracking-tight">Integração Concluída</h3>
+                    <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+                      A sua conta está configurada e protegida no Rioko 2.0
+                    </p>
                   </div>
                 </div>
-
-                {/* Diagnostic Row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/5 pt-8">
-                  {/* Shopify Status */}
-                  <div className={cn(
-                    "flex items-center gap-3 px-5 py-4 rounded-2xl border",
-                    shopifyAuthorized ? "bg-emerald-500/5 border-emerald-500/20" : "bg-amber-500/5 border-amber-500/20"
-                  )}>
-                    <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", shopifyAuthorized ? "bg-emerald-500/10" : "bg-amber-500/10")}>
-                      <Store className={cn("w-4 h-4", shopifyAuthorized ? "text-emerald-400" : "text-amber-500")} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Shopify</p>
-                      <p className={cn("text-xs font-bold", shopifyAuthorized ? "text-emerald-400" : "text-amber-500")}>
-                        {shopifyAuthorized ? "Autorizado" : "Pendente"}
-                      </p>
-                    </div>
-                    {shopifyAuthorized ? <Check className="w-4 h-4 text-emerald-400 ml-auto" /> : <AlertTriangle className="w-4 h-4 text-amber-500 ml-auto" />}
-                  </div>
-
-                  {/* InvoiceXpress Status */}
-                  <div className={cn(
-                    "flex items-center gap-3 px-5 py-4 rounded-2xl border",
-                    ixAuthorized ? "bg-emerald-500/5 border-emerald-500/20" : "bg-amber-500/5 border-amber-500/20"
-                  )}>
-                    <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", ixAuthorized ? "bg-emerald-500/10" : "bg-amber-500/10")}>
-                      <CreditCard className={cn("w-4 h-4", ixAuthorized ? "text-emerald-400" : "text-amber-500")} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">InvoiceXpress</p>
-                      <p className={cn("text-xs font-bold", ixAuthorized ? "text-emerald-400" : "text-amber-500")}>
-                        {ixAuthorized ? "Autorizado" : "Pendente"}
-                      </p>
-                    </div>
-                    {ixAuthorized ? <Check className="w-4 h-4 text-emerald-400 ml-auto" /> : <AlertTriangle className="w-4 h-4 text-amber-500 ml-auto" />}
-                  </div>
-
-                  {/* Webhooks Status */}
-                  <div className={cn(
-                    "flex items-center gap-3 px-5 py-4 rounded-2xl border",
-                    webhooksActive ? "bg-emerald-500/5 border-emerald-500/20" : "bg-rose-500/5 border-rose-500/20"
-                  )}>
-                    <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", webhooksActive ? "bg-emerald-500/10" : "bg-rose-500/10")}>
-                      <Webhook className={cn("w-4 h-4", webhooksActive ? "text-emerald-400" : "text-rose-400")} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Webhooks Shopify</p>
-                      <p className={cn("text-xs font-bold", webhooksActive ? "text-emerald-400" : "text-rose-400")}>
-                        {webhooksActive ? "Registados" : "Não Instalados"}
-                      </p>
-                    </div>
-                    {webhooksActive ? <Check className="w-4 h-4 text-emerald-400 ml-auto" /> : <AlertTriangle className="w-4 h-4 text-rose-400 ml-auto animate-pulse" />}
-                  </div>
+                <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                  ONLINE • REAL-TIME
                 </div>
-
-                {/* Warning Banner if webhooks missing */}
-                {!webhooksActive && (
-                  <div className="flex items-start gap-4 bg-rose-500/5 border border-rose-500/20 rounded-2xl px-6 py-4">
-                    <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-bold text-rose-300">Webhooks não instalados na Shopify</p>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Clica em &quot;Guardar &amp; Ativar Webhooks&quot; no Passo 3 para registar os webhooks automaticamente. Se o erro persistir, verifica se o token Shopify tem permissão para gerir webhooks (<code className="text-rose-300">write_webhooks</code>).
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
-            </motion.div>
-          )
-        }
-      </div >
+
+              {/* 3-pill Diagnostic Row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/5 pt-8">
+                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-emerald-500/5 border-emerald-500/20">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500/10">
+                    <Store className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Shopify</p>
+                    <p className="text-xs font-bold text-emerald-400">Autorizado</p>
+                  </div>
+                  <Check className="w-4 h-4 text-emerald-400 ml-auto" />
+                </div>
+
+                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-emerald-500/5 border-emerald-500/20">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500/10">
+                    <Webhook className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Webhooks</p>
+                    <p className="text-xs font-bold text-emerald-400">Registados</p>
+                  </div>
+                  <Check className="w-4 h-4 text-emerald-400 ml-auto" />
+                </div>
+
+                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-emerald-500/5 border-emerald-500/20">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500/10">
+                    <CreditCard className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">InvoiceXpress</p>
+                    <p className="text-xs font-bold text-emerald-400">Autorizado</p>
+                  </div>
+                  <Check className="w-4 h-4 text-emerald-400 ml-auto" />
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </div>
 
       <div className="pt-12 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800">
@@ -619,6 +706,6 @@ export default function Dashboard() {
           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">D1 DATABASE LIGADA</span>
         </div>
       </div>
-    </div >
+    </div>
   );
 }

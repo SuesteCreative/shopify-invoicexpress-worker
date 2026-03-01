@@ -85,23 +85,39 @@ export async function POST(request: NextRequest) {
                 .bind(isValid ? 1 : 0, errorMessage || null, targetUserId).run();
 
         } else if (body.type === "ix") {
-            const account = config.ix_account_name;
-            const apiKey = config.ix_api_key;
+            let account = (config.ix_account_name || "").trim();
+            const apiKey = (config.ix_api_key || "").trim();
             const environment = config.ix_environment || "production";
 
             if (!account || !apiKey) return NextResponse.json({ error: "Missing IX credentials" }, { status: 400 });
+
+            // Advanced Sanitization: Extract slug if user pasted full URL
+            if (account.includes("invoicexpress.com")) {
+                try {
+                    const url = new URL(account.startsWith("http") ? account : `https://${account}`);
+                    account = url.hostname.split('.')[0];
+                } catch {
+                    account = account.split('.')[0];
+                }
+            }
 
             const suffix = environment === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
             const domain = account.includes('.') ? account : `${account}${suffix}`;
 
             try {
                 // Check if account is valid by listing clients (lightweight check)
+                // Pass apiKey both in Header and URL for maximum compatibility
                 const res = await fetch(`https://${domain}/clients.json?per_page=1&api_key=${apiKey}`, {
-                    headers: { "Accept": "application/json" }
+                    headers: {
+                        "X-InvoiceXpress-API-Key": apiKey,
+                        "Accept": "application/json"
+                    }
                 });
 
                 if (res.status === 200) {
                     isValid = true;
+                } else if (res.status === 530) {
+                    errorMessage = `Error 530: Site Not Found. Verifique se escolheu o ambiente correto (Production vs macewindu) para a conta [${account}].`;
                 } else {
                     const text = await res.text();
                     try {
@@ -112,7 +128,7 @@ export async function POST(request: NextRequest) {
                     }
                 }
             } catch (e: any) {
-                errorMessage = `Network failure: ${e.message}`;
+                errorMessage = `Falha na Rede: O domínio [${domain}] não responde.`;
                 isValid = false;
             }
 

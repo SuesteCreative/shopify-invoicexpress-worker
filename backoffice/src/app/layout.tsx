@@ -4,6 +4,7 @@ import { ClerkProvider, UserButton, SignOutButton } from "@clerk/nextjs";
 import "./globals.css";
 import Image from "next/image";
 import { LogOut, User } from "lucide-react";
+import InactivityLogout from "@/components/InactivityLogout";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -23,8 +24,9 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body className={`${outfit.variable} font-sans antialiased text-white bg-slate-950`}>
+      <html lang="pt">
+        <body className={`${outfit.className} antialiased bg-slate-950 text-white min-h-screen flex flex-col md:flex-row overflow-x-hidden`}>
+          <InactivityLogout />
           {/* Dashboard Mesh Background */}
           <div className="glow-mesh" aria-hidden="true" />
 

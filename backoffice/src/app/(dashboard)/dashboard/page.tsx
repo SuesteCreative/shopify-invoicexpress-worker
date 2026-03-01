@@ -8,12 +8,15 @@ import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circl
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { useUser } from "@clerk/nextjs";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export default function Dashboard() {
+  const { user: clerkUser } = useUser();
+  const firstName = clerkUser?.firstName || clerkUser?.fullName?.split(" ")[0] || "";
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -416,7 +419,9 @@ export default function Dashboard() {
       {/* Welcome Message */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="space-y-2">
-          <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-white via-white to-slate-500 bg-clip-text text-transparent">Olá, Pedro</h1>
+          <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-white via-white to-slate-500 bg-clip-text text-transparent">
+            {firstName ? `Olá, ${firstName}` : "Olá"}
+          </h1>
           <p className="text-slate-400 font-semibold tracking-wide flex items-center gap-2">
             Rioko 2.0 está a postos <span className="w-1 h-1 rounded-full bg-slate-600" /> A sua automação está ativa.
           </p>

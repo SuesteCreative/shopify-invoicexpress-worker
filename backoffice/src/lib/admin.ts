@@ -1,21 +1,35 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 
 export async function isAdmin(userId?: string | null) {
     if (!userId) {
         const session = await auth();
         userId = session.userId;
     }
-
     if (!userId) return false;
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
-
     if (!db) return false;
 
     const user: any = await db.prepare("SELECT role FROM users WHERE id = ?").bind(userId).first();
-    return user?.role === "admin";
+    // Both "admin" and "superadmin" can access admin features
+    return user?.role === "admin" || user?.role === "superadmin";
+}
+
+export async function isSuperAdmin(userId?: string | null) {
+    if (!userId) {
+        const session = await auth();
+        userId = session.userId;
+    }
+    if (!userId) return false;
+
+    const { env } = getRequestContext();
+    const db = (env as any).DB;
+    if (!db) return false;
+
+    const user: any = await db.prepare("SELECT role FROM users WHERE id = ?").bind(userId).first();
+    return user?.role === "superadmin";
 }
 
 export async function getImpersonationId(request: Request) {

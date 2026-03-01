@@ -28,8 +28,8 @@ export async function getOrCreateClient(
     if (!apiKey) throw new Error("INVOICEXPRESS_API_KEY is not defined in environment variables/secrets");
     if (!account) throw new Error("INVOICEXPRESS_ACCOUNT_NAME is not defined in environment variables");
 
-    // Support standard app domain or full custom domain
-    const domain = account.includes('.') ? account : `${account}.invoicexpress.com`;
+    // Support macewindu test domain or standard app domain
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -140,7 +140,7 @@ export async function createDocument(
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const domain = account.includes('.') ? account : `${account}.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,
@@ -245,7 +245,7 @@ export async function createDocument(
 export async function findDocumentDetailsByReference(env: Env, reference: string): Promise<{ id: string, type: string, state: string } | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const domain = account.includes('.') ? account : `${account}.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -274,7 +274,7 @@ export async function findDocumentDetailsByReference(env: Env, reference: string
 export async function finalizeDocument(env: Env, docId: string, type: string): Promise<boolean> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const domain = account.includes('.') ? account : `${account}.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -310,7 +310,7 @@ export async function finalizeDocument(env: Env, docId: string, type: string): P
 export async function findCreditNoteByReference(env: Env, reference: string): Promise<string | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const domain = account.includes('.') ? account : `${account}.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -338,7 +338,7 @@ export async function createCreditNote(
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const domain = account.includes('.') ? account : `${account}.invoicexpress.com`;
+    const domain = account.includes('.') ? account : `${account}.macewindu.invoicexpress.com`;
     const baseUrl = `https://${domain}`;
 
     // 1. Get original document details

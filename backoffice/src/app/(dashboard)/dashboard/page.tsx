@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap } from "lucide-react";
+import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -359,9 +359,9 @@ export default function Dashboard() {
       isAuthorized: shopifyAuthorized,
       errorMsg: shopifyError,
       fields: [
-        { label: "Domínio Shopify (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "exemplo.myshopify.com", type: "text" },
-        { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password" },
-        { label: "Versão da API", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text" }
+        { label: "Domínio Shopify (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "exemplo.myshopify.com", type: "text", helpAnchor: "dominio-shopify" },
+        { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password", helpAnchor: "access-token" },
+        { label: "Versão da API", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text", helpAnchor: "api-version" }
       ],
       action: handleShopifyConnect,
       actionLabel: "Verificar Ligação",
@@ -377,7 +377,7 @@ export default function Dashboard() {
       isAuthorized: webhooksActive,
       errorMsg: webhookStatus === "error" ? "Falha ao instalar webhooks. Verifica se o token tem permissão write_webhooks." : "",
       fields: [
-        { label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "Ver Shopify Notificações > Webhooks", type: "password" }
+        { label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "Ver Shopify Notificações > Webhooks", type: "password", helpAnchor: "webhook-secret" }
       ],
       action: handleWebhooksInstall,
       actionLabel: webhookStatus === "error" ? "Tentar novamente" : "Instalar Webhooks",
@@ -394,9 +394,9 @@ export default function Dashboard() {
       isAuthorized: ixAuthorized,
       errorMsg: ixError,
       fields: [
-        { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
-        { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" },
-        { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'sandbox'", type: "text" }
+        { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text", helpAnchor: "ix-account" },
+        { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password", helpAnchor: "ix-api-key" },
+        { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'sandbox'", type: "text", helpAnchor: "ix-environment" }
       ],
       action: handleIxConnect,
       actionLabel: "Verificar Ligação",
@@ -566,7 +566,12 @@ export default function Dashboard() {
                         {/* IVA Incluído */}
                         <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
                           <div>
-                            <h3 className="font-bold text-sm">IVA Incluído</h3>
+                            <div className="flex items-center gap-3">
+                              <h3 className="font-bold text-sm">IVA Incluído</h3>
+                              <a href="/help#vat" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors">
+                                <BookOpen className="w-3 h-3" />Onde Encontrar
+                              </a>
+                            </div>
                             <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Os preços no Shopify já incluem IVA</p>
                           </div>
                           <button
@@ -583,7 +588,12 @@ export default function Dashboard() {
                         {/* Auto Finalizar */}
                         <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
                           <div>
-                            <h3 className="font-bold text-sm">Auto Finalizar</h3>
+                            <div className="flex items-center gap-3">
+                              <h3 className="font-bold text-sm">Auto Finalizar</h3>
+                              <a href="/help#auto-finalize" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors">
+                                <BookOpen className="w-3 h-3" />Onde Encontrar
+                              </a>
+                            </div>
                             <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Emitir e finalizar documentos imediatamente</p>
                           </div>
                           <button
@@ -604,6 +614,9 @@ export default function Dashboard() {
                               <Info className="w-4 h-4 text-amber-500" />
                             </div>
                             <h3 className="font-bold text-sm tracking-tight">Razão de Isenção (IVA 0%)</h3>
+                            <a href="/help#exemption" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors">
+                              <BookOpen className="w-3 h-3" />Onde Encontrar
+                            </a>
                           </div>
                           <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider leading-relaxed">
                             Se algum artigo na Shopify tiver 0% de IVA, esta será a razão de isenção aplicada automaticamente na fatura.
@@ -639,12 +652,25 @@ export default function Dashboard() {
                       </>
                     ) : (
                       /* Regular field grid */
-                      s.fields?.map((f, i) => (
+                      s.fields?.map((f: any, i: number) => (
                         <div key={i} className="space-y-3">
-                          <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
-                            <span className="w-1 h-1 rounded-full bg-accent-blue" />
-                            {f.label}
-                          </label>
+                          <div className="flex items-center justify-between ml-1">
+                            <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                              <span className="w-1 h-1 rounded-full bg-accent-blue" />
+                              {f.label}
+                            </label>
+                            {f.helpAnchor && (
+                              <a
+                                href={`/help#${f.helpAnchor}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors group/help"
+                              >
+                                <BookOpen className="w-3 h-3 group-hover/help:scale-110 transition-transform" />
+                                Onde Encontrar
+                              </a>
+                            )}
+                          </div>
                           <input
                             type={f.type}
                             value={f.value}

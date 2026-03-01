@@ -23,13 +23,14 @@ export async function GET() {
         u.name, 
         u.role, 
         u.last_login,
+        u.created_at,
         i.shopify_domain,
         i.shopify_authorized,
         i.ix_authorized,
         CASE WHEN i.shopify_token IS NOT NULL AND i.ix_api_key IS NOT NULL THEN 1 ELSE 0 END as is_connected
       FROM users u
       LEFT JOIN integrations i ON u.id = i.user_id
-      ORDER BY u.last_login DESC
+      ORDER BY u.created_at DESC
     `).all();
 
         return NextResponse.json(results.results);

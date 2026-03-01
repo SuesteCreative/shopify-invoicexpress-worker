@@ -4,6 +4,7 @@ import Link from "next/link";
 import { LogOut, Activity, CreditCard, ShieldCheck } from "lucide-react";
 import { isAdmin } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 
 export default async function DashboardLayout({
     children,
@@ -15,6 +16,7 @@ export default async function DashboardLayout({
 
     return (
         <div className="flex flex-col md:flex-row min-h-screen">
+            <ImpersonationBanner />
             {/* Sidebar */}
             <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0 z-20">
                 <div className="mb-14 flex flex-col items-center md:items-start w-full">

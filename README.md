@@ -8,6 +8,9 @@ A production-lean integration that automatically creates InvoiceXpress invoices 
 - **PT NIF Extraction**: Automatically finds and validates 9-digit Portuguese NIFs from order notes/attributes.
 - **Dynamic VAT**: Intelligent VAT mapping (6% for books, 23% for others) based on tax lines or keywords.
 - **Secure**: Sensitive keys are managed via Cloudflare Secrets.
+- **Privacy-First (No-OAuth Required)**: Uses local KV memory to process refunds without requiring sensitive Shopify "Protected Customer Data" scopes.
+- **Auto-Sync**: One-click webhook registration and rule configuration.
+- **Tax Intelligent**: Automatic Back-Calculation for "VAT Included" stores.
 
 ## Setup Instructions
 
@@ -96,9 +99,11 @@ curl -X POST http://localhost:8787/webhooks/shopify/orders-paid \
   }'
 ```
 
-## VAT Rules
+## VAT & Accounting Rules
 - **6%**: Applied if Shopify tax rate is 0.06 OR if the product title/type/vendor/tag contains "book" or "livro".
 - **23%**: Default fallback for everything else.
+- **Net Calculation**: If "IVA Incluído" is active, the worker automatically back-calculates the Net unit price (Gross / 1.XX) to ensure InvoiceXpress sums match Shopify exactly.
+- **Refund Link**: Credit Notes are automatically attached to the original invoice using the `owner_invoice_id` link.
 
 ## NIF Extraction
 The worker searches for a 9-digit sequence in the Order Note, Note Attributes, and Address Line 2 (Billing/Shipping). It validates the sequence using the Portuguese NIF checksum. If no valid NIF is found, it defaults to "Consumidor Final" (NIF 999999990).

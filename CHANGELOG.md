@@ -1,5 +1,21 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 🏆 Version 2.3.0 (The Integration & Privacy Milestone) - March 1, 2026
+
+### 🔗 Document Connectivity
+- **Smart Credit Note Association**: Implemented `owner_invoice_id` mapping. Refunds (Credit Notes) are now legally and visually linked to their original Fatura-Recibo in the InvoiceXpress dashboard.
+- **Back-Calculation Engine**: Added a mathematical layer to automatically reverse-calculate Net prices from Gross totals for stores with "VAT Included" active, solving incompatible test environment errors.
+
+### 🧠 Privacy & Intelligence
+- **Privacy-First Mapping (KV Memory)**: The Worker now memorizes customer metadata at the moment of purchase. This allows processing refunds without "hitting" the Shopify API again, bypassing 401 permissions errors and the need for sensitive "Protected Customer Data" scopes.
+- **Unified Command Center**: Re-architected Step 3 of the onboarding flow. A single "Guardar & Ativar" action now synchronizes all toggles (VAT, Auto-Finalize) before registering webhooks.
+
+### 🛡️ Reliability & Fixes
+- **Reference Streamlining**: Simplified document references (e.g., `Order #1278`) to improve searchability and prevent bracket-matching bugs in the IX API.
+- **Auto-Finalize Sync**: Fixed a state-desync bug where toggles wouldn't apply to the active session until the next manual save.
+
+---
+
 ## 🛡️ Version 2.2.0 (The Stability & Region Release) - March 1, 2026
 
 ### 🌍 Global Reach & Localization

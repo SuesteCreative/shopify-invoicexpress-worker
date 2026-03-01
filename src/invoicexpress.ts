@@ -150,15 +150,21 @@ export async function createDocument(
         "Accept": "application/json"
     };
 
+    const isTaxIncluded = env.INVOICEXPRESS_TAX_INCLUDED === "true";
+
     const items = order.line_items.map((item: any) => {
         // Hierarchy for Item ID: SKU -> Barcode -> Variant ID
         const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
+        const rawPrice = parseFloat(item.price);
+
+        // Calculate Net Price if VAT is included in Shopify
+        const unitPrice = isTaxIncluded ? (rawPrice / (1 + vatRate / 100)) : rawPrice;
 
         return {
             name: itemCode,
             description: item.name, // Full product + variant name
-            unit_price: parseFloat(item.price),
+            unit_price: unitPrice,
             quantity: item.quantity,
             unit: "service",
             tax: { name: mapTaxName(vatRate) }
@@ -167,13 +173,17 @@ export async function createDocument(
 
     // Handle Shipping
     if (parseFloat(order.shipping_lines?.[0]?.price || "0") > 0) {
+        const rawShipping = parseFloat(order.shipping_lines[0].price);
+        const shipVat = 23; // Standard shipping VAT
+        const shipUnitPrice = isTaxIncluded ? (rawShipping / (1 + shipVat / 100)) : rawShipping;
+
         items.push({
             name: "Portes de Envio",
             description: order.shipping_lines[0].title,
-            unit_price: parseFloat(order.shipping_lines[0].price),
+            unit_price: shipUnitPrice,
             quantity: 1,
             unit: "service",
-            tax: { name: mapTaxName(23) }
+            tax: { name: mapTaxName(shipVat) }
         });
     }
 
@@ -205,9 +215,16 @@ export async function createDocument(
 
     // Apply Discount as Global Discount (Correct for IX API v2)
     if (parseFloat(order.total_discounts || "0") > 0) {
+        const rawDiscount = parseFloat(order.total_discounts);
+        // We assume global discount follows the average tax or the most common tax. 
+        // For simplicity and to match total, we adjust it if taxes are included.
+        // If there are multiple taxes, this is an approximation, but better than gross.
+        const avgVat = items.length > 0 ? (determineVATRate(order.line_items[0]) || 0) : 0;
+        const netDiscount = isTaxIncluded ? (rawDiscount / (1 + avgVat / 100)) : rawDiscount;
+
         body[rootKey].global_discount = {
             value_type: "absolute",
-            value: order.total_discounts
+            value: netDiscount.toFixed(2)
         };
     }
 
@@ -348,13 +365,17 @@ export async function createCreditNote(
     const original = await findDocumentDetailsByReference(env, originalRef);
     if (!original) throw new Error(`Original document for reference "${originalRef}" not found in IX.`);
 
+    const isTaxIncluded = env.INVOICEXPRESS_TAX_INCLUDED === "true";
+
     const items = refund.refund_line_items.map((ri: any) => {
         const item = ri.line_item;
         const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
 
         // Calculate unit price from subtotal to include line-level discounts
-        const unitPrice = ri.subtotal / ri.quantity;
+        const rawSubtotal = ri.subtotal;
+        const unitPriceGross = rawSubtotal / ri.quantity;
+        const unitPrice = isTaxIncluded ? (unitPriceGross / (1 + vatRate / 100)) : unitPriceGross;
 
         return {
             name: itemCode,
@@ -369,13 +390,17 @@ export async function createCreditNote(
     // Handle shipping refund if any
     const shippingRefund = refund.order_adjustments?.find((adj: any) => adj.kind === "shipping_refund");
     if (shippingRefund) {
+        const shipVat = 23;
+        const rawAmount = Math.abs(parseFloat(shippingRefund.amount));
+        const netAmount = isTaxIncluded ? (rawAmount / (1 + shipVat / 100)) : rawAmount;
+
         items.push({
             name: "Shipping Refund",
             description: "Refund of shipping costs",
-            unit_price: Math.abs(parseFloat(shippingRefund.amount)),
+            unit_price: netAmount,
             quantity: 1,
             unit: "service",
-            tax: { name: mapTaxName(23) }
+            tax: { name: mapTaxName(shipVat) }
         });
     }
 

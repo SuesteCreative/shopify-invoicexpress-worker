@@ -102,7 +102,8 @@ export default function Dashboard() {
         if (data.ix_error) setIxError(data.ix_error);
 
         // Smart step resume — always start from the furthest valid state
-        if (data.ix_api_key && data.shopify_token) setStep(4);
+        if (data.shopify_authorized && data.ix_authorized && data.ix_api_key) setStep(5);
+        else if (data.ix_api_key && data.shopify_token) setStep(4);
         else if (data.webhooks_active) setStep(3);
         else if (data.shopify_token) setStep(2);
         else setStep(1);
@@ -249,7 +250,7 @@ export default function Dashboard() {
   const handleSaveSettings = async () => {
     setSaving(true);
     try {
-      await fetch("/api/integrations", {
+      const res = await fetch("/api/integrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -265,6 +266,12 @@ export default function Dashboard() {
           auto_finalize: autoFinalize
         })
       });
+      if (res.ok) {
+        // Seal step 4 — moves it to "complete" state
+        setStep(5);
+      } else {
+        alert("Erro ao guardar definições. Tenta novamente.");
+      }
     } catch (e: any) {
       alert(`Erro ao guardar: ${e.message}`);
     } finally {

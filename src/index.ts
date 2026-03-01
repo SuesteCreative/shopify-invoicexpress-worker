@@ -100,8 +100,14 @@ export default {
 
         // 3. Webhook handler: Refund Created
         if (url.pathname === "/webhooks/shopify/refunds-create" && request.method === "POST") {
+            const shopHeader = request.headers.get("X-Shopify-Shop-Domain");
+            console.log(`[Rioko] Webhook Received: refunds-create for ${shopHeader}`);
+
             const isValid = await verifyShopifyWebhook(request, config.SHOPIFY_WEBHOOK_SECRET);
-            if (!isValid) return new Response("Invalid Signature", { status: 401 });
+            if (!isValid) {
+                await saveLog(env, { shopify_domain: shopHeader, topic: "refunds/create", payload: "HIDDEN", response: "Invalid Signature", status: 401 });
+                return new Response("Invalid Signature", { status: 401 });
+            }
 
             const refund = await request.clone().json<any>();
             const refundId = refund.id;
@@ -109,7 +115,10 @@ export default {
 
             // Idempotency for refunds
             const existing = await isIdempotent(`refund_${refundId}`, config);
-            if (existing) return new Response("Refund already processed", { status: 200 });
+            if (existing) {
+                await saveLog(env, { shopify_domain: shopHeader, topic: "refunds/create", payload: refundId, response: "Refund already processed", status: 200 });
+                return new Response("Refund already processed", { status: 200 });
+            }
 
             try {
                 console.log(`[Shopify] Processing refund ${refundId} (Order ${orderId})`);
@@ -137,6 +146,7 @@ export default {
                 if (cxExisting) {
                     console.log(`[IX] Credit Note already exists for refund ${refundId}: ${cxExisting}`);
                     await markAsInvoiced(`refund_${refundId}`, cxExisting, config);
+                    await saveLog(env, { shopify_domain: shopHeader, topic: "refunds/create", payload: refundId, response: { message: "Refund already in IX", credit_note_id: cxExisting }, status: 200 });
                     return new Response(JSON.stringify({ message: "Refund already in IX", credit_note_id: cxExisting }), { status: 200 });
                 }
 
@@ -148,6 +158,7 @@ export default {
                 const creditNoteId = await createCreditNote(config, clientId, originalRef, order, refund, clientMetadata);
 
                 await markAsInvoiced(`refund_${refundId}`, creditNoteId, config);
+                await saveLog(env, { shopify_domain: shopHeader, topic: "refunds/create", payload: refundId, response: { creditNoteId }, status: 200 });
 
                 return new Response(JSON.stringify({ message: "Credit Note created", credit_note_id: creditNoteId }), {
                     status: 200,
@@ -156,12 +167,14 @@ export default {
             } catch (error: any) {
                 if (error.message === "DOCUMENT_IS_DRAFT") {
                     console.log(`[HOLD] Original document for Order #${orderId} is still a Draft. Credit Note is on hold (Shopify will retry).`);
+                    await saveLog(env, { shopify_domain: shopHeader, topic: "refunds/create", payload: refundId, response: "HOLD: Original is Draft", status: 422 });
                     return new Response(JSON.stringify({
                         message: "HOLD: Original document is a Draft. Please finalize it in InvoiceXpress to allow Credit Note creation.",
                         state: "waiting"
                     }), { status: 422 });
                 }
                 console.error(`Error processing refund ${refundId}:`, error.message);
+                await saveLog(env, { shopify_domain: shopHeader, topic: "refunds/create", payload: refundId, response: error.message, status: 500 });
                 return new Response(JSON.stringify({ error: error.message }), { status: 500 });
             }
         }

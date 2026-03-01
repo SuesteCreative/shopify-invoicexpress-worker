@@ -1,5 +1,16 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 3.7.3 — Override Manual & Branding Polish — March 1, 2026
+
+### 🛡️ Hyperadmin Override System
+- **Manual "Force Authorize"**: Hiperadmins can now manually force Step 1, 2, and 3 into the "Autorizado" state directly from the Dashboard diagnostic tooltips. This is essential for test tokens or non-standard scopes that fail the auto-diagnostic but are technically functional.
+- **Enhanced Client Rules**: The "Regras de Clientes" page now includes dedicated toggles to manage these manual status overrides per client.
+- **Webhook Confirmation Fix**: Resolved a critical DB binding bug in the manual webhook confirmation API that was preventing status persistence.
+
+### 🎨 Branding & UI Polish
+- **Logo Alignment**: Re-aligned the Rioko version badge to the bottom of the logo for better visual balance.
+- **Static vs Dynamic Versioning**: The sidebar logo now shows a static "2.0" badge (platform version) while the full build version (v3.7.3) is clearly displayed at the bottom of the sidebar.
+
 ## 💎 Version 3.7.2 — Help Visibility Milestone — March 1, 2026
 
 ### 🖥️ Sidebar Navigation

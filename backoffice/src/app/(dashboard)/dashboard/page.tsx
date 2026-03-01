@@ -24,6 +24,8 @@ export default function Dashboard() {
   const [saving, setSaving] = useState(false);
   const [activating, setActivating] = useState(false);
   const [webhookStatus, setWebhookStatus] = useState<"idle" | "success" | "error">("idle");
+  const [userRole, setUserRole] = useState("");
+  const [targetUserId, setTargetUserId] = useState("");
 
   // Form State
   const [shopifyDomain, setShopifyDomain] = useState("");
@@ -106,6 +108,8 @@ export default function Dashboard() {
         if (data.webhooks_active !== undefined) setWebhooksActive(data.webhooks_active === 1);
         if (data.shopify_error) setShopifyError(data.shopify_error);
         if (data.ix_error) setIxError(data.ix_error);
+        if (data._user_role) setUserRole(data._user_role);
+        if (data.user_id) setTargetUserId(data.user_id);
 
         // Smart step resume — always start from the furthest valid state
         if (data.shopify_authorized && data.ix_authorized && data.ix_api_key) setStep(5);
@@ -316,36 +320,86 @@ export default function Dashboard() {
   }
 
   // ── Helper: status badge for completed steps ──
-  const StatusBadge = ({ isAuthorized, errorMsg }: { isAuthorized: boolean; errorMsg?: string }) => (
-    <div className="relative group/badge">
-      <span className={cn(
-        "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all",
-        isAuthorized
-          ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-          : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-      )}>
-        {isAuthorized ? "Autorizado" : "Pendente"}
-        {!isAuthorized && <HelpCircle className="w-3 h-3 animate-pulse cursor-help" />}
-      </span>
-      {!isAuthorized && errorMsg && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
-          <div className="flex items-center gap-3 mb-4 text-amber-400">
-            <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
-              <Info className="w-5 h-5" />
+  const StatusBadge = ({ isAuthorized, errorMsg, stepId }: { isAuthorized: boolean; errorMsg?: string; stepId: number }) => {
+    const isHiper = userRole === "hiperadmin";
+
+    const handleManualForce = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!confirm("⚠️ Forçar autorização manual? Isto irá ignorar os erros de diagnóstico.")) return;
+
+      const flagMap: Record<number, string> = {
+        1: "shopify_authorized",
+        2: "webhooks_active",
+        3: "ix_authorized"
+      };
+
+      const flag = flagMap[stepId];
+      if (!flag) return;
+
+      setSaving(true);
+      try {
+        const res = await fetch("/api/admin/client-rules", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetUserId, flag, value: 1 })
+        });
+        if (res.ok) {
+          if (stepId === 1) setShopifyAuthorized(true);
+          if (stepId === 2) setWebhooksActive(true);
+          if (stepId === 3) setIxAuthorized(true);
+        } else {
+          alert("Erro ao forçar autorização.");
+        }
+      } catch (e: any) {
+        alert(e.message);
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    return (
+      <div className="relative group/badge">
+        <span className={cn(
+          "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all",
+          isAuthorized
+            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+            : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+        )}>
+          {isAuthorized ? "Autorizado" : "Pendente"}
+          {!isAuthorized && <HelpCircle className="w-3 h-3 animate-pulse cursor-help" />}
+        </span>
+        {!isAuthorized && (
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none group-hover/badge:pointer-events-auto z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
+            <div className="flex items-center gap-3 mb-4 text-amber-400">
+              <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
+                <Info className="w-5 h-5" />
+              </div>
+              <div className="flex flex-col text-left">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico de Ligação</p>
+                <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko 2.0 Engine</p>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico de Ligação</p>
-              <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko 2.0 Engine</p>
+            <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5 mb-4">
+              <p className="text-[13px] text-amber-50/90 font-bold leading-relaxed text-left">{errorMsg || "A aguardar verificação técnica..."}</p>
             </div>
+
+            {isHiper && (
+              <button
+                onClick={handleManualForce}
+                disabled={saving}
+                className="w-full py-3 rounded-xl bg-amber-500 text-black font-black text-[10px] uppercase tracking-widest hover:bg-amber-400 transition-all flex items-center justify-center gap-2"
+              >
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+                Forçar Autorização (Hiperadmin)
+              </button>
+            )}
+
+            <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-slate-900 rotate-45 border-r-2 border-b-2 border-amber-500/10" />
           </div>
-          <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5">
-            <p className="text-[13px] text-amber-50/90 font-bold leading-relaxed">{errorMsg}</p>
-          </div>
-          <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-slate-900 rotate-45 border-r-2 border-b-2 border-amber-500/10" />
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   // ── Step definitions ──
   const steps = [
@@ -498,7 +552,7 @@ export default function Dashboard() {
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-bold tracking-tight">{s.title}</h2>
-                    {isComplete && <StatusBadge isAuthorized={s.isAuthorized} errorMsg={s.errorMsg} />}
+                    {isComplete && <StatusBadge isAuthorized={s.isAuthorized} errorMsg={s.errorMsg} stepId={s.id} />}
                     {isActive && <div className="h-1.5 w-1.5 rounded-full bg-accent-blue animate-ping" />}
                   </div>
                   <p className="text-slate-400 font-medium leading-relaxed max-w-xl">{s.description}</p>

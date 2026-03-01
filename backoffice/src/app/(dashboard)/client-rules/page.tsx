@@ -18,6 +18,8 @@ interface ClientRule {
     ix_exemption_reason: string;
     pos_mode: number;
     webhooks_active: number;
+    shopify_authorized: number;
+    ix_authorized: number;
 }
 
 const Toggle = ({ value, onChange, label, description, warn }: {
@@ -160,10 +162,22 @@ export default function ClientRulesPage() {
                                 warn="Faturas finalizadas não podem ser editadas no InvoiceXpress."
                             />
                             <Toggle
+                                value={client.shopify_authorized === 1}
+                                onChange={v => updateFlag(client.id, "shopify_authorized", v ? 1 : 0)}
+                                label="🛍️ Ligação Shopify (Override Manual)"
+                                description="Força o estado da ligação Shopify como autorizada, contornando o erro de diagnóstico se o token expirar ou for de teste."
+                            />
+                            <Toggle
                                 value={client.webhooks_active === 1}
                                 onChange={v => updateFlag(client.id, "webhooks_active", v ? 1 : 0)}
-                                label="🔗 Webhooks Confirmados"
+                                label="🔗 Webhooks (Override Manual)"
                                 description="Override manual do estado dos webhooks. Activa se os webhooks estão instalados mas o token não tem read_webhooks para verificar."
+                            />
+                            <Toggle
+                                value={client.ix_authorized === 1}
+                                onChange={v => updateFlag(client.id, "ix_authorized", v ? 1 : 0)}
+                                label="💳 Ligação InvoiceXpress (Override Manual)"
+                                description="Força o estado da ligação InvoiceXpress como autorizada, ignorando falhas de API no diagnóstico."
                             />
                         </div>
 

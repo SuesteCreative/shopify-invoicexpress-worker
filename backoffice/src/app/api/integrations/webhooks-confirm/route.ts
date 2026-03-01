@@ -19,8 +19,11 @@ export async function POST(request: NextRequest) {
 
     try {
         const { env } = getRequestContext();
-        const db = (env as any).RIOKO_DB;
-        if (!db) return NextResponse.json({ error: "DB not available" }, { status: 500 });
+        const db = (env as any).DB;
+        if (!db) {
+            console.error("D1 Binding 'DB' not found in env");
+            return NextResponse.json({ error: "DB not available" }, { status: 500 });
+        }
 
         await db.prepare(
             "UPDATE integrations SET webhooks_active = 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"

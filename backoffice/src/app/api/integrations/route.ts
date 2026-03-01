@@ -37,13 +37,17 @@ export async function GET(request: NextRequest) {
             .bind(targetUserId)
             .first();
 
-        // Also fetch the target user's name (used for greeting, correct under impersonation)
+        // Also fetch the target user's metadata (correct under impersonation)
         const userRecord: any = await db
-            .prepare("SELECT name FROM users WHERE id = ?")
+            .prepare("SELECT name, role FROM users WHERE id = ?")
             .bind(targetUserId)
             .first();
 
-        return NextResponse.json({ ...(integration || {}), _user_name: userRecord?.name || null });
+        return NextResponse.json({
+            ...(integration || {}),
+            _user_name: userRecord?.name || null,
+            _user_role: userRecord?.role || "user"
+        });
     } catch (error: any) {
         console.error("D1 Error:", error);
         return NextResponse.json({ error: `Internal Server Error: ${error.message}` }, { status: 500 });

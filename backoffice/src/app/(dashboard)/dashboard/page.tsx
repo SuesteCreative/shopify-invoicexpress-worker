@@ -1,5 +1,7 @@
 "use client";
 
+export const runtime = "edge";
+
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2 } from "lucide-react";

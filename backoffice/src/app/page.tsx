@@ -4,6 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Bot, ShieldCheck, Zap } from "lucide-react";
 
+export const runtime = "edge";
+
 export default async function LandingPage() {
   const { userId } = await auth();
 

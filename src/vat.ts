@@ -8,31 +8,18 @@ export interface LineItem {
 }
 
 export function determineVATRate(item: LineItem): number {
-    const content = `${item.title} ${item.product_type || ''} ${item.vendor || ''} ${item.tags || ''}`.toLowerCase();
-
-    // 1. High-Priority Override: Workshops (usually 0% regardless of Shopify settings)
-    if (content.includes('workshop')) {
-        return 0;
-    }
-
-    // 2. Primary Source: Shopify Tax Lines (Explicitly set on the product/order)
+    // 1. Primary Source: Shopify Tax Lines (Decimal to Percentage)
     if (item.tax_lines && item.tax_lines.length > 0) {
         const rate = item.tax_lines[0].rate;
-        if (Math.abs(rate - 0.06) < 0.001) return 6;
-        if (Math.abs(rate - 0.23) < 0.001) return 23;
-        if (rate === 0) return 0;
+        return Math.round(rate * 100); // e.g., 0.23 -> 23
     }
 
-    // 3. Explicitly non-taxable in Shopify
+    // 2. Explicitly non-taxable in Shopify
     if (item.taxable === false) {
         return 0;
     }
 
-    // 4. Fallback Keyword Detection (Only if Shopify has no tax info listed)
-    if (content.includes('book') || content.includes('livro')) {
-        return 6;
-    }
-
-    // 5. Global Fallback
+    // 3. Global Fallback (Exempt)
+    // As per user request: "se o produto não tem informação de iva aplica isento"
     return 0;
 }

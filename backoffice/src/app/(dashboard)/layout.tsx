@@ -2,8 +2,9 @@ import { UserButton, SignOutButton } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { LogOut, Activity, CreditCard, ShieldCheck } from "lucide-react";
-import { isAdmin, isHiperadmin } from "@/lib/admin";
+import { isAdmin, isHiperadmin, getRole } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
+import { cookies } from "next/headers";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { NavLinks } from "@/components/NavLinks";
@@ -15,7 +16,14 @@ export default async function DashboardLayout({
 }) {
     const { userId } = await auth();
     const isSuperAdmin = await isAdmin(userId);
-    const userIsHiperadmin = await isHiperadmin(userId);
+
+    // Determine the viewer's role (account for impersonation)
+    // When impersonating, sidebar shows the IMPERSONATED user's permissions, not the real admin's.
+    const cookieStore = await cookies();
+    const impersonationId = cookieStore.get("rioko_impersonate_id")?.value;
+    const viewerUserId = impersonationId || userId;
+    const viewerRole = await getRole(viewerUserId);
+    const userIsHiperadmin = viewerRole === "hiperadmin";
 
     return (
         <div className="flex flex-col md:flex-row min-h-screen">

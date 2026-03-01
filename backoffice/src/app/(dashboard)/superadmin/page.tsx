@@ -42,6 +42,7 @@ export default function SuperadminPage() {
     const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const [callerRole, setCallerRole] = useState<Role>("user");
+    const [viewerId, setViewerId] = useState<string | null>(null); // impersonation-aware self ID
 
     useEffect(() => { fetchUsers(); }, []);
 
@@ -49,11 +50,12 @@ export default function SuperadminPage() {
         setLoading(true);
         try {
             const res = await fetch("/api/admin/users");
-            const data = await res.json() as any[];
-            setUsers(data);
-            // Detect own role from own record
-            const self = data.find((u: any) => u.id === clerkUser?.id);
-            if (self) setCallerRole(self.role as Role);
+            const data = await res.json() as any;
+            // API returns { users: [...], _viewer_role, _viewer_id }
+            const userList = Array.isArray(data) ? data : (data.users || []);
+            setUsers(userList);
+            setCallerRole((data._viewer_role || "user") as Role);
+            setViewerId(data._viewer_id || null);
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
     };
@@ -184,7 +186,7 @@ export default function SuperadminPage() {
             <div className="grid gap-6">
                 <AnimatePresence mode="popLayout">
                     {filtered.map(user => {
-                        const isSelf = clerkUser?.id === user.id;
+                        const isSelf = (viewerId || clerkUser?.id) === user.id;
                         const targetRole = user.role as Role;
                         const callerLevel = ROLE_ORDER[callerRole] || 1;
                         const targetLevel = ROLE_ORDER[targetRole] || 1;

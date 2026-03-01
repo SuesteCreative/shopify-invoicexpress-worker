@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin, isSuperAdmin, isHiperadmin, getRole } from "@/lib/admin";
+import { isAdmin, isSuperAdmin, isHiperadmin, getRole, getImpersonationId } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -13,7 +13,12 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const callerRole = await getRole(userId);
+        // When impersonating, the visible role is the IMPERSONATED user's role, not the real admin's.
+        // This ensures e.g. a superadmin impersonating another superadmin cannot see hiperadmin accounts.
+        const impersonationId = await getImpersonationId(request);
+        const viewerUserId = impersonationId || userId;  // who is *viewing* the page
+        const viewerRole = await getRole(viewerUserId);
+
         const { env } = getRequestContext();
         const db = (env as any).DB;
 
@@ -30,17 +35,17 @@ export async function GET(request: NextRequest) {
 
         let users = results.results as any[];
 
-        // Filter visible users based on caller's role
-        if (callerRole === "admin") {
-            // Admins cannot see superadmins or hiperadmin
+        // Filter visible users based on the VIEWER's role (impersonation-aware)
+        if (viewerRole === "admin") {
             users = users.filter((u: any) => u.role !== "superadmin" && u.role !== "hiperadmin");
-        } else if (callerRole === "superadmin") {
-            // Superadmins cannot see hiperadmin
+        } else if (viewerRole === "superadmin") {
+            // Superadmin CANNOT see hiperadmin — hiperadmin is invisible to everyone except itself
             users = users.filter((u: any) => u.role !== "hiperadmin");
         }
-        // hiperadmin sees everyone
+        // hiperadmin (viewing as themselves) sees everyone
 
-        return NextResponse.json(users);
+        // Return viewer metadata so the frontend can determine its own capabilities without relying on Clerk
+        return NextResponse.json({ users, _viewer_role: viewerRole, _viewer_id: viewerUserId });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

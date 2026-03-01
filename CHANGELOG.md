@@ -1,6 +1,118 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 3.6.3 — Hiperadmin Visibility & Impersonation-Aware Roles — March 1, 2026
+
+### 🛡️ Security / Role Visibility
+- **Hiperadmin is invisible to all other roles**: Superadmins (and below) can no longer see the hiperadmin account in the user list — even when the real logged-in user is a hiperadmin impersonating a superadmin.
+- **Impersonation-aware callerRole**: The users API now reads the impersonation cookie to determine filtering rules from the *viewer's* perspective (the impersonated user), not the real admin's. This prevents role escalation through impersonation.
+- **Sidebar is impersonation-aware**: The "Regras de Clientes" link (hiperadmin-only) is hidden in the sidebar when a hiperadmin impersonates a non-hiperadmin account.
+- **`isSelf` is impersonation-aware**: The "A Sua Conta" badge and action restrictions in the superadmin page now correctly identify the impersonated account as "self", not the real admin.
+
+---
+
+## 💎 Version 3.6.2 — Per-Client POS Mode & Client Rules Page — March 1, 2026
+
+### 🏪 POS Mode (Per-Client Flag)
+- **`pos_mode` column added to `integrations` table**: Boolean flag (default `0`) that activates the NIF-matrix name resolution for specific clients.
+- **Standard mode (all clients by default)**: Name resolution is now safe and simple — real name or "Consumidor Final". No email-username or NIF-as-name derivations. Eliminates cross-contamination in InvoiceXpress.
+- **POS mode (opt-in per client)**: Enables the full fiscal name matrix: name → `NIF XXXXXXXXX` → email username → "Consumidor Final". Configured at the account level, not globally.
+- **Benedita Homem de Gouveia**: `pos_mode = 1` activated in production DB. Her POS orders (Shopify POS, no customer names) will correctly create unique IX clients such as "NIF 534174213".
+
+### 👑 Hiperadmin Role
+- **New `hiperadmin` role** (top of hierarchy: hiperadmin > superadmin > admin > user).
+- **Hiperadmin can**: promote users to superadmin or admin, revoke any role, delete any account, see all users.
+- **`isHiperadmin()` helper** added to `admin.ts`.
+- **`getRole()` helper** added — returns the user's role string for flexible comparisons.
+- **Pedro Porto** promoted to `hiperadmin` in production DB.
+
+### 🖥️ "Regras de Clientes" Page (Hiperadmin Only)
+- New page at `/client-rules` visible only to hiperadmin in the sidebar.
+- Shows all client accounts with their integration flags as interactive toggles:
+  - 🏪 Modo POS (NIF Matrix)
+  - 💰 IVA Incluído
+  - ⚡ Auto Finalizar
+  - 🔗 Webhooks Confirmados
+- Changes are saved immediately via `PATCH /api/admin/client-rules`.
+
+### 🎭 Superadmin Page Improvements
+- **Role badges** for all tiers: 👑 Hiperadmin (violet), 🔴 Superadmin (rose), 🟡 Admin (amber).
+- **Dynamic role buttons**: Hiperadmin sees "Superadmin + Admin" options; Superadmin sees "Admin" only.
+- **Avatar icons** change by role.
+- **Delete with 2-step confirmation** per user card.
+
+---
+
+## 💎 Version 3.6.1 — Dynamic Greeting, User Delete, Admin Roles — March 1, 2026
+
+### 🙋 Dynamic Dashboard Greeting
+- **"Olá, Pedro" was hardcoded**: Now reads first name from the Clerk session (`useUser()`).
+- **DB name for impersonation**: Integrations GET now returns `_user_name` from the `users` table so the greeting shows the *impersonated* user's name correctly.
+
+### 🗑️ User Delete (Safe)
+- Hiperadmin and superadmin can delete client accounts from D1 (users, integrations, logs).
+- **Clerk account is intentionally NOT deleted**: The user can re-register with the same email/Google and will get a fresh D1 record via the `/api/auth/sync` endpoint.
+- 2-step confirmation UI (click trash → confirm → cancel).
+- Protections: hiperadmin cannot be deleted; admins cannot delete other admins.
+
+---
+
+## 💎 Version 3.6.0 — Superadmin Dashboard Improvements — March 1, 2026
+
+### 🛡️ Role System
+- **3-tier system (superadmin > admin > user)** introduced (later expanded to 4 in v3.6.2).
+- Role badges in user cards.
+- Superadmin can promote/demote users to admin.
+
+---
+
+## 💎 Version 3.5.6 — Fiscal Client Name Matrix — March 1, 2026
+
+### 👤 Client Name Resolution
+- **"Consumidor Final" is now reserved for truly anonymous sales** (no name, no email, no NIF).
+- **NIF-only sales**: If a client provides only a NIF (common in POS), the system creates an IX client named `"NIF XXXXXXXXX"` — unique, fiscally traceable, and re-usable across purchases.
+- **Matrix** (in priority order): Real name → `NIF XXXXXXXXX` → Email username → "Consumidor Final".
+
+*(Note: In v3.6.2+, this matrix is scoped to `pos_mode = 1` clients only.)*
+
+---
+
+## 💎 Version 3.5.5 — NIF as Primary Client Key — March 1, 2026
+
+### 🔍 InvoiceXpress Client Lookup
+- **NIF is now the primary client matching key** (moved before code/email in `isExactMatch`).
+- **Step 0 lookup**: Before any name-based search, if a NIF is present, the system calls `GET /clients.json?fiscal_id=XXXXXXXXX` directly. This is the most reliable path for POS orders where email and billing name are absent.
+- **Email guard**: Empty emails (`""`) no longer incorrectly match existing clients.
+
+---
+
 ## 💎 Version 3.5.0 — Client Identity & NIF Engine — March 1, 2026
+
+### 🪪 NIF / Fiscal ID
+- **NIF Patch on Existing Clients**: When an order's note contains a valid NIF but the matching InvoiceXpress client was created without one, the system now automatically issues a `PUT /clients/{id}.json` to update their fiscal ID before creating the invoice.
+- **No-NIF tolerance**: The patch is non-blocking — if the IX API rejects the update, the invoice is still created correctly.
+
+### 👤 Client Identity (Guest Checkout Fix)
+- **Resolved "Client Portugal" cross-contamination**: Guest checkouts with no Shopify account name caused the fallback `"Client"` to match a generic IX record by email, creating invoices in the wrong name.
+- **New name resolution chain** (in priority order):
+  1. `customer.first_name + last_name` (account checkout)
+  2. `billing_address.name` (guest checkout)
+  3. Email username, capitalized (e.g. `benedita.gouveia@mail.pt` → `Benedita Gouveia`)
+  4. `"Consumidor Final"` — Portuguese fiscal standard for anonymous buyers
+
+### 🔗 Webhook Management
+- **Manual Webhook Confirmation**: New `POST /api/integrations/webhooks-confirm` route. Marks `webhooks_active = 1` in D1 without requiring `write_webhooks` scope — for cases where webhooks were installed manually in Shopify Admin.
+- **Confirm button in Passo 2**: The dashboard now shows a secondary amber "Confirmar Instalação Manual" button in the Webhooks step, allowing clients with limited-scope tokens to confirm manual installation.
+- **No re-validation on every login**: `webhooks_active` is now preserved correctly in D1 and only updated when the token actually has read access to the webhooks list.
+
+---
+
+## 💎 Version 3.4.0 — 4-Step Onboarding Flow — March 1, 2026
+
+### 🗺️ Dashboard Redesign
+- **4-Step Guided Flow**: Split the original 3-step flow into 4 dedicated, focused steps:
+  - **Passo 1**: Ligação Shopify (domain + token + API version)
+  - **Passo 2**: Criação de Webhooks (webhook secret + install/confirm)
+  - **Passo 3**: Conexão InvoiceXpress
 
 ### 🪪 NIF / Fiscal ID
 - **NIF Patch on Existing Clients**: When an order's note contains a valid NIF but the matching InvoiceXpress client was created without one, the system now automatically issues a `PUT /clients/{id}.json` to update their fiscal ID before creating the invoice.

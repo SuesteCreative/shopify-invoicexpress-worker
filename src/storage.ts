@@ -7,7 +7,7 @@ export interface Env {
     SHOPIFY_API_VERSION: string;
     INVOICEXPRESS_ACCOUNT_NAME: string;
     INVOICEXPRESS_API_KEY: string;
-    INVOICEXPRESS_ENVIRONMENT: string;
+    INVOICEXPRESS_ENVIRONMENT?: string; // "production" or "sandbox"
     INVOICEXPRESS_TAX_INCLUDED?: string; // "true" or "false"
     INVOICEXPRESS_AUTO_FINALIZE?: string; // "true" or "false"
     INVOICEXPRESS_EXEMPTION_REASON?: string; // e.g. "M01"

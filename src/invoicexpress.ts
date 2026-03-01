@@ -9,9 +9,11 @@ export interface IXClient {
 }
 
 export async function getBaseUrl(acc: string, e: Env, k: string) {
-    const suffix = e.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
+    const isTestEnv = e.INVOICEXPRESS_ENVIRONMENT === "sandbox" || e.INVOICEXPRESS_ENVIRONMENT === "test" || e.INVOICEXPRESS_ENVIRONMENT === "macewindu";
+    const suffix = isTestEnv ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
     const domain = acc.toLowerCase().endsWith(".invoicexpress.com") ? acc : `${acc}${suffix}`;
-    if (e.INVOICEXPRESS_ENVIRONMENT !== "macewindu" && !acc.includes(".app") && !acc.endsWith(".invoicexpress.com")) {
+
+    if (!isTestEnv && !acc.includes(".app") && !acc.endsWith(".invoicexpress.com")) {
         try {
             const check = await fetch(`https://${domain}/clients.json?per_page=1&api_key=${k}`, { method: "HEAD" });
             if (check.status === 530 || check.status === 404) return `https://${acc}.app.invoicexpress.com`;
@@ -40,7 +42,6 @@ export async function getOrCreateClient(
     if (!apiKey) throw new Error("INVOICEXPRESS_API_KEY is not defined in environment variables/secrets");
     if (!account) throw new Error("INVOICEXPRESS_ACCOUNT_NAME is not defined in environment variables");
 
-    // Environment Logic: macewindu for test, empty/production for real
     const baseUrl = await getBaseUrl(account, env, apiKey);
 
     const authHeaders = {
@@ -56,7 +57,6 @@ export async function getOrCreateClient(
 
     console.log(`[IX] Identifying client: ${name} (${code}) | Email: ${email} | NIF: ${fiscalId}`);
 
-    // Helper: Exact comparison check
     const isExactMatch = (c: any) =>
         String(c.code) === code ||
         (fiscalId && c.fiscal_id === fiscalId) ||
@@ -131,15 +131,12 @@ export async function getOrCreateClient(
     throw new Error(`IX Client Error: ${createRes.status} - ${errTxt}`);
 }
 
-/**
- * Clears common NIF issues like "PT" prefix or spaces/dashes
- */
 function mapTaxName(rate: number | string): string {
     const r = parseFloat(String(rate));
     if (r === 0) return "Isento";
     if (r === 6) return "IVA6";
     if (r === 23) return "PT23";
-    return `IVA${r}`; // Fallback
+    return `IVA${r}`;
 }
 
 export async function createDocument(
@@ -151,9 +148,8 @@ export async function createDocument(
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
-    const baseUrl = `https://${domain}`;
+    const baseUrl = await getBaseUrl(account, env, apiKey);
+
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,
         "Content-Type": "application/json",
@@ -163,17 +159,14 @@ export async function createDocument(
     const isTaxIncluded = env.INVOICEXPRESS_TAX_INCLUDED === "true";
 
     const items = order.line_items.map((item: any) => {
-        // Hierarchy for Item ID: SKU -> Barcode -> Variant ID
         const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
         const rawPrice = parseFloat(item.price);
-
-        // Calculate Net Price if VAT is included in Shopify
         const unitPrice = isTaxIncluded ? (rawPrice / (1 + vatRate / 100)) : rawPrice;
 
         return {
             name: itemCode,
-            description: item.name, // Full product + variant name
+            description: item.name,
             unit_price: unitPrice,
             quantity: item.quantity,
             unit: "service",
@@ -181,10 +174,9 @@ export async function createDocument(
         };
     });
 
-    // Handle Shipping
     if (parseFloat(order.shipping_lines?.[0]?.price || "0") > 0) {
         const rawShipping = parseFloat(order.shipping_lines[0].price);
-        const shipVat = 23; // Standard shipping VAT
+        const shipVat = 23;
         const shipUnitPrice = isTaxIncluded ? (rawShipping / (1 + shipVat / 100)) : rawShipping;
 
         items.push({
@@ -197,10 +189,8 @@ export async function createDocument(
         });
     }
 
-    // Date format must be dd/mm/yyyy for InvoiceXpress API v2
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
-
     const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
@@ -223,12 +213,8 @@ export async function createDocument(
         currency_code: order.currency || "EUR"
     };
 
-    // Apply Discount as Global Discount (Correct for IX API v2)
     if (parseFloat(order.total_discounts || "0") > 0) {
         const rawDiscount = parseFloat(order.total_discounts);
-        // We assume global discount follows the average tax or the most common tax. 
-        // For simplicity and to match total, we adjust it if taxes are included.
-        // If there are multiple taxes, this is an approximation, but better than gross.
         const avgVat = items.length > 0 ? (determineVATRate(order.line_items[0]) || 0) : 0;
         const netDiscount = isTaxIncluded ? (rawDiscount / (1 + avgVat / 100)) : rawDiscount;
 
@@ -238,9 +224,7 @@ export async function createDocument(
         };
     }
 
-
-    const docUrl = `${baseUrl}/${endpoint}.json?api_key=${apiKey}`;
-    const res = await fetch(docUrl, {
+    const res = await fetch(`${baseUrl}/${endpoint}.json?api_key=${apiKey}`, {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify(body)
@@ -253,13 +237,10 @@ export async function createDocument(
 
     const data: any = await res.json();
     const doc = data.invoice || data.invoice_receipt || data.credit_note;
-    if (!doc?.id) {
-        console.error("[IX] Unexpected creation response:", data);
-        throw new Error(`InvoiceXpress creation succeeded but ID not found in response: ${JSON.stringify(data)}`);
-    }
+    if (!doc?.id) throw new Error(`InvoiceXpress creation succeeded but ID not found`);
 
-    // Auto-Finalize Option
-    if (env.INVOICEXPRESS_AUTO_FINALIZE === "true") {
+    const isTestEnv = env.INVOICEXPRESS_ENVIRONMENT === "sandbox" || env.INVOICEXPRESS_ENVIRONMENT === "test" || env.INVOICEXPRESS_ENVIRONMENT === "macewindu";
+    if (isTestEnv || env.INVOICEXPRESS_AUTO_FINALIZE === "true") {
         console.log(`[IX] Auto-finalizing ${type} ${doc.id}...`);
         await finalizeDocument(env, doc.id, endpoint);
     }
@@ -270,16 +251,9 @@ export async function createDocument(
 export async function findDocumentDetailsByReference(env: Env, reference: string): Promise<{ id: string, type: string, state: string } | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
-    const baseUrl = `https://${domain}`;
+    const baseUrl = await getBaseUrl(account, env, apiKey);
 
-    const authHeaders = {
-        "X-InvoiceXpress-API-Key": apiKey,
-        "Accept": "application/json"
-    };
-
-    // Types to search
+    const authHeaders = { "X-InvoiceXpress-API-Key": apiKey, "Accept": "application/json" };
     const types = [
         { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
         { endpoint: "invoices", list: "invoices", type: "invoices" }
@@ -293,66 +267,40 @@ export async function findDocumentDetailsByReference(env: Env, reference: string
             if (found) return { id: found.id, type: t.type, state: found.state };
         }
     }
-
     return null;
 }
 
 export async function finalizeDocument(env: Env, docId: string, type: string): Promise<boolean> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
-    const baseUrl = `https://${domain}`;
+    const baseUrl = await getBaseUrl(account, env, apiKey);
 
-    const authHeaders = {
-        "X-InvoiceXpress-API-Key": apiKey,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    };
-
-    // Map internal types to body keys (API endpoints use plural, body uses singular)
-    const rootKeyMap: any = {
-        "invoice_receipts": "invoice_receipt",
-        "invoices": "invoice",
-        "credit_notes": "credit_note"
-    };
+    const authHeaders = { "X-InvoiceXpress-API-Key": apiKey, "Content-Type": "application/json", "Accept": "application/json" };
+    const rootKeyMap: any = { "invoice_receipts": "invoice_receipt", "invoices": "invoice", "credit_notes": "credit_note" };
     const rootKey = rootKeyMap[type] || "invoice";
 
     const res = await fetch(`${baseUrl}/${type}/${docId}/change-state.json?api_key=${apiKey}`, {
         method: "PUT",
         headers: authHeaders,
-        body: JSON.stringify({
-            [rootKey]: { state: "finalized" }
-        })
+        body: JSON.stringify({ [rootKey]: { state: "finalized" } })
     });
 
-    if (!res.ok) {
-        const err = await res.text();
-        console.error(`[IX] Failed to finalize document ${docId}: ${err}`);
-        return false;
-    }
-    return true;
+    return res.ok;
 }
 
 export async function findCreditNoteByReference(env: Env, reference: string): Promise<string | null> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
-    const baseUrl = `https://${domain}`;
+    const baseUrl = await getBaseUrl(account, env, apiKey);
 
-    const authHeaders = {
-        "X-InvoiceXpress-API-Key": apiKey,
-        "Accept": "application/json"
-    };
-
-    const res = await fetch(`${baseUrl}/credit_notes.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
+    const res = await fetch(`${baseUrl}/credit_notes.json?per_page=100&api_key=${apiKey}`, {
+        headers: { "X-InvoiceXpress-API-Key": apiKey, "Accept": "application/json" }
+    });
     if (res.status === 200) {
         const data: any = await res.json();
         const found = data.credit_notes?.find((d: any) => d.reference === reference);
         if (found) return found.id;
     }
-
     return null;
 }
 
@@ -366,29 +314,20 @@ export async function createCreditNote(
 ): Promise<string> {
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
-    const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
-    const baseUrl = `https://${domain}`;
+    const baseUrl = await getBaseUrl(account, env, apiKey);
 
-    // 1. Get original document details
-    console.log(`[IX] Searching for original document with reference: "${originalRef}"`);
     const original = await findDocumentDetailsByReference(env, originalRef);
-    if (!original) throw new Error(`Original document for reference "${originalRef}" not found in IX.`);
+    if (!original) throw new Error("ORIGINAL_NOT_FOUND");
+    if (original.state === "draft") throw new Error("DOCUMENT_IS_DRAFT");
 
     const isTaxIncluded = env.INVOICEXPRESS_TAX_INCLUDED === "true";
-
     const items = refund.refund_line_items.map((ri: any) => {
         const item = ri.line_item;
-        const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
-
-        // Calculate unit price from subtotal to include line-level discounts
-        const rawSubtotal = ri.subtotal;
-        const unitPriceGross = rawSubtotal / ri.quantity;
-        const unitPrice = isTaxIncluded ? (unitPriceGross / (1 + vatRate / 100)) : unitPriceGross;
+        const unitPrice = isTaxIncluded ? ((ri.subtotal / ri.quantity) / (1 + vatRate / 100)) : (ri.subtotal / ri.quantity);
 
         return {
-            name: itemCode,
+            name: String(item.sku || item.title),
             description: item.name,
             unit_price: unitPrice,
             quantity: ri.quantity,
@@ -397,26 +336,8 @@ export async function createCreditNote(
         };
     });
 
-    // Handle shipping refund if any
-    const shippingRefund = refund.order_adjustments?.find((adj: any) => adj.kind === "shipping_refund");
-    if (shippingRefund) {
-        const shipVat = 23;
-        const rawAmount = Math.abs(parseFloat(shippingRefund.amount));
-        const netAmount = isTaxIncluded ? (rawAmount / (1 + shipVat / 100)) : rawAmount;
-
-        items.push({
-            name: "Shipping Refund",
-            description: "Refund of shipping costs",
-            unit_price: netAmount,
-            quantity: 1,
-            unit: "service",
-            tax: { name: mapTaxName(shipVat) }
-        });
-    }
-
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
-
     const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
     const body = {
@@ -424,52 +345,25 @@ export async function createCreditNote(
             date: formattedDate,
             owner_invoice_id: original.id,
             tax_exemption: hasExemptItems ? (env.INVOICEXPRESS_EXEMPTION_REASON || "M01") : undefined,
-            client: {
-                name: clientMetadata.name,
-                code: clientMetadata.code,
-                email: clientMetadata.email || undefined,
-                fiscal_id: clientMetadata.fiscal_id || undefined
-            },
+            client: { name: clientMetadata.name, email: clientMetadata.email || undefined, fiscal_id: clientMetadata.fiscal_id || undefined },
             items: items,
             reference: `Refund #${refund.id} for Order #${order.order_number}`,
-            observations: `Shopify Refund ID: ${refund.id}. Original Doc ID: ${original.id}`,
             currency_code: order.currency || "EUR"
         }
     };
 
-    const authHeaders = {
-        "X-InvoiceXpress-API-Key": apiKey,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    };
-
-    // 2. State Check: If original is Draft, throw a specific Hold error
-    if (original.state === "draft") {
-        throw new Error("DOCUMENT_IS_DRAFT");
-    }
-
     const res = await fetch(`${baseUrl}/credit_notes.json?api_key=${apiKey}`, {
         method: "POST",
-        headers: authHeaders,
+        headers: { "X-InvoiceXpress-API-Key": apiKey, "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify(body)
     });
 
-    if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`InvoiceXpress Error (Credit Note): ${res.status} - ${errText}`);
-    }
+    if (!res.ok) throw new Error(`Credit Note Error: ${res.status}`);
 
     const data: any = await res.json();
-    const doc = data.credit_note;
-    if (!doc?.id) {
-        throw new Error(`InvoiceXpress Credit Note success but ID not found: ${JSON.stringify(data)}`);
-    }
-
-    // Auto-Finalize Option for Credit Note
     if (env.INVOICEXPRESS_AUTO_FINALIZE === "true") {
-        console.log(`[IX] Auto-finalizing Credit Note ${doc.id}...`);
-        await finalizeDocument(env, doc.id, "credit_notes");
+        await finalizeDocument(env, data.credit_note.id, "credit_notes");
     }
 
-    return doc.id;
+    return data.credit_note.id;
 }

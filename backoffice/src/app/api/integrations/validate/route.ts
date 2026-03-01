@@ -104,7 +104,8 @@ export async function POST(request: NextRequest) {
 
             const getDomain = (acc: string, env: string, isApp: boolean = false) => {
                 const base = isApp ? ".app.invoicexpress.com" : ".invoicexpress.com";
-                const suffix = env === "macewindu" ? ".macewindu.invoicexpress.com" : base;
+                const isTestEnv = env === "macewindu" || env === "sandbox" || env === "test";
+                const suffix = isTestEnv ? ".macewindu.invoicexpress.com" : base;
                 return acc.toLowerCase().endsWith(".invoicexpress.com") ? acc : `${acc}${suffix}`;
             };
 
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
                         const data = JSON.parse(text);
                         errorMessage = data.errors || `Error ${res.status}. Check API Key and Account.`;
                     } catch {
-                        errorMessage = `Error ${res.status}. Check Slug [${account}] and API Key.`;
+                        errorMessage = `Error ${res.status}. Verifique se o Nome da Conta [${account}] está correto e se o Ambiente escolhido (Production vs Sandbox) corresponde à sua conta.`;
                     }
                 }
             } catch (e: any) {

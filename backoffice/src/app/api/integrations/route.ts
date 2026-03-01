@@ -5,44 +5,56 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "edge";
 
 export async function GET(request: NextRequest) {
-    const { userId } = await auth();
-    if (!userId) return NextResponse.json({ error: "Unauthorized: No active session" }, { status: 401 });
-
-    const { env } = getRequestContext();
-    const db = (env as any).DB;
-
-    if (!db) {
-        console.error("D1 Binding 'DB' not found in env");
-        return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
-    }
-
     try {
+        const { userId } = await auth();
+
+        if (!userId) {
+            console.warn("API GET: No userId found in auth().");
+            return NextResponse.json({
+                error: "Unauthorized: Session missing or invalid",
+                debug: {
+                    hasUserId: !!userId,
+                    runtime: "edge"
+                }
+            }, { status: 401 });
+        }
+
+        const { env } = getRequestContext();
+        const db = (env as any).DB;
+
+        if (!db) {
+            console.error("D1 Binding 'DB' not found in env");
+            return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+        }
+
         const integration = await db
             .prepare("SELECT * FROM integrations WHERE user_id = ?")
             .bind(userId)
             .first();
 
         return NextResponse.json(integration || {});
-    } catch (error) {
+    } catch (error: any) {
         console.error("D1 Error:", error);
-        return NextResponse.json({ error: "Failed to fetch integration" }, { status: 500 });
+        return NextResponse.json({ error: `Internal Server Error: ${error.message}` }, { status: 500 });
     }
 }
 
 export async function POST(request: NextRequest) {
-    const { userId } = await auth();
-    if (!userId) return NextResponse.json({ error: "Unauthorized: Session missing or invalid" }, { status: 401 });
-
-    const body: any = await request.json();
-    const { env } = getRequestContext();
-    const db = (env as any).DB;
-
-    if (!db) {
-        console.error("D1 Binding 'DB' not found in env");
-        return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
-    }
-
     try {
+        const { userId } = await auth();
+        if (!userId) {
+            return NextResponse.json({ error: "Unauthorized: Session missing or invalid" }, { status: 401 });
+        }
+
+        const body: any = await request.json();
+        const { env } = getRequestContext();
+        const db = (env as any).DB;
+
+        if (!db) {
+            console.error("D1 Binding 'DB' not found in env");
+            return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+        }
+
         const { shopify_domain, shopify_token, ix_account_name, ix_api_key, vat_included, auto_finalize } = body;
 
         // Check if integration exists
@@ -89,8 +101,8 @@ export async function POST(request: NextRequest) {
         }
 
         return NextResponse.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
         console.error("D1 Error:", error);
-        return NextResponse.json({ error: "Failed to save integration" }, { status: 500 });
+        return NextResponse.json({ error: `Failed to save integration: ${error.message}` }, { status: 500 });
     }
 }

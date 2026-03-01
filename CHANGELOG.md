@@ -1,5 +1,15 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 3.2.0 (The Bulletproof Engine) - March 1, 2026
+
+### 🛡️ Core Reliability & Security
+- **Strict D1 Idempotency**: Implemented a transactional SQL-backed layer (`processed_orders` table) to prevent duplicate invoice creation. This solves the "Multiple Invoice" issue caused by eventually consistent KV lookups during high-frequency webhooks.
+- **Atomic Operations**: Each order/refund event is now registered atomically, ensuring exactly one document per Shopify ID.
+
+### ⚖️ Fiscal & Compliance
+- **Full Exemption Descriptions**: Document observations now include the complete descriptive text for tax exemptions (e.g., "M01 - Artigo 16.º, n.º 6 do CIVA") instead of just the code.
+- **Enhanced Document Metadata**: Improved layout of observations for better readability on generated PDFs.
+
 ## 💎 Version 3.1.0 (The Professional Rebranding) - March 1, 2026
 
 ### 🎨 User Experience & Branding

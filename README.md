@@ -1,109 +1,56 @@
-# Shopify to InvoiceXpress Cloudflare Worker
+# Shopify to InvoiceXpress Cloudflare Worker (Rioko 2.0 Engine)
 
-A production-lean integration that automatically creates InvoiceXpress invoices for paid Shopify orders.
+A high-performance, production-ready integration that automatically syncs Shopify orders with InvoiceXpress.
 
-## Features
-- **Cloudflare Workers**: High performance, serverless execution.
-- **Idempotency**: Prevents duplicate invoices using Cloudflare KV.
-- **PT NIF Extraction**: Automatically finds and validates 9-digit Portuguese NIFs from order notes/attributes.
-- **Dynamic VAT**: Intelligent VAT mapping (6% for books, 23% for others) based on tax lines or keywords.
-- **Secure**: Sensitive keys are managed via Cloudflare Secrets.
-- **Privacy-First (No-OAuth Required)**: Uses local KV memory to process refunds without requiring sensitive Shopify "Protected Customer Data" scopes.
-- **Auto-Sync**: One-click webhook registration and rule configuration.
-- **Tax Intelligent**: Automatic Back-Calculation for "VAT Included" stores.
+## 🚀 Key Features
 
-## Setup Instructions
+- **Bulletproof Reliability**: Uses a dual-layer idempotency system (Cloudflare KV + D1 SQL Database) to strictly ensure **1 Order = 1 Invoice**, even with concurrent webhooks.
+- **D1 Database Persistence**: Tracks every processed order and refund in a transactional database.
+- **PT-PT Professional Dashboard**: A premium, localized interface for managing connections and rules.
+- **Smart VAT Engine**: Intelligent tax mapping with automatic back-calculation for "VAT Included" stores.
+- **Fiscal Compliance**: Automatic injection of full tax exemption reasons (M01, M25, etc.) in document observations.
+- **Sandbox Support**: Easy switching between Production and Sandbox test environments.
+- **Privacy-First Design**: Secure NIF extraction and local memory for processing refunds without sensitive data access.
 
-### 1. Ready-to-use with Rioko 2.0 Dashboard
-The easiest way to configure this integration is using the **Rioko Command Center**.
-1. Log in to your Rioko 2.0 instance.
-2. **Step 1 (Shopify Bridge)**: Enter your Shopify domain, Admin API Token, and the **Webhook signing secret**.
-3. **Step 2 (InvoiceXpress Bridge)**: Enter your Account Name, API Key, and select the environment (**Production** or **macewindu**).
-4. **Step 3 (Activation)**: Click **Activate & Sync**. The system will automatically register the webhooks in your Shopify store.
+---
 
-### 2. (Advanced) Manual Configuration
-If you prefer manual control via CLI:
-1. In your Shopify Admin, go to **Settings > Apps and sales channels > Develop apps**.
-2. Create a new custom app and configure **Admin API scopes**:
-   - `read_orders`
-3. Install the app and copy the **Admin API access token**.
-4. Go to **Settings > Notifications > Webhooks**.
-5. Create a webhook for **Order payment**:
-   - Event: `orders/paid`
-   - Format: `JSON`
-   - URL: `https://<your-worker-url>/webhooks/shopify/orders-paid`
-   - API version: Select the one matching `SHOPIFY_API_VERSION` in `wrangler.toml`.
-6. Copy the **Webhook secret**.
+## 🛠️ Rioko 2.0 Dashboard Setup
 
-### 3. InvoiceXpress Configuration
-1. Log in to your InvoiceXpress account.
-2. Go to **Account Settings > API**.
-3. Enable API and copy your **API Key**.
+The easiest way to manage this integration is through the **Rioko Command Center**.
 
-### 3. Cloudflare Worker Setup
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Create two KV Namespaces (one for dev, one for prod):
-   ```bash
-   npx wrangler kv:namespace create INVOICE_KV
-   npx wrangler kv:namespace create INVOICE_KV --preview
-   ```
-3. Update `wrangler.toml` with the generated `id`s.
-4. Set secrets for production:
-   ```bash
-   npx wrangler secret put SHOPIFY_ACCESS_TOKEN
-   npx wrangler secret put SHOPIFY_WEBHOOK_SECRET
-   npx wrangler secret put INVOICEXPRESS_API_KEY
-   ```
-5. Deploy:
-   ```bash
-   npm run deploy
-   ```
+### Step 1: Ligação Shopify
+- **Domínio**: O seu subdomínio `.myshopify.com`.
+- **Admin Token**: Gerado nas definições de "Custom Apps" do Shopify.
+- **Webhook Secret**: Encontrado em Definições > Notificações > Webhooks.
 
-## Local Development & Testing
+### Step 2: Conexão InvoiceXpress
+- **Account Name**: O slug da sua conta (ex: `a-minha-empresa`).
+- **API Key**: Disponível em Definições de Conta > API.
+- **Ambiente**: Escolha entre `production` ou `sandbox`.
 
-### Running Locally
-```bash
-npm run dev
-```
+### Step 3: Definições de Integração
+- **IVA Incluído**: Ative se os preços da sua loja Shopify já tiverem imposto.
+- **Auto Finalizar**: Se ativo, as faturas são emitidas e finalizadas imediatamente.
+- **Razão de Isenção**: O motivo legal padrão para faturas com 0% de IVA.
 
-### Health Check Task
-```bash
-curl http://localhost:8787/health
-```
+---
 
-### Simulating a Webhook
-To test locally, you can use the following curl command (note: HMAC verification will fail unless you disable it for local testing or provide a valid HMAC header):
+## 🏗️ Technical Architecture
 
-```bash
-curl -X POST http://localhost:8787/webhooks/shopify/orders-paid \
-  -H "Content-Type: application/json" \
-  -H "X-Shopify-Hmac-Sha256: <HMAC_SIGNATURE>" \
-  -d '{
-    "id": 12345678,
-    "order_number": 1001,
-    "email": "customer@example.com",
-    "note": "Please use NIF 507421868",
-    "line_items": [
-      {
-        "title": "Clean Code Book",
-        "price": "45.00",
-        "quantity": 1,
-        "tax_lines": [{"rate": 0.06}]
-      }
-    ],
-    "total_discounts": "5.00",
-    "shipping_lines": [{"title": "Standard Shipping", "price": "5.00"}]
-  }'
-```
+- **Runtime**: Cloudflare Workers
+- **Database**: Cloudflare D1 (SQL)
+- **Data Memory**: Cloudflare KV (Eventually Consistent Lookup)
+- **Validation**: Manual webhook HMAC-SHA256 signature verification.
 
-## VAT & Accounting Rules
-- **6%**: Applied if Shopify tax rate is 0.06 OR if the product title/type/vendor/tag contains "book" or "livro".
-- **23%**: Default fallback for everything else.
-- **Net Calculation**: If "IVA Incluído" is active, the worker automatically back-calculates the Net unit price (Gross / 1.XX) to ensure InvoiceXpress sums match Shopify exactly.
-- **Refund Link**: Credit Notes are automatically attached to the original invoice using the `owner_invoice_id` link.
+### Data Model (D1)
+- `integrations`: Stores client credentials and business rules.
+- `processed_orders`: High-consistency table for atomic transaction tracking.
+- `logs`: Full diagnostic history of all incoming events.
 
-## NIF Extraction
-The worker searches for a 9-digit sequence in the Order Note, Note Attributes, and Address Line 2 (Billing/Shipping). It validates the sequence using the Portuguese NIF checksum. If no valid NIF is found, it defaults to "Consumidor Final" (NIF 999999990).
+---
+
+## 📜 Professional Documentation & Compliance
+
+As of **v3.2.0**, the engine is fully compliant with modern fiscal reporting requirements. All tax exemptions are explicitly stated in the document observations with their full legal wording, ensuring clarity for both customers and tax authorities.
+
+**Developed by [Kapta](https://kapta.pt)**

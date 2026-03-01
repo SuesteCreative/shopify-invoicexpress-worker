@@ -412,6 +412,7 @@ export async function createCreditNote(
     const body = {
         credit_note: {
             date: formattedDate,
+            owner_invoice_id: original.id,
             tax_exemption: hasExemptItems ? "M99" : undefined,
             client: {
                 name: clientMetadata.name,

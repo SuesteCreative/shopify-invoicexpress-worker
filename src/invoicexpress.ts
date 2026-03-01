@@ -28,9 +28,9 @@ export async function getOrCreateClient(
     if (!apiKey) throw new Error("INVOICEXPRESS_API_KEY is not defined in environment variables/secrets");
     if (!account) throw new Error("INVOICEXPRESS_ACCOUNT_NAME is not defined in environment variables");
 
-    // Intelligent Domain: Use .invoicexpress.com by default. 
-    // For test accounts, user should enter 'account.macewindu'
-    const domain = account.includes('.') ? account : `${account}.invoicexpress.com`;
+    // Environment Logic: macewindu for test, empty/production for real
+    const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
+    const domain = account.includes('.') ? account : `${account}${suffix}`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {

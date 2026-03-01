@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [shopifyApiVersion, setShopifyApiVersion] = useState("2026-01");
   const [ixAccount, setIxAccount] = useState("");
   const [ixApiKey, setIxApiKey] = useState("");
+  const [ixEnvironment, setIxEnvironment] = useState("production");
   const [vatIncluded, setVatIncluded] = useState(true);
   const [autoFinalize, setAutoFinalize] = useState(false);
 
@@ -41,6 +42,7 @@ export default function Dashboard() {
         if (data.shopify_api_version) setShopifyApiVersion(data.shopify_api_version);
         if (data.ix_account_name) setIxAccount(data.ix_account_name);
         if (data.ix_api_key) setIxApiKey(data.ix_api_key);
+        if (data.ix_environment) setIxEnvironment(data.ix_environment);
         if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
         if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
 
@@ -69,6 +71,7 @@ export default function Dashboard() {
           shopify_api_version: shopifyApiVersion,
           ix_account_name: ixAccount,
           ix_api_key: ixApiKey,
+          ix_environment: ixEnvironment,
           vat_included: vatIncluded,
           auto_finalize: autoFinalize
         })
@@ -132,7 +135,8 @@ export default function Dashboard() {
       logoWidth: 120, // Adjusted for balance
       fields: [
         { label: "Account Name", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
-        { label: "API Key", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" }
+        { label: "API Key", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" },
+        { label: "Environment", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Enter 'production' or 'macewindu'", type: "text" }
       ]
     },
     {

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS integrations (
     shopify_api_version TEXT DEFAULT '2026-01',
     ix_account_name TEXT,
     ix_api_key TEXT,
+    ix_environment TEXT DEFAULT 'production',
     vat_included INTEGER DEFAULT 1,
     auto_finalize INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

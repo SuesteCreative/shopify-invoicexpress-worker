@@ -7,6 +7,7 @@ export interface Env {
     SHOPIFY_API_VERSION: string;
     INVOICEXPRESS_ACCOUNT_NAME: string;
     INVOICEXPRESS_API_KEY: string;
+    INVOICEXPRESS_ENVIRONMENT: string;
     INVOICEXPRESS_TAX_INCLUDED?: string; // "true" or "false"
     INVOICEXPRESS_AUTO_FINALIZE?: string; // "true" or "false"
 }
@@ -49,6 +50,7 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
                 SHOPIFY_API_VERSION: integration.shopify_api_version || env.SHOPIFY_API_VERSION,
                 INVOICEXPRESS_ACCOUNT_NAME: integration.ix_account_name || env.INVOICEXPRESS_ACCOUNT_NAME,
                 INVOICEXPRESS_API_KEY: integration.ix_api_key || env.INVOICEXPRESS_API_KEY,
+                INVOICEXPRESS_ENVIRONMENT: integration.ix_environment || env.INVOICEXPRESS_ENVIRONMENT || "production",
                 INVOICEXPRESS_TAX_INCLUDED: integration.vat_included !== null ? (integration.vat_included === 1 ? "true" : "false") : env.INVOICEXPRESS_TAX_INCLUDED,
                 INVOICEXPRESS_AUTO_FINALIZE: integration.auto_finalize !== null ? (integration.auto_finalize === 1 ? "true" : "false") : env.INVOICEXPRESS_AUTO_FINALIZE,
             };

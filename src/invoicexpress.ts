@@ -30,7 +30,8 @@ export async function getOrCreateClient(
 
     // Environment Logic: macewindu for test, empty/production for real
     const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.includes('.') ? account : `${account}${suffix}`;
+    // Robust domain construction: Only skip suffix if it already ends with .invoicexpress.com
+    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -142,7 +143,7 @@ export async function createDocument(
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.includes('.') ? account : `${account}${suffix}`;
+    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
     const baseUrl = `https://${domain}`;
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,
@@ -261,7 +262,7 @@ export async function findDocumentDetailsByReference(env: Env, reference: string
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.includes('.') ? account : `${account}${suffix}`;
+    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -291,7 +292,7 @@ export async function finalizeDocument(env: Env, docId: string, type: string): P
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.includes('.') ? account : `${account}${suffix}`;
+    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -328,7 +329,7 @@ export async function findCreditNoteByReference(env: Env, reference: string): Pr
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.includes('.') ? account : `${account}${suffix}`;
+    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
     const baseUrl = `https://${domain}`;
 
     const authHeaders = {
@@ -357,7 +358,7 @@ export async function createCreditNote(
     const account = env.INVOICEXPRESS_ACCOUNT_NAME;
     const apiKey = env.INVOICEXPRESS_API_KEY;
     const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    const domain = account.includes('.') ? account : `${account}${suffix}`;
+    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
     const baseUrl = `https://${domain}`;
 
     // 1. Get original document details

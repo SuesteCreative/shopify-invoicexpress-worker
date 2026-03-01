@@ -91,18 +91,20 @@ export async function POST(request: NextRequest) {
 
             if (!account || !apiKey) return NextResponse.json({ error: "Missing IX credentials" }, { status: 400 });
 
-            // Advanced Sanitization: Extract slug if user pasted full URL
+            // Advanced Sanitization: Extract full sub-path if user pasted full URL or complex hostname
             if (account.includes("invoicexpress.com")) {
                 try {
                     const url = new URL(account.startsWith("http") ? account : `https://${account}`);
-                    account = url.hostname.split('.')[0];
+                    // Remove both .invoicexpress.com and .macewindu if present to get the base "path"
+                    account = url.hostname.replace(/\.invoicexpress\.com$/, "").replace(/\.macewindu$/, "");
                 } catch {
-                    account = account.split('.')[0];
+                    account = account.replace(/\.invoicexpress\.com$/, "").replace(/\.macewindu$/, "");
                 }
             }
 
             const suffix = environment === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-            const domain = account.includes('.') ? account : `${account}${suffix}`;
+            // Robust domain construction: Only skip suffix if the account already ends with .invoicexpress.com
+            const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
 
             try {
                 // Check if account is valid by listing clients (lightweight check)

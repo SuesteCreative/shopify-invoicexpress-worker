@@ -23,15 +23,12 @@ export default async function LandingPage() {
 
       {/* Nav */}
       <nav className="relative z-10 max-w-7xl mx-auto w-full px-6 py-8 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 relative flex items-center justify-center">
+        <div className="flex items-end gap-3 pb-1">
+          <div className="relative flex items-center justify-center">
             <div className="absolute inset-0 bg-sky-400 blur-sm opacity-20" />
-            <Image src="/logo-rioko-white.svg" alt="Rioko 2.0" width={48} height={48} className="relative drop-shadow-2xl" />
+            <Image src="/images/logo-rioko-white.svg" alt="Rioko 2.0" width={110} height={28} className="relative drop-shadow-2xl" />
           </div>
-          <div>
-            <span className="text-2xl font-black tracking-tighter text-white">RIOKO</span>
-            <span className="ml-1 text-[10px] font-black bg-sky-500 text-white px-1.5 py-0.5 rounded-md uppercase tracking-wider">2.0</span>
-          </div>
+          <span className="text-[10px] font-black bg-sky-500 text-white px-1.5 py-0.5 rounded-md uppercase tracking-wider mb-0.5">2.0</span>
         </div>
 
         <Link href="/sign-in" className="group flex items-center gap-2 px-6 py-2.5 rounded-full bg-slate-900 border border-slate-800 text-sm font-bold text-white hover:bg-slate-800 transition-all">
@@ -80,9 +77,12 @@ export default async function LandingPage() {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 py-12 text-center">
-        <div className="text-slate-600 text-xs font-bold uppercase tracking-widest">
-          Uma criação estratégica da <a href="https://kapta.pt" className="text-white hover:text-sky-400 transition-colors">KAPTA.PT</a>
+      <footer className="relative z-10 py-12 text-center opacity-60">
+        <div className="flex flex-col items-center gap-3">
+          <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest leading-none">Developed by</div>
+          <a href="https://kapta.pt" target="_blank" rel="noopener noreferrer" className="transition-all hover:scale-110 active:scale-95">
+            <Image src="/images/logo-kapta-white.webp" alt="Kapta Logo" width={80} height={22} className="opacity-40 grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500" />
+          </a>
         </div>
       </footer>
     </div>

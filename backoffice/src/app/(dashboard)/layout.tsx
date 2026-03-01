@@ -1,7 +1,7 @@
 import { UserButton, SignOutButton } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
-import { LogOut, Home, Settings, CreditCard, Activity } from "lucide-react";
+import { LogOut, Activity, CreditCard } from "lucide-react";
 
 export default function DashboardLayout({
     children,
@@ -13,10 +13,10 @@ export default function DashboardLayout({
             {/* Sidebar */}
             <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0 z-20">
                 <div className="mb-14 flex flex-col items-center md:items-start w-full">
-                    <div className="flex items-start gap-3">
-                        <Link href="/" className="hover:scale-105 transition-transform">
+                    <div className="flex items-end gap-3 transition-transform hover:scale-[1.02]">
+                        <Link href="/" className="pb-0.5">
                             <Image
-                                src="/logo-rioko-white.svg"
+                                src="/images/logo-rioko-white.svg"
                                 alt="Rioko Logo"
                                 width={110}
                                 height={28}
@@ -24,7 +24,7 @@ export default function DashboardLayout({
                                 priority
                             />
                         </Link>
-                        <span className="text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded text-[10px] font-black tracking-tighter border border-sky-400/20">2.0</span>
+                        <span className="text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded text-[10px] font-black tracking-tighter border border-sky-400/20 mb-0.5">2.0</span>
                     </div>
 
                     <div className="mt-4 text-[10px] text-slate-500 font-bold flex items-center gap-2 opacity-60">
@@ -39,12 +39,12 @@ export default function DashboardLayout({
                         <div className="space-y-1 pt-2">
                             <Link
                                 href="/dashboard"
-                                className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold text-sm"
+                                className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold text-sm transition-all hover:bg-sky-500/20"
                             >
                                 <Activity className="w-4 h-4" />
                                 Integrations
                             </Link>
-                            <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-50 cursor-not-allowed">
+                            <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-50 cursor-not-allowed w-full text-left">
                                 <CreditCard className="w-4 h-4" />
                                 Billing (Soon)
                             </button>

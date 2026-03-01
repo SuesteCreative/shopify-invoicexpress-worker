@@ -38,7 +38,7 @@ export default async function DashboardLayout({
                                 alt="Rioko Logo"
                                 width={110}
                                 height={28}
-                                className="brightness-125"
+                                className=""
                                 priority
                             />
                         </Link>

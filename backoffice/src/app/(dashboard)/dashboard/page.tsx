@@ -184,16 +184,6 @@ export default function Dashboard() {
       if (actRes.ok) {
         setWebhookStatus("success");
         setWebhooksActive(true);
-
-        // Re-validate Shopify to get fresh webhooks_active from DB
-        const valRes = await fetch("/api/integrations/validate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "shopify" })
-        });
-        const valData = await valRes.json() as any;
-        setWebhooksActive(valData.isValid ? true : webhooksActive);
-
         setStep(3);
       } else {
         setWebhookStatus("error");
@@ -203,6 +193,38 @@ export default function Dashboard() {
     } finally {
       setSaving(false);
       setActivating(false);
+    }
+  };
+
+  // --- Step 2b: Manually confirm webhooks were installed ---
+  const handleWebhooksConfirm = async () => {
+    if (!shopifyWebhookSecret) return;
+    setSaving(true);
+    try {
+      // Save the secret
+      await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopify_domain: shopifyDomain, shopify_token: shopifyToken,
+          shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
+          ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
+          ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize
+        })
+      });
+      // Mark webhooks as confirmed in DB
+      const confirmRes = await fetch("/api/integrations/webhooks-confirm", { method: "POST" });
+      if (confirmRes.ok) {
+        setWebhooksActive(true);
+        setWebhookStatus("success");
+        setStep(3);
+      } else {
+        alert("Erro ao confirmar. Tenta novamente.");
+      }
+    } catch (e: any) {
+      alert(`Erro de rede: ${e.message}`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -626,18 +648,40 @@ export default function Dashboard() {
                       ))
                     )}
 
-                    {/* Webhooks step: additional install notes */}
+                    {/* Webhooks step: info note + error fallback */}
                     {s.isWebhookStep && (
-                      <div className="md:col-span-2 flex items-start gap-4 bg-violet-500/5 border border-violet-500/20 rounded-2xl px-6 py-4">
-                        <Webhook className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-bold text-violet-300">O que são os Webhooks?</p>
-                          <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                            Os webhooks são notificações automáticas que a Shopify envia ao Rioko quando uma encomenda é paga ou um reembolso é criado. O Webhook Signing Secret valida que as notificações são autênticas. Encontra-o em <span className="text-violet-300 font-semibold">Shopify Admin → Definições → Notificações → Webhooks</span>.
-                          </p>
+                      <>
+                        <div className="md:col-span-2 flex items-start gap-4 bg-violet-500/5 border border-violet-500/20 rounded-2xl px-6 py-4">
+                          <Webhook className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-bold text-violet-300">O que são os Webhooks?</p>
+                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                              Os webhooks são notificações automáticas que a Shopify envia ao Rioko quando uma encomenda é paga ou um reembolso é criado. O Webhook Signing Secret valida que as notificações são autênticas. Encontra-o em <span className="text-violet-300 font-semibold">Shopify Admin → Definições → Notificações → Webhooks</span>.
+                            </p>
+                          </div>
                         </div>
-                      </div>
+
+                        {/* Manual fallback — shown when auto-install fails OR as always-available alternative */}
+                        <div className="md:col-span-2 flex items-start gap-4 bg-slate-900/50 border border-slate-700/40 rounded-2xl px-6 py-4">
+                          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm font-bold text-amber-300">Token sem permissão write_webhooks?</p>
+                            <p className="text-[11px] text-slate-400 mt-1 mb-3 leading-relaxed">
+                              Se o teu token não tem permissão para instalar webhooks automaticamente, podes instalá-los manualmente no painel Shopify (ver instruções acima) e depois confirmar aqui.
+                            </p>
+                            <button
+                              onClick={handleWebhooksConfirm}
+                              disabled={saving || !shopifyWebhookSecret}
+                              className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                              Confirmar Instalação Manual
+                            </button>
+                          </div>
+                        </div>
+                      </>
                     )}
+
                   </div>
                 )}
               </motion.div>

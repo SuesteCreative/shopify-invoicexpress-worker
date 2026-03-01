@@ -2,9 +2,9 @@
 
 export const runtime = "edge";
 
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen } from "lucide-react";
+import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen, X } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [webhookStatus, setWebhookStatus] = useState<"idle" | "success" | "error">("idle");
   const [userRole, setUserRole] = useState("");
   const [targetUserId, setTargetUserId] = useState("");
+  const [openDiagnostic, setOpenDiagnostic] = useState<number | null>(null);
 
   // Form State
   const [shopifyDomain, setShopifyDomain] = useState("");
@@ -322,10 +323,15 @@ export default function Dashboard() {
   // ── Helper: status badge for completed steps ──
   const StatusBadge = ({ isAuthorized, errorMsg, stepId }: { isAuthorized: boolean; errorMsg?: string; stepId: number }) => {
     const isHiper = userRole === "hiperadmin";
+    const isOpen = openDiagnostic === stepId;
+    const [showConfirm, setShowConfirm] = useState(false);
 
     const handleManualForce = async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!confirm("⚠️ Forçar autorização manual? Isto irá ignorar os erros de diagnóstico.")) return;
+      if (!showConfirm) {
+        setShowConfirm(true);
+        return;
+      }
 
       const flagMap: Record<number, string> = {
         1: "shopify_authorized",
@@ -347,6 +353,7 @@ export default function Dashboard() {
           if (stepId === 1) setShopifyAuthorized(true);
           if (stepId === 2) setWebhooksActive(true);
           if (stepId === 3) setIxAuthorized(true);
+          setOpenDiagnostic(null);
         } else {
           alert("Erro ao forçar autorização.");
         }
@@ -354,49 +361,91 @@ export default function Dashboard() {
         alert(e.message);
       } finally {
         setSaving(false);
+        setShowConfirm(false);
       }
     };
 
     return (
-      <div className="relative group/badge">
-        <span className={cn(
-          "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all",
-          isAuthorized
-            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-            : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-        )}>
+      <div className="relative">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenDiagnostic(isOpen ? null : stepId);
+            setShowConfirm(false);
+          }}
+          className={cn(
+            "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all active:scale-95",
+            isAuthorized
+              ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+              : "bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20"
+          )}
+        >
           {isAuthorized ? "Autorizado" : "Pendente"}
-          {!isAuthorized && <HelpCircle className="w-3 h-3 animate-pulse cursor-help" />}
-        </span>
-        {!isAuthorized && (
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none group-hover/badge:pointer-events-auto z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
-            <div className="flex items-center gap-3 mb-4 text-amber-400">
-              <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
-                <Info className="w-5 h-5" />
-              </div>
-              <div className="flex flex-col text-left">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico de Ligação</p>
-                <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko 2.0 Engine</p>
-              </div>
-            </div>
-            <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5 mb-4">
-              <p className="text-[13px] text-amber-50/90 font-bold leading-relaxed text-left">{errorMsg || "A aguardar verificação técnica..."}</p>
-            </div>
+          {!isAuthorized && <HelpCircle className={cn("w-3 h-3 cursor-help transition-transform", isOpen && "rotate-180")} />}
+        </button>
 
-            {isHiper && (
-              <button
-                onClick={handleManualForce}
-                disabled={saving}
-                className="w-full py-3 rounded-xl bg-amber-500 text-black font-black text-[10px] uppercase tracking-widest hover:bg-amber-400 transition-all flex items-center justify-center gap-2"
-              >
-                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
-                Forçar Autorização (Hiperadmin)
-              </button>
-            )}
+        <AnimatePresence>
+          {!isAuthorized && isOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[100] backdrop-blur-3xl"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3 text-amber-400">
+                  <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
+                    <Info className="w-5 h-5" />
+                  </div>
+                  <div className="flex flex-col text-left">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico</p>
+                    <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko Engine</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setOpenDiagnostic(null)}
+                  className="p-1 hover:bg-white/5 rounded-lg text-slate-500 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
 
-            <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-slate-900 rotate-45 border-r-2 border-b-2 border-amber-500/10" />
-          </div>
-        )}
+              <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5 mb-4">
+                <p className="text-[13px] text-amber-50/90 font-bold leading-relaxed text-left">
+                  {errorMsg || "A aguardar verificação técnica..."}
+                </p>
+              </div>
+
+              {isHiper && (
+                <div className="space-y-2">
+                  <button
+                    onClick={handleManualForce}
+                    disabled={saving}
+                    className={cn(
+                      "w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                      showConfirm
+                        ? "bg-rose-500 text-white hover:bg-rose-600 animate-pulse"
+                        : "bg-amber-500 text-black hover:bg-amber-400"
+                    )}
+                  >
+                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+                    {showConfirm ? "Tens a certeza? Clica para confirmar" : "Forçar Autorização"}
+                  </button>
+                  {showConfirm && (
+                    <button
+                      onClick={() => setShowConfirm(false)}
+                      className="w-full text-[9px] font-bold text-slate-500 uppercase tracking-widest hover:text-white transition-colors py-1"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-slate-900 rotate-45 border-r-2 border-b-2 border-amber-500/10" />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   };

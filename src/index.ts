@@ -14,18 +14,27 @@ function mapClientMetadata(order: any) {
     const firstName = (order.customer?.first_name || "").trim();
     const lastName = (order.customer?.last_name || "").trim();
     const billingName = (order.billing_address?.name || "").trim();
-    const email = order.customer?.email || order.email || "";
+    const email = (order.customer?.email || order.email || "").trim();
 
-    // Name resolution priority:
-    // 1. Customer first+last name (Shopify account)
-    // 2. Billing address full name (guest checkout)
-    // 3. Email username (last resort, better than generic "Client")
-    // 4. "Consumidor Final" — IX standard for anonymous buyers
-    const name =
-        `${firstName} ${lastName}`.trim() ||
-        billingName ||
-        (email ? email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "") ||
-        "Consumidor Final";
+    const resolvedName = `${firstName} ${lastName}`.trim() || billingName;
+
+    // Fiscal name resolution matrix:
+    // 1. Has real name    → use it (online checkout or POS with customer account)
+    // 2. No name + NIF   → "NIF XXXXXXXXX" (unique & traceable — client is identified by NIF)
+    // 3. No name + email → email username (fallback, no fiscal ID)
+    // 4. No data         → "Consumidor Final" (anonymous buyer, no fiscal trace)
+    let name: string;
+    if (resolvedName) {
+        name = resolvedName;
+    } else if (nif) {
+        // NIF uniquely identifies a Portuguese taxpayer — use it as the client name
+        // This creates a unique, re-usable IX client record for this taxpayer
+        name = `NIF ${nif}`;
+    } else if (email) {
+        name = email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+    } else {
+        name = "Consumidor Final";
+    }
 
     // Country mapping: InvoiceXpress expects full names like "Portugal"
     let country = order.billing_address?.country_code || order.billing_address?.country || "PT";

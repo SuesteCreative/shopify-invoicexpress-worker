@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { RIOKO_CONFIG } from "@/lib/config";
+import { NavLinks } from "@/components/NavLinks";
 
 export default async function DashboardLayout({
     children,
@@ -43,35 +44,7 @@ export default async function DashboardLayout({
                     </div>
                 </div>
 
-                <nav className="flex-1 w-full space-y-6">
-                    <div className="space-y-1">
-                        <span className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Menu</span>
-                        <div className="space-y-1 pt-2">
-                            <Link
-                                href="/dashboard"
-                                className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold text-sm transition-all hover:bg-sky-500/20"
-                            >
-                                <Activity className="w-4 h-4" />
-                                Integrações
-                            </Link>
-
-                            {isSuperAdmin && (
-                                <Link
-                                    href="/superadmin"
-                                    className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-400 hover:text-white hover:bg-white/5 font-bold text-sm transition-all"
-                                >
-                                    <ShieldCheck className="w-4 h-4 text-rose-500" />
-                                    Superadmin
-                                </Link>
-                            )}
-
-                            <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-50 cursor-not-allowed w-full text-left">
-                                <CreditCard className="w-4 h-4" />
-                                Faturação (Brevemente)
-                            </button>
-                        </div>
-                    </div>
-                </nav>
+                <NavLinks isSuperAdmin={isSuperAdmin} />
 
                 <div className="mt-auto space-y-4 w-full">
                     <div className="px-4 py-3 rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">

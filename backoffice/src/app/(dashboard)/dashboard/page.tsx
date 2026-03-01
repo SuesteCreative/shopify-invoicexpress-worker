@@ -184,7 +184,7 @@ export default function Dashboard() {
   const steps = [
     {
       id: 1,
-      title: "Passo 1: Shopify Bridge",
+      title: "Passo 1: Ligação Shopify",
       description: "Ligue a sua loja para iniciar o processo de integração.",
       icon: Store,
       logo: "/images/shopify-logo.webp",
@@ -198,7 +198,7 @@ export default function Dashboard() {
     },
     {
       id: 2,
-      title: "Passo 2: InvoiceXpress Nexus",
+      title: "Passo 2: Conexão InvoiceXpress",
       description: "Introduza os detalhes da sua conta para ligar as finanças.",
       icon: CreditCard,
       logo: "/images/invoicexpress_logo2.png",
@@ -211,7 +211,7 @@ export default function Dashboard() {
     },
     {
       id: 3,
-      title: "Passo 3: Command Center",
+      title: "Passo 3: Definições de Integração",
       description: "Defina as regras, impostos e níveis de finalização.",
       icon: Settings2,
       isConfig: true
@@ -312,12 +312,12 @@ export default function Dashboard() {
                             ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                             : "bg-amber-500/10 text-amber-500 border-amber-500/20"
                         )}>
-                          {isAuthorized ? "Authorized" : "Invalid Credentials"}
+                          {isAuthorized ? "Autorizado" : "Pendente"}
                           {!isAuthorized && <HelpCircle className="w-3 h-3 animate-pulse cursor-help" />}
                         </span>
 
                         {!isAuthorized && errorMsg && (
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-5 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
                             <div className="flex items-center gap-3 mb-4 text-amber-400">
                               <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
                                 <Info className="w-5 h-5" />

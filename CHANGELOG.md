@@ -1,5 +1,14 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 3.1.0 (The Professional Rebranding) - March 1, 2026
+
+### 🎨 User Experience & Branding
+- **Sandbox Rebranding**: Replaced all technical "macewindu" references with the industry-standard "Sandbox" terminology across the entire dashboard and error messages.
+- **Dynamic Sidebar Highlighting**: Implemented a new Client-side navigation system that correctly highlights the active menu item (Dashboard vs Superadmin).
+- **PT-PT Localization**: Translated integration statuses ("Autorizado", "Pendente") and step titles to European Portuguese for a more natural user experience.
+- **Improved Card Ergonomics**: Adjusted the position of the diagnostic card for better visibility and fixed its branding to "Rioko 2.0 Engine" as requested.
+- **Dual-Stack IX Support**: Added automatic fallback detection for modern `.app.invoicexpress.com` domains alongside legacy ones.
+
 ## 💎 Version 2.9.0 (The Compliance & Tax Engine) - March 1, 2026
 
 ### ⚖️ Tax & Compliance

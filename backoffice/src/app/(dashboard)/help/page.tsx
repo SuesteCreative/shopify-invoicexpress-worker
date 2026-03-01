@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag } from "lucide-react";
+import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag, Info } from "lucide-react";
 
 export const runtime = "edge";
 
@@ -75,7 +75,8 @@ function Placeholder({ src, alt, description }: { src: string; alt: string; desc
 
 function InfoBox({ children }: { children: React.ReactNode }) {
     return (
-        <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-4">
+        <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-4 flex items-start gap-3">
+            <Info className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
             <p className="text-sky-300 text-sm leading-relaxed">{children}</p>
         </div>
     );
@@ -182,16 +183,16 @@ export default function HelpPage() {
                     </InfoBox>
 
                     <Steps items={[
-                        'Acede ao painel de administração da tua loja Shopify em <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">admin.shopify.com</code>',
-                        'Olha para o <strong>endereço do browser</strong>. O URL terá o formato <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">https://admin.shopify.com/store/nome-da-loja</code>',
-                        'Alternativamente, vai a <strong>Definições</strong> (ícone ⚙️ no canto inferior esquerdo) → o domínio nativo aparece no topo da página.',
-                        'O domínio a inserir no Rioko é apenas a parte <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">nome-da-loja.myshopify.com</code> (sem "https://").',
+                        'Acede ao Dashboard da tua loja Shopify em <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">admin.shopify.com</code>',
+                        'Acede às <strong>Definições</strong> e clica em <strong>Domínios</strong>',
+                        'Nos domínios procura o domínio <strong>.myshopify.com</strong>',
+                        'Copia e cola no campo do Rioko (sem "https://").',
                     ]} />
 
                     <Placeholder
                         src="/images/help/shopify-domain.png"
                         alt="Shopify Admin - Domínio da loja"
-                        description="Shopify Admin → Definições → domínio .myshopify.com visível na barra de endereço e nas definições"
+                        description="Shopify Admin → Definições → Domínios → procurar o domínio primário que termina em .myshopify.com"
                     />
 
                     <WarningBox>
@@ -235,18 +236,9 @@ export default function HelpPage() {
             {/* ===== SECÇÃO 4: WEBHOOK SECRET ===== */}
             <div className="glass rounded-[2rem] p-8 border-slate-800/40 space-y-6">
                 <Section id="webhook-secret" icon={<Webhook className="w-5 h-5" />} title="Webhook Signing Secret" step="Passo 2 — Criação de Webhooks">
-                    <InfoBox>
-                        O Webhook Signing Secret é uma chave de segurança que a Shopify usa para assinar (verificar) as notificações que envia ao Rioko quando ocorre uma compra ou reembolso. O Rioko usa-a para confirmar que as notificações são legítimas e não foram adulteradas.
-                    </InfoBox>
-
-                    <WarningBox>
-                        💡 Esta chave é <strong>partilhada por todos os webhooks da loja</strong>. Se já tens outros webhooks configurados, a chave é exactamente a mesma.
-                    </WarningBox>
-
                     <Steps items={[
-                        'No painel Shopify, clica em <strong>Definições</strong> (ícone ⚙️ no canto inferior esquerdo do menu).',
-                        'No menu lateral das definições, selecciona <strong>Notificações</strong>.',
-                        'Faz scroll até ao fundo da página até encontrar a secção <strong>"Webhooks"</strong>.',
+                        'No painel Shopify, seleciona <strong>Definições</strong> e depois <strong>Notificações</strong>.',
+                        'No fundo da página seleciona <strong>"Webhooks"</strong>.',
                         'Encontrarás o texto: <em>"Os seus webhooks serão assinados com: [chave]"</em>',
                         'Copia essa chave e cola-a no campo <strong>"Webhook Signing Secret"</strong> do Rioko.',
                     ]} />
@@ -254,8 +246,12 @@ export default function HelpPage() {
                     <Placeholder
                         src="/images/help/webhook-secret.png"
                         alt="Shopify Admin - Webhook Signing Secret"
-                        description="Shopify Admin → Definições → Notificações → secção Webhooks → chave de assinatura"
+                        description="Shopify Admin → Definições → Notificações → fundo da página → chave de assinatura de Webhooks (faz blur na key)"
                     />
+
+                    <InfoBox>
+                        O Webhook Signing Secret é uma chave de segurança que a Shopify usa para assinar as notificações enviadas ao Rioko. Isto garante que cada pedido é autêntico e provém de facto da tua loja.
+                    </InfoBox>
                 </Section>
             </div>
 
@@ -267,16 +263,19 @@ export default function HelpPage() {
                     </InfoBox>
 
                     <Steps items={[
-                        'Acede ao teu painel InvoiceXpress em <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">app.invoicexpress.com</code> (ou o endereço que usas habitualmente).',
-                        'Olha para o <strong>endereço do browser</strong>. O URL terá o formato: <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">https://NOME-DA-CONTA.app.invoicexpress.com</code>',
-                        'A parte <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">NOME-DA-CONTA</code> é o que deves inserir no Rioko (apenas o subdomínio, sem ".app.invoicexpress.com").',
-                        'Exemplo: se o URL for <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">saltedbooks.app.invoicexpress.com</code>, insereres apenas <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">saltedbooks</code>.',
+                        'Acede ao teu Dashboard do InvoiceXpress',
+                        'Vai às definições de conta (canto superior direito)',
+                        'Seleciona <strong>"Preferências de Conta"</strong>',
+                        'No fundo do menu lateral, seleciona <strong>"API"</strong>',
+                        'Se nunca tiver gerado uma chave API, carregue em ativar.',
+                        'Se já tiver gerado o nome de conta aparece no primeiro campo.',
+                        'Copia e cola no campo do Rioko.',
                     ]} />
 
                     <Placeholder
                         src="/images/help/ix-account.png"
-                        alt="InvoiceXpress - Nome da conta no URL"
-                        description="InvoiceXpress → URL da conta → subdomínio 'nome-da-conta' antes de .app.invoicexpress.com"
+                        alt="InvoiceXpress - Nome da conta"
+                        description="InvoiceXpress → Definições → API → campo Nome da Conta (faz blur na api key)"
                     />
                 </Section>
             </div>
@@ -289,17 +288,19 @@ export default function HelpPage() {
                     </InfoBox>
 
                     <Steps items={[
-                        'No painel InvoiceXpress, clica no teu <strong>nome ou avatar</strong> no canto superior direito.',
-                        'Selecciona <strong>"A Minha Conta"</strong> no menu.',
-                        'No menu lateral, encontra e clica em <strong>"API"</strong> ou <strong>"Integrações"</strong>.',
-                        'A <strong>Chave API</strong> aparece nesta página. Clica em "Mostrar" se estiver oculta.',
-                        'Copia a chave e cola-a no campo <strong>"Chave API"</strong> do Rioko.',
+                        'Acede ao teu Dashboard do InvoiceXpress',
+                        'Vai às definições de conta (canto superior direito)',
+                        'Seleciona <strong>"Preferências de Conta"</strong>',
+                        'No fundo do menu lateral, seleciona <strong>"API"</strong>',
+                        'Se nunca tiver gerado uma chave API, carregue em ativar.',
+                        'Se já tiver gerado a chave API aparece no segundo campo.',
+                        'Copia e cola no campo do Rioko.',
                     ]} />
 
                     <Placeholder
                         src="/images/help/ix-api-key.png"
                         alt="InvoiceXpress - Chave API"
-                        description="InvoiceXpress → A Minha Conta → API → campo Chave API"
+                        description="InvoiceXpress → Definições → API → campo Chave API (faz blur na api)"
                     />
 
                     <WarningBox>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ShieldCheck, CreditCard } from "lucide-react";
+import { Activity, ShieldCheck, CreditCard, Settings2 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -10,7 +10,7 @@ function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
-export function NavLinks({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+export function NavLinks({ isSuperAdmin, isHiperadmin }: { isSuperAdmin: boolean; isHiperadmin?: boolean }) {
     const pathname = usePathname();
 
     return (
@@ -43,6 +43,21 @@ export function NavLinks({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                         >
                             <ShieldCheck className="w-4 h-4 text-rose-500" />
                             Superadmin
+                        </Link>
+                    )}
+
+                    {isHiperadmin && (
+                        <Link
+                            href="/client-rules"
+                            className={cn(
+                                "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all",
+                                pathname === "/client-rules"
+                                    ? "bg-violet-500/10 text-violet-400 border border-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.1)]"
+                                    : "text-slate-400 hover:text-white hover:bg-white/5 border border-transparent"
+                            )}
+                        >
+                            <Settings2 className="w-4 h-4 text-violet-500" />
+                            Regras de Clientes
                         </Link>
                     )}
 

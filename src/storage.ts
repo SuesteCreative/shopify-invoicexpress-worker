@@ -7,10 +7,11 @@ export interface Env {
     SHOPIFY_API_VERSION: string;
     INVOICEXPRESS_ACCOUNT_NAME: string;
     INVOICEXPRESS_API_KEY: string;
-    INVOICEXPRESS_ENVIRONMENT?: string; // "production" or "sandbox"
-    INVOICEXPRESS_TAX_INCLUDED?: string; // "true" or "false"
-    INVOICEXPRESS_AUTO_FINALIZE?: string; // "true" or "false"
-    INVOICEXPRESS_EXEMPTION_REASON?: string; // e.g. "M01"
+    INVOICEXPRESS_ENVIRONMENT?: string;
+    INVOICEXPRESS_TAX_INCLUDED?: string;
+    INVOICEXPRESS_AUTO_FINALIZE?: string;
+    INVOICEXPRESS_EXEMPTION_REASON?: string;
+    POS_MODE?: string; // "1" = POS/NIF-matrix mode for this client
 }
 
 export async function saveLog(env: Env, data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number }) {
@@ -55,6 +56,7 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
                 INVOICEXPRESS_EXEMPTION_REASON: integration.ix_exemption_reason || env.INVOICEXPRESS_EXEMPTION_REASON || "M01",
                 INVOICEXPRESS_TAX_INCLUDED: integration.vat_included !== null ? (integration.vat_included === 1 ? "true" : "false") : env.INVOICEXPRESS_TAX_INCLUDED,
                 INVOICEXPRESS_AUTO_FINALIZE: integration.auto_finalize !== null ? (integration.auto_finalize === 1 ? "true" : "false") : env.INVOICEXPRESS_AUTO_FINALIZE,
+                POS_MODE: integration.pos_mode === 1 ? "1" : "0",
             };
         }
     } catch (e) {

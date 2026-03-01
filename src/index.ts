@@ -9,7 +9,7 @@ import {
     createCreditNote
 } from "./invoicexpress";
 
-function mapClientMetadata(order: any) {
+function mapClientMetadata(order: any, config: Env) {
     const nif = extractAndValidateNIF(order);
     const firstName = (order.customer?.first_name || "").trim();
     const lastName = (order.customer?.last_name || "").trim();
@@ -17,23 +17,29 @@ function mapClientMetadata(order: any) {
     const email = (order.customer?.email || order.email || "").trim();
 
     const resolvedName = `${firstName} ${lastName}`.trim() || billingName;
+    const isPosMode = config.POS_MODE === "1";
 
-    // Fiscal name resolution matrix:
-    // 1. Has real name    → use it (online checkout or POS with customer account)
-    // 2. No name + NIF   → "NIF XXXXXXXXX" (unique & traceable — client is identified by NIF)
-    // 3. No name + email → email username (fallback, no fiscal ID)
-    // 4. No data         → "Consumidor Final" (anonymous buyer, no fiscal trace)
     let name: string;
-    if (resolvedName) {
-        name = resolvedName;
-    } else if (nif) {
-        // NIF uniquely identifies a Portuguese taxpayer — use it as the client name
-        // This creates a unique, re-usable IX client record for this taxpayer
-        name = `NIF ${nif}`;
-    } else if (email) {
-        name = email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+    if (isPosMode) {
+        // POS mode: full fiscal name matrix (only for clients like Benedita using POS without customer names)
+        // 1. Real name → use it
+        // 2. No name + NIF → "NIF XXXXXXXXX" (unique fiscal identifier, re-usable across purchases)
+        // 3. No name + email → email username
+        // 4. Nothing → "Consumidor Final"
+        if (resolvedName) {
+            name = resolvedName;
+        } else if (nif) {
+            name = `NIF ${nif}`;
+        } else if (email) {
+            name = email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        } else {
+            name = "Consumidor Final";
+        }
     } else {
-        name = "Consumidor Final";
+        // Standard mode: keep it simple. Use the real name if available, else "Consumidor Final".
+        // Do NOT derive names from email or NIF — that was causing cross-contamination in IX.
+        name = resolvedName || "Consumidor Final";
     }
 
     // Country mapping: InvoiceXpress expects full names like "Portugal"
@@ -93,14 +99,14 @@ export default {
                 const ixExisting = await findDocumentDetailsByReference(config, ixRef);
                 if (ixExisting) {
                     console.log(`[IX] Document already exists in IX: ${ixExisting.id}`);
-                    const clientMetadata = mapClientMetadata(order);
+                    const clientMetadata = mapClientMetadata(order, config);
                     const clientId = await getOrCreateClient(config, clientMetadata);
                     await markAsInvoiced(order.id, ixExisting.id, config, { clientId, clientMetadata, orderNumber: order.order_number });
                     await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { message: "Already existed in IX", invoice_id: ixExisting.id }, status: 200 });
                     return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting.id }), { status: 200 });
                 }
 
-                const clientMetadata = mapClientMetadata(order);
+                const clientMetadata = mapClientMetadata(order, config);
                 const clientId = await getOrCreateClient(config, clientMetadata);
 
                 // Create Fatura-Recibo
@@ -175,8 +181,8 @@ export default {
                     const shopifyOrder = data.order;
                     if (!shopifyOrder) throw new Error("Invalid order data from Shopify");
 
-                    clientId = await getOrCreateClient(config, mapClientMetadata(shopifyOrder));
-                    clientMetadata = mapClientMetadata(shopifyOrder);
+                    clientId = await getOrCreateClient(config, mapClientMetadata(shopifyOrder, config));
+                    clientMetadata = mapClientMetadata(shopifyOrder, config);
                     orderNumber = shopifyOrder.order_number;
                 }
 

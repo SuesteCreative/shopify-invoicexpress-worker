@@ -2,7 +2,7 @@ import { UserButton, SignOutButton } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { LogOut, Activity, CreditCard, ShieldCheck } from "lucide-react";
-import { isAdmin } from "@/lib/admin";
+import { isAdmin, isHiperadmin } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { RIOKO_CONFIG } from "@/lib/config";
@@ -15,6 +15,7 @@ export default async function DashboardLayout({
 }) {
     const { userId } = await auth();
     const isSuperAdmin = await isAdmin(userId);
+    const userIsHiperadmin = await isHiperadmin(userId);
 
     return (
         <div className="flex flex-col md:flex-row min-h-screen">
@@ -44,7 +45,7 @@ export default async function DashboardLayout({
                     </div>
                 </div>
 
-                <NavLinks isSuperAdmin={isSuperAdmin} />
+                <NavLinks isSuperAdmin={isSuperAdmin} isHiperadmin={userIsHiperadmin} />
 
                 <div className="mt-auto space-y-4 w-full">
                     <div className="px-4 py-3 rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">

@@ -62,6 +62,19 @@ export async function getOrCreateClient(
         (fiscalId && c.fiscal_id === fiscalId) ||
         (email && c.email?.toLowerCase() === email);
 
+    // Helper: update client fiscal_id if we have a NIF and they don't
+    const patchFiscalIdIfNeeded = async (existingClient: any): Promise<string> => {
+        if (fiscalId && !existingClient.fiscal_id) {
+            console.log(`[IX] Patching fiscal_id for client ${existingClient.id}: ${fiscalId}`);
+            await fetch(`${baseUrl}/clients/${existingClient.id}.json?api_key=${apiKey}`, {
+                method: "PUT",
+                headers: authHeaders,
+                body: JSON.stringify({ client: { fiscal_id: fiscalId } })
+            }).catch(() => { /* non-blocking — invoice still gets created */ });
+        }
+        return existingClient.id;
+    };
+
     // 1. Primary Check: Direct Search by Name
     const findRes = await fetch(`${baseUrl}/clients/find-by-name.json?client_name=${encodeURIComponent(name)}&api_key=${apiKey}`, { headers: authHeaders });
     if (findRes.status === 200) {
@@ -69,7 +82,7 @@ export async function getOrCreateClient(
         const existing = findData.client;
         if (existing && isExactMatch(existing)) {
             console.log(`[IX] Direct match found: ${existing.name} (${existing.id})`);
-            return existing.id;
+            return patchFiscalIdIfNeeded(existing);
         }
     }
 
@@ -81,7 +94,7 @@ export async function getOrCreateClient(
         const found = clients.find(isExactMatch);
         if (found) {
             console.log(`[IX] Match found on Page 1: ${found.name} (${found.id})`);
-            return found.id;
+            return patchFiscalIdIfNeeded(found);
         }
     }
 

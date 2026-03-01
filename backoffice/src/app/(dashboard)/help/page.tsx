@@ -1,6 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Mail, ExternalLink, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag } from "lucide-react";
+import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag } from "lucide-react";
+
+export const runtime = "edge";
 
 export const metadata = {
     title: "Ajuda & Guia de Configuração | Rioko",

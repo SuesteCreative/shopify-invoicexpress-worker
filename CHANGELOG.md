@@ -1,5 +1,26 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 3.7.1 — Cloudflare Pages Hotfix — March 1, 2026
+
+### 🔧 Fixes
+- **Route `/help` hotfix**: Added `export const runtime = 'edge'` to the help page. Cloudflare Pages requires edge runtime for all dynamic or non-static-prerendered routes.
+- **Syntax Correction**: Fixed the metadata export on the help page which was accidentally broken during the last deploy.
+
+---
+
+## 💎 Version 3.7.0 — Help Guide & "Onde Encontrar" — March 1, 2026
+
+### 📖 "Guia de Configuração" (/help)
+- **New Help Page created**: Step-by-step documentation for all configuration fields (Shopify domain, Access Token, API version, IX Account, API Key, etc.).
+- **Visual Placeholders**: Included identified placeholders for real screenshots that will be uploaded by the user to `/public/images/help/`.
+- **Anchor Navigation**: Supports direct scrolling to specific fields via hash links (e.g., `/help#ix-api-key`).
+
+### 🗺️ Dashboard UI Improvements
+- **"Onde Encontrar" links**: Added a subtle "Onde Encontrar" link next to every configuration field in the 4-step integration process.
+- **Contextual Help**: Each link opens the relevant section of the help guide in a new tab.
+
+---
+
 ## 💎 Version 3.6.3 — Hiperadmin Visibility & Impersonation-Aware Roles — March 1, 2026
 
 ### 🛡️ Security / Role Visibility

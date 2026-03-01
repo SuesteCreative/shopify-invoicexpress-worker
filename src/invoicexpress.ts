@@ -58,9 +58,10 @@ export async function getOrCreateClient(
     console.log(`[IX] Identifying client: ${name} (${code}) | Email: ${email} | NIF: ${fiscalId}`);
 
     const isExactMatch = (c: any) =>
-        String(c.code) === code ||
+        // NIF is the most reliable identifier — a Portuguese fiscal ID is unique per person
         (fiscalId && c.fiscal_id === fiscalId) ||
-        (email && c.email?.toLowerCase() === email);
+        String(c.code) === code ||
+        (email && email.length > 0 && c.email?.toLowerCase() === email);
 
     // Helper: update client fiscal_id if we have a NIF and they don't
     const patchFiscalIdIfNeeded = async (existingClient: any): Promise<string> => {
@@ -70,10 +71,24 @@ export async function getOrCreateClient(
                 method: "PUT",
                 headers: authHeaders,
                 body: JSON.stringify({ client: { fiscal_id: fiscalId } })
-            }).catch(() => { /* non-blocking — invoice still gets created */ });
+            }).catch(() => { /* non-blocking */ });
         }
         return existingClient.id;
     };
+
+    // 0. If we have a NIF, try to find the client by fiscal_id directly first
+    //    This is the most reliable path for POS orders where email/name may be absent
+    if (fiscalId) {
+        const fiscalRes = await fetch(`${baseUrl}/clients.json?fiscal_id=${encodeURIComponent(fiscalId)}&api_key=${apiKey}`, { headers: authHeaders });
+        if (fiscalRes.ok) {
+            const fiscalData: any = await fiscalRes.json();
+            const clients = fiscalData.clients || [];
+            if (clients.length > 0) {
+                console.log(`[IX] Found client by fiscal_id (${fiscalId}): ${clients[0].name}`);
+                return clients[0].id;
+            }
+        }
+    }
 
     // 1. Primary Check: Direct Search by Name
     const findRes = await fetch(`${baseUrl}/clients/find-by-name.json?client_name=${encodeURIComponent(name)}&api_key=${apiKey}`, { headers: authHeaders });

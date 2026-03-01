@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const { shopify_domain, shopify_token, ix_account_name, ix_api_key, vat_included, auto_finalize } = body;
+        const { shopify_domain, shopify_token, shopify_webhook_secret, ix_account_name, ix_api_key, vat_included, auto_finalize } = body;
 
         // Check if integration exists
         const existing = await db
@@ -67,12 +67,13 @@ export async function POST(request: NextRequest) {
             await db
                 .prepare(`
           UPDATE integrations 
-          SET shopify_domain = ?, shopify_token = ?, ix_account_name = ?, ix_api_key = ?, vat_included = ?, auto_finalize = ?, updated_at = CURRENT_TIMESTAMP
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, ix_account_name = ?, ix_api_key = ?, vat_included = ?, auto_finalize = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 .bind(
                     shopify_domain || null,
                     shopify_token || null,
+                    shopify_webhook_secret || null,
                     ix_account_name || null,
                     ix_api_key || null,
                     vat_included !== undefined ? (vat_included ? 1 : 0) : 1,
@@ -84,14 +85,15 @@ export async function POST(request: NextRequest) {
             const id = crypto.randomUUID();
             await db
                 .prepare(`
-          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, ix_account_name, ix_api_key, vat_included, auto_finalize)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, ix_account_name, ix_api_key, vat_included, auto_finalize)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
                 .bind(
                     id,
                     userId,
                     shopify_domain || null,
                     shopify_token || null,
+                    shopify_webhook_secret || null,
                     ix_account_name || null,
                     ix_api_key || null,
                     vat_included ? 1 : 0,

@@ -26,6 +26,7 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
                 ...env,
                 SHOPIFY_SHOP_DOMAIN: integration.shopify_domain,
                 SHOPIFY_ACCESS_TOKEN: integration.shopify_token,
+                SHOPIFY_WEBHOOK_SECRET: integration.shopify_webhook_secret || env.SHOPIFY_WEBHOOK_SECRET,
                 INVOICEXPRESS_ACCOUNT_NAME: integration.ix_account_name,
                 INVOICEXPRESS_API_KEY: integration.ix_api_key,
                 INVOICEXPRESS_TAX_INCLUDED: integration.vat_included === 1 ? "true" : "false",

@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS integrations (
     user_id TEXT NOT NULL,
     shopify_domain TEXT,
     shopify_token TEXT,
+    shopify_webhook_secret TEXT,
     ix_account_name TEXT,
     ix_api_key TEXT,
     vat_included INTEGER DEFAULT 1,

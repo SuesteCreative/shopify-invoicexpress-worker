@@ -48,8 +48,13 @@ export default {
 
         // 2. Webhook handler: Order Paid
         if (url.pathname === "/webhooks/shopify/orders-paid" && request.method === "POST") {
+            console.log(`[Rioko] Webhook Received: orders-paid for ${request.headers.get("X-Shopify-Shop-Domain")}`);
+
             const isValid = await verifyShopifyWebhook(request, config.SHOPIFY_WEBHOOK_SECRET);
-            if (!isValid) return new Response("Invalid Signature", { status: 401 });
+            if (!isValid) {
+                console.error(`[Rioko] Invalid Webhook Signature for ${config.SHOPIFY_SHOP_DOMAIN}. Check your Webhook Secret.`);
+                return new Response("Invalid Signature", { status: 401 });
+            }
 
             const order = await request.clone().json<any>();
             const orderId = order.id;

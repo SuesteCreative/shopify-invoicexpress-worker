@@ -37,7 +37,13 @@ export async function GET(request: NextRequest) {
             .bind(targetUserId)
             .first();
 
-        return NextResponse.json(integration || {});
+        // Also fetch the target user's name (used for greeting, correct under impersonation)
+        const userRecord: any = await db
+            .prepare("SELECT name FROM users WHERE id = ?")
+            .bind(targetUserId)
+            .first();
+
+        return NextResponse.json({ ...(integration || {}), _user_name: userRecord?.name || null });
     } catch (error: any) {
         console.error("D1 Error:", error);
         return NextResponse.json({ error: `Internal Server Error: ${error.message}` }, { status: 500 });

@@ -16,7 +16,9 @@ function cn(...inputs: ClassValue[]) {
 
 export default function Dashboard() {
   const { user: clerkUser } = useUser();
-  const firstName = clerkUser?.firstName || clerkUser?.fullName?.split(" ")[0] || "";
+  // Use DB name (correct under impersonation). Falls back to Clerk name until data loads.
+  const [dbUserName, setDbUserName] = useState("");
+  const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -88,7 +90,8 @@ export default function Dashboard() {
     fetch("/api/integrations")
       .then(res => res.json())
       .then((data: any) => {
-        if (data.shopify_domain) setShopifyDomain(data.shopify_domain);
+        if (data._user_name) setDbUserName(data._user_name);
+        setShopifyDomain(data.shopify_domain || "");
         if (data.shopify_token) setShopifyToken(data.shopify_token);
         if (data.shopify_webhook_secret) setShopifyWebhookSecret(data.shopify_webhook_secret);
         if (data.shopify_api_version) setShopifyApiVersion(data.shopify_api_version);

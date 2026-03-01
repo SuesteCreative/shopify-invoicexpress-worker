@@ -1,6 +1,26 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
-## 🚀 Version 1.1.2 (Latest) - February 28, 2026
+## � Version 2.0.0 (Global Alpha) - March 1, 2026
+
+### �🚀 Major Breakthroughs (The "Bridge" Era)
+- **Dynamic Multi-Client Engine**: The Worker now detects the Shopify `X-Shopify-Shop-Domain` and dynamically pulls integration credentials from Cloudflare D1. 
+- **One-Click Activation**: Implemented remote webhook installation. Users can now "Activate & Sync" directly from the dashboard without touching Shopify settings.
+- **Persistent Command Center**: Configuration for VAT (Tax-Included) and Auto-Finalize is now saved per user in the database.
+
+### ✨ Visual & UI Refinements
+- **Branding Excellence**: Integrated new Rioko and Kapta logos with perfect alignment and scaling.
+- **Beta Badge & Stable Branding**: Added "Beta" status and stable versioning (v2.0.0 Stable Build) to the sidebar.
+- **Safe Navigation**: Added "Go Back" functionality and "Update" states for completed integration steps.
+- **Error Transparency**: Implemented a comprehensive pop-up error system for user-side feedback.
+
+### 🛡️ Under the Hood
+- **D1 Nexus**: Migrated from static `wrangler.toml` variables to a persistent SQL-based architecture in Cloudflare D1.
+- **Deployment stability**: Optimized Build process (Next.js v15) and synchronized lockfiles for high-speed Cloudflare Pages deployments.
+- **Anti-Duplication**: Enhanced idempotency filters that check IX directly before emitting documents.
+
+---
+
+## 📅 Version 1.1.2 - February 28, 2026
 
 ### ✨ New Features
 - **Official Rioko v2 Branding**: Integrated the official white SVG logo provided by the design team.
@@ -17,6 +37,7 @@
 ---
 
 ## 📅 Version 1.1.0 - February 27, 2026
+...
 
 ### ✨ Initial Core Release
 - **Automatic Fatura-Recibo**: Listening to Shopify "Paid" events.

@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "edge";
 
-const WORKER_URL = "https://shopify-invoicexpress-worker.pedro.workers.dev"; // We might want this to be an env var
+const WORKER_URL = "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev";
 
 export async function POST(request: NextRequest) {
     const { userId } = await auth();

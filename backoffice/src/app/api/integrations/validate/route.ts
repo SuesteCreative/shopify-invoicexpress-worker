@@ -31,18 +31,26 @@ export async function POST(request: NextRequest) {
         let isValid = false;
 
         if (body.type === "shopify") {
-            const domain = config.shopify_domain;
+            let domain = config.shopify_domain || "";
             const token = config.shopify_token;
             const version = config.shopify_api_version || "2026-01";
+
+            // Clean domain (remove https://, trailing slashes, etc)
+            domain = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
             if (!domain || !token) return NextResponse.json({ error: "Missing Shopify credentials" }, { status: 400 });
 
             try {
-                const res = await fetch(`https://${domain}/admin/api/${version}/shop.json`, {
+                const url = `https://${domain}/admin/api/${version}/shop.json`;
+                const res = await fetch(url, {
                     headers: { "X-Shopify-Access-Token": token }
                 });
                 isValid = res.status === 200;
-            } catch (e) {
+                if (!isValid) {
+                    console.error(`[Validate] Shopify fail (${res.status}): ${await res.text()}`);
+                }
+            } catch (e: any) {
+                console.error(`[Validate] Shopify network error: ${e.message}`);
                 isValid = false;
             }
 

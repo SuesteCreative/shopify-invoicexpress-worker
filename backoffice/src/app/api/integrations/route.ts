@@ -74,6 +74,8 @@ export async function POST(request: NextRequest) {
 
         const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, vat_included, auto_finalize } = body;
 
+        const clean_shopify_domain = shopify_domain ? shopify_domain.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
+
         // Check if integration exists
         const existing = await db
             .prepare("SELECT id FROM integrations WHERE user_id = ?")
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest) {
           WHERE user_id = ?
         `)
                 .bind(
-                    shopify_domain || null,
+                    clean_shopify_domain,
                     shopify_token || null,
                     shopify_webhook_secret || null,
                     shopify_api_version || "2026-01",
@@ -110,7 +112,7 @@ export async function POST(request: NextRequest) {
                 .bind(
                     id,
                     targetUserId,
-                    shopify_domain || null,
+                    clean_shopify_domain,
                     shopify_token || null,
                     shopify_webhook_secret || null,
                     shopify_api_version || "2026-01",

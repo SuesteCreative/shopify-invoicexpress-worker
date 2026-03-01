@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [shopifyDomain, setShopifyDomain] = useState("");
   const [shopifyToken, setShopifyToken] = useState("");
   const [shopifyWebhookSecret, setShopifyWebhookSecret] = useState("");
+  const [shopifyApiVersion, setShopifyApiVersion] = useState("2026-01");
   const [ixAccount, setIxAccount] = useState("");
   const [ixApiKey, setIxApiKey] = useState("");
   const [vatIncluded, setVatIncluded] = useState(true);
@@ -37,6 +38,7 @@ export default function Dashboard() {
         if (data.shopify_domain) setShopifyDomain(data.shopify_domain);
         if (data.shopify_token) setShopifyToken(data.shopify_token);
         if (data.shopify_webhook_secret) setShopifyWebhookSecret(data.shopify_webhook_secret);
+        if (data.shopify_api_version) setShopifyApiVersion(data.shopify_api_version);
         if (data.ix_account_name) setIxAccount(data.ix_account_name);
         if (data.ix_api_key) setIxApiKey(data.ix_api_key);
         if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
@@ -64,6 +66,7 @@ export default function Dashboard() {
           shopify_domain: shopifyDomain,
           shopify_token: shopifyToken,
           shopify_webhook_secret: shopifyWebhookSecret,
+          shopify_api_version: shopifyApiVersion,
           ix_account_name: ixAccount,
           ix_api_key: ixApiKey,
           vat_included: vatIncluded,
@@ -116,7 +119,8 @@ export default function Dashboard() {
       fields: [
         { label: "Shopify Domain (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "quickstart-66f9e5ef.myshopify.com", type: "text" },
         { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password" },
-        { label: "Webhook Signing Secret (Optional but Recommended)", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "Find it in Shopify > Notifications > Webhooks", type: "password" }
+        { label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "See Shopify Notifications > Webhooks", type: "password" },
+        { label: "API Version", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text" }
       ]
     },
     {

@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Shopify integration not configured" }, { status: 400 });
         }
 
-        const { shopify_domain, shopify_token } = integration;
+        const { shopify_domain, shopify_token, shopify_api_version } = integration;
+        const apiVersion = shopify_api_version || "2026-01";
 
         // Register Webhooks in Shopify
         const webhooks = [
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
         const results = [];
 
         for (const hook of webhooks) {
-            const response = await fetch(`https://${shopify_domain}/admin/api/2026-01/webhooks.json`, {
+            const response = await fetch(`https://${shopify_domain}/admin/api/${apiVersion}/webhooks.json`, {
                 method: "POST",
                 headers: {
                     "X-Shopify-Access-Token": shopify_token,

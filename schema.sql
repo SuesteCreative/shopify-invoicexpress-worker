@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS integrations (
     shopify_domain TEXT,
     shopify_token TEXT,
     shopify_webhook_secret TEXT,
+    shopify_api_version TEXT DEFAULT '2026-01',
     ix_account_name TEXT,
     ix_api_key TEXT,
     vat_included INTEGER DEFAULT 1,

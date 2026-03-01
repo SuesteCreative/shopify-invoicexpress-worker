@@ -131,6 +131,40 @@ export async function getOrCreateClient(
     throw new Error(`IX Client Error: ${createRes.status} - ${errTxt}`);
 }
 
+const EXEMPTION_MAPPING: Record<string, string> = {
+    "M01": "Artigo 16.º, n.º 6 do CIVA",
+    "M02": "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho",
+    "M04": "Isento artigo 13.º do CIVA",
+    "M05": "Isento artigo 14.º do CIVA",
+    "M06": "Isento artigo 15.º do CIVA",
+    "M07": "Isento artigo 9.º do CIVA",
+    "M08": "Simples: Não confere direito a dedução",
+    "M09": "IVA – não confere direito a dedução",
+    "M10": "Isento artigo 31.º do CIVA",
+    "M11": "Regime especial de isenção artigo 53.º do CIVA",
+    "M12": "Regime da margem de lucro – Agências de Viagens",
+    "M13": "Regime da margem de lucro – Bens em segunda mão",
+    "M14": "Regime da margem de lucro – Objetos de arte",
+    "M15": "Regime da margem de lucro – Objetos de coleção e antiguidades",
+    "M16": "Isento artigo 14.º do RITI",
+    "M20": "IVA - autoliquidação",
+    "M21": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea i) do CIVA)",
+    "M24": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea m) do CIVA)",
+    "M25": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea j) do CIVA)",
+    "M26": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea l) do CIVA)",
+    "M30": "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea a) do CIVA)",
+    "M31": "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea b) do CIVA)",
+    "M32": "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea c) do CIVA)",
+    "M33": "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea e) do CIVA)",
+    "M34": "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea f) do CIVA)",
+    "M35": "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea g) do CIVA)",
+    "M40": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea n) do CIVA)",
+    "M41": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea p) do CIVA)",
+    "M42": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea q) do CIVA)",
+    "M43": "IVA - autoliquidação (artigo 2.º, n.º 1, alínea r) do CIVA)",
+    "M99": "Não sujeito; não tributado (ou similar)"
+};
+
 function mapTaxName(rate: number | string): string {
     const r = parseFloat(String(rate));
     if (r === 0) return "Isento";
@@ -196,17 +230,18 @@ export async function createDocument(
     const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
     const rootKey = type === "fatura_recibo" ? "invoice_receipt" : "invoice";
 
-    const exemptionReason = env.INVOICEXPRESS_EXEMPTION_REASON || "M01";
+    const exemptionCode = env.INVOICEXPRESS_EXEMPTION_REASON || "M01";
+    const exemptionFull = `${exemptionCode} - ${EXEMPTION_MAPPING[exemptionCode] || ""}`;
     let observations = `Shopify ID: ${order.id}`;
     if (hasExemptItems) {
-        observations += `\nRazão de Isenção: ${exemptionReason}`;
+        observations += `\nRazão de Isenção: ${exemptionFull}`;
     }
 
     const body: any = {};
     body[rootKey] = {
         date: formattedDate,
         due_date: formattedDate,
-        tax_exemption: hasExemptItems ? exemptionReason : undefined,
+        tax_exemption: hasExemptItems ? exemptionCode : undefined,
         client: {
             name: clientMetadata.name,
             code: clientMetadata.code,
@@ -346,17 +381,18 @@ export async function createCreditNote(
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
     const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
-    const exemptionReason = env.INVOICEXPRESS_EXEMPTION_REASON || "M01";
+    const exemptionCode = env.INVOICEXPRESS_EXEMPTION_REASON || "M01";
+    const exemptionFull = `${exemptionCode} - ${EXEMPTION_MAPPING[exemptionCode] || ""}`;
     let observations = `Shopify Refund ID: ${refund.id}. Original Doc ID: ${original.id}`;
     if (hasExemptItems) {
-        observations += `\nRazão de Isenção: ${exemptionReason}`;
+        observations += `\nRazão de Isenção: ${exemptionFull}`;
     }
 
     const body = {
         credit_note: {
             date: formattedDate,
             owner_invoice_id: original.id,
-            tax_exemption: hasExemptItems ? exemptionReason : undefined,
+            tax_exemption: hasExemptItems ? exemptionCode : undefined,
             client: { name: clientMetadata.name, email: clientMetadata.email || undefined, fiscal_id: clientMetadata.fiscal_id || undefined },
             items: items,
             reference: `Refund #${refund.id} for Order #${order.order_number}`,

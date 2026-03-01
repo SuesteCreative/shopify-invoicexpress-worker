@@ -27,3 +27,11 @@ CREATE TABLE IF NOT EXISTS logs (
     status INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS processed_orders (
+    id TEXT PRIMARY KEY, -- shopify_order_id or refund_id
+    invoice_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_processed_orders_id ON processed_orders(id);

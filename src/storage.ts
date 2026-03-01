@@ -66,15 +66,36 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
 
 export async function isIdempotent(orderId: number | string, env: Env): Promise<string | null> {
     const key = `shopify_order:${orderId}`;
+
+    // 1. Primary Check: Durable D1 (SQL) for strict consistency
+    try {
+        const row: any = await env.DB.prepare("SELECT invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
+        if (row) return row.invoice_id || "PROCESSED";
+    } catch (e) {
+        console.error("[Rioko] Idempotency check failed in D1, falling back to KV:", e);
+    }
+
+    // 2. Secondary Check: Fast KV (Eventually Consistent)
     return await env.INVOICE_KV.get(key);
 }
 
 export async function markAsInvoiced(orderId: number | string, invoiceId: string, env: Env, extraData?: any): Promise<void> {
     const key = `shopify_order:${orderId}`;
+    const timestamp = new Date().toISOString();
+
     const data = JSON.stringify({
         invoice_id: invoiceId,
-        timestamp: new Date().toISOString(),
+        timestamp: timestamp,
         ...extraData
     });
+
+    // 1. Record in D1 (Atomic/Strict)
+    try {
+        await env.DB.prepare("INSERT INTO processed_orders (id, invoice_id) VALUES (?, ?)").bind(String(orderId), invoiceId).run();
+    } catch (e) {
+        console.warn("[Rioko] Failed to save idempotency in D1 (maybe already exists):", e);
+    }
+
+    // 2. Record in KV (Fast Search)
     await env.INVOICE_KV.put(key, data);
 }

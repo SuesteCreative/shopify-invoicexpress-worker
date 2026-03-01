@@ -1,13 +1,12 @@
+"use client";
+
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag, Info } from "lucide-react";
+import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag, Info, X, Search } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export const runtime = "edge";
-
-export const metadata = {
-    title: "Ajuda & Guia de Configuração | Rioko",
-    description: "Guia passo a passo para configurar a integração Shopify ↔ InvoiceXpress com o Rioko.",
-};
 
 function Section({ id, icon, title, step, children }: {
     id: string;
@@ -51,21 +50,31 @@ function Steps({ items }: { items: string[] }) {
     );
 }
 
-function Placeholder({ src, alt, description }: { src: string; alt: string; description: string }) {
+function Placeholder({ src, alt, description, onZoom }: { src: string; alt: string; description: string; onZoom: (src: string) => void }) {
     return (
-        <div className="rounded-2xl overflow-hidden border border-slate-800/60 bg-slate-900/40">
-            <div className="relative w-full aspect-video bg-slate-900">
+        <div
+            className="rounded-2xl overflow-hidden border border-slate-800/60 bg-slate-900/40 cursor-zoom-in group relative"
+            onClick={() => onZoom(src)}
+        >
+            <div className="relative w-full aspect-video bg-slate-950 transition-transform duration-500 group-hover:scale-[1.02]">
                 <Image
                     src={src}
                     alt={alt}
                     fill
-                    className="object-cover"
+                    className="object-contain p-4"
                 />
-                {/* Placeholder overlay label */}
+
+                {/* Visual feedback for zoom */}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20">
+                        <Search className="w-6 h-6 text-white" />
+                    </div>
+                </div>
+
                 <div className="absolute bottom-3 left-3 right-3 bg-black/70 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2">
-                    <span className="text-amber-400 text-lg">📸</span>
-                    <span className="text-[11px] text-amber-200/90 font-semibold">
-                        Screenshot a substituir: <span className="font-black">{description}</span>
+                    <span className="text-amber-400 text-[10px] font-black uppercase tracking-widest">Visualização</span>
+                    <span className="text-[11px] text-slate-300 font-medium truncate">
+                        {description}
                     </span>
                 </div>
             </div>
@@ -115,6 +124,7 @@ function ContactBox() {
 }
 
 export default function HelpPage() {
+    const [zoomImage, setZoomImage] = useState<string | null>(null);
     return (
         <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-700">
 
@@ -190,9 +200,10 @@ export default function HelpPage() {
                     ]} />
 
                     <Placeholder
-                        src="/images/help/shopify-domain.png"
+                        src="/images/help/shopify-domain.webp"
                         alt="Shopify Admin - Domínio da loja"
-                        description="Shopify Admin → Definições → Domínios → procurar o domínio primário que termina em .myshopify.com"
+                        description="Shopify Admin → Definições → Domínios"
+                        onZoom={setZoomImage}
                     />
 
                     <WarningBox>
@@ -244,9 +255,10 @@ export default function HelpPage() {
                     ]} />
 
                     <Placeholder
-                        src="/images/help/webhook-secret.png"
+                        src="/images/help/webhook-secret.webp"
                         alt="Shopify Admin - Webhook Signing Secret"
-                        description="Shopify Admin → Definições → Notificações → fundo da página → chave de assinatura de Webhooks (faz blur na key)"
+                        description="Shopify Admin → Definições → Notificações → Webhooks"
+                        onZoom={setZoomImage}
                     />
 
                     <InfoBox>
@@ -273,9 +285,10 @@ export default function HelpPage() {
                     ]} />
 
                     <Placeholder
-                        src="/images/help/ix-account.png"
+                        src="/images/help/ix-account.webp"
                         alt="InvoiceXpress - Nome da conta"
-                        description="InvoiceXpress → Definições → API → campo Nome da Conta (faz blur na api key)"
+                        description="InvoiceXpress → Definições → API → Nome da Conta"
+                        onZoom={setZoomImage}
                     />
                 </Section>
             </div>
@@ -298,9 +311,10 @@ export default function HelpPage() {
                     ]} />
 
                     <Placeholder
-                        src="/images/help/ix-api-key.png"
+                        src="/images/help/ix-api-key.webp"
                         alt="InvoiceXpress - Chave API"
-                        description="InvoiceXpress → Definições → API → campo Chave API (faz blur na api)"
+                        description="InvoiceXpress → Definições → API → Chave API"
+                        onZoom={setZoomImage}
                     />
 
                     <WarningBox>
@@ -456,6 +470,42 @@ export default function HelpPage() {
                     pedro@kapta.pt
                 </a>
             </div>
+
+            {/* Modal de Zoom */}
+            <AnimatePresence>
+                {zoomImage && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-10 bg-slate-950/90 backdrop-blur-xl cursor-zoom-out"
+                        onClick={() => setZoomImage(null)}
+                    >
+                        <motion.button
+                            initial={{ scale: 0.5, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="absolute top-6 right-6 w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors border border-white/10"
+                        >
+                            <X className="w-6 h-6" />
+                        </motion.button>
+
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="relative w-full h-full flex items-center justify-center lg:max-w-6xl"
+                        >
+                            <Image
+                                src={zoomImage}
+                                alt="Zoom View"
+                                fill
+                                className="object-contain"
+                                priority
+                            />
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
         </div>
     );

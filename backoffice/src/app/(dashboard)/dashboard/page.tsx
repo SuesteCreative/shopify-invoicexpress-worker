@@ -30,6 +30,8 @@ export default function Dashboard() {
   const [ixEnvironment, setIxEnvironment] = useState("production");
   const [vatIncluded, setVatIncluded] = useState(true);
   const [autoFinalize, setAutoFinalize] = useState(false);
+  const [shopifyAuthorized, setShopifyAuthorized] = useState(false);
+  const [ixAuthorized, setIxAuthorized] = useState(false);
 
   // Load existing data
   useEffect(() => {
@@ -48,6 +50,8 @@ export default function Dashboard() {
         if (data.ix_environment) setIxEnvironment(data.ix_environment);
         if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
         if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
+        if (data.shopify_authorized !== undefined) setShopifyAuthorized(data.shopify_authorized === 1);
+        if (data.ix_authorized !== undefined) setIxAuthorized(data.ix_authorized === 1);
 
         // Determine current step based on completed data
         if (data.ix_api_key && data.shopify_token) setStep(3);
@@ -81,6 +85,19 @@ export default function Dashboard() {
       });
 
       if (response.ok) {
+        // Run validation for the current step
+        const type = step === 1 ? "shopify" : (step === 2 ? "ix" : null);
+        if (type) {
+          const valRes = await fetch("/api/integrations/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type })
+          });
+          const valData = await valRes.json() as any;
+          if (type === "shopify") setShopifyAuthorized(valData.isValid);
+          if (type === "ix") setIxAuthorized(valData.isValid);
+        }
+
         if (step < 3) setStep(step + 1);
       } else {
         const contentType = response.headers.get("content-type");
@@ -232,7 +249,16 @@ export default function Dashboard() {
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-bold tracking-tight">{s.title}</h2>
-                    {isComplete && <span className="px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase tracking-[0.15em] border border-emerald-500/20">Authorized</span>}
+                    {isComplete && (
+                      <span className={cn(
+                        "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border",
+                        (s.id === 1 ? shopifyAuthorized : (s.id === 2 ? ixAuthorized : true))
+                          ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                          : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                      )}>
+                        {(s.id === 1 ? shopifyAuthorized : (s.id === 2 ? ixAuthorized : true)) ? "Authorized" : "Invalid Credentials"}
+                      </span>
+                    )}
                     {isActive && <div className="h-1.5 w-1.5 rounded-full bg-accent-blue animate-ping" />}
                   </div>
                   <p className="text-slate-400 font-medium leading-relaxed max-w-xl">{s.description}</p>

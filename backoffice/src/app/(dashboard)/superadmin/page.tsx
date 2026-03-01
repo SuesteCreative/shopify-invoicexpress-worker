@@ -98,16 +98,23 @@ export default function SuperadminPage() {
                             <div className="flex flex-wrap items-center justify-center gap-4 px-8 border-x-0 lg:border-x border-slate-800/40">
                                 <div className="flex flex-col items-center gap-1">
                                     <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest leading-none">Status</span>
-                                    <div className="flex items-center gap-2">
-                                        {user.is_connected ? (
-                                            <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
-                                                <Check className="w-3 h-3" /> Ligado
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center gap-1.5 text-slate-600 text-xs font-bold uppercase tracking-wider">
-                                                <X className="w-3 h-3" /> Inativo
-                                            </div>
-                                        )}
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[8px] font-black text-slate-700 uppercase mb-1">Shopify</span>
+                                            {user.shopify_authorized ? (
+                                                <div className="text-emerald-400 text-[10px] font-bold">● OK</div>
+                                            ) : (
+                                                <div className="text-amber-500 text-[10px] font-bold">● ERR</div>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[8px] font-black text-slate-700 uppercase mb-1">IX</span>
+                                            {user.ix_authorized ? (
+                                                <div className="text-emerald-400 text-[10px] font-bold">● OK</div>
+                                            ) : (
+                                                <div className="text-amber-500 text-[10px] font-bold">● ERR</div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 

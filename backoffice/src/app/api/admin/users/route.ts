@@ -24,7 +24,9 @@ export async function GET() {
         u.role, 
         u.last_login,
         i.shopify_domain,
-        CASE WHEN i.shopify_token IS NOT NULL THEN 1 ELSE 0 END as is_connected
+        i.shopify_authorized,
+        i.ix_authorized,
+        CASE WHEN i.shopify_token IS NOT NULL AND i.ix_api_key IS NOT NULL THEN 1 ELSE 0 END as is_connected
       FROM users u
       LEFT JOIN integrations i ON u.id = i.user_id
       ORDER BY u.last_login DESC

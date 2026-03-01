@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, XCircle, ShieldCheck } from "lucide-react";
+import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, XCircle, ShieldCheck, Webhook, AlertTriangle } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [exemptionReason, setExemptionReason] = useState("M01");
   const [shopifyAuthorized, setShopifyAuthorized] = useState(false);
   const [ixAuthorized, setIxAuthorized] = useState(false);
+  const [webhooksActive, setWebhooksActive] = useState(false);
   const [shopifyError, setShopifyError] = useState("");
   const [ixError, setIxError] = useState("");
 
@@ -90,6 +91,7 @@ export default function Dashboard() {
         if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
         if (data.shopify_authorized !== undefined) setShopifyAuthorized(data.shopify_authorized === 1);
         if (data.ix_authorized !== undefined) setIxAuthorized(data.ix_authorized === 1);
+        if (data.webhooks_active !== undefined) setWebhooksActive(data.webhooks_active === 1);
         if (data.shopify_error) setShopifyError(data.shopify_error);
         if (data.ix_error) setIxError(data.ix_error);
 
@@ -494,47 +496,117 @@ export default function Dashboard() {
               animate={{ opacity: 1, y: 0 }}
               className={cn(
                 "rounded-[2.5rem] p-1 shadow-2xl transition-all duration-1000",
-                (shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                (shopifyAuthorized && ixAuthorized && webhooksActive)
                   ? "bg-gradient-to-r from-emerald-500/40 via-emerald-400/10 to-emerald-500/40 shadow-[0_0_50px_rgba(16,185,129,0.2)]"
                   : "bg-gradient-to-r from-amber-500/40 via-amber-400/10 to-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.2)]"
               )}
             >
-              <div className="bg-slate-950 rounded-[2.3rem] p-10 flex flex-col md:flex-row items-center justify-between gap-8 border border-white/5">
-                <div className="flex items-center gap-8">
-                  <div className={cn(
-                    "w-20 h-20 rounded-[1.8rem] flex items-center justify-center p-0.5",
-                    (shopifyAuthorized && ixAuthorized && activeStatus === "success")
-                      ? "bg-emerald-500/20 ring-2 ring-emerald-400 ring-offset-4 ring-offset-slate-950"
-                      : "bg-amber-500/10 ring-2 ring-amber-400 ring-offset-4 ring-offset-slate-950"
-                  )}>
-                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? (
-                      <ShieldCheck className="w-10 h-10 text-emerald-400" />
-                    ) : (
-                      <Circle className="w-10 h-10 text-amber-500 stroke-[3]" />
-                    )}
+              <div className="bg-slate-950 rounded-[2.3rem] p-10 flex flex-col gap-8 border border-white/5">
+                {/* Top Row: Main Status */}
+                <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                  <div className="flex items-center gap-8">
+                    <div className={cn(
+                      "w-20 h-20 rounded-[1.8rem] flex items-center justify-center p-0.5",
+                      (shopifyAuthorized && ixAuthorized && webhooksActive)
+                        ? "bg-emerald-500/20 ring-2 ring-emerald-400 ring-offset-4 ring-offset-slate-950"
+                        : "bg-amber-500/10 ring-2 ring-amber-400 ring-offset-4 ring-offset-slate-950"
+                    )}>
+                      {(shopifyAuthorized && ixAuthorized && webhooksActive) ? (
+                        <ShieldCheck className="w-10 h-10 text-emerald-400" />
+                      ) : (
+                        <Circle className="w-10 h-10 text-amber-500 stroke-[3]" />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-2xl font-black tracking-tight">
+                        {(shopifyAuthorized && ixAuthorized && webhooksActive) ? "Integração Concluída" : "Integração Incompleta"}
+                      </h3>
+                      <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+                        {(shopifyAuthorized && ixAuthorized && webhooksActive)
+                          ? "A sua conta está configurada e protegida no Rioko 2.0"
+                          : "Corrija os campos assinalados abaixo para ativar a sincronização"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <h3 className="text-2xl font-black tracking-tight">
-                      {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "Integração Concluída" : "Integração Incompleta"}
-                    </h3>
-                    <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
-                      {(shopifyAuthorized && ixAuthorized && activeStatus === "success")
-                        ? "A sua conta está configurada e protegida no Rioko 2.0"
-                        : "Corrija os campos assinalados acima para ativar a sincronização"}
-                    </p>
+
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border transition-all duration-1000",
+                      (shopifyAuthorized && ixAuthorized && webhooksActive)
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                        : "bg-amber-500/10 text-amber-500 border-amber-500/30"
+                    )}>
+                      {(shopifyAuthorized && ixAuthorized && webhooksActive) ? "ONLINE • REAL-TIME" : "PENDENTE • REQUER AÇÃO"}
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                {/* Diagnostic Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/5 pt-8">
+                  {/* Shopify Status */}
                   <div className={cn(
-                    "px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border transition-all duration-1000",
-                    (shopifyAuthorized && ixAuthorized && activeStatus === "success")
-                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                      : "bg-amber-500/10 text-amber-500 border-amber-500/30"
+                    "flex items-center gap-3 px-5 py-4 rounded-2xl border",
+                    shopifyAuthorized ? "bg-emerald-500/5 border-emerald-500/20" : "bg-amber-500/5 border-amber-500/20"
                   )}>
-                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "ONLINE • REAL-TIME" : "PENDENTE • REQUER AÇÃO"}
+                    <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", shopifyAuthorized ? "bg-emerald-500/10" : "bg-amber-500/10")}>
+                      <Store className={cn("w-4 h-4", shopifyAuthorized ? "text-emerald-400" : "text-amber-500")} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Shopify</p>
+                      <p className={cn("text-xs font-bold", shopifyAuthorized ? "text-emerald-400" : "text-amber-500")}>
+                        {shopifyAuthorized ? "Autorizado" : "Pendente"}
+                      </p>
+                    </div>
+                    {shopifyAuthorized ? <Check className="w-4 h-4 text-emerald-400 ml-auto" /> : <AlertTriangle className="w-4 h-4 text-amber-500 ml-auto" />}
+                  </div>
+
+                  {/* InvoiceXpress Status */}
+                  <div className={cn(
+                    "flex items-center gap-3 px-5 py-4 rounded-2xl border",
+                    ixAuthorized ? "bg-emerald-500/5 border-emerald-500/20" : "bg-amber-500/5 border-amber-500/20"
+                  )}>
+                    <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", ixAuthorized ? "bg-emerald-500/10" : "bg-amber-500/10")}>
+                      <CreditCard className={cn("w-4 h-4", ixAuthorized ? "text-emerald-400" : "text-amber-500")} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">InvoiceXpress</p>
+                      <p className={cn("text-xs font-bold", ixAuthorized ? "text-emerald-400" : "text-amber-500")}>
+                        {ixAuthorized ? "Autorizado" : "Pendente"}
+                      </p>
+                    </div>
+                    {ixAuthorized ? <Check className="w-4 h-4 text-emerald-400 ml-auto" /> : <AlertTriangle className="w-4 h-4 text-amber-500 ml-auto" />}
+                  </div>
+
+                  {/* Webhooks Status */}
+                  <div className={cn(
+                    "flex items-center gap-3 px-5 py-4 rounded-2xl border",
+                    webhooksActive ? "bg-emerald-500/5 border-emerald-500/20" : "bg-rose-500/5 border-rose-500/20"
+                  )}>
+                    <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", webhooksActive ? "bg-emerald-500/10" : "bg-rose-500/10")}>
+                      <Webhook className={cn("w-4 h-4", webhooksActive ? "text-emerald-400" : "text-rose-400")} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Webhooks Shopify</p>
+                      <p className={cn("text-xs font-bold", webhooksActive ? "text-emerald-400" : "text-rose-400")}>
+                        {webhooksActive ? "Registados" : "Não Instalados"}
+                      </p>
+                    </div>
+                    {webhooksActive ? <Check className="w-4 h-4 text-emerald-400 ml-auto" /> : <AlertTriangle className="w-4 h-4 text-rose-400 ml-auto animate-pulse" />}
                   </div>
                 </div>
+
+                {/* Warning Banner if webhooks missing */}
+                {!webhooksActive && (
+                  <div className="flex items-start gap-4 bg-rose-500/5 border border-rose-500/20 rounded-2xl px-6 py-4">
+                    <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-bold text-rose-300">Webhooks não instalados na Shopify</p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Clica em &quot;Guardar &amp; Ativar Webhooks&quot; no Passo 3 para registar os webhooks automaticamente. Se o erro persistir, verifica se o token Shopify tem permissão para gerir webhooks (<code className="text-rose-300">write_webhooks</code>).
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           )

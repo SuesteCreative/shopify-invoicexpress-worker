@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { RIOKO_CONFIG } from "@/lib/config";
 
 export const runtime = "edge";
 
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest) {
                 // Try several API versions as fallback for older stores/test stores
                 const versions = [version, "2025-01", "2024-10", "2024-07", "2024-01"];
                 let lastStatus = 0;
+                let webhooksDetected = false;
 
                 for (const v of versions) {
                     const url = `https://${domain}/admin/api/${v}/shop.json`;
@@ -58,6 +60,21 @@ export async function POST(request: NextRequest) {
                     if (res.status === 200) {
                         isValid = true;
                         errorMessage = "";
+
+                        // -- NEW: Webhook Diagnostic --
+                        const hookUrl = `https://${domain}/admin/api/${v}/webhooks.json`;
+                        const hookRes = await fetch(hookUrl, {
+                            headers: { "X-Shopify-Access-Token": token.trim() }
+                        });
+                        if (hookRes.ok) {
+                            const hookData = await hookRes.json() as any;
+                            const RiokoUrl = RIOKO_CONFIG.workerUrl;
+                            const activeHooks = hookData.webhooks || [];
+                            const hasOrderHook = activeHooks.some((h: any) => h.topic === "orders/paid" && h.address.startsWith(RiokoUrl));
+                            const hasRefundHook = activeHooks.some((h: any) => h.topic === "refunds/create" && h.address.startsWith(RiokoUrl));
+                            if (hasOrderHook && hasRefundHook) webhooksDetected = true;
+                        }
+
                         break;
                     } else if (res.status === 401) {
                         errorMessage = "Token Inválido (shpat_...). Verifique se o App está instalado na Shopify.";
@@ -76,13 +93,13 @@ export async function POST(request: NextRequest) {
                     errorMessage = `Falha na ligação (Status ${lastStatus}). Verifique o domínio da loja.`;
                 }
 
+                await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ?, webhooks_active = ? WHERE user_id = ?")
+                    .bind(isValid ? 1 : 0, errorMessage || null, webhooksDetected ? 1 : 0, targetUserId).run();
+
             } catch (e: any) {
                 errorMessage = `Erro de Rede: Verifique se o domínio ${domain} existe.`;
                 isValid = false;
             }
-
-            await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ? WHERE user_id = ?")
-                .bind(isValid ? 1 : 0, errorMessage || null, targetUserId).run();
 
         } else if (body.type === "ix") {
             let account = (config.ix_account_name || "").trim();

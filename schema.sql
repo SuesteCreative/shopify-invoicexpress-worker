@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS integrations (
     ix_exemption_reason TEXT DEFAULT 'M01',
     vat_included INTEGER DEFAULT 1,
     auto_finalize INTEGER DEFAULT 0,
+    webhooks_active INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

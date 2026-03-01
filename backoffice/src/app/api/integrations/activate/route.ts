@@ -1,10 +1,9 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
+import { RIOKO_CONFIG } from "@/lib/config";
 
 export const runtime = "edge";
-
-const WORKER_URL = "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev";
 
 export async function POST(request: NextRequest) {
     const { userId } = await auth();
@@ -33,8 +32,8 @@ export async function POST(request: NextRequest) {
 
         // Register Webhooks in Shopify
         const webhooks = [
-            { topic: "orders/paid", address: `${WORKER_URL}/webhooks/shopify/orders-paid` },
-            { topic: "refunds/create", address: `${WORKER_URL}/webhooks/shopify/refunds-create` }
+            { topic: "orders/paid", address: `${RIOKO_CONFIG.workerUrl}/webhooks/shopify/orders-paid` },
+            { topic: "refunds/create", address: `${RIOKO_CONFIG.workerUrl}/webhooks/shopify/refunds-create` }
         ];
 
         const results = [];
@@ -57,6 +56,10 @@ export async function POST(request: NextRequest) {
 
             const data: any = await response.json();
             results.push({ topic: hook.topic, status: response.status, data });
+        }
+
+        if (results.every(r => r.status === 201 || (r.status === 422 && JSON.stringify(r.data).includes("address has already been taken")))) {
+            await db.prepare("UPDATE integrations SET webhooks_active = 1 WHERE user_id = ?").bind(userId).run();
         }
 
         return NextResponse.json({ success: true, results });

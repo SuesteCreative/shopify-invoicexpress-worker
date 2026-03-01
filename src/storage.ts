@@ -24,14 +24,14 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
             console.log(`[Rioko] Dynamic config loaded for ${shopHeader}`);
             return {
                 ...env,
-                SHOPIFY_SHOP_DOMAIN: integration.shopify_domain,
-                SHOPIFY_ACCESS_TOKEN: integration.shopify_token,
+                SHOPIFY_SHOP_DOMAIN: integration.shopify_domain || env.SHOPIFY_SHOP_DOMAIN,
+                SHOPIFY_ACCESS_TOKEN: integration.shopify_token || env.SHOPIFY_ACCESS_TOKEN,
                 SHOPIFY_WEBHOOK_SECRET: integration.shopify_webhook_secret || env.SHOPIFY_WEBHOOK_SECRET,
                 SHOPIFY_API_VERSION: integration.shopify_api_version || env.SHOPIFY_API_VERSION,
-                INVOICEXPRESS_ACCOUNT_NAME: integration.ix_account_name,
-                INVOICEXPRESS_API_KEY: integration.ix_api_key,
-                INVOICEXPRESS_TAX_INCLUDED: integration.vat_included === 1 ? "true" : "false",
-                INVOICEXPRESS_AUTO_FINALIZE: integration.auto_finalize === 1 ? "true" : "false",
+                INVOICEXPRESS_ACCOUNT_NAME: integration.ix_account_name || env.INVOICEXPRESS_ACCOUNT_NAME,
+                INVOICEXPRESS_API_KEY: integration.ix_api_key || env.INVOICEXPRESS_API_KEY,
+                INVOICEXPRESS_TAX_INCLUDED: integration.vat_included !== null ? (integration.vat_included === 1 ? "true" : "false") : env.INVOICEXPRESS_TAX_INCLUDED,
+                INVOICEXPRESS_AUTO_FINALIZE: integration.auto_finalize !== null ? (integration.auto_finalize === 1 ? "true" : "false") : env.INVOICEXPRESS_AUTO_FINALIZE,
             };
         }
     } catch (e) {

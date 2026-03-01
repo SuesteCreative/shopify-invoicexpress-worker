@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
+import { ClerkProvider, UserButton, SignOutButton } from "@clerk/nextjs";
 import "./globals.css";
 import Image from "next/image";
+import { LogOut, User } from "lucide-react";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -69,9 +70,26 @@ export default function RootLayout({
                 </button>
               </nav>
 
-              <div className="mt-auto pt-6 border-t border-slate-800/50 w-full text-center md:text-left space-y-1">
-                <div className="text-[10px] text-slate-500 font-bold whitespace-nowrap">© 2026 Kapta. Todos os direitos reservados.</div>
-                <div className="text-[9px] text-slate-700 font-black tracking-widest uppercase">v2.0.0 Stable Build</div>
+              <div className="mt-auto space-y-4 w-full">
+                <div className="px-4 py-3 rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <UserButton afterSignOutUrl="/" />
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-black text-white uppercase tracking-wider">Account</span>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase truncate max-w-[100px]">Connected</span>
+                    </div>
+                  </div>
+                  <SignOutButton>
+                    <button className="p-2 rounded-lg hover:bg-rose-500/10 text-slate-500 hover:text-rose-500 transition-all cursor-pointer">
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </SignOutButton>
+                </div>
+
+                <div className="pt-6 border-t border-slate-800/50 w-full text-center md:text-left space-y-1">
+                  <div className="text-[10px] text-slate-500 font-bold whitespace-nowrap">© 2026 Kapta. Todos os direitos reservados.</div>
+                  <div className="text-[9px] text-slate-700 font-black tracking-widest uppercase">v2.0.0 Stable Build</div>
+                </div>
               </div>
             </aside>
 

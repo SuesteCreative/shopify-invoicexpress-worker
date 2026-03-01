@@ -1,13 +1,18 @@
 import { UserButton, SignOutButton } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
-import { LogOut, Activity, CreditCard } from "lucide-react";
+import { LogOut, Activity, CreditCard, ShieldCheck } from "lucide-react";
+import { isAdmin } from "@/lib/admin";
+import { auth } from "@clerk/nextjs/server";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
+    const { userId } = await auth();
+    const isSuperAdmin = await isAdmin(userId);
+
     return (
         <div className="flex flex-col md:flex-row min-h-screen">
             {/* Sidebar */}
@@ -46,6 +51,17 @@ export default function DashboardLayout({
                                 <Activity className="w-4 h-4" />
                                 Integrações
                             </Link>
+
+                            {isSuperAdmin && (
+                                <Link
+                                    href="/superadmin"
+                                    className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-400 hover:text-white hover:bg-white/5 font-bold text-sm transition-all"
+                                >
+                                    <ShieldCheck className="w-4 h-4 text-rose-500" />
+                                    Superadmin
+                                </Link>
+                            )}
+
                             <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-50 cursor-not-allowed w-full text-left">
                                 <CreditCard className="w-4 h-4" />
                                 Faturação (Brevemente)

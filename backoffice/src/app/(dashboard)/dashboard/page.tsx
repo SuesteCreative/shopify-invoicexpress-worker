@@ -33,6 +33,9 @@ export default function Dashboard() {
 
   // Load existing data
   useEffect(() => {
+    // Sync user data first
+    fetch("/api/auth/sync", { method: "POST" }).catch(console.error);
+
     fetch("/api/integrations")
       .then(res => res.json())
       .then((data: any) => {

@@ -1,22 +1,27 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
+import { isAdmin, getImpersonationId } from "@/lib/admin";
 
 export const runtime = "edge";
 
 export async function GET(request: NextRequest) {
     try {
         const { userId } = await auth();
+        let targetUserId = userId;
 
         if (!userId) {
-            console.warn("API GET: No userId found in auth().");
-            return NextResponse.json({
-                error: "Unauthorized: Session missing or invalid",
-                debug: {
-                    hasUserId: !!userId,
-                    runtime: "edge"
-                }
-            }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        // Admin Impersonation Logic
+        const isSuperAdmin = await isAdmin(userId);
+        if (isSuperAdmin) {
+            const impersonationId = await getImpersonationId(request);
+            if (impersonationId) {
+                targetUserId = impersonationId;
+                console.log(`[Superadmin] Impersonating ${targetUserId}`);
+            }
         }
 
         const { env } = getRequestContext();
@@ -29,7 +34,7 @@ export async function GET(request: NextRequest) {
 
         const integration = await db
             .prepare("SELECT * FROM integrations WHERE user_id = ?")
-            .bind(userId)
+            .bind(targetUserId)
             .first();
 
         return NextResponse.json(integration || {});
@@ -42,8 +47,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const { userId } = await auth();
+        let targetUserId = userId;
+
         if (!userId) {
-            return NextResponse.json({ error: "Unauthorized: Session missing or invalid" }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        // Admin Impersonation Logic
+        const isSuperAdmin = await isAdmin(userId);
+        if (isSuperAdmin) {
+            const impersonationId = await getImpersonationId(request);
+            if (impersonationId) {
+                targetUserId = impersonationId;
+                console.log(`[Superadmin] Saving for impersonated ${targetUserId}`);
+            }
         }
 
         const body: any = await request.json();
@@ -60,7 +77,7 @@ export async function POST(request: NextRequest) {
         // Check if integration exists
         const existing = await db
             .prepare("SELECT id FROM integrations WHERE user_id = ?")
-            .bind(userId)
+            .bind(targetUserId)
             .first();
 
         if (existing) {
@@ -80,7 +97,7 @@ export async function POST(request: NextRequest) {
                     ix_environment || "production",
                     vat_included !== undefined ? (vat_included ? 1 : 0) : 1,
                     auto_finalize !== undefined ? (auto_finalize ? 1 : 0) : 0,
-                    userId
+                    targetUserId
                 )
                 .run();
         } else {
@@ -92,7 +109,7 @@ export async function POST(request: NextRequest) {
         `)
                 .bind(
                     id,
-                    userId,
+                    targetUserId,
                     shopify_domain || null,
                     shopify_token || null,
                     shopify_webhook_secret || null,

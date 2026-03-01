@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
 
         let isValid = false;
         let errorMessage = "";
+        let webhooksDetected = false;
 
         if (body.type === "shopify") {
             let domain = config.shopify_domain || "";
@@ -45,7 +46,6 @@ export async function POST(request: NextRequest) {
                 // Try several API versions as fallback for older stores/test stores
                 const versions = [version, "2025-01", "2024-10", "2024-07", "2024-01"];
                 let lastStatus = 0;
-                let webhooksDetected = false;
 
                 for (const v of versions) {
                     const url = `https://${domain}/admin/api/${v}/shop.json`;
@@ -61,7 +61,8 @@ export async function POST(request: NextRequest) {
                         isValid = true;
                         errorMessage = "";
 
-                        // -- NEW: Webhook Diagnostic --
+                        // Webhook Diagnostic: only update DB if we can actually read the list.
+                        // If token lacks read_webhooks scope (403/401), preserve the existing value.
                         const hookUrl = `https://${domain}/admin/api/${v}/webhooks.json`;
                         const hookRes = await fetch(hookUrl, {
                             headers: { "X-Shopify-Access-Token": token.trim() }
@@ -72,7 +73,16 @@ export async function POST(request: NextRequest) {
                             const activeHooks = hookData.webhooks || [];
                             const hasOrderHook = activeHooks.some((h: any) => h.topic === "orders/paid" && h.address.startsWith(RiokoUrl));
                             const hasRefundHook = activeHooks.some((h: any) => h.topic === "refunds/create" && h.address.startsWith(RiokoUrl));
-                            if (hasOrderHook && hasRefundHook) webhooksDetected = true;
+                            webhooksDetected = hasOrderHook && hasRefundHook;
+                            // Only write the detected value to DB
+                            await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ?, webhooks_active = ? WHERE user_id = ?")
+                                .bind(1, null, webhooksDetected ? 1 : 0, targetUserId).run();
+                        } else {
+                            // Can't read webhooks (likely missing read_webhooks scope) — preserve existing DB value
+                            const existing: any = await db.prepare("SELECT webhooks_active FROM integrations WHERE user_id = ?").bind(targetUserId).first();
+                            webhooksDetected = existing?.webhooks_active === 1;
+                            await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ? WHERE user_id = ?")
+                                .bind(1, null, targetUserId).run();
                         }
 
                         break;
@@ -91,10 +101,9 @@ export async function POST(request: NextRequest) {
 
                 if (!isValid && !errorMessage) {
                     errorMessage = `Falha na ligação (Status ${lastStatus}). Verifique o domínio da loja.`;
+                    await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ? WHERE user_id = ?")
+                        .bind(0, errorMessage, targetUserId).run();
                 }
-
-                await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ?, webhooks_active = ? WHERE user_id = ?")
-                    .bind(isValid ? 1 : 0, errorMessage || null, webhooksDetected ? 1 : 0, targetUserId).run();
 
             } catch (e: any) {
                 errorMessage = `Erro de Rede: Verifique se o domínio ${domain} existe.`;
@@ -164,7 +173,7 @@ export async function POST(request: NextRequest) {
                 .bind(isValid ? 1 : 0, errorMessage || null, targetUserId).run();
         }
 
-        return NextResponse.json({ success: true, isValid, error: errorMessage });
+        return NextResponse.json({ success: true, isValid, error: errorMessage, webhooks_active: webhooksDetected ? 1 : 0 });
 
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });

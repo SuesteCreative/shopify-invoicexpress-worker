@@ -39,7 +39,10 @@ export default function Dashboard() {
   const [shopifyError, setShopifyError] = useState("");
   const [ixError, setIxError] = useState("");
 
-  const allComplete = shopifyAuthorized && webhooksActive && ixAuthorized;
+  // allComplete: all 3 integrations are validated
+  // webhooksActive can be "unknown" when token lacks read_webhooks, so we also
+  // allow completion if both Shopify and IX are authorized AND we're on step 4+
+  const allComplete = shopifyAuthorized && ixAuthorized && (webhooksActive || step >= 4);
 
   const exemptionOptions = [
     { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
@@ -98,8 +101,8 @@ export default function Dashboard() {
         if (data.shopify_error) setShopifyError(data.shopify_error);
         if (data.ix_error) setIxError(data.ix_error);
 
-        // Smart step resume
-        if (data.ix_api_key && data.webhooks_active) setStep(4);
+        // Smart step resume — always start from the furthest valid state
+        if (data.ix_api_key && data.shopify_token) setStep(4);
         else if (data.webhooks_active) setStep(3);
         else if (data.shopify_token) setStep(2);
         else setStep(1);
@@ -138,9 +141,11 @@ export default function Dashboard() {
       const valData = await valRes.json() as any;
       setShopifyAuthorized(valData.isValid);
       setShopifyError(valData.error || "");
-      setWebhooksActive(false); // reset webhooks since credentials changed
+      // Preserve webhooksActive from validate (it reflects current DB state)
+      if (valData.webhooks_active !== undefined) setWebhooksActive(valData.webhooks_active === 1);
 
-      if (valData.isValid) setStep(2);
+      // Always advance to step 2 — validation status shown as badge
+      setStep(2);
     } catch (e: any) {
       alert(`Erro de rede: ${e.message}`);
     } finally {

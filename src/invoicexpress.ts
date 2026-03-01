@@ -198,7 +198,7 @@ export async function createDocument(
             fiscal_id: clientMetadata.fiscal_id || undefined
         },
         items: items,
-        reference: `Order #${order.order_number} (ID: ${order.id})`,
+        reference: `Order #${order.order_number}`,
         observations: `Shopify ID: ${order.id}`,
         currency_code: order.currency || "EUR"
     };
@@ -344,8 +344,9 @@ export async function createCreditNote(
     const baseUrl = `https://${domain}`;
 
     // 1. Get original document details
-    const original = await findDocumentDetailsByReference(env, `Order #${order.order_number} (ID: ${order.id})`);
-    if (!original) throw new Error(`Original document for reference "Order #${order.order_number}" not found in IX.`);
+    console.log(`[IX] Searching for original document with reference: "${originalRef}"`);
+    const original = await findDocumentDetailsByReference(env, originalRef);
+    if (!original) throw new Error(`Original document for reference "${originalRef}" not found in IX.`);
 
     const items = refund.refund_line_items.map((ri: any) => {
         const item = ri.line_item;

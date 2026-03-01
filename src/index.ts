@@ -69,7 +69,7 @@ export default {
                 }
 
                 // Anti-duplication check: Check IX directly
-                const ixRef = `Order #${order.order_number} (ID: ${order.id})`;
+                const ixRef = `Order #${order.order_number}`;
                 const ixExisting = await findDocumentDetailsByReference(config, ixRef);
                 if (ixExisting) {
                     console.log(`[IX] Document already exists in IX: ${ixExisting.id}`);
@@ -173,8 +173,8 @@ export default {
                 }
 
                 // Create Credit Note
-                const originalRef = `Order #${orderNumber} (ID: ${orderId})`;
-                const creditNoteId = await createCreditNote(config, clientId, originalRef, { order_number: orderNumber, ...refund }, refund, clientMetadata);
+                const originalRef = `Order #${orderNumber}`;
+                const creditNoteId = await createCreditNote(config, clientId, originalRef, { order_number: orderNumber, id: orderId, ...refund }, refund, clientMetadata);
 
                 await markAsInvoiced(`refund_${refundId}`, creditNoteId, config);
                 await saveLog(env, { shopify_domain: shopHeader, topic: "refunds/create", payload: refundId, response: { creditNoteId }, status: 200 });

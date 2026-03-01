@@ -16,10 +16,10 @@ function mapClientMetadata(order: any) {
     const name = `${firstName} ${lastName}`.trim() || order.billing_address?.name || "Client";
     const email = order.customer?.email || order.email;
 
-    // Country mapping: Prefer ISO codes as requested
+    // Country mapping: InvoiceXpress expects full names like "Portugal"
     let country = order.billing_address?.country_code || order.billing_address?.country || "PT";
-    if (country.toLowerCase() === "portugal") country = "PT";
-    if (country.toLowerCase() === "spain") country = "ES";
+    if (country.toUpperCase() === "PT") country = "Portugal";
+    if (country.toUpperCase() === "ES") country = "Spain";
 
     return {
         name,

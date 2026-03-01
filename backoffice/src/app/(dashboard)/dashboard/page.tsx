@@ -98,6 +98,9 @@ export default function Dashboard() {
   };
 
   const handleActivate = async () => {
+    // Pro-tip: Always save the latest config (toggles) before activating
+    await handleConnect();
+
     setActivating(true);
     setActiveStatus("idle");
     try {
@@ -325,8 +328,8 @@ export default function Dashboard() {
                           >
                             {activating ? <Loader2 className="w-5 h-5 animate-spin" /> :
                               activeStatus === "success" ? <Check className="w-5 h-5" /> :
-                                activeStatus === "error" ? "Tentar Ativação novamente" : "Ativar & Sincronizar Webhooks"}
-                            {activeStatus === "success" ? "Ligação Ativa" : activeStatus === "error" ? "" : ""}
+                                activeStatus === "error" ? "Tentar Ativação novamente" : "Guardar & Ativar Webhooks"}
+                            {activeStatus === "success" ? "Ligação Permanente Ativa" : activeStatus === "error" ? "" : ""}
                           </button>
                           {activeStatus === "success" && (
                             <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider text-center mt-3 animate-in fade-in slide-in-from-top-2">

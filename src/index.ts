@@ -11,10 +11,21 @@ import {
 
 function mapClientMetadata(order: any) {
     const nif = extractAndValidateNIF(order);
-    const firstName = order.customer?.first_name || "";
-    const lastName = order.customer?.last_name || "";
-    const name = `${firstName} ${lastName}`.trim() || order.billing_address?.name || "Client";
-    const email = order.customer?.email || order.email;
+    const firstName = (order.customer?.first_name || "").trim();
+    const lastName = (order.customer?.last_name || "").trim();
+    const billingName = (order.billing_address?.name || "").trim();
+    const email = order.customer?.email || order.email || "";
+
+    // Name resolution priority:
+    // 1. Customer first+last name (Shopify account)
+    // 2. Billing address full name (guest checkout)
+    // 3. Email username (last resort, better than generic "Client")
+    // 4. "Consumidor Final" — IX standard for anonymous buyers
+    const name =
+        `${firstName} ${lastName}`.trim() ||
+        billingName ||
+        (email ? email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "") ||
+        "Consumidor Final";
 
     // Country mapping: InvoiceXpress expects full names like "Portugal"
     let country = order.billing_address?.country_code || order.billing_address?.country || "PT";

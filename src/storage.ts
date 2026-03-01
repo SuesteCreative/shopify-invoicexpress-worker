@@ -67,11 +67,12 @@ export async function isIdempotent(orderId: number | string, env: Env): Promise<
     return await env.INVOICE_KV.get(key);
 }
 
-export async function markAsInvoiced(orderId: number | string, invoiceId: string, env: Env): Promise<void> {
+export async function markAsInvoiced(orderId: number | string, invoiceId: string, env: Env, extraData?: any): Promise<void> {
     const key = `shopify_order:${orderId}`;
     const data = JSON.stringify({
         invoice_id: invoiceId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        ...extraData
     });
     await env.INVOICE_KV.put(key, data);
 }

@@ -1,5 +1,22 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 🛡️ Version 2.2.0 (The Stability & Region Release) - March 1, 2026
+
+### 🌍 Global Reach & Localization
+- **Smart Country Mapping**: Implemented a mandatory translation layer for country codes. The system now automatically maps `PT` to `Portugal` to satisfy strict InvoiceXpress API requirements.
+- **PT-PT Native UI**: The entire Dashboard and onboarding flow is now fully localized in Portuguese (Portugal).
+
+### ⚙️ API Refinements (SaaS Robustness)
+- **Universal Payload Protocol**: Cleaned item payloads to remove deprecated fields like `unit_with_tax`, ensuring 100% compatibility across both Production and `macewindu` (Test) environments.
+- **Dynamic Connection States**: The UI now accurately reflects real-time connectivity, displaying "A aguardar ligação..." until the Step 3 webhook activation is confirmed.
+
+### 🎨 Visual & UX Polishing
+- **Rioko Branding v2.1**: Adjusted "2.0" version badge alignment for perfect visual symmetry.
+- **Kapta Logo Integration**: Reinstated the Kapta logo in the sidebar footer with grayscale-to-color interactive hovers and direct links.
+- **Icon Balance**: Optimized Shopify and InvoiceXpress partner logos for better visual hierarchy and updated the IX logo to the latest brand assets.
+
+---
+
 ## 💎 Version 2.1.8 (SaaS-Ready & Security Build) - March 1, 2026
 
 ### 🛡️ Security & Integrity

@@ -30,10 +30,45 @@ export default function Dashboard() {
   const [ixEnvironment, setIxEnvironment] = useState("production");
   const [vatIncluded, setVatIncluded] = useState(true);
   const [autoFinalize, setAutoFinalize] = useState(false);
+  const [exemptionReason, setExemptionReason] = useState("M01");
   const [shopifyAuthorized, setShopifyAuthorized] = useState(false);
   const [ixAuthorized, setIxAuthorized] = useState(false);
   const [shopifyError, setShopifyError] = useState("");
   const [ixError, setIxError] = useState("");
+
+  const exemptionOptions = [
+    { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
+    { value: "M02", label: "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho" },
+    { value: "M04", label: "Isento artigo 13.º do CIVA" },
+    { value: "M05", label: "Isento artigo 14.º do CIVA" },
+    { value: "M06", label: "Isento artigo 15.º do CIVA" },
+    { value: "M07", label: "Isento artigo 9.º do CIVA" },
+    { value: "M08", label: "Simples: Não confere direito a dedução" },
+    { value: "M09", label: "IVA – não confere direito a dedução" },
+    { value: "M10", label: "Isento artigo 31.º do CIVA" },
+    { value: "M11", label: "Regime especial de isenção artigo 53.º do CIVA" },
+    { value: "M12", label: "Regime da margem de lucro – Agências de Viagens" },
+    { value: "M13", label: "Regime da margem de lucro – Bens em segunda mão" },
+    { value: "M14", label: "Regime da margem de lucro – Objetos de arte" },
+    { value: "M15", label: "Regime da margem de lucro – Objetos de coleção e antiguidades" },
+    { value: "M16", label: "Isento artigo 14.º do RITI" },
+    { value: "M20", label: "IVA - autoliquidação" },
+    { value: "M21", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea i) do CIVA)" },
+    { value: "M24", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea m) do CIVA)" },
+    { value: "M25", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea j) do CIVA)" },
+    { value: "M26", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea l) do CIVA)" },
+    { value: "M30", label: "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea a) do CIVA)" },
+    { value: "M31", label: "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea b) do CIVA)" },
+    { value: "M32", label: "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea c) do CIVA)" },
+    { value: "M33", label: "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea e) do CIVA)" },
+    { value: "M34", label: "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea f) do CIVA)" },
+    { value: "M35", label: "IVA - inversão do sujeito passivo (artigo 6.º, n.º 6, alínea g) do CIVA)" },
+    { value: "M40", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea n) do CIVA)" },
+    { value: "M41", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea p) do CIVA)" },
+    { value: "M42", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea q) do CIVA)" },
+    { value: "M43", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea r) do CIVA)" },
+    { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
+  ];
 
   // Load existing data
   useEffect(() => {
@@ -50,6 +85,7 @@ export default function Dashboard() {
         if (data.ix_account_name) setIxAccount(data.ix_account_name);
         if (data.ix_api_key) setIxApiKey(data.ix_api_key);
         if (data.ix_environment) setIxEnvironment(data.ix_environment);
+        if (data.ix_exemption_reason) setExemptionReason(data.ix_exemption_reason);
         if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
         if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
         if (data.shopify_authorized !== undefined) setShopifyAuthorized(data.shopify_authorized === 1);
@@ -83,6 +119,7 @@ export default function Dashboard() {
           ix_account_name: ixAccount,
           ix_api_key: ixApiKey,
           ix_environment: ixEnvironment,
+          ix_exemption_reason: exemptionReason,
           vat_included: vatIncluded,
           auto_finalize: autoFinalize
         })
@@ -383,6 +420,33 @@ export default function Dashboard() {
                             <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} />
                           </button>
                         </div>
+                        <div className="md:col-span-2 glass p-8 rounded-[2rem] border-slate-800/50 space-y-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-amber-500/10 rounded-xl">
+                              <Info className="w-4 h-4 text-amber-500" />
+                            </div>
+                            <h3 className="font-bold text-sm tracking-tight">Razão de Isenção (IVA 0%)</h3>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider leading-relaxed">
+                            Se algum artigo na Shopify tiver 0% de IVA, esta será a razão de isenção aplicada automaticamente na fatura.
+                          </p>
+                          <div className="relative pt-2">
+                            <select
+                              value={exemptionReason}
+                              onChange={(e) => setExemptionReason(e.target.value)}
+                              className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all appearance-none cursor-pointer pr-12 text-slate-200"
+                            >
+                              {exemptionOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value} className="bg-slate-900 py-2">
+                                  {opt.value} - {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="absolute right-6 top-[55%] -translate-y-1/2 pointer-events-none opacity-40">
+                              <ChevronRight className="w-5 h-5 rotate-90 text-amber-500" />
+                            </div>
+                          </div>
+                        </div>
                         <div className="md:col-span-2 pt-4">
                           <button
                             onClick={handleActivate}
@@ -415,64 +479,67 @@ export default function Dashboard() {
                       ))
                     )}
                   </div>
-                )}
+                )
+                }
               </motion.div>
             </motion.div>
           );
         })}
 
         {/* Passo 4: Integration Status Bar */}
-        {(activeStatus === "success" || step === 3) && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={cn(
-              "rounded-[2.5rem] p-1 shadow-2xl transition-all duration-1000",
-              (shopifyAuthorized && ixAuthorized && activeStatus === "success")
-                ? "bg-gradient-to-r from-emerald-500/40 via-emerald-400/10 to-emerald-500/40 shadow-[0_0_50px_rgba(16,185,129,0.2)]"
-                : "bg-gradient-to-r from-amber-500/40 via-amber-400/10 to-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.2)]"
-            )}
-          >
-            <div className="bg-slate-950 rounded-[2.3rem] p-10 flex flex-col md:flex-row items-center justify-between gap-8 border border-white/5">
-              <div className="flex items-center gap-8">
-                <div className={cn(
-                  "w-20 h-20 rounded-[1.8rem] flex items-center justify-center p-0.5",
-                  (shopifyAuthorized && ixAuthorized && activeStatus === "success")
-                    ? "bg-emerald-500/20 ring-2 ring-emerald-400 ring-offset-4 ring-offset-slate-950"
-                    : "bg-amber-500/10 ring-2 ring-amber-400 ring-offset-4 ring-offset-slate-950"
-                )}>
-                  {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? (
-                    <ShieldCheck className="w-10 h-10 text-emerald-400" />
-                  ) : (
-                    <Circle className="w-10 h-10 text-amber-500 stroke-[3]" />
-                  )}
+        {
+          (activeStatus === "success" || step === 3) && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={cn(
+                "rounded-[2.5rem] p-1 shadow-2xl transition-all duration-1000",
+                (shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                  ? "bg-gradient-to-r from-emerald-500/40 via-emerald-400/10 to-emerald-500/40 shadow-[0_0_50px_rgba(16,185,129,0.2)]"
+                  : "bg-gradient-to-r from-amber-500/40 via-amber-400/10 to-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.2)]"
+              )}
+            >
+              <div className="bg-slate-950 rounded-[2.3rem] p-10 flex flex-col md:flex-row items-center justify-between gap-8 border border-white/5">
+                <div className="flex items-center gap-8">
+                  <div className={cn(
+                    "w-20 h-20 rounded-[1.8rem] flex items-center justify-center p-0.5",
+                    (shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                      ? "bg-emerald-500/20 ring-2 ring-emerald-400 ring-offset-4 ring-offset-slate-950"
+                      : "bg-amber-500/10 ring-2 ring-amber-400 ring-offset-4 ring-offset-slate-950"
+                  )}>
+                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? (
+                      <ShieldCheck className="w-10 h-10 text-emerald-400" />
+                    ) : (
+                      <Circle className="w-10 h-10 text-amber-500 stroke-[3]" />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-2xl font-black tracking-tight">
+                      {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "Integração Concluída" : "Integração Incompleta"}
+                    </h3>
+                    <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+                      {(shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                        ? "A sua conta está configurada e protegida no Rioko 2.0"
+                        : "Corrija os campos assinalados acima para ativar a sincronização"}
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <h3 className="text-2xl font-black tracking-tight">
-                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "Integração Concluída" : "Integração Incompleta"}
-                  </h3>
-                  <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
-                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success")
-                      ? "A sua conta está configurada e protegida no Rioko 2.0"
-                      : "Corrija os campos assinalados acima para ativar a sincronização"}
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-3">
-                <div className={cn(
-                  "px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border transition-all duration-1000",
-                  (shopifyAuthorized && ixAuthorized && activeStatus === "success")
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                    : "bg-amber-500/10 text-amber-500 border-amber-500/30"
-                )}>
-                  {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "ONLINE • REAL-TIME" : "PENDENTE • REQUER AÇÃO"}
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border transition-all duration-1000",
+                    (shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                      : "bg-amber-500/10 text-amber-500 border-amber-500/30"
+                  )}>
+                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "ONLINE • REAL-TIME" : "PENDENTE • REQUER AÇÃO"}
+                  </div>
                 </div>
               </div>
-            </div>
-          </motion.div>
-        )}
-      </div>
+            </motion.div>
+          )
+        }
+      </div >
 
       <div className="pt-12 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800">
@@ -480,6 +547,6 @@ export default function Dashboard() {
           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">D1 DATABASE LIGADA</span>
         </div>
       </div>
-    </div>
+    </div >
   );
 }

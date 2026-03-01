@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS integrations (
     ix_account_name TEXT,
     ix_api_key TEXT,
     ix_environment TEXT DEFAULT 'production',
+    ix_exemption_reason TEXT DEFAULT 'M01',
     vat_included INTEGER DEFAULT 1,
     auto_finalize INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

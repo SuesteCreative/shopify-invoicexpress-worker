@@ -10,6 +10,7 @@ export interface Env {
     INVOICEXPRESS_ENVIRONMENT: string;
     INVOICEXPRESS_TAX_INCLUDED?: string; // "true" or "false"
     INVOICEXPRESS_AUTO_FINALIZE?: string; // "true" or "false"
+    INVOICEXPRESS_EXEMPTION_REASON?: string; // e.g. "M01"
 }
 
 export async function saveLog(env: Env, data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number }) {
@@ -51,6 +52,7 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
                 INVOICEXPRESS_ACCOUNT_NAME: integration.ix_account_name || env.INVOICEXPRESS_ACCOUNT_NAME,
                 INVOICEXPRESS_API_KEY: integration.ix_api_key || env.INVOICEXPRESS_API_KEY,
                 INVOICEXPRESS_ENVIRONMENT: integration.ix_environment || env.INVOICEXPRESS_ENVIRONMENT || "production",
+                INVOICEXPRESS_EXEMPTION_REASON: integration.ix_exemption_reason || env.INVOICEXPRESS_EXEMPTION_REASON || "M01",
                 INVOICEXPRESS_TAX_INCLUDED: integration.vat_included !== null ? (integration.vat_included === 1 ? "true" : "false") : env.INVOICEXPRESS_TAX_INCLUDED,
                 INVOICEXPRESS_AUTO_FINALIZE: integration.auto_finalize !== null ? (integration.auto_finalize === 1 ? "true" : "false") : env.INVOICEXPRESS_AUTO_FINALIZE,
             };

@@ -200,7 +200,7 @@ export async function createDocument(
     body[rootKey] = {
         date: formattedDate,
         due_date: formattedDate,
-        tax_exemption: hasExemptItems ? "M99" : undefined,
+        tax_exemption: hasExemptItems ? (env.INVOICEXPRESS_EXEMPTION_REASON || "M01") : undefined,
         client: {
             name: clientMetadata.name,
             code: clientMetadata.code,
@@ -413,7 +413,7 @@ export async function createCreditNote(
         credit_note: {
             date: formattedDate,
             owner_invoice_id: original.id,
-            tax_exemption: hasExemptItems ? "M99" : undefined,
+            tax_exemption: hasExemptItems ? (env.INVOICEXPRESS_EXEMPTION_REASON || "M01") : undefined,
             client: {
                 name: clientMetadata.name,
                 code: clientMetadata.code,

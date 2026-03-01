@@ -1,5 +1,18 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 2.9.0 (The Compliance & Tax Engine) - March 1, 2026
+
+### ⚖️ Tax & Compliance
+- **Dynamic Tax Exemption Reason**: Added a new configuration in Step 3 to select the legal reason for 0% VAT (e.g., "M01 - Artigo 16.º"). This ensures all invoices with exempt items are legally compliant with Portuguese AT rules.
+- **Exemption Dropdown**: Integrated a curated list of all current InvoiceXpress exemption codes (M01 to M99) with full legal descriptions.
+- **Worker Intelligence**: The InvoiceXpress worker now dynamically applies the selected exemption reason to both Invoices and Credit Notes when an item is marked as exempt.
+
+### 🛡️ Reliability & UI Polishing
+- **Tooltip Clipping Fix**: Re-architected the Dashboard's layering system to prevent diagnostic tooltips from being cut off by container boundaries.
+- **Universal Build Version**: Implemented a dynamic versioning system that syncs the sidebar, logo, and metadata across the entire platform.
+
+---
+
 ## 💎 Version 2.8.0 (The Visual & Diagnostic Engine) - March 1, 2026
 
 ### 🛡️ Diagnostic & Validation Engine

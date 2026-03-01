@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, vat_included, auto_finalize } = body;
+        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize } = body;
 
         const clean_shopify_domain = shopify_domain ? shopify_domain.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
 
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
             await db
                 .prepare(`
           UPDATE integrations 
-          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, vat_included = ?, auto_finalize = ?, updated_at = CURRENT_TIMESTAMP
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 .bind(
@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
                     ix_account_name || null,
                     ix_api_key || null,
                     ix_environment || "production",
+                    ix_exemption_reason || "M01",
                     vat_included !== undefined ? (vat_included ? 1 : 0) : 1,
                     auto_finalize !== undefined ? (auto_finalize ? 1 : 0) : 0,
                     targetUserId
@@ -106,8 +107,8 @@ export async function POST(request: NextRequest) {
             const id = crypto.randomUUID();
             await db
                 .prepare(`
-          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, vat_included, auto_finalize)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
                 .bind(
                     id,
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
                     ix_account_name || null,
                     ix_api_key || null,
                     ix_environment || "production",
+                    ix_exemption_reason || "M01",
                     vat_included ? 1 : 0,
                     auto_finalize ? 1 : 0
                 )

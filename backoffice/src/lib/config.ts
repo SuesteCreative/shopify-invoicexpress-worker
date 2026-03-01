@@ -1,5 +1,5 @@
 export const RIOKO_CONFIG = {
-    version: "2.8.0",
+    version: "2.9.0",
     stableBuild: true,
     environment: "Production",
 };

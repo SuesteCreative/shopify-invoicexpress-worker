@@ -1,5 +1,13 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 3.7.2 — Help Visibility Milestone — March 1, 2026
+
+### 🖥️ Sidebar Navigation
+- **Persistent Help Access**: Added the "Ajuda" (Help) link to the main sidebar, making the configuration guide accessible to all users at any time, not just via contextual links.
+- **Visual Integration**: Used the standard `BookOpen` icon with a custom amber-themed active state to match the dashboard's design system.
+
+---
+
 ## 💎 Version 3.7.1 — Cloudflare Pages Hotfix — March 1, 2026
 
 ### 🔧 Fixes

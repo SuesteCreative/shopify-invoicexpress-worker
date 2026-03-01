@@ -41,23 +41,43 @@ export async function POST(request: NextRequest) {
             if (!domain || !token) return NextResponse.json({ error: "Missing Shopify credentials" }, { status: 400 });
 
             try {
-                // Try to get shop info to validate token and domain
-                const url = `https://${domain}/admin/api/${version}/shop.json`;
-                const res = await fetch(url, {
-                    headers: {
-                        "X-Shopify-Access-Token": token,
-                        "Accept": "application/json"
-                    }
-                });
+                // Try several API versions as fallback for older stores/test stores
+                const versions = [version, "2025-01", "2024-10", "2024-07", "2024-01"];
+                let lastStatus = 0;
 
-                if (res.status === 200) {
-                    isValid = true;
-                } else {
-                    const data = await res.json() as any;
-                    errorMessage = data.errors || `Error ${res.status}: ${res.statusText}. Please check Token permissions.`;
+                for (const v of versions) {
+                    const url = `https://${domain}/admin/api/${v}/shop.json`;
+                    const res = await fetch(url, {
+                        headers: {
+                            "X-Shopify-Access-Token": token.trim(),
+                            "Accept": "application/json"
+                        }
+                    });
+
+                    lastStatus = res.status;
+                    if (res.status === 200) {
+                        isValid = true;
+                        errorMessage = "";
+                        break;
+                    } else if (res.status === 401) {
+                        errorMessage = "Token Inválido (shpat_...). Verifique se o App está instalado na Shopify.";
+                        break;
+                    } else {
+                        try {
+                            const data = await res.json() as any;
+                            errorMessage = data.errors || `Erro na Shopify (${res.status})`;
+                        } catch {
+                            errorMessage = `Resposta Inválida da Shopify (${res.status})`;
+                        }
+                    }
                 }
+
+                if (!isValid && !errorMessage) {
+                    errorMessage = `Falha na ligação (Status ${lastStatus}). Verifique o domínio da loja.`;
+                }
+
             } catch (e: any) {
-                errorMessage = `Network failure: ${e.message}`;
+                errorMessage = `Erro de Rede: Verifique se o domínio ${domain} existe.`;
                 isValid = false;
             }
 

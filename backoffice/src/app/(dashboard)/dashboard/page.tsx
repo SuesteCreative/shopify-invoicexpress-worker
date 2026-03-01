@@ -280,12 +280,20 @@ export default function Dashboard() {
                         </span>
 
                         {!isAuthorized && errorMsg && (
-                          <div className="absolute bottom-full left-0 mb-3 w-64 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-50 scale-95 group-hover/badge:scale-100 backdrop-blur-xl">
-                            <div className="flex items-center gap-2 mb-2 text-amber-500">
-                              <Info className="w-3 h-3" />
-                              <p className="text-[9px] font-black uppercase tracking-widest">Diagnóstico Rioko</p>
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-5 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-[100] scale-90 group-hover/badge:scale-100 backdrop-blur-3xl">
+                            <div className="flex items-center gap-3 mb-4 text-amber-400">
+                              <div className="bg-amber-400/10 p-2 rounded-xl ring-1 ring-amber-400/20">
+                                <Info className="w-5 h-5" />
+                              </div>
+                              <div className="flex flex-col">
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico de Ligação</p>
+                                <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko 2.0 Engine</p>
+                              </div>
                             </div>
-                            <p className="text-xs text-amber-100/90 font-semibold leading-relaxed">{errorMsg}</p>
+                            <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5">
+                              <p className="text-[13px] text-amber-50/90 font-bold leading-relaxed">{errorMsg}</p>
+                            </div>
+                            <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-slate-900 rotate-45 border-r-2 border-b-2 border-amber-500/10" />
                           </div>
                         )}
                       </div>

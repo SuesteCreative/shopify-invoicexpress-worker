@@ -24,12 +24,14 @@ export default function DashboardLayout({
                                 priority
                             />
                         </Link>
-                        <span className="text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded text-[10px] font-black tracking-tighter border border-sky-400/20 mb-0.5">2.0</span>
+                        <span className="text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded text-[10px] font-black tracking-tighter border border-sky-400/20 mb-1.5 align-bottom">2.0</span>
                     </div>
 
-                    <div className="mt-4 text-[10px] text-slate-500 font-bold flex items-center gap-2 opacity-60">
-                        <span>dev by</span>
-                        <a href="https://kapta.pt/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors uppercase tracking-widest">Kapta</a>
+                    <div className="mt-4 flex flex-col items-start gap-1">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest opacity-60">Developed by</div>
+                        <a href="https://kapta.pt" target="_blank" rel="noopener noreferrer" className="transition-all hover:scale-105 active:scale-95">
+                            <Image src="/images/logo-kapta-white.webp" alt="Kapta Logo" width={70} height={18} className="opacity-40 grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500" />
+                        </a>
                     </div>
                 </div>
 
@@ -42,11 +44,11 @@ export default function DashboardLayout({
                                 className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold text-sm transition-all hover:bg-sky-500/20"
                             >
                                 <Activity className="w-4 h-4" />
-                                Integrations
+                                Integrações
                             </Link>
                             <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-50 cursor-not-allowed w-full text-left">
                                 <CreditCard className="w-4 h-4" />
-                                Billing (Soon)
+                                Faturação (Brevemente)
                             </button>
                         </div>
                     </div>
@@ -57,8 +59,8 @@ export default function DashboardLayout({
                         <div className="flex items-center gap-3">
                             <UserButton afterSignOutUrl="/" />
                             <div className="flex flex-col">
-                                <span className="text-[10px] font-black text-white uppercase tracking-wider">Account</span>
-                                <span className="text-[9px] text-slate-500 font-bold uppercase truncate max-w-[100px]">Connected</span>
+                                <span className="text-[10px] font-black text-white uppercase tracking-wider">Conta</span>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase truncate max-w-[100px]">Ligado</span>
                             </div>
                         </div>
                         <SignOutButton>

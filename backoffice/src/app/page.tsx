@@ -40,7 +40,7 @@ export default async function LandingPage() {
       {/* Hero */}
       <main className="relative z-10 flex-1 max-w-7xl mx-auto w-full px-6 flex flex-col items-center justify-center text-center">
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-black tracking-widest uppercase mb-8">
-          <Zap className="w-3 h-3" /> Automate your commerce
+          <Zap className="w-3 h-3" /> Automatize o seu comércio
         </div>
 
         <h1 className="text-5xl md:text-8xl font-black tracking-tight mb-8 max-w-4xl text-transparent bg-clip-text bg-gradient-to-br from-white via-white to-slate-500 leading-[1.1]">

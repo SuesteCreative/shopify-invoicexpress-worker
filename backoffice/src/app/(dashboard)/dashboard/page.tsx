@@ -114,35 +114,35 @@ export default function Dashboard() {
   const steps = [
     {
       id: 1,
-      title: "Step 1: Shopify Bridge",
-      description: "Connect your store to start the integration process.",
+      title: "Passo 1: Shopify Bridge",
+      description: "Ligue a sua loja para iniciar o processo de integração.",
       icon: Store,
       logo: "/images/shopify-logo.webp",
-      logoWidth: 100, // Reduced from 130
+      logoWidth: 80, // Reduced from 100
       fields: [
-        { label: "Shopify Domain (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "quickstart-66f9e5ef.myshopify.com", type: "text" },
+        { label: "Domínio Shopify (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "exemplo.myshopify.com", type: "text" },
         { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password" },
-        { label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "See Shopify Notifications > Webhooks", type: "password" },
-        { label: "API Version", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text" }
+        { label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "Ver Shopify Notifications > Webhooks", type: "password" },
+        { label: "Versão da API", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text" }
       ]
     },
     {
       id: 2,
-      title: "Step 2: InvoiceXpress Nexus",
-      description: "Enter your account details to bridge the finances.",
+      title: "Passo 2: InvoiceXpress Nexus",
+      description: "Introduza os detalhes da sua conta para ligar as finanças.",
       icon: CreditCard,
-      logo: "/images/logo-invoicexpress2.png",
-      logoWidth: 120, // Adjusted for balance
+      logo: "/images/invoicexpress_logo2.png",
+      logoWidth: 100, // Adjusted for balance
       fields: [
-        { label: "Account Name", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
-        { label: "API Key", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" },
-        { label: "Environment", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Enter 'production' or 'macewindu'", type: "text" }
+        { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text" },
+        { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password" },
+        { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'macewindu'", type: "text" }
       ]
     },
     {
       id: 3,
-      title: "Step 3: Command Center",
-      description: "Define the rules, taxes, and finalization levels.",
+      title: "Passo 3: Command Center",
+      description: "Defina as regras, impostos e níveis de finalização.",
       icon: Settings2,
       isConfig: true
     }
@@ -162,9 +162,9 @@ export default function Dashboard() {
       {/* Welcome Message */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="space-y-2">
-          <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-white via-white to-slate-500 bg-clip-text text-transparent">Hello, Pedro</h1>
+          <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-white via-white to-slate-500 bg-clip-text text-transparent">Olá, Pedro</h1>
           <p className="text-slate-400 font-semibold tracking-wide flex items-center gap-2">
-            Rioko 2.0 is standing by <span className="w-1 h-1 rounded-full bg-slate-600" /> Your automation is active.
+            Rioko 2.0 está a postos <span className="w-1 h-1 rounded-full bg-slate-600" /> A sua automação está ativa.
           </p>
         </div>
         <div className="flex items-center gap-5 glass px-5 py-3 rounded-2xl border-slate-800/50">
@@ -177,10 +177,13 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex flex-col">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Sync Status</span>
-            <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Real-time ACTIVE
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Estado da Sincronização</span>
+            <span className={cn(
+              "text-xs font-bold flex items-center gap-1.5",
+              activeStatus === "success" ? "text-emerald-400" : "text-slate-500 animate-pulse"
+            )}>
+              <span className={cn("w-1.5 h-1.5 rounded-full", activeStatus === "success" ? "bg-emerald-400 animate-pulse" : "bg-slate-700")} />
+              {activeStatus === "success" ? "Tempo Real ATIVO" : "A aguardar ligação..."}
             </span>
           </div>
         </div>
@@ -246,7 +249,7 @@ export default function Dashboard() {
                           onClick={() => setStep(step - 1)}
                           className="text-slate-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all px-4"
                         >
-                          Go Back
+                          Voltar
                         </button>
                       )}
                       <button
@@ -254,7 +257,7 @@ export default function Dashboard() {
                         disabled={saving || (s.id === 1 && (!shopifyDomain || !shopifyToken)) || (s.id === 2 && (!ixAccount || !ixApiKey))}
                         className="bg-white text-black px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-accent-blue hover:text-white transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                       >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (s.id === 3 ? "Save Rules" : "Connect")}
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (s.id === 3 ? "Guardar Regras" : "Ligar")}
                         {!saving && <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />}
                       </button>
                     </div>
@@ -265,7 +268,7 @@ export default function Dashboard() {
                       onClick={() => setStep(s.id)}
                       className="ml-auto bg-slate-800/50 hover:bg-slate-800 text-slate-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50"
                     >
-                      Update
+                      Atualizar
                     </button>
                   )}
                 </div>
@@ -281,8 +284,8 @@ export default function Dashboard() {
                       <>
                         <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
                           <div>
-                            <h3 className="font-bold text-sm">Unit with Tax</h3>
-                            <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Prices already include VAT</p>
+                            <h3 className="font-bold text-sm">IVA Incluído</h3>
+                            <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Os preços no Shopify já incluem IVA</p>
                           </div>
                           <button
                             onClick={() => setVatIncluded(!vatIncluded)}
@@ -296,8 +299,8 @@ export default function Dashboard() {
                         </div>
                         <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
                           <div>
-                            <h3 className="font-bold text-sm">Auto Finalize</h3>
-                            <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Authorize documents immediately</p>
+                            <h3 className="font-bold text-sm">Auto Finalizar</h3>
+                            <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Emitir e finalizar documentos imediatamente</p>
                           </div>
                           <button
                             onClick={() => setAutoFinalize(!autoFinalize)}
@@ -322,12 +325,12 @@ export default function Dashboard() {
                           >
                             {activating ? <Loader2 className="w-5 h-5 animate-spin" /> :
                               activeStatus === "success" ? <Check className="w-5 h-5" /> :
-                                activeStatus === "error" ? "Retry Activation" : "Activate & Sync Webhooks"}
-                            {activeStatus === "success" ? "Webhooks Active" : activeStatus === "error" ? "" : ""}
+                                activeStatus === "error" ? "Tentar Ativação novamente" : "Ativar & Sincronizar Webhooks"}
+                            {activeStatus === "success" ? "Ligação Ativa" : activeStatus === "error" ? "" : ""}
                           </button>
                           {activeStatus === "success" && (
                             <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider text-center mt-3 animate-in fade-in slide-in-from-top-2">
-                              Successfully registered webhooks for {shopifyDomain}
+                              Webhooks registados com sucesso para {shopifyDomain}
                             </p>
                           )}
                         </div>
@@ -360,7 +363,7 @@ export default function Dashboard() {
       <div className="pt-12 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800">
           <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">D1 DATABASE CONNECTED</span>
+          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">D1 DATABASE LIGADA</span>
         </div>
       </div>
     </div>

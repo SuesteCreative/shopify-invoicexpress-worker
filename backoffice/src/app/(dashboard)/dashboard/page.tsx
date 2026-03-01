@@ -243,11 +243,11 @@ export default function Dashboard() {
                 y: isActive ? -4 : 0
               }}
               className={cn(
-                "glass rounded-[2rem] overflow-hidden relative group transition-all duration-700",
+                "glass rounded-[2rem] overflow-visible relative group transition-all duration-700",
                 isActive && "border-accent-blue/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_30px_rgba(56,189,248,0.1)]",
                 isComplete && isAuthorized && "border-emerald-500/30 bg-emerald-500/[0.02]",
                 isComplete && !isAuthorized && "border-amber-500/30 bg-amber-500/[0.02]",
-                isLocked && "grayscale scale-[0.98]"
+                isLocked && "grayscale scale-[0.98] !overflow-hidden"
               )}
             >
               <div className="p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">

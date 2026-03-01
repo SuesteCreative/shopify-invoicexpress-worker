@@ -1,5 +1,26 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 2.8.0 (The Visual & Diagnostic Engine) - March 1, 2026
+
+### 🛡️ Diagnostic & Validation Engine
+- **Hybrid Shopify Validation**: Re-engineered the connection motor to handle all Shopify store types, including Quickstart/Test stores. The system now performs a 3-way check (API 2024-2026) to ensure "Authorized" status even in evolving test environments.
+- **Real-time Error Tooltips**: Introduced a premium diagnostic layer. Hovering over the "Invalid Credentials" badge now reveals a detailed, centered tooltip with the exact technical reason from Shopify/IX (e.g., "Unauthorized 401", "Domain not found").
+- **Automatic Token Sanitization**: Added background `.trim()` and sanitization for API tokens to prevent connection failures caused by invisible white spaces.
+
+### 🎨 Dashboard UI/UX Mastery
+- **Step 4: Integration Status Bar**: Implemented a global synchronization indicator at the bottom of the dashboard. It provides a final "Shield Check" (Neon Green) when all 3 steps are fully validated and active.
+- **Dynamic Versioning System**: Sidebar and badges now reflect the current build (`v2.8.0`) dynamically from a central configuration.
+- **Visual Sealing (Step 3)**: Upon successful activation, the Command Center (Step 3) now seals and collapses automatically, matching the elegant "completed" look of the previous stages.
+- **Hollow Icon Logic**: Invalid stages now use a distinct "Hollow Circle" icon to visually differentiate "Filled but Error" from "Completed & Authorized".
+
+### 👑 Superadmin Enhancements
+- **Global User Search**: Added a real-time search bar to the Superadmin dashboard to filter clients by Name, Email, or Store Domain.
+- **Membership Timeline**: Users are now sorted by "Join Date" (Adesão) by default, with an optional toggle to reverse the order.
+- **Self-Impersonation Protection**: Implemented a safeguard that prevents Superadmins from impersonating their own account, clearly labeling the primary admin card.
+- **Enhanced Status Indicators**: The Admin list now includes mini-diagnostic tooltips for every client's Shopify and IX connection status.
+
+---
+
 ## 🏆 Version 2.3.0 (The Integration & Privacy Milestone) - March 1, 2026
 
 ### 🔗 Document Connectivity

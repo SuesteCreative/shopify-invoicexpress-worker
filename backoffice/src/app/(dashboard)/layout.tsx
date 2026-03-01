@@ -5,6 +5,7 @@ import { LogOut, Activity, CreditCard, ShieldCheck } from "lucide-react";
 import { isAdmin } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
+import { RIOKO_CONFIG } from "@/lib/config";
 
 export default async function DashboardLayout({
     children,
@@ -31,7 +32,7 @@ export default async function DashboardLayout({
                                 priority
                             />
                         </Link>
-                        <span className="text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded text-[10px] font-black tracking-tighter border border-sky-400/20 mb-1.5 align-bottom">2.0</span>
+                        <span className="text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded text-[10px] font-black tracking-tighter border border-sky-400/20 mb-1.5 align-bottom">{RIOKO_CONFIG.version.split('.').slice(0, 2).join('.')}</span>
                     </div>
 
                     <div className="mt-4 flex flex-col items-start gap-1">
@@ -90,7 +91,7 @@ export default async function DashboardLayout({
 
                     <div className="pt-6 border-t border-slate-800/50 w-full text-center md:text-left space-y-1">
                         <div className="text-[10px] text-slate-500 font-bold whitespace-nowrap">© 2026 Kapta. Todos os direitos reservados.</div>
-                        <div className="text-[9px] text-slate-700 font-black tracking-widest uppercase">v2.0.0 Stable Build</div>
+                        <div className="text-[9px] text-slate-700 font-black tracking-widest uppercase">v{RIOKO_CONFIG.version} {RIOKO_CONFIG.stableBuild ? "Stable Build" : "Preview Build"}</div>
                     </div>
                 </div>
             </aside>

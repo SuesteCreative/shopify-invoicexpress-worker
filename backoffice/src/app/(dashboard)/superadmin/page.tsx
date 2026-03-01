@@ -5,8 +5,10 @@ export const runtime = "edge";
 import { useState, useEffect, useMemo } from "react";
 import { ShieldCheck, User, Store, Activity, ArrowRight, UserCog, LogOut, Loader2, Check, X, Search, Filter, ArrowUpDown, CalendarDays, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useUser } from "@clerk/nextjs";
 
 export default function SuperadminPage() {
+    const { user: currentUser } = useUser();
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [acting, setActing] = useState<string | null>(null);
@@ -199,14 +201,20 @@ export default function SuperadminPage() {
 
                                 {/* Actions */}
                                 <div className="flex items-center gap-3">
-                                    <button
-                                        onClick={() => handleImpersonate(user.id)}
-                                        disabled={acting !== null}
-                                        className="bg-white text-black px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-rose-500 hover:text-white transition-all duration-500 active:scale-95 disabled:opacity-30"
-                                    >
-                                        {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
-                                        Impersonar
-                                    </button>
+                                    {currentUser?.id !== user.id ? (
+                                        <button
+                                            onClick={() => handleImpersonate(user.id)}
+                                            disabled={acting !== null}
+                                            className="bg-white text-black px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-rose-500 hover:text-white transition-all duration-500 active:scale-95 disabled:opacity-30"
+                                        >
+                                            {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
+                                            Impersonar
+                                        </button>
+                                    ) : (
+                                        <div className="px-6 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-slate-600 font-bold text-[9px] uppercase tracking-widest">
+                                            A Ssua Conta
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </motion.div>

@@ -11,11 +11,30 @@ export interface Env {
     INVOICEXPRESS_AUTO_FINALIZE?: string; // "true" or "false"
 }
 
+export async function saveLog(env: Env, data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number }) {
+    try {
+        await env.DB.prepare(
+            "INSERT INTO logs (id, shopify_domain, topic, payload, response, status) VALUES (?, ?, ?, ?, ?, ?)"
+        ).bind(
+            crypto.randomUUID(),
+            data.shopify_domain,
+            data.topic,
+            JSON.stringify(data.payload),
+            JSON.stringify(data.response),
+            data.status
+        ).run();
+    } catch (e) {
+        console.error("[Rioko] Failed to save log:", e);
+    }
+}
+
 export async function getConfig(request: Request, env: Env): Promise<Env> {
     const shopHeader = request.headers.get("X-Shopify-Shop-Domain");
     if (!shopHeader) return env;
 
     try {
+        if (!env.DB) throw new Error("D1 Database binding 'DB' not found");
+
         const integration: any = await env.DB.prepare(
             "SELECT * FROM integrations WHERE shopify_domain = ?"
         ).bind(shopHeader).first();

@@ -1,4 +1,4 @@
-import { Env, isIdempotent, markAsInvoiced, getConfig } from "./storage";
+import { Env, isIdempotent, markAsInvoiced, getConfig, saveLog } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { extractAndValidateNIF } from "./nif";
 import {
@@ -48,32 +48,33 @@ export default {
 
         // 2. Webhook handler: Order Paid
         if (url.pathname === "/webhooks/shopify/orders-paid" && request.method === "POST") {
-            console.log(`[Rioko] Webhook Received: orders-paid for ${request.headers.get("X-Shopify-Shop-Domain")}`);
+            const shopHeader = request.headers.get("X-Shopify-Shop-Domain");
+            console.log(`[Rioko] Webhook Received: orders-paid for ${shopHeader}`);
 
             const isValid = await verifyShopifyWebhook(request, config.SHOPIFY_WEBHOOK_SECRET);
             if (!isValid) {
-                console.error(`[Rioko] Invalid Webhook Signature for ${config.SHOPIFY_SHOP_DOMAIN}. Check your Webhook Secret.`);
+                console.error(`[Rioko] Invalid Webhook Signature for ${config.SHOPIFY_SHOP_DOMAIN}.`);
+                await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: "HIDDEN", response: "Invalid Signature", status: 401 });
                 return new Response("Invalid Signature", { status: 401 });
             }
 
             const order = await request.clone().json<any>();
             const orderId = order.id;
 
-            const existing = await isIdempotent(orderId, config);
-            if (existing) {
-                return new Response(JSON.stringify({ message: "already invoiced", data: JSON.parse(existing) }), {
-                    status: 200,
-                    headers: { "Content-Type": "application/json" }
-                });
-            }
-
             try {
+                const existing = await isIdempotent(orderId, config);
+                if (existing) {
+                    await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: "Already invoiced", status: 200 });
+                    return new Response(JSON.stringify({ message: "already invoiced" }), { status: 200 });
+                }
+
                 // Anti-duplication check: Check IX directly
                 const ixRef = `Order #${order.order_number} (ID: ${order.id})`;
                 const ixExisting = await findDocumentDetailsByReference(config, ixRef);
                 if (ixExisting) {
                     console.log(`[IX] Document already exists in IX: ${ixExisting.id}`);
                     await markAsInvoiced(order.id, ixExisting.id, config);
+                    await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { message: "Already existed in IX", invoice_id: ixExisting.id }, status: 200 });
                     return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting.id }), { status: 200 });
                 }
 
@@ -84,6 +85,7 @@ export default {
                 const invoiceId = await createDocument(config, clientId, order, clientMetadata, "fatura_recibo");
 
                 await markAsInvoiced(orderId, invoiceId, config);
+                await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { invoiceId }, status: 200 });
 
                 return new Response(JSON.stringify({ message: "Fatura-Recibo created", invoice_id: invoiceId }), {
                     status: 200,
@@ -91,6 +93,7 @@ export default {
                 });
             } catch (error: any) {
                 console.error(`Error processing order ${orderId}:`, error.message);
+                await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: error.message, status: 500 });
                 return new Response(JSON.stringify({ error: error.message }), { status: 500 });
             }
         }

@@ -15,3 +15,13 @@ CREATE TABLE IF NOT EXISTS integrations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_id ON integrations(user_id);
+
+CREATE TABLE IF NOT EXISTS logs (
+    id TEXT PRIMARY KEY,
+    shopify_domain TEXT,
+    topic TEXT,
+    payload TEXT,
+    response TEXT,
+    status INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

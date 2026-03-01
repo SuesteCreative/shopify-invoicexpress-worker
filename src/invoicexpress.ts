@@ -155,16 +155,13 @@ export async function createDocument(
         const itemCode = String(item.sku || item.barcode || item.variant_id || item.title).trim();
         const vatRate = determineVATRate(item);
 
-        const unitWithTax = env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0;
-
         return {
             name: itemCode,
             description: item.name, // Full product + variant name
             unit_price: parseFloat(item.price),
             quantity: item.quantity,
             unit: "service",
-            tax: { name: mapTaxName(vatRate) },
-            unit_with_tax: unitWithTax
+            tax: { name: mapTaxName(vatRate) }
         };
     });
 
@@ -176,8 +173,7 @@ export async function createDocument(
             unit_price: parseFloat(order.shipping_lines[0].price),
             quantity: 1,
             unit: "service",
-            tax: { name: mapTaxName(23) },
-            unit_with_tax: env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0
+            tax: { name: mapTaxName(23) }
         });
     }
 
@@ -365,8 +361,7 @@ export async function createCreditNote(
             unit_price: unitPrice,
             quantity: ri.quantity,
             unit: "service",
-            tax: { name: mapTaxName(vatRate) },
-            unit_with_tax: env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0
+            tax: { name: mapTaxName(vatRate) }
         };
     });
 
@@ -379,8 +374,7 @@ export async function createCreditNote(
             unit_price: Math.abs(parseFloat(shippingRefund.amount)),
             quantity: 1,
             unit: "service",
-            tax: { name: mapTaxName(23) },
-            unit_with_tax: env.INVOICEXPRESS_TAX_INCLUDED === "true" ? 1 : 0
+            tax: { name: mapTaxName(23) }
         });
     }
 

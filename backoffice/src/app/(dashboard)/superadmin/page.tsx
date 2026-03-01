@@ -3,7 +3,7 @@
 export const runtime = "edge";
 
 import { useState, useEffect, useMemo } from "react";
-import { ShieldCheck, User, Store, Activity, ArrowRight, UserCog, LogOut, Loader2, Check, X, Search, Filter, ArrowUpDown, CalendarDays } from "lucide-react";
+import { ShieldCheck, User, Store, Activity, ArrowRight, UserCog, LogOut, Loader2, Check, X, Search, Filter, ArrowUpDown, CalendarDays, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function SuperadminPage() {
@@ -154,23 +154,35 @@ export default function SuperadminPage() {
                                     <div className="flex flex-col items-center gap-1.5">
                                         <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest leading-none">Status</span>
                                         <div className="flex items-center gap-4">
-                                            <div className="flex flex-col items-center">
+                                            <div className="flex flex-col items-center group/tip relative">
                                                 <span className="text-[8px] font-black text-slate-600 uppercase mb-1 opacity-50">Shopify</span>
                                                 {user.shopify_authorized ? (
                                                     <div className="text-emerald-400 text-[10px] font-bold">● OK</div>
                                                 ) : (
-                                                    <div className="text-amber-500 text-[10px] font-bold text-center">
-                                                        {user.shopify_domain ? "● ERR" : "● OFF"}
+                                                    <div className="text-amber-500 text-[10px] font-bold text-center flex items-center gap-1">
+                                                        ● {user.shopify_domain ? "ERR" : "OFF"}
+                                                        {user.shopify_error && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
+                                                    </div>
+                                                )}
+                                                {user.shopify_error && (
+                                                    <div className="absolute bottom-full mb-2 w-48 p-3 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
+                                                        <p className="text-[10px] text-amber-200/80 font-medium leading-tight">{user.shopify_error}</p>
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="flex flex-col items-center">
+                                            <div className="flex flex-col items-center group/tip relative">
                                                 <span className="text-[8px] font-black text-slate-600 uppercase mb-1 opacity-50">IX API</span>
                                                 {user.ix_authorized ? (
                                                     <div className="text-emerald-400 text-[10px] font-bold">● OK</div>
                                                 ) : (
-                                                    <div className="text-amber-500 text-[10px] font-bold text-center">
+                                                    <div className="text-amber-500 text-[10px] font-bold text-center flex items-center gap-1">
                                                         ● ERR
+                                                        {user.ix_error && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
+                                                    </div>
+                                                )}
+                                                {user.ix_error && (
+                                                    <div className="absolute bottom-full mb-2 w-48 p-3 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
+                                                        <p className="text-[10px] text-amber-200/80 font-medium leading-tight">{user.ix_error}</p>
                                                     </div>
                                                 )}
                                             </div>

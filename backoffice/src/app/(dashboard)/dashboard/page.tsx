@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2 } from "lucide-react";
+import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, XCircle, ShieldCheck } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -32,6 +32,8 @@ export default function Dashboard() {
   const [autoFinalize, setAutoFinalize] = useState(false);
   const [shopifyAuthorized, setShopifyAuthorized] = useState(false);
   const [ixAuthorized, setIxAuthorized] = useState(false);
+  const [shopifyError, setShopifyError] = useState("");
+  const [ixError, setIxError] = useState("");
 
   // Load existing data
   useEffect(() => {
@@ -52,6 +54,8 @@ export default function Dashboard() {
         if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
         if (data.shopify_authorized !== undefined) setShopifyAuthorized(data.shopify_authorized === 1);
         if (data.ix_authorized !== undefined) setIxAuthorized(data.ix_authorized === 1);
+        if (data.shopify_error) setShopifyError(data.shopify_error);
+        if (data.ix_error) setIxError(data.ix_error);
 
         // Determine current step based on completed data
         if (data.ix_api_key && data.shopify_token) setStep(3);
@@ -94,8 +98,14 @@ export default function Dashboard() {
             body: JSON.stringify({ type })
           });
           const valData = await valRes.json() as any;
-          if (type === "shopify") setShopifyAuthorized(valData.isValid);
-          if (type === "ix") setIxAuthorized(valData.isValid);
+          if (type === "shopify") {
+            setShopifyAuthorized(valData.isValid);
+            setShopifyError(valData.error || "");
+          }
+          if (type === "ix") {
+            setIxAuthorized(valData.isValid);
+            setIxError(valData.error || "");
+          }
         }
 
         if (step < 3) setStep(step + 1);
@@ -215,10 +225,13 @@ export default function Dashboard() {
       {/* The Set-up Bars */}
       <div className="grid gap-8">
         {steps.map((s) => {
-          const isActive = step === s.id;
-          const isComplete = step > s.id;
+          const isActive = step === s.id && !(s.id === 3 && activeStatus === "success");
+          const isComplete = step > s.id || (s.id === 3 && activeStatus === "success");
           const isLocked = step < s.id;
           const Icon = s.icon;
+
+          const isAuthorized = s.id === 1 ? shopifyAuthorized : (s.id === 2 ? ixAuthorized : true);
+          const errorMsg = s.id === 1 ? shopifyError : (s.id === 2 ? ixError : "");
 
           return (
             <motion.div
@@ -232,32 +245,50 @@ export default function Dashboard() {
               className={cn(
                 "glass rounded-[2rem] overflow-hidden relative group transition-all duration-700",
                 isActive && "border-accent-blue/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_30px_rgba(56,189,248,0.1)]",
-                isComplete && "border-emerald-500/30 bg-emerald-500/[0.02]",
+                isComplete && isAuthorized && "border-emerald-500/30 bg-emerald-500/[0.02]",
+                isComplete && !isAuthorized && "border-amber-500/30 bg-amber-500/[0.02]",
                 isLocked && "grayscale scale-[0.98]"
               )}
             >
               <div className="p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
                 <div className={cn(
-                  "w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner",
+                  "w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner p-1",
                   isActive ? "bg-accent-blue/20 text-accent-blue ring-1 ring-accent-blue/30" :
-                    isComplete ? "bg-emerald-500/20 text-emerald-500 ring-1 ring-emerald-500/30" :
+                    isComplete ? (isAuthorized ? "bg-emerald-500/20 text-emerald-500 ring-1 ring-emerald-500/30" : "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/30") :
                       "bg-slate-900/50 text-slate-700 ring-1 ring-slate-800"
                 )}>
-                  {isComplete ? <Check className="w-10 h-10 stroke-[3]" /> : (isLocked ? <Lock className="w-8 h-8 opacity-30" /> : <Icon className="w-10 h-10 stroke-[1.5]" />)}
+                  {isComplete ? (
+                    isAuthorized ? <Check className="w-10 h-10 stroke-[3]" /> : <Circle className="w-10 h-10 stroke-[4] text-amber-500" />
+                  ) : (
+                    isLocked ? <Lock className="w-8 h-8 opacity-30" /> : <Icon className="w-10 h-10 stroke-[1.5]" />
+                  )}
                 </div>
 
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-bold tracking-tight">{s.title}</h2>
                     {isComplete && (
-                      <span className={cn(
-                        "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border",
-                        (s.id === 1 ? shopifyAuthorized : (s.id === 2 ? ixAuthorized : true))
-                          ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                          : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                      )}>
-                        {(s.id === 1 ? shopifyAuthorized : (s.id === 2 ? ixAuthorized : true)) ? "Authorized" : "Invalid Credentials"}
-                      </span>
+                      <div className="relative group/badge">
+                        <span className={cn(
+                          "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all",
+                          isAuthorized
+                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                        )}>
+                          {isAuthorized ? "Authorized" : "Invalid Credentials"}
+                          {!isAuthorized && <HelpCircle className="w-3 h-3 animate-pulse cursor-help" />}
+                        </span>
+
+                        {!isAuthorized && errorMsg && (
+                          <div className="absolute bottom-full left-0 mb-3 w-64 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl opacity-0 group-hover/badge:opacity-100 transition-all pointer-events-none z-50 scale-95 group-hover/badge:scale-100 backdrop-blur-xl">
+                            <div className="flex items-center gap-2 mb-2 text-amber-500">
+                              <Info className="w-3 h-3" />
+                              <p className="text-[9px] font-black uppercase tracking-widest">Diagnóstico Rioko</p>
+                            </div>
+                            <p className="text-xs text-amber-100/90 font-semibold leading-relaxed">{errorMsg}</p>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {isActive && <div className="h-1.5 w-1.5 rounded-full bg-accent-blue animate-ping" />}
                   </div>
@@ -307,10 +338,10 @@ export default function Dashboard() {
               </div>
 
               <motion.div
-                animate={{ height: isActive ? 'auto' : 0 }}
+                animate={{ height: (isActive && activeStatus !== "success") ? 'auto' : 0 }}
                 className="overflow-hidden bg-slate-950/40 border-t border-slate-800/30"
               >
-                {isActive && (
+                {isActive && activeStatus !== "success" && (
                   <div className="p-10 pt-8 grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-700">
                     {s.isConfig ? (
                       <>
@@ -350,21 +381,12 @@ export default function Dashboard() {
                             disabled={activating}
                             className={cn(
                               "w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl",
-                              activeStatus === "success" ? "bg-emerald-500 text-white" :
-                                activeStatus === "error" ? "bg-rose-500 text-white" :
-                                  "bg-white text-black hover:bg-slate-100"
+                              activeStatus === "error" ? "bg-rose-500 text-white" : "bg-white text-black hover:bg-slate-100"
                             )}
                           >
                             {activating ? <Loader2 className="w-5 h-5 animate-spin" /> :
-                              activeStatus === "success" ? <Check className="w-5 h-5" /> :
-                                activeStatus === "error" ? "Tentar Ativação novamente" : "Guardar & Ativar Webhooks"}
-                            {activeStatus === "success" ? "Ligação Permanente Ativa" : activeStatus === "error" ? "" : ""}
+                              activeStatus === "error" ? "Tentar Ativação novamente" : "Guardar & Ativar Webhooks"}
                           </button>
-                          {activeStatus === "success" && (
-                            <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider text-center mt-3 animate-in fade-in slide-in-from-top-2">
-                              Webhooks registados com sucesso para {shopifyDomain}
-                            </p>
-                          )}
                         </div>
                       </>
                     ) : (
@@ -390,6 +412,58 @@ export default function Dashboard() {
             </motion.div>
           );
         })}
+
+        {/* Passo 4: Integration Status Bar */}
+        {(activeStatus === "success" || step === 3) && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn(
+              "rounded-[2.5rem] p-1 shadow-2xl transition-all duration-1000",
+              (shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                ? "bg-gradient-to-r from-emerald-500/40 via-emerald-400/10 to-emerald-500/40 shadow-[0_0_50px_rgba(16,185,129,0.2)]"
+                : "bg-gradient-to-r from-amber-500/40 via-amber-400/10 to-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.2)]"
+            )}
+          >
+            <div className="bg-slate-950 rounded-[2.3rem] p-10 flex flex-col md:flex-row items-center justify-between gap-8 border border-white/5">
+              <div className="flex items-center gap-8">
+                <div className={cn(
+                  "w-20 h-20 rounded-[1.8rem] flex items-center justify-center p-0.5",
+                  (shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                    ? "bg-emerald-500/20 ring-2 ring-emerald-400 ring-offset-4 ring-offset-slate-950"
+                    : "bg-amber-500/10 ring-2 ring-amber-400 ring-offset-4 ring-offset-slate-950"
+                )}>
+                  {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? (
+                    <ShieldCheck className="w-10 h-10 text-emerald-400" />
+                  ) : (
+                    <Circle className="w-10 h-10 text-amber-500 stroke-[3]" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-2xl font-black tracking-tight">
+                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "Integração Concluída" : "Integração Incompleta"}
+                  </h3>
+                  <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+                    {(shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                      ? "A sua conta está configurada e protegida no Rioko 2.0"
+                      : "Corrija os campos assinalados acima para ativar a sincronização"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border transition-all duration-1000",
+                  (shopifyAuthorized && ixAuthorized && activeStatus === "success")
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                    : "bg-amber-500/10 text-amber-500 border-amber-500/30"
+                )}>
+                  {(shopifyAuthorized && ixAuthorized && activeStatus === "success") ? "ONLINE • REAL-TIME" : "PENDENTE • REQUER AÇÃO"}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
       </div>
 
       <div className="pt-12 text-center">

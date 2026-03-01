@@ -1,5 +1,61 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 3.5.0 — Client Identity & NIF Engine — March 1, 2026
+
+### 🪪 NIF / Fiscal ID
+- **NIF Patch on Existing Clients**: When an order's note contains a valid NIF but the matching InvoiceXpress client was created without one, the system now automatically issues a `PUT /clients/{id}.json` to update their fiscal ID before creating the invoice.
+- **No-NIF tolerance**: The patch is non-blocking — if the IX API rejects the update, the invoice is still created correctly.
+
+### 👤 Client Identity (Guest Checkout Fix)
+- **Resolved "Client Portugal" cross-contamination**: Guest checkouts with no Shopify account name caused the fallback `"Client"` to match a generic IX record by email, creating invoices in the wrong name.
+- **New name resolution chain** (in priority order):
+  1. `customer.first_name + last_name` (account checkout)
+  2. `billing_address.name` (guest checkout)
+  3. Email username, capitalized (e.g. `benedita.gouveia@mail.pt` → `Benedita Gouveia`)
+  4. `"Consumidor Final"` — Portuguese fiscal standard for anonymous buyers
+
+### 🔗 Webhook Management
+- **Manual Webhook Confirmation**: New `POST /api/integrations/webhooks-confirm` route. Marks `webhooks_active = 1` in D1 without requiring `write_webhooks` scope — for cases where webhooks were installed manually in Shopify Admin.
+- **Confirm button in Passo 2**: The dashboard now shows a secondary amber "Confirmar Instalação Manual" button in the Webhooks step, allowing clients with limited-scope tokens to confirm manual installation.
+- **No re-validation on every login**: `webhooks_active` is now preserved correctly in D1 and only updated when the token actually has read access to the webhooks list.
+
+---
+
+## 💎 Version 3.4.0 — 4-Step Onboarding Flow — March 1, 2026
+
+### 🗺️ Dashboard Redesign
+- **4-Step Guided Flow**: Split the original 3-step flow into 4 dedicated, focused steps:
+  - **Passo 1**: Ligação Shopify (domain + token + API version)
+  - **Passo 2**: Criação de Webhooks (webhook secret + install/confirm)
+  - **Passo 3**: Conexão InvoiceXpress
+  - **Passo 4**: Definições de Integração (save button)
+- **Dedicated handlers**: Each step has its own isolated async handler (`handleShopifyConnect`, `handleWebhooksInstall`, `handleIxConnect`, `handleSaveSettings`), replacing the previous monolithic `handleConnect`.
+- **Step sealing**: Each step collapses (seals) upon successful completion. Passo 4 seals via `setStep(5)` after save.
+- **Smart resume**: On page load, the dashboard intelligently resumes from the correct step based on DB state (`shopify_authorized`, `ix_authorized`, `ix_api_key`).
+- **"Integração Concluída" card**: Final green card only appears when all 3 integrations are verified (`shopifyAuthorized && ixAuthorized && webhooksActive`).
+
+### 🔍 Webhook Diagnostics
+- **3-pill status panel**: The completion card now shows individual status pills for Shopify, Webhooks, and InvoiceXpress.
+- **Preserve-on-error logic**: If `webhooks.json` returns 403/401 (token lacks `read_webhooks`), the system now preserves the existing `webhooks_active` DB value instead of overwriting it with `0`.
+- **`webhooks_active` in validate response**: The Shopify validate API now returns `webhooks_active` in its JSON response so the frontend can sync state accurately.
+
+---
+
+## 💎 Version 3.3.0 — Webhook Detection & Diagnostic Panel — March 1, 2026
+
+### 🕵️ Webhook Health Detection
+- **Active Shopify Webhook Verification**: The validate route now queries `GET /admin/api/{version}/webhooks.json` to check if the Rioko endpoints (`orders/paid`, `refunds/create`) are registered and pointing to the correct worker URL.
+- **Selective Matching**: Only webhooks pointing to the Rioko worker URL are counted as valid — other integrations (e.g. Vendus, Mailchimp) are correctly ignored.
+- **`webhooks_active` column**: Added to the `integrations` D1 table. Updated by both the activate route (on install) and validate route (on read).
+- **Centralized config**: `RIOKO_CONFIG.workerUrl` and `webhookTopics` moved to `backoffice/src/lib/config.ts` for a single source of truth.
+
+### 🖥️ Dashboard
+- **Webhook status state**: `webhooksActive` state added to the dashboard, loaded from DB on mount.
+- **Diagnostic pill in status bar**: Added a "Webhooks Shopify" status pill alongside Shopify and InvoiceXpress, with distinct red warning if not installed.
+- **Warning banner**: If webhooks are missing, a red banner with actionable instructions appears below the diagnostic row.
+
+---
+
 ## 💎 Version 3.2.0 (The Bulletproof Engine) - March 1, 2026
 
 ### 🛡️ Core Reliability & Security

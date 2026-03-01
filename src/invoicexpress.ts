@@ -8,6 +8,18 @@ export interface IXClient {
     email: string | null;
 }
 
+export async function getBaseUrl(acc: string, e: Env, k: string) {
+    const suffix = e.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
+    const domain = acc.toLowerCase().endsWith(".invoicexpress.com") ? acc : `${acc}${suffix}`;
+    if (e.INVOICEXPRESS_ENVIRONMENT !== "macewindu" && !acc.includes(".app") && !acc.endsWith(".invoicexpress.com")) {
+        try {
+            const check = await fetch(`https://${domain}/clients.json?per_page=1&api_key=${k}`, { method: "HEAD" });
+            if (check.status === 530 || check.status === 404) return `https://${acc}.app.invoicexpress.com`;
+        } catch { return `https://${acc}.app.invoicexpress.com`; }
+    }
+    return `https://${domain}`;
+}
+
 export async function getOrCreateClient(
     env: Env,
     clientData: {
@@ -29,10 +41,7 @@ export async function getOrCreateClient(
     if (!account) throw new Error("INVOICEXPRESS_ACCOUNT_NAME is not defined in environment variables");
 
     // Environment Logic: macewindu for test, empty/production for real
-    const suffix = env.INVOICEXPRESS_ENVIRONMENT === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-    // Robust domain construction: Only skip suffix if it already ends with .invoicexpress.com
-    const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
-    const baseUrl = `https://${domain}`;
+    const baseUrl = await getBaseUrl(account, env, apiKey);
 
     const authHeaders = {
         "X-InvoiceXpress-API-Key": apiKey,

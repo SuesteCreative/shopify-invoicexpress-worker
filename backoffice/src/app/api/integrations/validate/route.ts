@@ -102,35 +102,43 @@ export async function POST(request: NextRequest) {
                 }
             }
 
-            const suffix = environment === "macewindu" ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-            // Robust domain construction: Only skip suffix if the account already ends with .invoicexpress.com
-            const domain = account.toLowerCase().endsWith(".invoicexpress.com") ? account : `${account}${suffix}`;
+            const getDomain = (acc: string, env: string, isApp: boolean = false) => {
+                const base = isApp ? ".app.invoicexpress.com" : ".invoicexpress.com";
+                const suffix = env === "macewindu" ? ".macewindu.invoicexpress.com" : base;
+                return acc.toLowerCase().endsWith(".invoicexpress.com") ? acc : `${acc}${suffix}`;
+            };
 
             try {
-                // Check if account is valid by listing clients (lightweight check)
-                // Pass apiKey both in Header and URL for maximum compatibility
-                const res = await fetch(`https://${domain}/clients.json?per_page=1&api_key=${apiKey}`, {
-                    headers: {
-                        "X-InvoiceXpress-API-Key": apiKey,
-                        "Accept": "application/json"
-                    }
+                // Try Standard Domain first
+                let domain = getDomain(account, environment, false);
+                let res = await fetch(`https://${domain}/clients.json?per_page=1&api_key=${apiKey}`, {
+                    headers: { "X-InvoiceXpress-API-Key": apiKey, "Accept": "application/json" }
                 });
+
+                // Fallback: If 530 (Not Found), try the newer ".app.invoicexpress.com" infrastructure
+                if (res.status === 530 && environment === "production") {
+                    console.log(`[IX] 530 on standard domain, trying .app variant for ${account}...`);
+                    domain = getDomain(account, environment, true);
+                    res = await fetch(`https://${domain}/clients.json?per_page=1&api_key=${apiKey}`, {
+                        headers: { "X-InvoiceXpress-API-Key": apiKey, "Accept": "application/json" }
+                    });
+                }
 
                 if (res.status === 200) {
                     isValid = true;
                 } else if (res.status === 530) {
-                    errorMessage = `Error 530: Site Not Found. Verifique se escolheu o ambiente correto (Production vs macewindu) para a conta [${account}].`;
+                    errorMessage = `Error 530: Site Not Found. Nem [${account}.invoicexpress.com] nem [${account}.app.invoicexpress.com] foram encontrados. Verifique o Nome da Conta.`;
                 } else {
                     const text = await res.text();
                     try {
                         const data = JSON.parse(text);
-                        errorMessage = data.errors || `Error ${res.status}. Check API Key and Account (Slug).`;
+                        errorMessage = data.errors || `Error ${res.status}. Check API Key and Account.`;
                     } catch {
                         errorMessage = `Error ${res.status}. Check Slug [${account}] and API Key.`;
                     }
                 }
             } catch (e: any) {
-                errorMessage = `Falha na Rede: O domínio [${domain}] não responde.`;
+                errorMessage = `Falha na Rede: O domínio não responde.`;
                 isValid = false;
             }
 

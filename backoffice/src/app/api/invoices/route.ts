@@ -37,8 +37,9 @@ export async function GET(request: NextRequest) {
         const account = integration.ix_account_name;
         const apiKey = integration.ix_api_key;
         const environment = integration.ix_environment || "production";
-        const subdomain = environment === "production" ? "invoicexpress" : environment;
-        const baseUrl = `https://${account}.${subdomain}.com`;
+        const baseUrl = environment === "production"
+            ? `https://${account}.invoicexpress.com`
+            : `https://${account}.${environment}.invoicexpress.com`;
 
         // 2. Fetch Invoices from IX (Last 20)
         // We fetch both invoice_receipts and invoices

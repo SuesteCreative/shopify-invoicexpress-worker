@@ -36,8 +36,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         const account = integration.ix_account_name;
         const apiKey = integration.ix_api_key;
         const environment = integration.ix_environment || "production";
-        const subdomain = environment === "production" ? "invoicexpress" : environment;
-        const baseUrl = `https://${account}.${subdomain}.com`;
+        const baseUrl = environment === "production"
+            ? `https://${account}.invoicexpress.com`
+            : `https://${account}.${environment}.invoicexpress.com`;
 
         // We need to know the document type. Default to invoice_receipts, but check query
         const type = new URL(request.url).searchParams.get("type") || "invoice_receipts";

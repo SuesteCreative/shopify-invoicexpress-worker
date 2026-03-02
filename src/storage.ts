@@ -50,12 +50,12 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
             console.log(`[Rioko] Dynamic config loaded for ${shopHeader}`);
             return {
                 ...env,
-                SHOPIFY_SHOP_DOMAIN: integration.shopify_domain || env.SHOPIFY_SHOP_DOMAIN,
-                SHOPIFY_ACCESS_TOKEN: integration.shopify_token || env.SHOPIFY_ACCESS_TOKEN,
-                SHOPIFY_WEBHOOK_SECRET: integration.shopify_webhook_secret || env.SHOPIFY_WEBHOOK_SECRET,
-                SHOPIFY_API_VERSION: integration.shopify_api_version || env.SHOPIFY_API_VERSION,
+                SHOPIFY_SHOP_DOMAIN: (integration.shopify_domain || env.SHOPIFY_SHOP_DOMAIN || "").trim(),
+                SHOPIFY_ACCESS_TOKEN: (integration.shopify_token || env.SHOPIFY_ACCESS_TOKEN || "").replace(/\s/g, ""),
+                SHOPIFY_WEBHOOK_SECRET: (integration.shopify_webhook_secret || env.SHOPIFY_WEBHOOK_SECRET || "").replace(/\s/g, ""),
+                SHOPIFY_API_VERSION: (integration.shopify_api_version || env.SHOPIFY_API_VERSION || "").trim(),
                 INVOICEXPRESS_ACCOUNT_NAME: (integration.ix_account_name || env.INVOICEXPRESS_ACCOUNT_NAME || "").trim(),
-                INVOICEXPRESS_API_KEY: (integration.ix_api_key || env.INVOICEXPRESS_API_KEY || "").trim(),
+                INVOICEXPRESS_API_KEY: (integration.ix_api_key || env.INVOICEXPRESS_API_KEY || "").replace(/\s/g, ""),
                 INVOICEXPRESS_ENVIRONMENT: integration.ix_environment || env.INVOICEXPRESS_ENVIRONMENT || "production",
                 INVOICEXPRESS_EXEMPTION_REASON: integration.ix_exemption_reason || env.INVOICEXPRESS_EXEMPTION_REASON || "M01",
                 INVOICEXPRESS_TAX_INCLUDED: integration.vat_included !== null ? (integration.vat_included === 1 ? "true" : "false") : env.INVOICEXPRESS_TAX_INCLUDED,

@@ -2,7 +2,9 @@
 
 A high-performance, production-ready integration that automatically syncs Shopify orders with InvoiceXpress, including invoice creation, credit notes, NIF detection, and fiscal compliance.
 
-**Current Version: v4.1.0** | Developed by [Kapta](https://kapta.pt)
+**Current Version: v4.1.9** | Developed by [Kapta](https://kapta.pt)
+
+**Production URL**: [https://rioko-7nk.pages.dev](https://rioko-7nk.pages.dev)
 
 ---
 
@@ -175,5 +177,8 @@ As of **v4.1.0**, the engine is fully compliant with Portuguese fiscal requireme
 - **HMAC Verification**: Webhooks are verified using HMAC-SHA256 headers before processing to ensure authenticity.
 - **AT Compliance**: Full legal text of all AT exemption reasons (M01–M99) injected into invoice observations.
 - **Identity Protection**: Anonymous buyers are handled according to Portuguese fiscal standards ("Consumidor Final").
+
+### 🔐 Clerk Sync Strategy
+The system uses a dedicated webhook at `https://rioko-7nk.pages.dev/api/webhooks/clerk` to instantly sync new Clerk users into the D1 database. This ensures that every new registration is visible to the Superadmin without requiring the user to first open the dashboard.
 
 **Developed by [Kapta](https://kapta.pt)**

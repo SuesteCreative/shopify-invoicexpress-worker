@@ -1,5 +1,11 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 4.1.9 — Clerk Webhook Sync — March 2, 2026
+
+- **New**: Implementado endpoint de webhooks para o Clerk em `/api/webhooks/clerk`.
+- **Melhoria**: Sincronização automática de utilizadores (criação, atualização e remoção) assim que o evento ocorre no Clerk, sem necessidade de login inicial.
+- **Segurança**: Verificação de assinaturas Svix para garantir a autenticidade dos webhooks do Clerk.
+
 ## 💎 Version 4.1.8 — Client Sync Fix: Update Before Invoice — March 2, 2026
 
 - **Fix**: O `PUT` de actualização de cliente no InvoiceXpress agora inclui sempre o campo `name` (obrigatório na API IX). Era este o motivo pelo qual o NIF não era guardado na ficha.

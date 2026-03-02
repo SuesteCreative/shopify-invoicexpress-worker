@@ -434,7 +434,7 @@ export default function ShopifyIXIntegration() {
         },
         {
             id: 3, title: "Passo 3: Conexão InvoiceXpress", description: "Introduza os detalhes da sua conta InvoiceXpress para ligar as finanças.",
-            icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoWidth: 100, isAuthorized: ixAuthorized, errorMsg: ixError,
+            icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoWidth: 80, isAuthorized: ixAuthorized, errorMsg: ixError,
             fields: [
                 { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text", helpAnchor: "ix-account" },
                 { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password", helpAnchor: "ix-api-key" },
@@ -444,7 +444,7 @@ export default function ShopifyIXIntegration() {
         },
         {
             id: 4, title: "Passo 4: Definições de Integração", description: "Defina as regras fiscais e o comportamento da emissão de documentos.",
-            icon: Settings2, isAuthorized: true, errorMsg: "", isConfig: true, action: handleSaveSettings, actionLabel: "Guardar", isDisabled: false,
+            icon: Settings2, hasGearLogo: true, isAuthorized: true, errorMsg: "", isConfig: true, action: handleSaveSettings, actionLabel: "Guardar", isDisabled: false,
         }
     ];
 
@@ -511,6 +511,7 @@ export default function ShopifyIXIntegration() {
                                 </div>
                                 <div className="flex items-center gap-10 w-full lg:w-auto">
                                     {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" /></div>}
+                                    {s.hasGearLogo && <div className={cn("hidden xl:block transition-all duration-700", isActive ? "opacity-100" : "opacity-20")}><Settings2 className="w-16 h-16 text-slate-400 stroke-[1]" /></div>}
                                     {isActive && (
                                         <div className="flex items-center gap-4 ml-auto">
                                             {step > 1 && <button onClick={() => setStep(step - 1)} className="text-slate-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all px-4">Voltar</button>}

@@ -71,11 +71,11 @@ export default function IntegrationsPage() {
                         <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
                             <div className="flex items-center gap-8">
                                 <div className="flex -space-x-4">
-                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-xl ring-4 ring-slate-950 shadow-2xl">
-                                        <Store className="w-8 h-8 text-emerald-400" />
+                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-xl ring-4 ring-slate-950 shadow-2xl p-3">
+                                        <Image src="/images/shopify-logo.webp" alt="Shopify" width={36} height={36} className="object-contain" />
                                     </div>
-                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-xl ring-4 ring-slate-950 shadow-2xl">
-                                        <ClipboardList className="w-8 h-8 text-sky-400" />
+                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-xl ring-4 ring-slate-950 shadow-2xl p-3">
+                                        <Image src="/images/invoicexpress_logo2.png" alt="InvoiceXpress" width={36} height={36} className="object-contain" />
                                     </div>
                                 </div>
                                 <div className="space-y-1">

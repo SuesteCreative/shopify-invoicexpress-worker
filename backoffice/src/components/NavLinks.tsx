@@ -82,11 +82,6 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                 </div>
             )}
 
-            <div className="pt-4 border-t border-slate-800/20 mt-auto">
-                <div className="px-4 py-2 opacity-50">
-                    <div className="text-[10px] font-black text-slate-600 uppercase tracking-tight">Rioko 2.0</div>
-                </div>
-            </div>
         </div>
     );
 }

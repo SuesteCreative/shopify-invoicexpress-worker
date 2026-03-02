@@ -109,8 +109,8 @@ export default {
                 const clientMetadata = mapClientMetadata(order, config);
                 const clientId = await getOrCreateClient(config, clientMetadata);
 
-                // Create Fatura-Recibo
-                const invoiceId = await createDocument(config, clientId, order, clientMetadata, "fatura_recibo");
+                // Create Document (Type and Sequence handled by config)
+                const invoiceId = await createDocument(config, clientId, order, clientMetadata);
 
                 await markAsInvoiced(orderId, invoiceId, config, { clientId, clientMetadata, orderNumber: order.order_number });
                 await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { invoiceId }, status: 200 });

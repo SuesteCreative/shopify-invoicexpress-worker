@@ -40,6 +40,10 @@ export default function Dashboard() {
   const [autoFinalize, setAutoFinalize] = useState(false);
   const [exemptionReason, setExemptionReason] = useState("M01");
 
+  const [ixDocumentType, setIxDocumentType] = useState("invoice_receipt");
+  const [ixPaymentTerm, setIxPaymentTerm] = useState(0);
+  const [ixSequenceName, setIxSequenceName] = useState("");
+
   // Validation State
   const [shopifyAuthorized, setShopifyAuthorized] = useState(false);
   const [webhooksActive, setWebhooksActive] = useState(false);
@@ -106,6 +110,9 @@ export default function Dashboard() {
         if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
         if (data.shopify_authorized !== undefined) setShopifyAuthorized(data.shopify_authorized === 1);
         if (data.ix_authorized !== undefined) setIxAuthorized(data.ix_authorized === 1);
+        if (data.ix_document_type) setIxDocumentType(data.ix_document_type);
+        if (data.ix_payment_term !== undefined) setIxPaymentTerm(parseInt(String(data.ix_payment_term)));
+        if (data.ix_sequence_name) setIxSequenceName(data.ix_sequence_name);
         if (data.webhooks_active !== undefined) setWebhooksActive(data.webhooks_active === 1);
         if (data.shopify_error) setShopifyError(data.shopify_error);
         if (data.ix_error) setIxError(data.ix_error);
@@ -140,7 +147,10 @@ export default function Dashboard() {
           ix_environment: ixEnvironment,
           ix_exemption_reason: exemptionReason,
           vat_included: vatIncluded,
-          auto_finalize: autoFinalize
+          auto_finalize: autoFinalize,
+          ix_document_type: ixDocumentType,
+          ix_payment_term: ixPaymentTerm,
+          ix_sequence_name: ixSequenceName
         })
       });
       if (!saveRes.ok) { alert("Erro ao guardar. Tenta novamente."); return; }
@@ -186,7 +196,10 @@ export default function Dashboard() {
           ix_environment: ixEnvironment,
           ix_exemption_reason: exemptionReason,
           vat_included: vatIncluded,
-          auto_finalize: autoFinalize
+          auto_finalize: autoFinalize,
+          ix_document_type: ixDocumentType,
+          ix_payment_term: ixPaymentTerm,
+          ix_sequence_name: ixSequenceName
         })
       });
 
@@ -220,7 +233,8 @@ export default function Dashboard() {
           shopify_domain: shopifyDomain, shopify_token: shopifyToken,
           shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
           ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-          ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize
+          ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize,
+          ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName
         })
       });
       // Mark webhooks as confirmed in DB
@@ -244,6 +258,21 @@ export default function Dashboard() {
     if (!ixAccount || !ixApiKey) return;
     setSaving(true);
     try {
+      // 0. Optional: Validate Billing Sequence if provided
+      if (ixSequenceName.trim()) {
+        const seqRes = await fetch(`/api/integrations/sequences?account=${ixAccount}&apiKey=${ixApiKey}&environment=${ixEnvironment}`);
+        if (seqRes.ok) {
+          const seqs = await seqRes.json() as any[];
+          const found = seqs.find(s => s.name.toLowerCase() === ixSequenceName.trim().toLowerCase());
+          if (!found) {
+            if (!confirm(`A série de faturação "${ixSequenceName}" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)`)) {
+              setSaving(false);
+              return;
+            }
+          }
+        }
+      }
+
       const saveRes = await fetch("/api/integrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -257,7 +286,10 @@ export default function Dashboard() {
           ix_environment: ixEnvironment,
           ix_exemption_reason: exemptionReason,
           vat_included: vatIncluded,
-          auto_finalize: autoFinalize
+          auto_finalize: autoFinalize,
+          ix_document_type: ixDocumentType,
+          ix_payment_term: ixPaymentTerm,
+          ix_sequence_name: ixSequenceName
         })
       });
       if (!saveRes.ok) { alert("Erro ao guardar. Tenta novamente."); return; }
@@ -283,6 +315,21 @@ export default function Dashboard() {
   const handleSaveSettings = async () => {
     setSaving(true);
     try {
+      // 0. Optional: Validate Billing Sequence if provided
+      if (ixSequenceName.trim()) {
+        const seqRes = await fetch(`/api/integrations/sequences?account=${ixAccount}&apiKey=${ixApiKey}&environment=${ixEnvironment}`);
+        if (seqRes.ok) {
+          const seqs = await seqRes.json() as any[];
+          const found = seqs.find(s => s.name.toLowerCase() === ixSequenceName.trim().toLowerCase());
+          if (!found) {
+            if (!confirm(`A série de faturação "${ixSequenceName}" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)`)) {
+              setSaving(false);
+              return;
+            }
+          }
+        }
+      }
+
       const res = await fetch("/api/integrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -296,7 +343,10 @@ export default function Dashboard() {
           ix_environment: ixEnvironment,
           ix_exemption_reason: exemptionReason,
           vat_included: vatIncluded,
-          auto_finalize: autoFinalize
+          auto_finalize: autoFinalize,
+          ix_document_type: ixDocumentType,
+          ix_payment_term: ixPaymentTerm,
+          ix_sequence_name: ixSequenceName
         })
       });
       if (res.ok) {
@@ -726,6 +776,97 @@ export default function Dashboard() {
                           >
                             <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} />
                           </button>
+                        </div>
+
+                        {/* Tipo de Documento */}
+                        <div className="md:col-span-2 glass p-6 rounded-2xl border-slate-800/50 space-y-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-3">
+                                <h3 className="font-bold text-sm">Tipo de Fatura</h3>
+                                <a href="/help#doc-type" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors">
+                                  <BookOpen className="w-3 h-3" />O que é?
+                                </a>
+                              </div>
+                              <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider leading-relaxed">
+                                {ixDocumentType === "invoice_receipt"
+                                  ? "Fatura-Recibo: Documento emitido e pago no momento."
+                                  : "Fatura: Documento emitido para pagamento posterior."}
+                              </p>
+                            </div>
+                            <div className="flex bg-slate-900/80 p-1 rounded-xl border border-slate-800">
+                              <button
+                                onClick={() => setIxDocumentType("invoice_receipt")}
+                                className={cn(
+                                  "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                                  ixDocumentType === "invoice_receipt" ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-white"
+                                )}
+                              >
+                                Fatura-Recibo
+                              </button>
+                              <button
+                                onClick={() => setIxDocumentType("invoice")}
+                                className={cn(
+                                  "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                                  ixDocumentType === "invoice" ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-white"
+                                )}
+                              >
+                                Fatura
+                              </button>
+                            </div>
+                          </div>
+
+                          <AnimatePresence>
+                            {ixDocumentType === "invoice" && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="pt-4 border-t border-slate-800/50"
+                              >
+                                <div className="flex items-center justify-between gap-4">
+                                  <div className="flex-1">
+                                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">Prazo de Pagamento (Dias)</h4>
+                                    <p className="text-[9px] text-slate-600 font-bold uppercase">Define quantos dias o cliente tem para pagar</p>
+                                  </div>
+                                  <div className="w-32 relative">
+                                    <input
+                                      type="number"
+                                      value={ixPaymentTerm}
+                                      onChange={(e) => setIxPaymentTerm(parseInt(e.target.value) || 0)}
+                                      className="w-full bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-2 text-sm font-bold text-center focus:ring-2 focus:ring-accent-blue/20 outline-none"
+                                    />
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+
+                        {/* Série de Faturação */}
+                        <div className="md:col-span-2 glass p-6 rounded-2xl border-slate-800/50">
+                          <div className="flex items-center justify-between ml-1 mb-4">
+                            <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                              <span className="w-1 h-1 rounded-full bg-violet-400" />
+                              Série de Faturação
+                            </label>
+                            <a
+                              href="/help#billing-sequence"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors"
+                            >
+                              <BookOpen className="w-3 h-3" />
+                              O que é?
+                            </a>
+                          </div>
+                          <input
+                            type="text"
+                            value={ixSequenceName}
+                            onChange={(e) => setIxSequenceName(e.target.value)}
+                            placeholder="Deixe vazio para usar a série pré-definida no InvoiceXpress"
+                            className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 outline-none transition-all placeholder:text-slate-800"
+                          />
                         </div>
 
                         {/* Razão de Isenção */}

@@ -11,6 +11,9 @@ export interface Env {
     INVOICEXPRESS_TAX_INCLUDED?: string;
     INVOICEXPRESS_AUTO_FINALIZE?: string;
     INVOICEXPRESS_EXEMPTION_REASON?: string;
+    INVOICEXPRESS_DOCUMENT_TYPE?: string;
+    INVOICEXPRESS_PAYMENT_TERM?: number;
+    INVOICEXPRESS_SEQUENCE_NAME?: string;
     POS_MODE?: string; // "1" = POS/NIF-matrix mode for this client
 }
 
@@ -56,6 +59,9 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
                 INVOICEXPRESS_EXEMPTION_REASON: integration.ix_exemption_reason || env.INVOICEXPRESS_EXEMPTION_REASON || "M01",
                 INVOICEXPRESS_TAX_INCLUDED: integration.vat_included !== null ? (integration.vat_included === 1 ? "true" : "false") : env.INVOICEXPRESS_TAX_INCLUDED,
                 INVOICEXPRESS_AUTO_FINALIZE: integration.auto_finalize !== null ? (integration.auto_finalize === 1 ? "true" : "false") : env.INVOICEXPRESS_AUTO_FINALIZE,
+                INVOICEXPRESS_DOCUMENT_TYPE: (integration.ix_document_type || "invoice_receipt").trim(),
+                INVOICEXPRESS_PAYMENT_TERM: integration.ix_payment_term || 0,
+                INVOICEXPRESS_SEQUENCE_NAME: integration.ix_sequence_name ? integration.ix_sequence_name.trim() : null,
                 POS_MODE: integration.pos_mode === 1 ? "1" : "0",
             };
         }

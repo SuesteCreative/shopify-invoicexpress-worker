@@ -197,6 +197,8 @@ export default function HelpPage() {
                         { href: "#vat", label: "IVA Incluído nos Preços", step: "Passo 4" },
                         { href: "#auto-finalize", label: "Finalizar Automaticamente", step: "Passo 4" },
                         { href: "#exemption", label: "Razão de Isenção de IVA", step: "Passo 4" },
+                        { href: "#doc-type", label: "Tipo de Documento (Fatura-Recibo / Fatura)", step: "Passo 4" },
+                        { href: "#billing-sequence", label: "Série de Faturação", step: "Passo 4" },
                     ].map(item => (
                         <a
                             key={item.href}
@@ -515,6 +517,50 @@ export default function HelpPage() {
                             </tbody>
                         </table>
                     </div>
+                </Section>
+            </div>
+
+            {/* ===== SECÇÃO 11: DOCUMENT TYPE ===== */}
+            <div className="glass rounded-[2rem] p-8 border-slate-800/40 space-y-6">
+                <Section id="doc-type" icon={<FileText className="w-5 h-5" />} title="Tipo de Documento — Fatura-Recibo ou Fatura" step="Passo 4 — Definições de Integração">
+                    <InfoBox>
+                        Escolhe o tipo de documento que melhor se adapta ao teu modelo de negócio.
+                        O Rioko permite emitir tanto <strong>Faturas-Recibo</strong> (padrão) como <strong>Faturas</strong> simples.
+                    </InfoBox>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+                        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5">
+                            <div className="text-emerald-400 font-black text-sm mb-2">📄 Fatura-Recibo (Padrão)</div>
+                            <p className="text-slate-400 text-sm">Venda e pagamento ocorrem no mesmo momento. É o ideal para a maioria das lojas online onde o cliente paga via MBWAY, Cartão de Crédito ou Referência MB antes do envio.</p>
+                        </div>
+                        <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5">
+                            <div className="text-sky-400 font-black text-sm mb-2">📑 Fatura Simple</div>
+                            <p className="text-slate-400 text-sm">Venda ocorre agora, mas o pagamento é esperado para mais tarde. Útil se precisares de um prazo de pagamento definido (ex: 30 dias).</p>
+                        </div>
+                    </div>
+
+                    <WarningBox>
+                        ⚠️ <strong>Atenção</strong>: Ao emitir apenas uma <strong>Fatura</strong>, o documento é considerado em dívida. Quando o cliente pagar, terás de emitir o <strong>Recibo</strong> correspondente <u>manualmente</u> no InvoiceXpress para fechar a conta do cliente.
+                    </WarningBox>
+                </Section>
+            </div>
+
+            {/* ===== SECÇÃO 12: BILLING SEQUENCE ===== */}
+            <div className="glass rounded-[2rem] p-8 border-slate-800/40 space-y-6">
+                <Section id="billing-sequence" icon={<Settings2 className="w-5 h-5" />} title="Série de Faturação" step="Passo 4 — Definições de Integração">
+                    <InfoBox>
+                        As Séries (ou Sequências) permitem organizar os teus documentos em diferentes "pastas" numeradas (ex: Série 2024, Série Web, Série Loja).
+                    </InfoBox>
+
+                    <Steps items={[
+                        'Se deixares este campo em branco, o Rioko usará a série configurada como <strong>"Pré-definida"</strong> no teu InvoiceXpress.',
+                        'Se desejares usar uma série específica, escreve o nome exato da série (Série) no campo.',
+                        'Exemplo: Se tiveres uma série chamada "WEB", escreve <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">WEB</code>.',
+                    ]} />
+
+                    <WarningBox>
+                        ⚠️ Se o nome da série estiver incorreto ou não existir, o Rioko emitirá o documento na série <strong>Pré-definida</strong> para evitar falhas na faturação.
+                    </WarningBox>
                 </Section>
             </div>
 

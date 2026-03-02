@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS integrations (
     vat_included INTEGER DEFAULT 1,
     auto_finalize INTEGER DEFAULT 0,
     webhooks_active INTEGER DEFAULT 0,
+    ix_document_type TEXT DEFAULT 'invoice_receipt',
+    ix_payment_term INTEGER DEFAULT 0,
+    ix_sequence_name TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

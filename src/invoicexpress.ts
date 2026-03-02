@@ -22,6 +22,26 @@ export async function getBaseUrl(acc: string, e: Env, k: string) {
     return `https://${domain}`;
 }
 
+export async function findSequenceIdByName(env: Env, name: string): Promise<string | null> {
+    const account = env.INVOICEXPRESS_ACCOUNT_NAME;
+    const apiKey = env.INVOICEXPRESS_API_KEY;
+    const baseUrl = await getBaseUrl(account, env, apiKey);
+
+    try {
+        const res = await fetch(`${baseUrl}/sequences.json?api_key=${apiKey}`, {
+            headers: { "X-InvoiceXpress-API-Key": apiKey, "Accept": "application/json" }
+        });
+        if (!res.ok) return null;
+
+        const data: any = await res.json();
+        const sequences = data.sequences || [];
+        const found = sequences.find((s: any) => s.name.toLowerCase() === name.toLowerCase());
+        return found ? found.id : null;
+    } catch {
+        return null;
+    }
+}
+
 export async function getOrCreateClient(
     env: Env,
     clientData: {
@@ -253,10 +273,32 @@ export async function createDocument(
 
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+
+    // Calculate Due Date based on payment term
+    const paymentTermDays = Number(env.INVOICEXPRESS_PAYMENT_TERM || 0);
+    const dueDate = new Date(today);
+    dueDate.setDate(today.getDate() + paymentTermDays);
+    const formattedDueDate = `${String(dueDate.getDate()).padStart(2, '0')}/${String(dueDate.getMonth() + 1).padStart(2, '0')}/${dueDate.getFullYear()}`;
+
     const hasExemptItems = items.some((i: any) => i.tax.name === "Isento");
 
-    const endpoint = type === "fatura_recibo" ? "invoice_receipts" : "invoices";
-    const rootKey = type === "fatura_recibo" ? "invoice_receipt" : "invoice";
+    // Map doc type to IX naming
+    let endpoint = "invoice_receipts";
+    let rootKey = "invoice_receipt";
+
+    if (env.INVOICEXPRESS_DOCUMENT_TYPE === "invoice") {
+        endpoint = "invoices";
+        rootKey = "invoice";
+    }
+
+    // Sequence ID
+    let sequenceId: string | null = null;
+    if (env.INVOICEXPRESS_SEQUENCE_NAME) {
+        sequenceId = await findSequenceIdByName(env, env.INVOICEXPRESS_SEQUENCE_NAME);
+        if (!sequenceId) {
+            console.warn(`[IX] Sequence '${env.INVOICEXPRESS_SEQUENCE_NAME}' not found, defaulting to IX pre-defined sequence.`);
+        }
+    }
 
     const exemptionCode = env.INVOICEXPRESS_EXEMPTION_REASON || "M01";
     const exemptionFull = `${exemptionCode} - ${EXEMPTION_MAPPING[exemptionCode] || ""}`;
@@ -268,8 +310,9 @@ export async function createDocument(
     const body: any = {};
     body[rootKey] = {
         date: formattedDate,
-        due_date: formattedDate,
+        due_date: endpoint === "invoice_receipts" ? formattedDate : formattedDueDate,
         tax_exemption: hasExemptItems ? exemptionCode : undefined,
+        sequence_id: sequenceId || undefined,
         client: {
             name: clientMetadata.name,
             code: clientMetadata.code,

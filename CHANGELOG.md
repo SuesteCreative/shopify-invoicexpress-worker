@@ -1,5 +1,11 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 4.1.3 — Final Sync & NIF Fixes — March 2, 2026
+
+- **Fix**: Expanded NIF validation to accept digits starting with 4 or 7.
+- **Fix**: Simplified client object in document creation to avoid redundant validation.
+- **Fix**: Aggressive whitespace removal for all tokens in DB.
+
 ## 💎 Version 4.1.1 — Active Client Sync & Cleanup — March 2, 2026
 
 ### 🧹 Client Identity Cleanup

@@ -331,9 +331,7 @@ export async function createDocument(
         sequence_id: sequenceId || undefined,
         client: {
             name: clientMetadata.name,
-            code: clientMetadata.code,
-            email: clientMetadata.email || undefined,
-            fiscal_id: clientMetadata.fiscal_id || undefined
+            code: clientMetadata.code
         },
         items: items,
         reference: `Order #${order.order_number}`,

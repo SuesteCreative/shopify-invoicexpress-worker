@@ -58,7 +58,7 @@ export function validatePTNIF(nif: string): boolean {
     if (!/^\d{9}$/.test(nif)) return false;
 
     const firstDigit = parseInt(nif[0]);
-    if (![1, 2, 3, 5, 6, 8, 9].includes(firstDigit)) return false;
+    if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(firstDigit)) return false;
 
     let sum = 0;
     for (let i = 0; i < 8; i++) {

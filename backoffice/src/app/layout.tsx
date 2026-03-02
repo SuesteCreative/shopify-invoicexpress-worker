@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
 import { ClerkProvider, UserButton, SignOutButton } from "@clerk/nextjs";
 import "./globals.css";
 import Image from "next/image";

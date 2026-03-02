@@ -1,0 +1,18 @@
+
+> backoffice@0.1.0 build
+> next build
+
+ ÔÜá Warning: Found multiple lockfiles. Selecting C:\Users\pedro\OneDrive\Github\Shopify-IX\package-lock.json.
+   Consider removing the lockfiles at:
+   * C:\Users\pedro\OneDrive\Github\Shopify-IX\backoffice\package-lock.json
+
+   Ôû▓ Next.js 15.4.11
+
+
+> Build error occurred
+[Error: EINVAL: invalid argument, readlink 'C:\Users\pedro\OneDrive\Github\Shopify-IX\backoffice\.next\diagnostics\build-diagnostics.json'] {
+  errno: -4071,
+  code: 'EINVAL',
+  syscall: 'readlink',
+  path: 'C:\\Users\\pedro\\OneDrive\\Github\\Shopify-IX\\backoffice\\.next\\diagnostics\\build-diagnostics.json'
+}

@@ -1,5 +1,20 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 4.1.8 — Client Sync Fix: Update Before Invoice — March 2, 2026
+
+- **Fix**: O `PUT` de actualização de cliente no InvoiceXpress agora inclui sempre o campo `name` (obrigatório na API IX). Era este o motivo pelo qual o NIF não era guardado na ficha.
+- **Melhoria (CLIENT_SYNC)**: Quando "Sincronizar Fichas" está activo, a ficha é actualizada com NIF, email e morada **antes** da fatura ser criada.
+- **Melhoria**: Sem o modo Limpeza, o NIF é preenchido passivamente apenas se a ficha estiver vazia.
+
+## 💎 Version 4.1.7 — Restore fiscal_id/email in Document Creation — March 2, 2026
+
+- **Fix**: Restaurado o envio de `fiscal_id` e `email` no corpo da criação do documento IX. A remoção anterior estava a fazer o Contribuinte aparecer sempre como "Consumidor Final".
+
+## 💎 Version 4.1.6 — CLIENT_SYNC: Always Patch NIF/Email — March 2, 2026
+
+- **Fix**: Com `CLIENT_SYNC` activo, o NIF é agora sempre actualizado na ficha (mesmo que já tivesse um NIF anterior).
+- **Melhoria**: Email também sincronizado se a ficha estiver sem email.
+
 ## 💎 Version 4.1.5 — Tax & NIF Extraction Fixes — March 2, 2026
 
 - **Fix**: Honoring the `taxable` flag from Shopify to ensure non-taxable products are mapped to "Isento" (0% VAT).

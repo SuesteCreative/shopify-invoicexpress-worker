@@ -90,39 +90,53 @@ export async function getOrCreateClient(
         const isGeneric = genericNames.includes(currentName);
         const isClientSyncOn = env.CLIENT_SYNC === "1";
 
-        // NIF: always update if CLIENT_SYNC is on and we have a valid NIF from the order
-        // (even if the existing record already has one — the new order data is more current)
-        const needsNif = fiscalId && (isClientSyncOn || !existing.fiscal_id);
+        // NIF: always update if CLIENT_SYNC is on and we have a valid NIF from this order
+        const needsNif = !!(fiscalId && isClientSyncOn);
 
         // Name: only update if sync is on AND current name is generic AND new name is different
         const needsNameUpdate = isClientSyncOn && isGeneric && name.toLowerCase() !== currentName;
 
         // Email: update if sync is on and we have an email and the record doesn't
-        const needsEmail = isClientSyncOn && email && !existing.email;
+        const needsEmail = isClientSyncOn && !!(email && !existing.email);
 
-        if (needsNif || needsNameUpdate || needsEmail) {
-            console.log(`[IX] Patching client ${existing.id} | NIF: ${needsNif} | Name: ${needsNameUpdate} | Email: ${needsEmail}`);
-            const updateBody: any = { client: {} };
-            if (needsNif) updateBody.client.fiscal_id = fiscalId;
-            if (needsNameUpdate) updateBody.client.name = name;
+        // Without client sync: still fill NIF if client had none (passive, non-destructive)
+        const passiveNifFill = !!(fiscalId && !existing.fiscal_id);
+
+        if (needsNif || needsNameUpdate || needsEmail || passiveNifFill) {
+            console.log(`[IX] Updating client ${existing.id} before document creation | NIF: ${needsNif || passiveNifFill} | Name: ${needsNameUpdate} | Email: ${needsEmail}`);
+
+            const updateBody: any = {
+                client: {
+                    // name is always required in IX PUT requests — use new name if updating, otherwise keep existing
+                    name: needsNameUpdate ? name : existing.name,
+                    fiscal_id: (needsNif || passiveNifFill) ? fiscalId : (existing.fiscal_id || undefined),
+                }
+            };
+
             if (needsEmail) updateBody.client.email = email;
 
-            // Also sync other fields if we are already patching
-            if (clientData.address) updateBody.client.address = clientData.address;
-            if (clientData.city) updateBody.client.city = clientData.city;
-            if (clientData.zip) updateBody.client.postal_code = clientData.zip;
-            if (clientData.country) updateBody.client.country = clientData.country;
+            // Sync address fields if CLIENT_SYNC is active
+            if (isClientSyncOn) {
+                if (clientData.address) updateBody.client.address = clientData.address;
+                if (clientData.city) updateBody.client.city = clientData.city;
+                if (clientData.zip) updateBody.client.postal_code = clientData.zip;
+                if (clientData.country) updateBody.client.country = clientData.country;
+            }
 
             const patchRes = await fetch(`${baseUrl}/clients/${existing.id}.json?api_key=${apiKey}`, {
                 method: "PUT",
                 headers: authHeaders,
                 body: JSON.stringify(updateBody)
             });
+
             if (!patchRes.ok) {
                 const patchErr = await patchRes.text().catch(() => "unknown");
-                console.error(`[IX] Patch Failed (${patchRes.status}): ${patchErr}`);
+                console.error(`[IX] Client update failed (${patchRes.status}): ${patchErr}`);
+            } else {
+                console.log(`[IX] Client ${existing.id} updated successfully before document creation.`);
             }
         }
+
         return existing.id;
     };
 

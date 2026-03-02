@@ -55,7 +55,7 @@ Connect your Shopify store via Admin API credentials.
 | Field | Description |
 |---|---|
 | **Domínio** | Your `.myshopify.com` subdomain (e.g. `minha-loja.myshopify.com`) |
-| **Admin API Token** | Generated in Shopify Admin → Apps → Develop Apps → Custom App. Required scopes: `read_orders`, `read_products`, `write_webhooks` (optional but recommended) |
+| **Admin API Token** | Generated in Shopify Admin → Apps → Develop Apps → Custom App. Required scopes: `read_orders`, `read_products`, `read_customers` (recommended) |
 | **Versão da API** | Shopify API version (default: `2026-01`) |
 
 ### Passo 2: Criação de Webhooks
@@ -65,7 +65,7 @@ Register Shopify webhooks so Rioko receives order events automatically.
 |---|---|
 | **Webhook Signing Secret** | Found in Shopify Admin → Settings → Notifications → Webhooks (shown as "Your webhooks will be signed with: ...") |
 
-**Automatic install** (requires `write_webhooks` scope): Click "Instalar Webhooks" — Rioko registers both endpoints automatically.
+**Automatic install** (requires `read_orders` scope): Click "Instalar Webhooks" — Rioko registers both endpoints automatically.
 
 **Manual install** (no scope required): Create the two webhooks manually in Shopify Admin and click "Confirmar Instalação Manual":
 
@@ -157,10 +157,9 @@ logs               -- Full diagnostic history of all incoming webhook events
 
 | Scope | Purpose | Required? |
 |---|---|---|
-| `read_orders` | Fetch order details for refund processing | ✅ Yes |
+| `read_orders` | Fetch order details and register webhooks | ✅ Yes |
 | `read_products` | VAT rate detection | ✅ Yes |
-| `write_webhooks` | Auto-register webhooks from dashboard | ⚠️ Recommended |
-| `read_webhooks` | Verify webhook registration status | ⚠️ Recommended |
+| `read_customers` | Sync customer data and NIFs | ✅ Yes |
 
 > Without `write_webhooks`, webhooks must be installed manually. Without `read_webhooks`, the dashboard cannot auto-detect if webhooks are active (but preserves the last known state).
 

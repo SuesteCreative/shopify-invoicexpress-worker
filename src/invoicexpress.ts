@@ -88,15 +88,24 @@ export async function getOrCreateClient(
         const genericNames = ["client", "consumidor final", "nif 999999990", "unknown"];
         const currentName = String(existing.name || "").toLowerCase().trim();
         const isGeneric = genericNames.includes(currentName);
+        const isClientSyncOn = env.CLIENT_SYNC === "1";
 
-        const needsNif = fiscalId && !existing.fiscal_id;
-        const needsNameUpdate = env.CLIENT_SYNC === "1" && isGeneric && name.toLowerCase() !== currentName;
+        // NIF: always update if CLIENT_SYNC is on and we have a valid NIF from the order
+        // (even if the existing record already has one — the new order data is more current)
+        const needsNif = fiscalId && (isClientSyncOn || !existing.fiscal_id);
 
-        if (needsNif || needsNameUpdate) {
-            console.log(`[IX] Patching client ${existing.id} | Update NIF: ${needsNif} | Update Name: ${needsNameUpdate}`);
+        // Name: only update if sync is on AND current name is generic AND new name is different
+        const needsNameUpdate = isClientSyncOn && isGeneric && name.toLowerCase() !== currentName;
+
+        // Email: update if sync is on and we have an email and the record doesn't
+        const needsEmail = isClientSyncOn && email && !existing.email;
+
+        if (needsNif || needsNameUpdate || needsEmail) {
+            console.log(`[IX] Patching client ${existing.id} | NIF: ${needsNif} | Name: ${needsNameUpdate} | Email: ${needsEmail}`);
             const updateBody: any = { client: {} };
             if (needsNif) updateBody.client.fiscal_id = fiscalId;
             if (needsNameUpdate) updateBody.client.name = name;
+            if (needsEmail) updateBody.client.email = email;
 
             // Also sync other fields if we are already patching
             if (clientData.address) updateBody.client.address = clientData.address;
@@ -104,11 +113,15 @@ export async function getOrCreateClient(
             if (clientData.zip) updateBody.client.postal_code = clientData.zip;
             if (clientData.country) updateBody.client.country = clientData.country;
 
-            await fetch(`${baseUrl}/clients/${existing.id}.json?api_key=${apiKey}`, {
+            const patchRes = await fetch(`${baseUrl}/clients/${existing.id}.json?api_key=${apiKey}`, {
                 method: "PUT",
                 headers: authHeaders,
                 body: JSON.stringify(updateBody)
-            }).catch((err) => { console.error(`[IX] Patch Failed: ${err.message}`); });
+            });
+            if (!patchRes.ok) {
+                const patchErr = await patchRes.text().catch(() => "unknown");
+                console.error(`[IX] Patch Failed (${patchRes.status}): ${patchErr}`);
+            }
         }
         return existing.id;
     };

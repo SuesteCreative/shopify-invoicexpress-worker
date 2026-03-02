@@ -305,7 +305,7 @@ export default function HelpPage() {
             <div className="glass rounded-[2rem] p-8 border-slate-800/40 space-y-6">
                 <Section id="manual-webhooks" icon={<Settings2 className="w-5 h-5" />} title="Instalação Manual de Webhooks" step="Passo 2 — Criação de Webhooks">
                     <InfoBox>
-                        Se o teu Access Token não tiver permissões de escrita, terás de criar os webhooks manualmente no painel da Shopify para que as encomendas sejam comunicadas ao Rioko.
+                        Se o teu Access Token não tiver permissão para gerir encomendas (read_orders), terás de criar os webhooks manualmente no painel da Shopify para que as encomendas sejam comunicadas ao Rioko.
                     </InfoBox>
 
                     <Steps items={[

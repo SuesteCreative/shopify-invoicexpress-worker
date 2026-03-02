@@ -26,10 +26,10 @@ export default async function DashboardLayout({
     const userIsHiperadmin = viewerRole === "hiperadmin";
 
     return (
-        <div className="flex flex-col md:flex-row min-h-screen">
+        <div className="flex flex-col md:flex-row h-screen overflow-hidden">
             <ImpersonationBanner />
             {/* Sidebar */}
-            <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0 z-20 md:sticky md:top-0 md:h-screen overflow-y-auto scrollbar-hide">
+            <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0 z-20 md:sticky md:top-0 h-screen overflow-y-auto scrollbar-hide">
                 <div className="mb-14 flex flex-col items-center md:items-start w-full">
                     <div className="flex items-end gap-3 transition-transform hover:scale-[1.02]">
                         <Link href="/" className="pb-1">
@@ -38,7 +38,6 @@ export default async function DashboardLayout({
                                 alt="Rioko Logo"
                                 width={110}
                                 height={28}
-                                className=""
                                 priority
                             />
                         </Link>
@@ -53,9 +52,9 @@ export default async function DashboardLayout({
                     </div>
                 </div>
 
-                <NavLinks isSuperAdmin={isSuperAdmin} isHiperadmin={userIsHiperadmin} />
+                <NavLinks canAccessAdmin={isSuperAdmin} isHiperadmin={userIsHiperadmin} />
 
-                <div className="mt-auto space-y-4 w-full">
+                <div className="mt-auto space-y-4 w-full pt-8">
                     <div className="px-4 py-3 rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <UserButton afterSignOutUrl="/" />

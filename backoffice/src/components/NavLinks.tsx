@@ -10,7 +10,7 @@ function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
-export function NavLinks({ isSuperAdmin, isHiperadmin }: { isSuperAdmin: boolean; isHiperadmin?: boolean }) {
+export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boolean; isHiperadmin?: boolean }) {
     const pathname = usePathname();
 
     const LinkItem = ({ href, icon: Icon, label, colorClass, activeClass }: any) => (
@@ -41,6 +41,10 @@ export function NavLinks({ isSuperAdmin, isHiperadmin }: { isSuperAdmin: boolean
                         colorClass="text-sky-400"
                         activeClass="bg-sky-500/10 text-sky-400 border-sky-500/20 shadow-[0_0_20px_rgba(56,189,248,0.1)]"
                     />
+                    <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-30 cursor-not-allowed w-full text-left">
+                        <ClipboardList className="w-4 h-4" />
+                        Faturas (Breve)
+                    </button>
                     <LinkItem
                         href="/help"
                         icon={BookOpen}
@@ -52,11 +56,11 @@ export function NavLinks({ isSuperAdmin, isHiperadmin }: { isSuperAdmin: boolean
             </div>
 
             {/* Admin Section (Grouped above logout) */}
-            {(isSuperAdmin || isHiperadmin) && (
+            {(canAccessAdmin || isHiperadmin) && (
                 <div className="space-y-2">
                     <span className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest focus:text-violet-400">Administração</span>
                     <div className="space-y-1">
-                        {isSuperAdmin && (
+                        {canAccessAdmin && (
                             <LinkItem
                                 href="/superadmin"
                                 icon={ShieldCheck}
@@ -78,12 +82,10 @@ export function NavLinks({ isSuperAdmin, isHiperadmin }: { isSuperAdmin: boolean
                 </div>
             )}
 
-            {/* Coming Soon */}
             <div className="pt-4 border-t border-slate-800/20 mt-auto">
-                <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-30 cursor-not-allowed w-full text-left">
-                    <ClipboardList className="w-4 h-4" />
-                    Faturação (Breve)
-                </button>
+                <div className="px-4 py-2 opacity-50">
+                    <div className="text-[10px] font-black text-slate-600 uppercase tracking-tight">Rioko 2.0</div>
+                </div>
             </div>
         </div>
     );

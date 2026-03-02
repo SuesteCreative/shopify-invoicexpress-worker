@@ -1,8 +1,10 @@
 "use client";
 
+import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen } from "lucide-react";
+import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Zap, Check, Lock, ChevronRight, Store, Loader2, Circle, HelpCircle, Info, Webhook, AlertTriangle, X, Copy, ArrowLeft } from "lucide-react";
+import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -37,10 +39,32 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                     <LinkItem
                         href="/dashboard"
                         icon={Activity}
+                        label="Dashboard"
+                        colorClass="text-emerald-400"
+                        activeClass="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.1)]"
+                    />
+                    <LinkItem
+                        href="/integrations"
+                        icon={Zap}
                         label="Integrações"
                         colorClass="text-sky-400"
                         activeClass="bg-sky-500/10 text-sky-400 border-sky-500/20 shadow-[0_0_20px_rgba(56,189,248,0.1)]"
                     />
+
+                    {/* Active Integrations Quick Links (Internal Logic would be better but static for now for speed) */}
+                    <Link
+                        href="/integrations/shopify-ix"
+                        className={cn(
+                            "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all border border-transparent",
+                            pathname.includes("/integrations/shopify-ix")
+                                ? "bg-violet-500/10 text-violet-400 border-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.1)]"
+                                : "text-slate-500 hover:text-white hover:bg-white/5 opacity-60 hover:opacity-100"
+                        )}
+                    >
+                        <div className="w-4 h-4 rounded-full bg-violet-500/20 flex items-center justify-center text-[8px] font-black text-violet-400">S</div>
+                        Shopify + IX
+                    </Link>
+
                     <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-30 cursor-not-allowed w-full text-left">
                         <ClipboardList className="w-4 h-4" />
                         Faturas (Breve)

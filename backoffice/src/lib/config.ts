@@ -1,5 +1,5 @@
 export const RIOKO_CONFIG = {
-    version: "3.7.4",
+    version: "4.0.0",
     stableBuild: true,
     environment: "Production",
     workerUrl: "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev",

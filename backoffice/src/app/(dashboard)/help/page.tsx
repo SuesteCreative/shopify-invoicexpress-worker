@@ -140,11 +140,14 @@ function HelpFooter() {
                 <a href="mailto:pedro@kapta.pt" className="bg-white text-black px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all transform active:scale-95 shadow-xl">
                     Contactar Suporte
                 </a>
+                <Link href="/dashboard" className="bg-slate-800/50 text-slate-400 px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-800 hover:text-white transition-all border border-slate-700/50">
+                    Sair da Ajuda
+                </Link>
                 <button
                     onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className="bg-slate-800/50 text-slate-400 px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-800 hover:text-white transition-all border border-slate-700/50"
+                    className="bg-slate-800/50 text-slate-400 px-4 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-800 hover:text-white transition-all border border-slate-700/50"
                 >
-                    Voltar ao topo
+                    Topo
                 </button>
             </div>
         </div>

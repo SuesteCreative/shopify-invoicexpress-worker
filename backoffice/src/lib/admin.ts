@@ -1,8 +1,8 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 
-// Role hierarchy: hiperadmin > superadmin > admin > user
-// isAdmin = true for admin, superadmin, and hiperadmin (can access admin features)
+// Role hierarchy: hiperadmin > superadmin > user
+// isAdmin = true for superadmin and hiperadmin (can access admin features)
 export async function isAdmin(userId?: string | null) {
     const role = await getRole(userId);
     return role === "superadmin" || role === "hiperadmin";

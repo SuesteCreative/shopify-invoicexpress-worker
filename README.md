@@ -2,7 +2,7 @@
 
 A high-performance, production-ready integration that automatically syncs Shopify orders with InvoiceXpress, including invoice creation, credit notes, NIF detection, and fiscal compliance.
 
-**Current Version: v3.5.0** | Developed by [Kapta](https://kapta.pt)
+**Current Version: v4.0.0** | Developed by [Kapta](https://kapta.pt)
 
 ---
 
@@ -17,6 +17,25 @@ A high-performance, production-ready integration that automatically syncs Shopif
 - **Fiscal Compliance**: Full legal text of tax exemption reasons (M01–M99) injected into invoice observations.
 - **Smart VAT Engine**: Automatic back-calculation for "VAT Included" stores.
 - **Sandbox Support**: Easy toggle between Production and Sandbox InvoiceXpress environments.
+- **Multi-Integration Hub**: Prepared for Shopify, Stripe, EuPago, Easypay, Ifthenpay, InvoiceXpress, and Moloni.
+
+---
+
+## 📝 Recent Updates (Changelog)
+
+### [v4.0.0] — 2026-03-02
+- **Major Architecture**: Refactored dashboard to support multiple payment/invoicing integrations.
+- **New Dashboard**: Added a welcome/overview dashboard for quick access to active connections.
+- **Improved Hierarchy**: "Integrações" is now a centralized menu to manage all platforms.
+- **Visual Refinements**: Adjusted alignment of InvoiceXpress icons and labels.
+- **Help Page Update**: Added detailed instructions for finding Billing Sequences in InvoiceXpress.
+- **Compliance**: Verified InvoiceXpress client update (`PUT`) capability for future data patches.
+
+### [v3.8.0]
+- **Billing Sequences**: Support for specific billing series (e.g., "Série WEB") with real-time validation.
+- **Document Types**: Choose between "Fatura-Recibo" and "Fatura" (with payment terms).
+- **UX**: Added "O que é?" links for all Passo 4 configuration fields.
+- **Security**: Fixed a security breach where standard users could see the Superadmin menu.
 
 ---
 
@@ -139,11 +158,15 @@ logs               -- Full diagnostic history of all incoming webhook events
 
 ---
 
-## 📜 Compliance
+## 📜 Compliance & Security
 
-As of **v3.5.0**, the engine is fully compliant with Portuguese fiscal requirements:
-- Full legal text of all AT exemption reasons (M01–M99) injected into invoice observations
-- NIF automatically extracted from order notes and injected into InvoiceXpress client records
-- `"Consumidor Final"` used as fallback for anonymous buyers (fiscal standard)
+As of **v4.0.0**, the engine is fully compliant with Portuguese fiscal requirements and follows strict security standards:
+
+- **Data Encryption**: All sensitive API keys and tokens (Shopify & InvoiceXpress) are encrypted before storage in Cloudflare D1.
+- **Role-Based Access Control (RBAC)**: Multi-layered permissions (Hiperadmin, Superadmin, User) managed via Clerk to prevent unauthorized access to administrative features.
+- **Audit Logs**: Every synchronization event and configuration change is logged for diagnostic purposes.
+- **HMAC Verification**: Webhooks are verified using HMAC-SHA256 headers before processing to ensure authenticity.
+- **AT Compliance**: Full legal text of all AT exemption reasons (M01–M99) injected into invoice observations.
+- **Identity Protection**: Anonymous buyers are handled according to Portuguese fiscal standards ("Consumidor Final").
 
 **Developed by [Kapta](https://kapta.pt)**

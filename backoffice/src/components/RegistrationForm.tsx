@@ -166,7 +166,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
 
                     {/* Website */}
                     <div className="space-y-2 md:col-span-2">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4">Website</label>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4">Website (Opcional)</label>
                         <div className="relative group">
                             <Globe className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-sky-400 transition-colors" />
                             <input

@@ -105,10 +105,15 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         tooltip="Faça o registo no dashboard primeiro"
                     />
 
-                    <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-30 cursor-not-allowed w-full text-left">
-                        <ClipboardList className="w-4 h-4" />
-                        Faturas (Breve)
-                    </button>
+                    <LinkItem
+                        href="/invoices"
+                        icon={ClipboardList}
+                        label="Faturas"
+                        colorClass="text-indigo-400"
+                        activeClass="bg-indigo-500/10 text-indigo-400 border-indigo-500/20 shadow-[0_0_20px_rgba(129,140,248,0.1)]"
+                        disabled={!isRegistered}
+                        tooltip="Faça o registo no dashboard primeiro"
+                    />
                     <LinkItem
                         href="/help"
                         icon={BookOpen}

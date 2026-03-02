@@ -1,5 +1,14 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 5.0.0 — Invoices Hub & Premium Dashboard — March 2, 2026
+
+- **New**: **Rioko Invoices Hub** – Um dashboard premium centralizado para gerir todos os documentos fiscais.
+- **New**: **Invoice Cards** – Listagem expansível com histórico de transações e logs em tempo real.
+- **New**: **PDF Proxy** – Visualização e download de PDFs diretamente do dashboard (via IX API).
+- **New**: **Filtros e Pesquisa** – Filtragem inteligente por Order #, Referência ou Número de Documento.
+- **Melhoria**: Integrado logs de transação filtrados para cada encomenda no detalhe da fatura.
+- **Admin**: Suporte completo para impersonificação de superadmin no Invoices Hub.
+
 ## 💎 Version 4.1.9 — Clerk Webhook Sync — March 2, 2026
 
 - **New**: Implementado endpoint de webhooks para o Clerk em `/api/webhooks/clerk`.

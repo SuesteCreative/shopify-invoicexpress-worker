@@ -2,7 +2,7 @@
 
 A high-performance, production-ready integration that automatically syncs Shopify orders with InvoiceXpress, including invoice creation, credit notes, NIF detection, and fiscal compliance.
 
-**Current Version: v4.1.9** | Developed by [Kapta](https://kapta.pt)
+**Current Version: v5.0.0** | Developed by [Kapta](https://kapta.pt)
 
 **Production URL**: [https://rioko-7nk.pages.dev](https://rioko-7nk.pages.dev)
 
@@ -10,6 +10,7 @@ A high-performance, production-ready integration that automatically syncs Shopif
 
 ## 🚀 Key Features
 
+- **Invoices Hub (New)**: Premium dashboard to manage and preview all fiscal documents with transaction logs.
 - **Bulletproof Reliability**: Dual-layer idempotency (D1 SQL + KV) — strictly **1 Order = 1 Invoice**, even under concurrent webhooks.
 - **4-Step Guided Onboarding**: Clean dashboard flow — Shopify → Webhooks → InvoiceXpress → Settings.
 - **Webhook Health Detection**: Real-time check of registered webhooks against the Rioko worker URL.

@@ -39,3 +39,19 @@ CREATE TABLE IF NOT EXISTS processed_orders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_processed_orders_id ON processed_orders(id);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT,
+    name TEXT,
+    role TEXT DEFAULT 'user',
+    nif TEXT,
+    company_name TEXT,
+    fiscal_address TEXT,
+    phone TEXT,
+    website TEXT,
+    registration_completed INTEGER DEFAULT 0,
+    privacy_policy_accepted INTEGER DEFAULT 0,
+    last_login DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

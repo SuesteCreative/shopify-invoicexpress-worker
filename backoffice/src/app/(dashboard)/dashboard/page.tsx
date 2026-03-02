@@ -15,17 +15,21 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+import { RegistrationForm } from "@/components/RegistrationForm";
+
 export default function WelcomeDashboard() {
   const { user: clerkUser } = useUser();
   const [dbUserName, setDbUserName] = useState("");
   const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
   const [loading, setLoading] = useState(true);
   const [integrationStatus, setIntegrationStatus] = useState<any>(null);
+  const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
 
   useEffect(() => {
     fetch("/api/integrations")
       .then(res => res.json())
       .then((data: any) => {
+        setIsRegistered(data._registration_completed);
         if (data._user_name) setDbUserName(data._user_name);
         if (data.shopify_domain && data.ix_account_name) {
           setIntegrationStatus({
@@ -39,6 +43,26 @@ export default function WelcomeDashboard() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (isRegistered === false) {
+    return (
+      <div className="py-12">
+        <RegistrationForm
+          onComplete={() => setIsRegistered(true)}
+          initialEmail={clerkUser?.primaryEmailAddress?.emailAddress}
+          initialName={clerkUser?.fullName || ""}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">

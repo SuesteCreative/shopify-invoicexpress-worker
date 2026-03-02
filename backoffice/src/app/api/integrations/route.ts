@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
         // Also fetch the target user's metadata (correct under impersonation)
         const userRecord: any = await db
-            .prepare("SELECT name, role FROM users WHERE id = ?")
+            .prepare("SELECT name, role, registration_completed FROM users WHERE id = ?")
             .bind(targetUserId)
             .first();
 
@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
             ...(integration || {}),
             _user_name: userRecord?.name || null,
             _user_role: userRecord?.role || "user",
+            _registration_completed: !!userRecord?.registration_completed,
             _viewer_role: viewerRole,
             _is_impersonating: !!impersonationId
         });

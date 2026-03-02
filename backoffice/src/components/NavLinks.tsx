@@ -25,11 +25,13 @@ interface ActiveIntegration {
 export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boolean; isHiperadmin?: boolean }) {
     const pathname = usePathname();
     const [activeIntegrations, setActiveIntegrations] = useState<ActiveIntegration[]>([]);
+    const [isRegistered, setIsRegistered] = useState<boolean>(true); // Default to true to prevent flickering
 
     useEffect(() => {
         fetch("/api/integrations")
             .then(res => res.json())
             .then((data: any) => {
+                setIsRegistered(data._registration_completed);
                 const integrations: ActiveIntegration[] = [];
                 if (data.shopify_domain && data.ix_account_name) {
                     integrations.push({
@@ -48,20 +50,37 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
             .catch(() => { });
     }, []);
 
-    const LinkItem = ({ href, icon: Icon, label, colorClass, activeClass }: any) => (
-        <Link
-            href={href}
-            className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all border border-transparent",
-                pathname === href
-                    ? activeClass
-                    : "text-slate-400 hover:text-white hover:bg-white/5"
-            )}
-        >
-            <Icon className={cn("w-4 h-4", colorClass)} />
-            {label}
-        </Link>
-    );
+    const LinkItem = ({ href, icon: Icon, label, colorClass, activeClass, disabled, tooltip }: any) => {
+        if (disabled) {
+            return (
+                <div
+                    className="flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm text-slate-600 opacity-50 cursor-not-allowed border border-transparent group relative"
+                    title={tooltip}
+                >
+                    <Icon className={cn("w-4 h-4 text-slate-600")} />
+                    {label}
+                    <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none">
+                        {tooltip}
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <Link
+                href={href}
+                className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all border border-transparent",
+                    pathname === href
+                        ? activeClass
+                        : "text-slate-400 hover:text-white hover:bg-white/5"
+                )}
+            >
+                <Icon className={cn("w-4 h-4", colorClass)} />
+                {label}
+            </Link>
+        );
+    };
 
     return (
         <div className="flex-1 w-full flex flex-col gap-10">
@@ -82,6 +101,8 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         label="Integrações"
                         colorClass="text-sky-400"
                         activeClass="bg-sky-500/10 text-sky-400 border-sky-500/20 shadow-[0_0_20px_rgba(56,189,248,0.1)]"
+                        disabled={!isRegistered}
+                        tooltip="Faça o registo no dashboard primeiro"
                     />
 
                     <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-30 cursor-not-allowed w-full text-left">
@@ -106,9 +127,11 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         {activeIntegrations.map((integration) => (
                             <Link
                                 key={integration.id}
-                                href={integration.href}
+                                href={isRegistered ? integration.href : "#"}
+                                onClick={!isRegistered ? (e) => e.preventDefault() : undefined}
                                 className={cn(
-                                    "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all border border-transparent",
+                                    "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all border border-transparent group relative",
+                                    !isRegistered ? "opacity-30 cursor-not-allowed" : "",
                                     pathname.includes(integration.href)
                                         ? integration.activeClass
                                         : "text-slate-500 hover:text-white hover:bg-white/5 opacity-60 hover:opacity-100"
@@ -118,6 +141,11 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                                     {integration.iconLetter}
                                 </div>
                                 {integration.label}
+                                {!isRegistered && (
+                                    <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none">
+                                        Faça o registo no dashboard primeiro
+                                    </div>
+                                )}
                             </Link>
                         ))}
                     </div>

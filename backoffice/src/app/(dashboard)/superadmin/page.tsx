@@ -214,8 +214,26 @@ export default function SuperadminPage() {
                                         </div>
                                     </div>
 
+                                    {/* Fiscal Data */}
+                                    <div className="flex flex-col gap-3 px-10 border-x border-slate-800/40 min-w-[200px]">
+                                        <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest leading-none">Dados Fiscais</span>
+                                        {user.registration_completed ? (
+                                            <div className="space-y-1">
+                                                <p className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                                                    <ShieldCheck className="w-3 h-3 text-sky-400" /> {user.nif}
+                                                </p>
+                                                {user.company_name && (
+                                                    <p className="text-[10px] text-slate-500 font-bold uppercase truncate max-w-[150px]">{user.company_name}</p>
+                                                )}
+                                                <p className="text-[9px] text-slate-600 font-medium truncate max-w-[150px]">{user.fiscal_address}</p>
+                                            </div>
+                                        ) : (
+                                            <span className="text-[9px] font-black text-amber-500/50 uppercase tracking-widest italic">Registo Pendente</span>
+                                        )}
+                                    </div>
+
                                     {/* Status */}
-                                    <div className="flex flex-wrap items-center justify-center gap-6 px-10 border-x-0 lg:border-x border-slate-800/40">
+                                    <div className="flex flex-wrap items-center justify-center gap-6 pr-10 border-r border-slate-800/40">
                                         <div className="flex flex-col items-center gap-1.5">
                                             <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest leading-none">Status</span>
                                             <div className="flex items-center gap-4">

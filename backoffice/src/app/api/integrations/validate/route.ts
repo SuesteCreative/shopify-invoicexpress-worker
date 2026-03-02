@@ -74,15 +74,22 @@ export async function POST(request: NextRequest) {
                             const hasOrderHook = activeHooks.some((h: any) => h.topic === "orders/paid" && h.address.startsWith(RiokoUrl));
                             const hasRefundHook = activeHooks.some((h: any) => h.topic === "refunds/create" && h.address.startsWith(RiokoUrl));
                             webhooksDetected = hasOrderHook && hasRefundHook;
-                            // Only write the detected value to DB
-                            await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ?, webhooks_active = ? WHERE user_id = ?")
-                                .bind(1, null, webhooksDetected ? 1 : 0, targetUserId).run();
+
+                            // Webhook Logic: Only reset if NOT forced
+                            const updateWebhooksBit = (webhooksDetected || config.webhooks_forced_at) ? 1 : 0;
+
+                            await db.prepare(`
+                                UPDATE integrations 
+                                SET shopify_authorized = 1, 
+                                    shopify_error = NULL, 
+                                    webhooks_active = ? 
+                                WHERE user_id = ?
+                            `).bind(updateWebhooksBit, targetUserId).run();
                         } else {
-                            // Can't read webhooks (likely missing read_webhooks scope) — preserve existing DB value
-                            const existing: any = await db.prepare("SELECT webhooks_active FROM integrations WHERE user_id = ?").bind(targetUserId).first();
-                            webhooksDetected = existing?.webhooks_active === 1;
-                            await db.prepare("UPDATE integrations SET shopify_authorized = ?, shopify_error = ? WHERE user_id = ?")
-                                .bind(1, null, targetUserId).run();
+                            // Can't read webhooks — preserve existing DB value (forced or otherwise)
+                            await db.prepare("UPDATE integrations SET shopify_authorized = 1, shopify_error = NULL WHERE user_id = ?")
+                                .bind(targetUserId).run();
+                            webhooksDetected = config.webhooks_active === 1;
                         }
 
                         break;

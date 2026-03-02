@@ -109,7 +109,7 @@ export default function Dashboard() {
         if (data.webhooks_active !== undefined) setWebhooksActive(data.webhooks_active === 1);
         if (data.shopify_error) setShopifyError(data.shopify_error);
         if (data.ix_error) setIxError(data.ix_error);
-        if (data._user_role) setUserRole(data._user_role);
+        if (data._viewer_role) setUserRole(data._viewer_role);
         if (data.user_id) setTargetUserId(data.user_id);
 
         // Smart step resume — always start from the furthest valid state

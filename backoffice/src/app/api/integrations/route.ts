@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { isAdmin, getImpersonationId, getRole } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -16,8 +16,9 @@ export async function GET(request: NextRequest) {
 
         // Admin Impersonation Logic
         const isSuperAdmin = await isAdmin(userId);
+        let impersonationId: string | null = null;
         if (isSuperAdmin) {
-            const impersonationId = await getImpersonationId(request);
+            impersonationId = await getImpersonationId(request);
             if (impersonationId) {
                 targetUserId = impersonationId;
                 console.log(`[Superadmin] Impersonating ${targetUserId}`);
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const integration = await db
+        const integration: any = await db
             .prepare("SELECT * FROM integrations WHERE user_id = ?")
             .bind(targetUserId)
             .first();
@@ -43,10 +44,14 @@ export async function GET(request: NextRequest) {
             .bind(targetUserId)
             .first();
 
+        const viewerRole = await getRole(userId);
+
         return NextResponse.json({
             ...(integration || {}),
             _user_name: userRecord?.name || null,
-            _user_role: userRecord?.role || "user"
+            _user_role: userRecord?.role || "user",
+            _viewer_role: viewerRole,
+            _is_impersonating: !!impersonationId
         });
     } catch (error: any) {
         console.error("D1 Error:", error);
@@ -82,21 +87,31 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize } = body;
+        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active } = body;
 
         const clean_shopify_domain = shopify_domain ? shopify_domain.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
 
         // Check if integration exists
-        const existing = await db
-            .prepare("SELECT id FROM integrations WHERE user_id = ?")
+        const existing: any = await db
+            .prepare("SELECT * FROM integrations WHERE user_id = ?")
             .bind(targetUserId)
             .first();
 
         if (existing) {
+            // Preserve existing shopify_authorized and webhooks_active if not explicitly provided or if forced
+            let final_shopify_authorized = shopify_authorized !== undefined ? (shopify_authorized ? 1 : 0) : existing.shopify_authorized;
+            let final_webhooks_active = webhooks_active !== undefined ? (webhooks_active ? 1 : 0) : existing.webhooks_active;
+
+            // If webhooks_active is being set to 0, but it was admin-forced, keep it as 1
+            if (final_webhooks_active === 0 && (existing.webhooks_forced_at || existing.webhooks_active === 1)) {
+                // We trust the existing value more if we're just doing a generic 'save' from the dashboard
+                final_webhooks_active = existing.webhooks_active;
+            }
+
             await db
                 .prepare(`
           UPDATE integrations 
-          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, updated_at = CURRENT_TIMESTAMP
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 .bind(
@@ -110,6 +125,8 @@ export async function POST(request: NextRequest) {
                     ix_exemption_reason || "M01",
                     vat_included !== undefined ? (vat_included ? 1 : 0) : 1,
                     auto_finalize !== undefined ? (auto_finalize ? 1 : 0) : 0,
+                    final_shopify_authorized,
+                    final_webhooks_active,
                     targetUserId
                 )
                 .run();
@@ -117,8 +134,8 @@ export async function POST(request: NextRequest) {
             const id = crypto.randomUUID();
             await db
                 .prepare(`
-          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
                 .bind(
                     id,
@@ -132,7 +149,9 @@ export async function POST(request: NextRequest) {
                     ix_environment || "production",
                     ix_exemption_reason || "M01",
                     vat_included ? 1 : 0,
-                    auto_finalize ? 1 : 0
+                    auto_finalize ? 1 : 0,
+                    shopify_authorized ? 1 : 0,
+                    webhooks_active ? 1 : 0
                 )
                 .run();
         }

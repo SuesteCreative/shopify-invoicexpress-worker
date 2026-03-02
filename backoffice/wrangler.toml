@@ -1,5 +1,2 @@
-# Cloudflare Pages Configuration for Rioko Backoffice
-# Bindings (D1, KV, secrets) are managed via the Cloudflare Pages dashboard UI.
-# This file only provides the build output directory for the CI/CD system.
-
+name = "rioko-backoffice"
 pages_build_output_dir = ".vercel/output/static"

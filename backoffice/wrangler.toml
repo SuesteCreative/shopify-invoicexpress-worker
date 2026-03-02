@@ -1,19 +1,5 @@
 # Cloudflare Pages Configuration for Rioko Backoffice
-# This file is used by the Pages CI/CD system to configure bindings and runtime settings.
+# Bindings (D1, KV, secrets) are managed via the Cloudflare Pages dashboard UI.
+# This file only provides the build output directory for the CI/CD system.
 
-name = "rioko-backoffice"
-compatibility_date = "2024-11-01"
-compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".vercel/output/static"
-
-[vars]
-SHOPIFY_API_VERSION = "2026-01"
-
-[[kv_namespaces]]
-binding = "INVOICE_KV"
-id = "490b5fedae3e428d977d93745c1061b2"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "rioko-db"
-database_id = "4c63109a-c05d-427f-abf2-1cb4a757df88"

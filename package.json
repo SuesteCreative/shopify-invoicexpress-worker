@@ -4,13 +4,13 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev -c wrangler.worker.toml",
-    "deploy": "wrangler deploy -c wrangler.worker.toml",
-    "build": "wrangler deploy --dry-run -c wrangler.worker.toml"
+    "deploy": "wrangler deploy",
+    "build": "wrangler deploy --dry-run -c wrangler.worker.toml",
+    "preview": "wrangler dev"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240101.0",
     "typescript": "^5.0.0",
-    "wrangler": "^4.0.0"
-  },
-  "dependencies": {}
+    "wrangler": "^4.69.0"
+  }
 }

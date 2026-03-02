@@ -2,12 +2,24 @@
 
 ## 💎 Version 5.0.0 — Invoices Hub & Premium Dashboard — March 2, 2026
 
-- **New**: **Rioko Invoices Hub** – Um dashboard premium centralizado para gerir todos os documentos fiscais.
-- **New**: **Invoice Cards** – Listagem expansível com histórico de transações e logs em tempo real.
-- **New**: **PDF Proxy** – Visualização e download de PDFs diretamente do dashboard (via IX API).
-- **New**: **Filtros e Pesquisa** – Filtragem inteligente por Order #, Referência ou Número de Documento.
-- **Melhoria**: Integrado logs de transação filtrados para cada encomenda no detalhe da fatura.
-- **Admin**: Suporte completo para impersonificação de superadmin no Invoices Hub.
+- **New: Rioko Invoices Hub** – Dashboard premium construído com **Tailwind CSS e Framer Motion** para uma experiência fluida de gestão fiscal.
+- **New: Document Cards Expansíveis** – Listagem de documentos com animações de expansão que revelam o **Audit Trail** (Logs) de cada transação, permitindo ver exatamente como e quando o documento foi processado.
+- **New: PDF Interactive Proxy** – Visualização e download de PDFs diretamente do dashboard. O sistema interage com a API do InvoiceXpress, converte o stream base64 em PDF e serve o ficheiro de forma segura.
+- **New: Cross-Reference Intelligence** – Algoritmo que cruza os IDs de documentos da IX com os logs de Webhooks da Cloudflare D1 através de padrões de `payload` e `response`.
+- **New: Admin Impersonation Support** – Hiperadmins e Superadmins podem agora visualizar o histórico de faturas de qualquer cliente através do sistema de impersonificação.
+- **Melhoria: Filtros de Estado Dinâmicos** – Filtragem instantânea por documentos pagos, rascunhos ou notas de crédito.
+
+## 💎 Version 4.2.1 — Aggressive Client Sync & Refund Logic — March 2, 2026
+
+- **New: Client Mirroring Engine** – Implementação do modo `CLIENT_SYNC=1` que força a ficha do cliente no InvoiceXpress a ser um espelho exato da encomenda Shopify (incluindo a limpeza de campos vazios como Email ou Morada).
+- **New: Credit Note Linking** – Lógica avançada para reembolsos no Shopify dispararem automaticamente Notas de Crédito no IX, garantindo o "link" técnico entre o documento original e o reembolso.
+- **Melhoria: "Consumidor Final" Logic** – Proteção contra nomes genéricos; se uma encomenda não tiver NIF e o nome for vago (ex: "Client"), o sistema assume automaticamente "Consumidor Final" para evitar poluição fiscal.
+
+## 💎 Version 4.2.0 — Mandatory Onboarding & Admin Visibility — March 2, 2026
+
+- **New: Mandatory Registration Flow** – Bloqueio de integrações até que o utilizador preencha os dados fiscais obrigatórios (NIF, Morada Fiscal, CAE/Empresa).
+- **New: NIF-Type Logic** – Formulário inteligente que detecta se o NIF é de Empresa (Individual/Colectiva) ou Civil, ajustando os campos de nome necessários.
+- **New: Superadmin Profile Visibility** – Admin agora consegue visualizar todos os detalhes fiscais dos utilizadores registados diretamente na sua lista de gestão.
 
 ## 💎 Version 4.1.9 — Clerk Webhook Sync — March 2, 2026
 

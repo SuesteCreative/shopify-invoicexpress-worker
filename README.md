@@ -2,7 +2,7 @@
 
 A high-performance, production-ready integration that automatically syncs Shopify orders with InvoiceXpress, including invoice creation, credit notes, NIF detection, and fiscal compliance.
 
-**Current Version: v4.0.0** | Developed by [Kapta](https://kapta.pt)
+**Current Version: v4.1.0** | Developed by [Kapta](https://kapta.pt)
 
 ---
 
@@ -23,13 +23,21 @@ A high-performance, production-ready integration that automatically syncs Shopif
 
 ## 📝 Recent Updates (Changelog)
 
+### [v4.1.0] — 2026-03-02
+- **Platform Logos**: Replaced generic icons with real Shopify and InvoiceXpress logos across the entire UI (integration cards, active integration banner, platform selection grid).
+- **Sidebar Refactor**: New dynamic "Links Rápidos" section for active integrations (max 3, hidden if none). Section fetches active integrations from API and auto-populates.
+- **Step 4 Gear Icon**: Added Settings2 icon to the logo area of Step 4 (Definições de Integração) for visual consistency with other steps.
+- **IX Icon Alignment**: Fixed InvoiceXpress logo alignment issues across the integration wizard.
+- **Deployment Fix**: Resolved Cloudflare Pages deployment issues caused by wrangler.toml conflicts. Restored D1/KV bindings and Clerk environment variables.
+
 ### [v4.0.0] — 2026-03-02
 - **Major Architecture**: Refactored dashboard to support multiple payment/invoicing integrations.
-- **New Dashboard**: Added a welcome/overview dashboard for quick access to active connections.
-- **Improved Hierarchy**: "Integrações" is now a centralized menu to manage all platforms.
-- **Visual Refinements**: Adjusted alignment of InvoiceXpress icons and labels.
+- **New Dashboard**: Added a welcome/overview dashboard with personalized greeting for quick access to active connections.
+- **Integration Hub**: "Integrações" is now a centralized menu to choose and connect payment (Shopify, Stripe, EuPago, Easypay, Ifthenpay) and invoicing (InvoiceXpress, Moloni) platforms.
+- **Dedicated Pages**: Each integration (e.g., Shopify + InvoiceXpress) has its own dedicated configuration page at `/integrations/shopify-ix`.
+- **Active Integration Status**: Shows Autorizado/Pendente badges with quick "Gerir Definições" access.
 - **Help Page Update**: Added detailed instructions for finding Billing Sequences in InvoiceXpress.
-- **Compliance**: Verified InvoiceXpress client update (`PUT`) capability for future data patches.
+- **Compliance**: Verified InvoiceXpress client update (`PUT /clients/:id.json`) capability for future data patches.
 
 ### [v3.8.0]
 - **Billing Sequences**: Support for specific billing series (e.g., "Série WEB") with real-time validation.
@@ -160,7 +168,7 @@ logs               -- Full diagnostic history of all incoming webhook events
 
 ## 📜 Compliance & Security
 
-As of **v4.0.0**, the engine is fully compliant with Portuguese fiscal requirements and follows strict security standards:
+As of **v4.1.0**, the engine is fully compliant with Portuguese fiscal requirements and follows strict security standards:
 
 - **Data Encryption**: All sensitive API keys and tokens (Shopify & InvoiceXpress) are encrypted before storage in Cloudflare D1.
 - **Role-Based Access Control (RBAC)**: Multi-layered permissions (Hiperadmin, Superadmin, User) managed via Clerk to prevent unauthorized access to administrative features.

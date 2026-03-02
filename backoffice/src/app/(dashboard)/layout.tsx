@@ -29,7 +29,7 @@ export default async function DashboardLayout({
         <div className="flex flex-col md:flex-row min-h-screen">
             <ImpersonationBanner />
             {/* Sidebar */}
-            <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0 z-20">
+            <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0 z-20 md:sticky md:top-0 md:h-screen overflow-y-auto scrollbar-hide">
                 <div className="mb-14 flex flex-col items-center md:items-start w-full">
                     <div className="flex items-end gap-3 transition-transform hover:scale-[1.02]">
                         <Link href="/" className="pb-1">

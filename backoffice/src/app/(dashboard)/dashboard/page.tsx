@@ -499,7 +499,7 @@ export default function Dashboard() {
       fields: [
         { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text", helpAnchor: "ix-account" },
         { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password", helpAnchor: "ix-api-key" },
-        { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'sandbox'", type: "text", helpAnchor: "ix-environment" }
+        { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'sandbox'", type: "text", helpAnchor: "ix-environment", helpLabel: "O que é?" }
       ],
       action: handleIxConnect,
       actionLabel: "Verificar Ligação",
@@ -672,7 +672,7 @@ export default function Dashboard() {
                             <div className="flex items-center gap-3">
                               <h3 className="font-bold text-sm">IVA Incluído</h3>
                               <a href="/help#vat" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors">
-                                <BookOpen className="w-3 h-3" />Onde Encontrar
+                                <BookOpen className="w-3 h-3" />O que é?
                               </a>
                             </div>
                             <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Os preços no Shopify já incluem IVA</p>
@@ -694,7 +694,7 @@ export default function Dashboard() {
                             <div className="flex items-center gap-3">
                               <h3 className="font-bold text-sm">Auto Finalizar</h3>
                               <a href="/help#auto-finalize" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors">
-                                <BookOpen className="w-3 h-3" />Onde Encontrar
+                                <BookOpen className="w-3 h-3" />O que é?
                               </a>
                             </div>
                             <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Emitir e finalizar documentos imediatamente</p>
@@ -718,7 +718,7 @@ export default function Dashboard() {
                             </div>
                             <h3 className="font-bold text-sm tracking-tight">Razão de Isenção (IVA 0%)</h3>
                             <a href="/help#exemption" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors">
-                              <BookOpen className="w-3 h-3" />Onde Encontrar
+                              <BookOpen className="w-3 h-3" />O que é?
                             </a>
                           </div>
                           <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider leading-relaxed">
@@ -770,7 +770,7 @@ export default function Dashboard() {
                                 className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors group/help"
                               >
                                 <BookOpen className="w-3 h-3 group-hover/help:scale-110 transition-transform" />
-                                Onde Encontrar
+                                {f.helpLabel || "Onde Encontrar"}
                               </a>
                             )}
                           </div>
@@ -806,14 +806,25 @@ export default function Dashboard() {
                             <p className="text-[11px] text-slate-400 mt-1 mb-3 leading-relaxed">
                               Se o teu token não tem permissão para instalar webhooks automaticamente, podes instalá-los manualmente no painel Shopify (ver instruções acima) e depois confirmar aqui.
                             </p>
-                            <button
-                              onClick={handleWebhooksConfirm}
-                              disabled={saving || !shopifyWebhookSecret}
-                              className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                            >
-                              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                              Confirmar Instalação Manual
-                            </button>
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                onClick={handleWebhooksConfirm}
+                                disabled={saving || !shopifyWebhookSecret}
+                                className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                                Confirmar Instalação Manual
+                              </button>
+                              <a
+                                href="/help#manual-webhooks"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                Como fazer?
+                              </a>
+                            </div>
                           </div>
                         </div>
                       </>

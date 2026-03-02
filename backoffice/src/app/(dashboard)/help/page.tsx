@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag, Info, X, Search } from "lucide-react";
+import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag, Info, X, Search, Settings2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const runtime = "edge";
@@ -162,6 +162,7 @@ export default function HelpPage() {
                         { href: "#access-token", label: "Access Token Shopify", step: "Passo 1" },
                         { href: "#api-version", label: "Versão da API", step: "Passo 1" },
                         { href: "#webhook-secret", label: "Webhook Signing Secret", step: "Passo 2" },
+                        { href: "#manual-webhooks", label: "Instalação Manual de Webhooks", step: "Passo 2" },
                         { href: "#ix-account", label: "Nome da Conta InvoiceXpress", step: "Passo 3" },
                         { href: "#ix-api-key", label: "Chave API InvoiceXpress", step: "Passo 3" },
                         { href: "#ix-environment", label: "Ambiente (Produção / Sandbox)", step: "Passo 3" },
@@ -264,6 +265,36 @@ export default function HelpPage() {
                     <InfoBox>
                         O Webhook Signing Secret é uma chave de segurança que a Shopify usa para assinar as notificações enviadas ao Rioko. Isto garante que cada pedido é autêntico e provém de facto da tua loja.
                     </InfoBox>
+                </Section>
+            </div>
+
+            {/* ===== SECÇÃO 4.2: MANUAL WEBHOOKS ===== */}
+            <div className="glass rounded-[2rem] p-8 border-slate-800/40 space-y-6">
+                <Section id="manual-webhooks" icon={<Settings2 className="w-5 h-5" />} title="Instalação Manual de Webhooks" step="Passo 2 — Criação de Webhooks">
+                    <InfoBox>
+                        Se o teu Access Token não tiver permissões de escrita, terás de criar os webhooks manualmente no painel da Shopify para que as encomendas sejam comunicadas ao Rioko.
+                    </InfoBox>
+
+                    <Steps items={[
+                        'No painel Shopify, vai a <strong>Definições → Notificações → Webhooks</strong>.',
+                        'Clica em <strong>Criar webhook</strong>.',
+                        '<strong>Evento</strong>: Seleciona <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">Pagamento da encomenda</code> (orders/paid).',
+                        '<strong>Formato</strong>: Seleciona <strong>JSON</strong>.',
+                        '<strong>URL</strong>: Cola o seguinte endereço: <br/><code class="bg-slate-800 text-sky-300 px-1.5 py-0.5 rounded text-[10px] break-all">https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/orders-paid</code>',
+                        'Clica em <strong>Guardar</strong>.',
+                        'Repete o processo para o evento <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">Criação de reembolso</code> (refunds/create) com o URL: <br/><code class="bg-slate-800 text-sky-300 px-1.5 py-0.5 rounded text-[10px] break-all">https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/refunds-create</code>',
+                    ]} />
+
+                    <Placeholder
+                        src="/images/help/shopify-webhooks.webp"
+                        alt="Shopify Admin - Criar Webhook"
+                        description="Shopify Admin → Definições → Notificações → Webhooks → Criar webhook"
+                        onZoom={setZoomImage}
+                    />
+
+                    <WarningBox>
+                        ⚠️ Verifica se copiaste o URL completo sem espaços extras. Se o URL estiver errado, o Rioko não receberá as tuas vendas.
+                    </WarningBox>
                 </Section>
             </div>
 

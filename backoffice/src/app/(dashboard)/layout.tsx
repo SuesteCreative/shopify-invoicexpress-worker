@@ -23,6 +23,7 @@ export default async function DashboardLayout({
     const impersonationId = cookieStore.get("rioko_impersonate_id")?.value;
     const viewerUserId = impersonationId || userId;
     const viewerRole = await getRole(viewerUserId);
+    const canAccessAdmin = viewerRole === "superadmin" || viewerRole === "hiperadmin";
     const userIsHiperadmin = viewerRole === "hiperadmin";
 
     return (
@@ -52,7 +53,7 @@ export default async function DashboardLayout({
                     </div>
                 </div>
 
-                <NavLinks canAccessAdmin={isSuperAdmin} isHiperadmin={userIsHiperadmin} />
+                <NavLinks canAccessAdmin={canAccessAdmin} isHiperadmin={userIsHiperadmin} />
 
                 <div className="mt-auto space-y-4 w-full pt-8">
                     <div className="px-4 py-3 rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">

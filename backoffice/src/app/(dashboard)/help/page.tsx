@@ -123,6 +123,34 @@ function ContactBox() {
     );
 }
 
+function HelpFooter() {
+    return (
+        <div className="bg-slate-900/50 border border-slate-800/60 rounded-[2.5rem] p-12 lg:p-20 relative overflow-hidden flex flex-col items-center text-center gap-8">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500/20 to-transparent" />
+            <div className="w-20 h-20 bg-amber-500/10 rounded-3xl flex items-center justify-center border border-amber-500/20 shadow-[0_0_40px_rgba(245,158,11,0.1)]">
+                <BookOpen className="w-10 h-10 text-amber-500" />
+            </div>
+            <div className="space-y-4 max-w-2xl">
+                <h2 className="text-4xl font-black tracking-tight text-white">Precisas de mais ajuda?</h2>
+                <p className="text-slate-400 font-medium leading-relaxed">
+                    Se ainda tens dúvidas sobre a configuração do Rioko, a nossa equipa está disponível para ajudar.
+                </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+                <a href="mailto:pedro@kapta.pt" className="bg-white text-black px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all transform active:scale-95 shadow-xl">
+                    Contactar Suporte
+                </a>
+                <button
+                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                    className="bg-slate-800/50 text-slate-400 px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-800 hover:text-white transition-all border border-slate-700/50"
+                >
+                    Voltar ao topo
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export default function HelpPage() {
     const [zoomImage, setZoomImage] = useState<string | null>(null);
     return (
@@ -490,18 +518,6 @@ export default function HelpPage() {
                 </Section>
             </div>
 
-            {/* Footer CTA */}
-            <div className="glass rounded-[2rem] p-8 border-slate-800/40 text-center space-y-4">
-                <p className="text-slate-400 text-sm">Ainda tens dúvidas? A equipa da Kapta está disponível para ajudar.</p>
-                <a
-                    href="mailto:pedro@kapta.pt?subject=Dúvida Rioko - Configuração"
-                    className="inline-flex items-center gap-2 bg-white text-black px-6 py-3 rounded-2xl font-black text-sm hover:bg-rose-500 hover:text-white transition-all duration-300 active:scale-95"
-                >
-                    <Mail className="w-4 h-4" />
-                    pedro@kapta.pt
-                </a>
-            </div>
-
             {/* Modal de Zoom */}
             <AnimatePresence>
                 {zoomImage && (
@@ -538,6 +554,7 @@ export default function HelpPage() {
                 )}
             </AnimatePresence>
 
+            <HelpFooter />
         </div>
     );
 }

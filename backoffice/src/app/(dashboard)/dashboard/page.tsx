@@ -617,7 +617,9 @@ export default function Dashboard() {
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-bold tracking-tight">{s.title}</h2>
-                    {isComplete && <StatusBadge isAuthorized={s.isAuthorized} errorMsg={s.errorMsg} stepId={s.id} />}
+                    {(isComplete || isActive) && (
+                      <StatusBadge isAuthorized={s.isAuthorized} errorMsg={s.errorMsg} stepId={s.id} />
+                    )}
                     {isActive && <div className="h-1.5 w-1.5 rounded-full bg-accent-blue animate-ping" />}
                   </div>
                   <p className="text-slate-400 font-medium leading-relaxed max-w-xl">{s.description}</p>

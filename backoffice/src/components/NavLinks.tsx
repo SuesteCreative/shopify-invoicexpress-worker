@@ -1,9 +1,9 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Zap, Check, Lock, ChevronRight, Store, Loader2, Circle, HelpCircle, Info, Webhook, AlertTriangle, X, Copy, ArrowLeft } from "lucide-react";
+import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Zap, Store } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -12,8 +12,41 @@ function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
+interface ActiveIntegration {
+    id: string;
+    label: string;
+    href: string;
+    colorClass: string;
+    activeClass: string;
+    iconLetter: string;
+    iconBg: string;
+}
+
 export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boolean; isHiperadmin?: boolean }) {
     const pathname = usePathname();
+    const [activeIntegrations, setActiveIntegrations] = useState<ActiveIntegration[]>([]);
+
+    useEffect(() => {
+        fetch("/api/integrations")
+            .then(res => res.json())
+            .then((data: any) => {
+                const integrations: ActiveIntegration[] = [];
+                if (data.shopify_domain && data.ix_account_name) {
+                    integrations.push({
+                        id: "shopify-ix",
+                        label: "Shopify + IX",
+                        href: "/integrations/shopify-ix",
+                        colorClass: "text-violet-400",
+                        activeClass: "bg-violet-500/10 text-violet-400 border-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.1)]",
+                        iconLetter: "S",
+                        iconBg: "bg-violet-500/20 text-violet-400",
+                    });
+                }
+                // Future integrations would be added here
+                setActiveIntegrations(integrations.slice(0, 3));
+            })
+            .catch(() => { });
+    }, []);
 
     const LinkItem = ({ href, icon: Icon, label, colorClass, activeClass }: any) => (
         <Link
@@ -51,20 +84,6 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         activeClass="bg-sky-500/10 text-sky-400 border-sky-500/20 shadow-[0_0_20px_rgba(56,189,248,0.1)]"
                     />
 
-                    {/* Active Integrations Quick Links (Internal Logic would be better but static for now for speed) */}
-                    <Link
-                        href="/integrations/shopify-ix"
-                        className={cn(
-                            "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all border border-transparent",
-                            pathname.includes("/integrations/shopify-ix")
-                                ? "bg-violet-500/10 text-violet-400 border-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.1)]"
-                                : "text-slate-500 hover:text-white hover:bg-white/5 opacity-60 hover:opacity-100"
-                        )}
-                    >
-                        <div className="w-4 h-4 rounded-full bg-violet-500/20 flex items-center justify-center text-[8px] font-black text-violet-400">S</div>
-                        Shopify + IX
-                    </Link>
-
                     <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-30 cursor-not-allowed w-full text-left">
                         <ClipboardList className="w-4 h-4" />
                         Faturas (Breve)
@@ -78,6 +97,32 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                     />
                 </div>
             </div>
+
+            {/* Quick Links - Active Integrations (hidden if none) */}
+            {activeIntegrations.length > 0 && (
+                <div className="space-y-2">
+                    <span className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Links Rápidos</span>
+                    <div className="space-y-1">
+                        {activeIntegrations.map((integration) => (
+                            <Link
+                                key={integration.id}
+                                href={integration.href}
+                                className={cn(
+                                    "flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all border border-transparent",
+                                    pathname.includes(integration.href)
+                                        ? integration.activeClass
+                                        : "text-slate-500 hover:text-white hover:bg-white/5 opacity-60 hover:opacity-100"
+                                )}
+                            >
+                                <div className={cn("w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black", integration.iconBg)}>
+                                    {integration.iconLetter}
+                                </div>
+                                {integration.label}
+                            </Link>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Admin Section (Grouped above logout) */}
             {(canAccessAdmin || isHiperadmin) && (

@@ -3,6 +3,7 @@
 ## 💎 Version 4.1.9 — Clerk Webhook Sync — March 2, 2026
 
 - **New**: Implementado endpoint de webhooks para o Clerk em `/api/webhooks/clerk`.
+- **Fix**: Rota de webhook tornada pública no `middleware.ts` para evitar bloqueios de autenticação (causava 404/Redirect).
 - **Melhoria**: Sincronização automática de utilizadores (criação, atualização e remoção) assim que o evento ocorre no Clerk, sem necessidade de login inicial.
 - **Segurança**: Verificação de assinaturas Svix para garantir a autenticidade dos webhooks do Clerk.
 

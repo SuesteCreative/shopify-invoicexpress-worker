@@ -556,6 +556,7 @@ export default function HelpPage() {
                         'Se deixares este campo em branco, o Rioko usará a série configurada como <strong>"Pré-definida"</strong> no teu InvoiceXpress.',
                         'Se desejares usar uma série específica, escreve o nome exato da série (Série) no campo.',
                         'Exemplo: Se tiveres uma série chamada "WEB", escreve <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">WEB</code>.',
+                        'Para encontrar as tuas séries de faturação no <strong>InvoiceXpress</strong>, vai a: <u>Dashboard da Conta</u> — <u>Definições</u> — <u>Comunicação com o Estado</u> — <u>Séries de Faturação / ATCUD</u>.',
                     ]} />
 
                     <WarningBox>

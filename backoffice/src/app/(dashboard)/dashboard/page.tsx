@@ -606,7 +606,7 @@ export default function Dashboard() {
             <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", webhooksActive ? "bg-violet-500/10 border-violet-500/30" : "bg-slate-800/50 border-slate-700/30")}>
               <Webhook className={cn("w-4 h-4", webhooksActive ? "text-violet-400" : "text-slate-600")} />
             </div>
-            <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", ixAuthorized ? "bg-blue-500/10 border-blue-500/30" : "bg-slate-800/50 border-slate-700/30")}>
+            <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border transition-transform", ixAuthorized ? "bg-blue-500/10 border-blue-500/30 translate-x-[2px]" : "bg-slate-800/50 border-slate-700/30")}>
               <ClipboardList className={cn("w-4 h-4", ixAuthorized ? "text-blue-400" : "text-slate-600")} />
             </div>
           </div>
@@ -666,7 +666,10 @@ export default function Dashboard() {
                 {/* Step Title & Status */}
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-4">
-                    <h2 className="text-2xl font-bold tracking-tight">{s.title}</h2>
+                    <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
+                      {s.id === 4 && <Settings2 className="w-6 h-6 text-slate-400 group-hover:text-white transition-colors" />}
+                      {s.title}
+                    </h2>
                     {(isComplete || isActive) && (
                       <StatusBadge isAuthorized={s.isAuthorized} errorMsg={s.errorMsg} stepId={s.id} />
                     )}
@@ -679,8 +682,9 @@ export default function Dashboard() {
                 <div className="flex items-center gap-10 w-full lg:w-auto">
                   {s.logo && (
                     <div className={cn(
-                      "hidden xl:block transition-all duration-700",
-                      isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale"
+                      "hidden xl:block transition-all duration-700 transform",
+                      isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale",
+                      s.id === 3 && "translate-x-3"
                     )}>
                       <Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" />
                     </div>
@@ -845,7 +849,7 @@ export default function Dashboard() {
 
                         {/* Série de Faturação */}
                         <div className="md:col-span-2 glass p-6 rounded-2xl border-slate-800/50">
-                          <div className="flex items-center justify-between ml-1 mb-4">
+                          <div className="flex items-center justify-start gap-4 ml-1 mb-4">
                             <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
                               <span className="w-1 h-1 rounded-full bg-violet-400" />
                               Série de Faturação

@@ -470,7 +470,7 @@ export default function ShopifyIXIntegration() {
                         <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", webhooksActive ? "bg-violet-500/10 border-violet-500/30" : "bg-slate-800/50 border-slate-700/30")}>
                             <Webhook className={cn("w-4 h-4", webhooksActive ? "text-violet-400" : "text-slate-600")} />
                         </div>
-                        <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border transition-transform", ixAuthorized ? "bg-blue-500/10 border-blue-500/30 translate-x-[2px]" : "bg-slate-800/50 border-slate-700/30")}>
+                        <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", ixAuthorized ? "bg-blue-500/10 border-blue-500/30" : "bg-slate-800/50 border-slate-700/30")}>
                             <ClipboardList className={cn("w-4 h-4", ixAuthorized ? "text-blue-400" : "text-slate-600")} />
                         </div>
                     </div>
@@ -510,7 +510,7 @@ export default function ShopifyIXIntegration() {
                                     <p className="text-slate-400 font-medium leading-relaxed max-w-xl">{s.description}</p>
                                 </div>
                                 <div className="flex items-center gap-10 w-full lg:w-auto">
-                                    {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale", s.id === 3 && "translate-x-3")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" /></div>}
+                                    {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" /></div>}
                                     {isActive && (
                                         <div className="flex items-center gap-4 ml-auto">
                                             {step > 1 && <button onClick={() => setStep(step - 1)} className="text-slate-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all px-4">Voltar</button>}

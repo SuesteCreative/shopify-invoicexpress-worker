@@ -15,16 +15,16 @@ function cn(...inputs: ClassValue[]) {
 }
 
 const PAYMENT_PLATFORMS = [
-    { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", active: true },
-    { id: "stripe", name: "Stripe", icon: CreditCard, logo: null, active: false },
-    { id: "eupago", name: "EuPago", icon: Wallet, logo: null, active: false },
-    { id: "easypay", name: "Easypay", icon: Wallet, logo: null, active: false },
-    { id: "ifthenpay", name: "Ifthenpay", icon: Landmark, logo: null, active: false },
+    { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
+    { id: "stripe", name: "Stripe", icon: CreditCard, logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "eupago", name: "EuPago", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "easypay", name: "Easypay", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "ifthenpay", name: "Ifthenpay", icon: Landmark, logo: null, logoW: 0, logoH: 0, active: false },
 ];
 
 const INVOICING_PLATFORMS = [
-    { id: "invoicexpress", name: "InvoiceXpress", icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", active: true },
-    { id: "moloni", name: "Moloni", icon: ClipboardList, logo: null, active: false },
+    { id: "invoicexpress", name: "InvoiceXpress", icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoW: 30, logoH: 30, active: true },
+    { id: "moloni", name: "Moloni", icon: ClipboardList, logo: null, logoW: 0, logoH: 0, active: false },
 ];
 
 export default function IntegrationsPage() {
@@ -124,7 +124,7 @@ export default function IntegrationsPage() {
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
                                             selectedPayment === p.id ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-900/50 text-slate-500 group-hover:text-slate-300"
                                         )}>
-                                            <Icon className="w-6 h-6" />
+                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className="object-contain" /> : <Icon className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
                                             <p className="font-bold text-lg">{p.name}</p>
@@ -162,7 +162,7 @@ export default function IntegrationsPage() {
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
                                             selectedInvoicing === p.id ? "bg-sky-500/20 text-sky-400" : "bg-slate-900/50 text-slate-500 group-hover:text-slate-300"
                                         )}>
-                                            <Icon className="w-6 h-6" />
+                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className="object-contain" /> : <Icon className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
                                             <p className="font-bold text-lg">{p.name}</p>

@@ -1,0 +1,27 @@
+[
+  {
+    "results": [
+      {
+        "hex_secret": "6638666537353061643338393262373066623262323637643839343832616135666233616431343935333232623934663364386634613066326434613133313036"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WEUR",
+      "served_by_colo": "MAD",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1846
+      },
+      "duration": 0.1846,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 69632,
+      "rows_read": 2,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

@@ -1,5 +1,10 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 4.1.4 — VAT Mapping & Diagnostics — March 2, 2026
+
+- **Fix**: Changed default 23% VAT mapping from `PT23` to `IVA23` for better compatibility.
+- **Diagnostic**: Added detailed logging for product VAT calculation to debug "Isento" logic.
+
 ## 💎 Version 4.1.3 — Final Sync & NIF Fixes — March 2, 2026
 
 - **Fix**: Expanded NIF validation to accept digits starting with 4 or 7.

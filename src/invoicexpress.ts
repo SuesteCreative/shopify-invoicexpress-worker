@@ -233,7 +233,7 @@ function mapTaxName(rate: number | string): string {
     const r = parseFloat(String(rate));
     if (r === 0) return "Isento";
     if (r === 6) return "IVA6";
-    if (r === 23) return "PT23";
+    if (r === 23) return "IVA23";
     return `IVA${r}`;
 }
 
@@ -261,6 +261,8 @@ export async function createDocument(
         const vatRate = determineVATRate(item);
         const rawPrice = parseFloat(item.price);
         const unitPrice = isTaxIncluded ? (rawPrice / (1 + vatRate / 100)) : rawPrice;
+
+        console.log(`[VAT] Item: ${item.title} | Taxable: ${item.taxable} | Rate: ${vatRate} | TaxName: ${mapTaxName(vatRate)}`);
 
         return {
             name: itemCode,

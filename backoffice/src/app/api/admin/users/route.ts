@@ -36,9 +36,7 @@ export async function GET(request: NextRequest) {
         let users = results.results as any[];
 
         // Filter visible users based on the VIEWER's role (impersonation-aware)
-        if (viewerRole === "admin") {
-            users = users.filter((u: any) => u.role !== "superadmin" && u.role !== "hiperadmin");
-        } else if (viewerRole === "superadmin") {
+        if (viewerRole === "superadmin") {
             // Superadmin CANNOT see hiperadmin — hiperadmin is invisible to everyone except itself
             users = users.filter((u: any) => u.role !== "hiperadmin");
         }
@@ -63,8 +61,8 @@ export async function PATCH(request: NextRequest) {
         const { targetId, role } = await request.json() as { targetId: string; role: string };
 
         // Valid target roles depending on caller
-        const hiperadminRoles = ["superadmin", "admin", "user"];
-        const superadminRoles = ["admin", "user"];
+        const hiperadminRoles = ["superadmin", "user"];
+        const superadminRoles = ["user"];
         const allowedRoles = callerRole === "hiperadmin" ? hiperadminRoles : superadminRoles;
 
         if (!targetId || !allowedRoles.includes(role)) {
@@ -108,7 +106,6 @@ export async function DELETE(request: NextRequest) {
 
         if (target?.role === "hiperadmin") return NextResponse.json({ error: "Cannot delete hiperadmin" }, { status: 403 });
         if (target?.role === "superadmin" && callerRole !== "hiperadmin") return NextResponse.json({ error: "Only hiperadmin can delete superadmins" }, { status: 403 });
-        if (target?.role === "admin" && callerRole === "admin") return NextResponse.json({ error: "Admins cannot delete other admins" }, { status: 403 });
 
         await db.prepare("DELETE FROM integrations WHERE user_id = ?").bind(targetId).run();
         await db.prepare("DELETE FROM logs WHERE shopify_domain = (SELECT shopify_domain FROM integrations WHERE user_id = ?)").bind(targetId).run().catch(() => { });

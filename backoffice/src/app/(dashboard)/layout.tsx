@@ -1,7 +1,7 @@
 import { UserButton, SignOutButton } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
-import { LogOut, Activity, CreditCard, ShieldCheck } from "lucide-react";
+import { LogOut, Activity, ShieldCheck } from "lucide-react";
 import { isAdmin, isHiperadmin, getRole } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";

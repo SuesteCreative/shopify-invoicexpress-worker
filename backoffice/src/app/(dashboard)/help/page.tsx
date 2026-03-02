@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag, Info, X, Search, Settings2 } from "lucide-react";
+import { ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText, Percent, Zap, Tag, Info, X, Search, Settings2, Copy } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const runtime = "edge";
@@ -138,7 +138,7 @@ export default function HelpPage() {
             <div className="glass rounded-[2rem] p-10 border-slate-800/40">
                 <div className="flex items-center gap-4 mb-4">
                     <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center">
-                        <BookOpen className="w-7 h-7 text-rose-500" />
+                        <BookOpen className="w-7 h-7 text-amber-400" />
                     </div>
                     <div>
                         <h1 className="text-4xl font-black tracking-tight bg-gradient-to-r from-white via-white to-slate-500 bg-clip-text text-transparent">
@@ -280,13 +280,13 @@ export default function HelpPage() {
                         'Clica em <strong>Criar webhook</strong>.',
                         '<strong>Evento</strong>: Seleciona <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">Pagamento da encomenda</code> (orders/paid).',
                         '<strong>Formato</strong>: Seleciona <strong>JSON</strong>.',
-                        '<strong>URL</strong>: Cola o seguinte endereço: <br/><code class="bg-slate-800 text-sky-300 px-1.5 py-0.5 rounded text-[10px] break-all">https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/orders-paid</code>',
+                        '<strong>URL</strong>: <div class="mt-2 flex items-center gap-2 group/copy"><code class="bg-slate-800 text-sky-300 px-1.5 py-1 rounded text-[10px] break-all flex-1">https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/orders-paid</code><button onClick={() => { navigator.clipboard.writeText("https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/orders-paid"); alert("Copiado!"); }} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"><Copy className="w-3.5 h-3.5" /></button></div>',
                         'Clica em <strong>Guardar</strong>.',
-                        'Repete o processo para o evento <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">Criação de reembolso</code> (refunds/create) com o URL: <br/><code class="bg-slate-800 text-sky-300 px-1.5 py-0.5 rounded text-[10px] break-all">https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/refunds-create</code>',
+                        'Repete o processo para o evento <code class="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-xs">Criação de reembolso</code> (refunds/create) com o URL: <br/><div class="mt-2 flex items-center gap-2 group/copy"><code class="bg-slate-800 text-sky-300 px-1.5 py-1 rounded text-[10px] break-all flex-1">https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/refunds-create</code><button onClick={() => { navigator.clipboard.writeText("https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify/refunds-create"); alert("Copiado!"); }} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"><Copy className="w-3.5 h-3.5" /></button></div>',
                     ]} />
 
                     <Placeholder
-                        src="/images/help/shopify-webhooks.webp"
+                        src="/images/help/shopify-webhook-install.webp"
                         alt="Shopify Admin - Criar Webhook"
                         description="Shopify Admin → Definições → Notificações → Webhooks → Criar webhook"
                         onZoom={setZoomImage}

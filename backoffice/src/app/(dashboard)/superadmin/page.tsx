@@ -7,18 +7,17 @@ import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, Cale
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 
-type Role = "hiperadmin" | "superadmin" | "admin" | "user";
+type Role = "hiperadmin" | "superadmin" | "user";
 
-const ROLE_ORDER: Record<Role, number> = { hiperadmin: 4, superadmin: 3, admin: 2, user: 1 };
+const ROLE_ORDER: Record<Role, number> = { hiperadmin: 3, superadmin: 2, user: 1 };
 
 const RoleBadge = ({ role }: { role: Role }) => {
     const styles: Record<Role, string> = {
         hiperadmin: "bg-violet-500/10 text-violet-400 border-violet-500/20",
         superadmin: "bg-rose-500/10 text-rose-500 border-rose-500/20",
-        admin: "bg-amber-500/10 text-amber-400 border-amber-500/20",
         user: "bg-slate-800 text-slate-500 border-slate-700/40",
     };
-    const labels: Record<Role, string> = { hiperadmin: "Hiperadmin", superadmin: "Superadmin", admin: "Admin", user: "User" };
+    const labels: Record<Role, string> = { hiperadmin: "Hiperadmin", superadmin: "Superadmin", user: "User" };
     return (
         <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${styles[role]}`}>
             {labels[role]}
@@ -29,7 +28,6 @@ const RoleBadge = ({ role }: { role: Role }) => {
 const RoleIcon = ({ role }: { role: Role }) => {
     if (role === "hiperadmin") return <Crown className="w-8 h-8 text-violet-500" />;
     if (role === "superadmin") return <ShieldCheck className="w-8 h-8 text-rose-500" />;
-    if (role === "admin") return <ShieldPlus className="w-8 h-8 text-amber-500" />;
     return <User className="w-8 h-8 text-slate-600" />;
 };
 
@@ -118,22 +116,11 @@ export default function SuperadminPage() {
         if (callerRole === "hiperadmin") {
             // Hiperadmin can assign any role below hiperadmin
             if (targetRole === "user") return [
-                { label: "Admin", role: "admin", icon: <ShieldPlus className="w-3 h-3" /> },
-                { label: "Superadmin", role: "superadmin", icon: <ShieldCheck className="w-3 h-3" /> },
-            ];
-            if (targetRole === "admin") return [
-                { label: "Revogar", role: "user", icon: <ShieldOff className="w-3 h-3" /> },
                 { label: "Superadmin", role: "superadmin", icon: <ShieldCheck className="w-3 h-3" /> },
             ];
             if (targetRole === "superadmin") return [
                 { label: "Revogar", role: "user", icon: <ShieldOff className="w-3 h-3" /> },
-                { label: "Admin", role: "admin", icon: <ShieldPlus className="w-3 h-3" /> },
             ];
-        }
-        if (callerRole === "superadmin") {
-            // Superadmin can only toggle admin
-            if (targetRole === "user") return [{ label: "Admin", role: "admin", icon: <ShieldPlus className="w-3 h-3" /> }];
-            if (targetRole === "admin") return [{ label: "Revogar", role: "user", icon: <ShieldOff className="w-3 h-3" /> }];
         }
         return [];
     };
@@ -193,7 +180,7 @@ export default function SuperadminPage() {
                         const canImpersonate = !isSelf && callerLevel > targetLevel;
                         const promoteOptions = !isSelf && targetRole !== "hiperadmin" ? getPromoteOptions(targetRole) : [];
                         const canDelete = !isSelf && targetRole !== "hiperadmin" &&
-                            (callerRole === "hiperadmin" || (callerRole === "superadmin" && targetLevel < ROLE_ORDER["superadmin"]) || (callerRole === "admin" && targetRole === "user"));
+                            (callerRole === "hiperadmin" || (callerRole === "superadmin" && targetLevel < ROLE_ORDER["superadmin"]));
 
                         return (
                             <motion.div

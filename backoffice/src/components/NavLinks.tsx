@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ShieldCheck, CreditCard, Settings2, BookOpen } from "lucide-react";
+import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -38,12 +38,14 @@ export function NavLinks({ isSuperAdmin, isHiperadmin }: { isSuperAdmin: boolean
                         href="/dashboard"
                         icon={Activity}
                         label="Integrações"
+                        colorClass="text-sky-400"
                         activeClass="bg-sky-500/10 text-sky-400 border-sky-500/20 shadow-[0_0_20px_rgba(56,189,248,0.1)]"
                     />
                     <LinkItem
                         href="/help"
                         icon={BookOpen}
                         label="Geral & Ajuda"
+                        colorClass="text-amber-400"
                         activeClass="bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.1)]"
                     />
                 </div>
@@ -79,7 +81,7 @@ export function NavLinks({ isSuperAdmin, isHiperadmin }: { isSuperAdmin: boolean
             {/* Coming Soon */}
             <div className="pt-4 border-t border-slate-800/20 mt-auto">
                 <button disabled className="flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-600 font-bold text-sm opacity-30 cursor-not-allowed w-full text-left">
-                    <CreditCard className="w-4 h-4" />
+                    <ClipboardList className="w-4 h-4" />
                     Faturação (Breve)
                 </button>
             </div>

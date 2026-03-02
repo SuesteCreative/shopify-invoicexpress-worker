@@ -5,7 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 // isAdmin = true for admin, superadmin, and hiperadmin (can access admin features)
 export async function isAdmin(userId?: string | null) {
     const role = await getRole(userId);
-    return role === "admin" || role === "superadmin" || role === "hiperadmin";
+    return role === "superadmin" || role === "hiperadmin";
 }
 
 export async function isSuperAdmin(userId?: string | null) {

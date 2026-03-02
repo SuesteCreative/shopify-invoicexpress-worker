@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Check, Lock, ChevronRight, Store, CreditCard, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen, X } from "lucide-react";
+import { Check, Lock, ChevronRight, Store, ClipboardList, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen, X, Copy } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -322,8 +322,9 @@ export default function Dashboard() {
 
   // ── Helper: status badge for completed steps ──
   const StatusBadge = ({ isAuthorized, errorMsg, stepId }: { isAuthorized: boolean; errorMsg?: string; stepId: number }) => {
-    const isHiper = userRole === "hiperadmin";
+    const isHiper = userRole === "hiperadmin" || userRole === "superadmin";
     const isOpen = openDiagnostic === stepId;
+    const [isHovered, setIsHovered] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
 
     const handleManualForce = async (e: React.MouseEvent) => {
@@ -365,8 +366,14 @@ export default function Dashboard() {
       }
     };
 
+    const showPanel = isOpen || isHovered;
+
     return (
-      <div className="relative">
+      <div
+        className="relative"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -377,7 +384,8 @@ export default function Dashboard() {
             "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all active:scale-95",
             isAuthorized
               ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-              : "bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20"
+              : "bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20",
+            isOpen && "ring-2 ring-amber-500/30"
           )}
         >
           {isAuthorized ? "Autorizado" : "Pendente"}
@@ -385,12 +393,12 @@ export default function Dashboard() {
         </button>
 
         <AnimatePresence>
-          {!isAuthorized && isOpen && (
+          {!isAuthorized && showPanel && (
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[100] backdrop-blur-3xl"
+              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-80 p-6 bg-slate-900 border-2 border-amber-500/20 rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[100] backdrop-blur-3xl pointer-events-auto"
             >
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3 text-amber-400">
@@ -402,12 +410,14 @@ export default function Dashboard() {
                     <p className="text-[9px] font-bold text-amber-500/60 uppercase mt-1">Rioko Engine</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setOpenDiagnostic(null)}
-                  className="p-1 hover:bg-white/5 rounded-lg text-slate-500 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                {isOpen && (
+                  <button
+                    onClick={() => setOpenDiagnostic(null)}
+                    className="p-1 hover:bg-white/5 rounded-lg text-slate-500 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
 
               <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5 mb-4">
@@ -416,7 +426,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              {isHiper && (
+              {isHiper && isOpen && (
                 <div className="space-y-2">
                   <button
                     onClick={handleManualForce}
@@ -439,6 +449,12 @@ export default function Dashboard() {
                       Cancelar
                     </button>
                   )}
+                </div>
+              )}
+
+              {!isOpen && !isAuthorized && (
+                <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest text-center mt-2 opacity-50">
+                  Clica para gerir
                 </div>
               )}
 
@@ -491,7 +507,7 @@ export default function Dashboard() {
       id: 3,
       title: "Passo 3: Conexão InvoiceXpress",
       description: "Introduza os detalhes da sua conta InvoiceXpress para ligar as finanças.",
-      icon: CreditCard,
+      icon: ClipboardList,
       logo: "/images/invoicexpress_logo2.png",
       logoWidth: 100,
       isAuthorized: ixAuthorized,
@@ -541,7 +557,7 @@ export default function Dashboard() {
               <Webhook className={cn("w-4 h-4", webhooksActive ? "text-violet-400" : "text-slate-600")} />
             </div>
             <div className={cn("h-9 w-9 rounded-full ring-4 ring-slate-950 flex items-center justify-center border", ixAuthorized ? "bg-blue-500/10 border-blue-500/30" : "bg-slate-800/50 border-slate-700/30")}>
-              <CreditCard className={cn("w-4 h-4", ixAuthorized ? "text-blue-400" : "text-slate-600")} />
+              <ClipboardList className={cn("w-4 h-4", ixAuthorized ? "text-blue-400" : "text-slate-600")} />
             </div>
           </div>
           <div className="flex flex-col">
@@ -890,7 +906,7 @@ export default function Dashboard() {
 
                 <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-emerald-500/5 border-emerald-500/20">
                   <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500/10">
-                    <CreditCard className="w-4 h-4 text-emerald-400" />
+                    <ClipboardList className="w-4 h-4 text-emerald-400" />
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">InvoiceXpress</p>

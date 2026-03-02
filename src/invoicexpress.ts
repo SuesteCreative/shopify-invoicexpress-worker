@@ -85,43 +85,55 @@ export async function getOrCreateClient(
 
     // Helper: update client data if we have better info (Name/NIF) and the current one is "dirty" or generic
     const patchClientData = async (existing: any): Promise<string> => {
-        const genericNames = ["client", "consumidor final", "nif 999999990", "unknown"];
-        const currentName = String(existing.name || "").toLowerCase().trim();
-        const isGeneric = genericNames.includes(currentName);
         const isClientSyncOn = env.CLIENT_SYNC === "1";
+        const currentName = String(existing.name || "").toLowerCase().trim();
 
-        // NIF: always update if CLIENT_SYNC is on and we have a valid NIF from this order
-        const needsNif = !!(fiscalId && isClientSyncOn);
+        // Determine if we need to update
+        let needsUpdate = false;
+        const updateBody: any = { client: {} };
 
-        // Name: only update if sync is on AND current name is generic AND new name is different
-        const needsNameUpdate = isClientSyncOn && isGeneric && name.toLowerCase() !== currentName;
+        if (isClientSyncOn) {
+            // Aggressive Sync: Mirror NIF and Email exactly as they appear in the order
+            const targetNif = fiscalId || "";
+            const targetEmail = email || "";
 
-        // Email: update if sync is on and we have an email and the record doesn't
-        const needsEmail = isClientSyncOn && !!(email && !existing.email);
-
-        // Without client sync: still fill NIF if client had none (passive, non-destructive)
-        const passiveNifFill = !!(fiscalId && !existing.fiscal_id);
-
-        if (needsNif || needsNameUpdate || needsEmail || passiveNifFill) {
-            console.log(`[IX] Updating client ${existing.id} before document creation | NIF: ${needsNif || passiveNifFill} | Name: ${needsNameUpdate} | Email: ${needsEmail}`);
-
-            const updateBody: any = {
-                client: {
-                    // name is always required in IX PUT requests — use new name if updating, otherwise keep existing
-                    name: needsNameUpdate ? name : existing.name,
-                    fiscal_id: (needsNif || passiveNifFill) ? fiscalId : (existing.fiscal_id || undefined),
-                }
-            };
-
-            if (needsEmail) updateBody.client.email = email;
-
-            // Sync address fields if CLIENT_SYNC is active
-            if (isClientSyncOn) {
-                if (clientData.address) updateBody.client.address = clientData.address;
-                if (clientData.city) updateBody.client.city = clientData.city;
-                if (clientData.zip) updateBody.client.postal_code = clientData.zip;
-                if (clientData.country) updateBody.client.country = clientData.country;
+            if (targetNif !== (existing.fiscal_id || "")) {
+                updateBody.client.fiscal_id = targetNif;
+                needsUpdate = true;
             }
+
+            if (targetEmail !== (existing.email?.toLowerCase() || "")) {
+                updateBody.client.email = targetEmail;
+                needsUpdate = true;
+            }
+
+            // Name sync: only if current name is one of the generic ones and different from current name
+            const genericNames = ["client", "consumidor final", "nif 999999990", "unknown"];
+            const isGeneric = genericNames.includes(currentName);
+            if (isGeneric && name.toLowerCase() !== currentName) {
+                updateBody.client.name = name;
+                needsUpdate = true;
+            } else {
+                // Name is always required in PUT
+                updateBody.client.name = existing.name;
+            }
+
+            // Address Sync
+            if (clientData.address && clientData.address !== existing.address) { updateBody.client.address = clientData.address; needsUpdate = true; }
+            if (clientData.city && clientData.city !== existing.city) { updateBody.client.city = clientData.city; needsUpdate = true; }
+            if (clientData.zip && clientData.zip !== existing.postal_code) { updateBody.client.postal_code = clientData.zip; needsUpdate = true; }
+            if (clientData.country && clientData.country !== existing.country) { updateBody.client.country = clientData.country; needsUpdate = true; }
+        } else {
+            // Passive Sync: Only fill missing NIF/Email, never overwrite existing valid ones
+            if (fiscalId && !existing.fiscal_id) {
+                updateBody.client.fiscal_id = fiscalId;
+                updateBody.client.name = existing.name; // Required
+                needsUpdate = true;
+            }
+        }
+
+        if (needsUpdate) {
+            console.log(`[IX] Updating client ${existing.id} (Sync: ${isClientSyncOn ? 'Aggressive' : 'Passive'})`);
 
             const patchRes = await fetch(`${baseUrl}/clients/${existing.id}.json?api_key=${apiKey}`, {
                 method: "PUT",

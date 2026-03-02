@@ -37,9 +37,14 @@ function mapClientMetadata(order: any, config: Env) {
             name = "Consumidor Final";
         }
     } else {
-        // Standard mode: keep it simple. Use the real name if available, else "Consumidor Final".
-        // Do NOT derive names from email or NIF — that was causing cross-contamination in IX.
-        name = resolvedName || "Consumidor Final";
+        // Standard mode: Use real name if available.
+        // Special case: if no NIF is provided, and the name is generic/missing, use "Consumidor Final"
+        const isGeneric = !resolvedName || ["client", "unknown"].includes(resolvedName.toLowerCase());
+        if (!nif && isGeneric) {
+            name = "Consumidor Final";
+        } else {
+            name = resolvedName || "Consumidor Final";
+        }
     }
 
     // Country mapping: InvoiceXpress expects full names like "Portugal"

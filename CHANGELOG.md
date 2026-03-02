@@ -1,5 +1,15 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 4.1.1 — Active Client Sync & Cleanup — March 2, 2026
+
+### 🧹 Client Identity Cleanup
+- **New `client_sync` Rule**: Introduced an opt-in rule to automatically clean up "generic" names in InvoiceXpress (e.g., "Client", "Consumidor Final").
+- **Active Patching**: If enabled, the worker will issue a `PUT` request to update the client's name and NIF in IX if the current record is a placeholder and better data is available from Shopify.
+- **Safe Updates**: Only acts on identified generic names to prevent over-writing manual edits in the InvoiceXpress dashboard.
+- **Hiperadmin Control**: Added the "Sincronizar Fichas (Limpeza)" toggle to the "Regras de Clientes" page.
+
+---
+
 ## 💎 Version 3.7.4 — Diagnostic UX & Safety Rails — March 1, 2026
 
 ### 🛡️ Diagnostic Panel (Hiperadmin)

@@ -83,21 +83,37 @@ export async function getOrCreateClient(
         String(c.code) === code ||
         (email && email.length > 0 && c.email?.toLowerCase() === email);
 
-    // Helper: update client fiscal_id if we have a NIF and they don't
-    const patchFiscalIdIfNeeded = async (existingClient: any): Promise<string> => {
-        if (fiscalId && !existingClient.fiscal_id) {
-            console.log(`[IX] Patching fiscal_id for client ${existingClient.id}: ${fiscalId}`);
-            await fetch(`${baseUrl}/clients/${existingClient.id}.json?api_key=${apiKey}`, {
+    // Helper: update client data if we have better info (Name/NIF) and the current one is "dirty" or generic
+    const patchClientData = async (existing: any): Promise<string> => {
+        const genericNames = ["client", "consumidor final", "nif 999999990", "unknown"];
+        const currentName = String(existing.name || "").toLowerCase().trim();
+        const isGeneric = genericNames.includes(currentName);
+
+        const needsNif = fiscalId && !existing.fiscal_id;
+        const needsNameUpdate = env.CLIENT_SYNC === "1" && isGeneric && name.toLowerCase() !== currentName;
+
+        if (needsNif || needsNameUpdate) {
+            console.log(`[IX] Patching client ${existing.id} | Update NIF: ${needsNif} | Update Name: ${needsNameUpdate}`);
+            const updateBody: any = { client: {} };
+            if (needsNif) updateBody.client.fiscal_id = fiscalId;
+            if (needsNameUpdate) updateBody.client.name = name;
+
+            // Also sync other fields if we are already patching
+            if (clientData.address) updateBody.client.address = clientData.address;
+            if (clientData.city) updateBody.client.city = clientData.city;
+            if (clientData.zip) updateBody.client.postal_code = clientData.zip;
+            if (clientData.country) updateBody.client.country = clientData.country;
+
+            await fetch(`${baseUrl}/clients/${existing.id}.json?api_key=${apiKey}`, {
                 method: "PUT",
                 headers: authHeaders,
-                body: JSON.stringify({ client: { fiscal_id: fiscalId } })
-            }).catch(() => { /* non-blocking */ });
+                body: JSON.stringify(updateBody)
+            }).catch((err) => { console.error(`[IX] Patch Failed: ${err.message}`); });
         }
-        return existingClient.id;
+        return existing.id;
     };
 
     // 0. If we have a NIF, try to find the client by fiscal_id directly first
-    //    This is the most reliable path for POS orders where email/name may be absent
     if (fiscalId) {
         const fiscalRes = await fetch(`${baseUrl}/clients.json?fiscal_id=${encodeURIComponent(fiscalId)}&api_key=${apiKey}`, { headers: authHeaders });
         if (fiscalRes.ok) {
@@ -105,7 +121,7 @@ export async function getOrCreateClient(
             const clients = fiscalData.clients || [];
             if (clients.length > 0) {
                 console.log(`[IX] Found client by fiscal_id (${fiscalId}): ${clients[0].name}`);
-                return clients[0].id;
+                return patchClientData(clients[0]);
             }
         }
     }
@@ -117,7 +133,7 @@ export async function getOrCreateClient(
         const existing = findData.client;
         if (existing && isExactMatch(existing)) {
             console.log(`[IX] Direct match found: ${existing.name} (${existing.id})`);
-            return patchFiscalIdIfNeeded(existing);
+            return patchClientData(existing);
         }
     }
 
@@ -129,7 +145,7 @@ export async function getOrCreateClient(
         const found = clients.find(isExactMatch);
         if (found) {
             console.log(`[IX] Match found on Page 1: ${found.name} (${found.id})`);
-            return patchFiscalIdIfNeeded(found);
+            return patchClientData(found);
         }
     }
 

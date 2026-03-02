@@ -15,6 +15,7 @@ export interface Env {
     INVOICEXPRESS_PAYMENT_TERM?: number;
     INVOICEXPRESS_SEQUENCE_NAME?: string;
     POS_MODE?: string; // "1" = POS/NIF-matrix mode for this client
+    CLIENT_SYNC?: string; // "1" = Active name-sync/cleanup mode
 }
 
 export async function saveLog(env: Env, data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number }) {
@@ -63,6 +64,7 @@ export async function getConfig(request: Request, env: Env): Promise<Env> {
                 INVOICEXPRESS_PAYMENT_TERM: integration.ix_payment_term || 0,
                 INVOICEXPRESS_SEQUENCE_NAME: integration.ix_sequence_name ? integration.ix_sequence_name.trim() : null,
                 POS_MODE: integration.pos_mode === 1 ? "1" : "0",
+                CLIENT_SYNC: integration.client_sync === 1 ? "1" : "0",
             };
         }
     } catch (e) {

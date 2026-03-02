@@ -17,6 +17,7 @@ interface ClientRule {
     auto_finalize: number;
     ix_exemption_reason: string;
     pos_mode: number;
+    client_sync: number;
     webhooks_active: number;
     shopify_authorized: number;
     ix_authorized: number;
@@ -233,6 +234,12 @@ export default function ClientRulesPage() {
                                     label="⚡ Finalizar Automaticamente"
                                     description="As faturas são emitidas e finalizadas imediatamente após a criação. Se desligado, ficam em rascunho."
                                     warn="Faturas finalizadas não podem ser editadas no InvoiceXpress."
+                                />
+                                <Toggle
+                                    value={client.client_sync === 1}
+                                    onChange={v => updateFlag(client.id, "client_sync", v ? 1 : 0)}
+                                    label="🧹 Sincronizar Fichas (Limpeza)"
+                                    description="Se ativo, o Rioko atualiza o nome no IX (ex: 'Client' → 'João Silva') se encontrar novos dados. Só actua sobre nomes genéricos."
                                 />
                             </div>
 

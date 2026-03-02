@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
         SELECT u.id, u.name, u.email,
             i.shopify_domain, i.ix_account_name, i.ix_environment,
             i.vat_included, i.auto_finalize, i.ix_exemption_reason,
-            i.pos_mode, i.webhooks_active, i.shopify_authorized, i.ix_authorized,
+            i.pos_mode, i.client_sync, i.webhooks_active, i.shopify_authorized, i.ix_authorized,
             i.shopify_forced_at, i.webhooks_forced_at, i.ix_forced_at
         FROM users u
         INNER JOIN integrations i ON u.id = i.user_id
@@ -42,7 +42,7 @@ export async function PATCH(request: NextRequest) {
     const { targetUserId, flag, value } = await request.json() as { targetUserId: string; flag: string; value: number };
 
     // Whitelist of toggleable flags
-    const allowedFlags = ["pos_mode", "vat_included", "auto_finalize", "webhooks_active", "shopify_authorized", "ix_authorized"];
+    const allowedFlags = ["pos_mode", "client_sync", "vat_included", "auto_finalize", "webhooks_active", "shopify_authorized", "ix_authorized"];
     if (!allowedFlags.includes(flag)) {
         return NextResponse.json({ error: "Flag not allowed" }, { status: 400 });
     }

@@ -1,5 +1,11 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 4.1.5 — Tax & NIF Extraction Fixes — March 2, 2026
+
+- **Fix**: Honoring the `taxable` flag from Shopify to ensure non-taxable products are mapped to "Isento" (0% VAT).
+- **Fix**: Refined NIF extraction from order notes to be more aggressive and pick up standalone 9-digit numbers.
+- **Fix**: Reverted default 23% VAT mapping to `PT23` to match the account's existing configuration.
+
 ## 💎 Version 4.1.4 — VAT Mapping & Diagnostics — March 2, 2026
 
 - **Fix**: Changed default 23% VAT mapping from `PT23` to `IVA23` for better compatibility.

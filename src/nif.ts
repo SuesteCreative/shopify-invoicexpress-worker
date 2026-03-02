@@ -26,8 +26,12 @@ export function extractAndValidateNIF(order: any): string | null {
 
     // 4. Extract from General Order Note
     if (order.note) {
-        const matches = order.note.match(/\b\d{9}\b/g);
-        if (matches) candidates.push(...matches);
+        console.log(`[NIF] Checking Order Note: ${order.note}`);
+        const matches = String(order.note).match(/\d{9}/g);
+        if (matches) {
+            console.log(`[NIF] Found matches in note: ${matches.join(", ")}`);
+            candidates.push(...matches);
+        }
     }
 
     // 5. Extract from Billing Address fields (Company, Address2)

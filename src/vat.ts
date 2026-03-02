@@ -8,6 +8,11 @@ export interface LineItem {
 }
 
 export function determineVATRate(item: LineItem): number {
+    // 0. Explicitly non-taxable in Shopify
+    if (!item.taxable) {
+        return 0;
+    }
+
     // 1. Primary Source: Shopify Tax Lines (Decimal to Percentage)
     if (item.tax_lines && item.tax_lines.length > 0) {
         const rate = item.tax_lines[0].rate;

@@ -233,7 +233,7 @@ function mapTaxName(rate: number | string): string {
     const r = parseFloat(String(rate));
     if (r === 0) return "Isento";
     if (r === 6) return "IVA6";
-    if (r === 23) return "IVA23";
+    if (r === 23) return "PT23"; // Reverting to PT23 as seen in user's IX screenshot
     return `IVA${r}`;
 }
 

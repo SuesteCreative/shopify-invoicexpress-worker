@@ -2,6 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "shopify-invoicexpress-worker",
   "compatibility_date": "2026-03-02",
+  "main": "src/index.ts",
+  "account_id": "1cec694895b74f4a87ffab3cde29bf28",
   "observability": {
     "enabled": true,
     "logs": {

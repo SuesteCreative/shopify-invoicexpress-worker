@@ -47,11 +47,11 @@ function mapClientMetadata(order: any, config: Env) {
     }
   }
 
-  // Country mapping: InvoiceXpress expects full country names
+  // Country mapping: InvoiceXpress expects exact country names from its catalog.
   const countryMap: Record<string, string> = {
-    "PT": "Portugal – Continental",
-    "PT-AC": "Portugal – Açores",
-    "PT-MA": "Portugal – Madeira",
+    "PT": "Portugal",
+    "PT-AC": "Portugal",
+    "PT-MA": "Portugal",
     "AF": "Afghanistan",
     "AX": "Åland Islands",
     "AL": "Albania",
@@ -299,9 +299,18 @@ function mapClientMetadata(order: any, config: Env) {
     "ZW": "Zimbabwe"
   };
 
+  const countryAliases: Record<string, string> = {
+    "PORTUGAL - CONTINENTAL": "Portugal",
+    "PORTUGAL – CONTINENTAL": "Portugal",
+    "PORTUGAL - AÇORES": "Portugal",
+    "PORTUGAL – AÇORES": "Portugal",
+    "PORTUGAL - MADEIRA": "Portugal",
+    "PORTUGAL – MADEIRA": "Portugal"
+  };
+
   const rawCountry = String(order.billing_address?.country_code || order.billing_address?.country || "").trim();
   const upperCountry = rawCountry.toUpperCase();
-  const country = countryMap[upperCountry] || rawCountry;
+  const country = countryMap[upperCountry] || countryAliases[upperCountry] || rawCountry;
 
   return {
     name,

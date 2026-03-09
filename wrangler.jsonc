@@ -3,12 +3,54 @@
   "name": "shopify-invoicexpress-worker",
   "compatibility_date": "2026-03-02",
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
   },
   "assets": {
     "directory": "public"
   },
   "compatibility_flags": [
     "nodejs_compat"
-  ]
+  ],
+  "vars": {
+    "SHOPIFY_SHOP_DOMAIN": "quickstart-66f9e5ef.myshopify.com",
+    "SHOPIFY_API_VERSION": "2026-01",
+    "INVOICEXPRESS_ACCOUNT_NAME": "ultramegasonico",
+    "INVOICEXPRESS_TAX_INCLUDED": "true",
+    "INVOICEXPRESS_AUTO_FINALIZE": "false"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "INVOICE_KV",
+      "id": "396a96276266418ba7fc6ee08a487b6d"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rioko-db",
+      "database_id": "4c63109a-c05d-427f-abf2-1cb4a757df88"
+    }
+  ],
+  "env": {
+    "production": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "rioko-db",
+          "database_id": "4c63109a-c05d-427f-abf2-1cb4a757df88"
+        }
+      ],
+      "vars": {
+        "SHOPIFY_SHOP_DOMAIN": "your-client-store.myshopify.com",
+        "SHOPIFY_API_VERSION": "2026-01",
+        "INVOICEXPRESS_ACCOUNT_NAME": "your-client-account-name",
+        "INVOICEXPRESS_TAX_INCLUDED": "true",
+        "INVOICEXPRESS_AUTO_FINALIZE": "false"
+      },
+    }
+  }
 }

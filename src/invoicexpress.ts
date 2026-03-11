@@ -217,7 +217,7 @@ export async function getOrCreateClient(
   // 4. Conflict Disambiguation
   const errTxt = await createRes.text();
   if (errTxt.includes("Nome não está disponível") || createRes.status === 422) {
-    const disambiguatedName = `${name} [${code.slice(-4)}]`;
+    const disambiguatedName = `${name}${code.slice(-4)}`;
     console.log(`[IX] Name exists but belongs to a different client. Creating: ${disambiguatedName}`);
     const retryCreate = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
       method: "POST",

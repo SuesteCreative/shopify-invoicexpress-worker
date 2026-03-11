@@ -365,19 +365,19 @@ export default {
         if (ixExisting) {
           console.log(`[IX] Document already exists in IX: ${ixExisting.id}`);
           const clientMetadata = mapClientMetadata(order, config);
-          const clientId = await getOrCreateClient(config, clientMetadata);
-          await markAsInvoiced(order.id, ixExisting.id, config, { clientId, clientMetadata, orderNumber: order.order_number });
+          // const clientId = await getOrCreateClient(config, clientMetadata);
+          await markAsInvoiced(order.id, ixExisting.id, config, { clientId: undefined, clientMetadata, orderNumber: order.order_number });
           await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { message: "Already existed in IX", invoice_id: ixExisting.id }, status: 200 });
           return new Response(JSON.stringify({ message: "Already existed in IX", invoice_id: ixExisting.id }), { status: 200 });
         }
 
         const clientMetadata = mapClientMetadata(order, config);
-        const clientId = await getOrCreateClient(config, clientMetadata);
+        // const clientId = await getOrCreateClient(config, clientMetadata);
 
         // Create Document (Type and Sequence handled by config)
-        const invoiceId = await createDocument(config, clientId, order, clientMetadata);
+        const invoiceId = await createDocument(config, undefined, order, clientMetadata);
 
-        await markAsInvoiced(orderId, invoiceId, config, { clientId, clientMetadata, orderNumber: order.order_number });
+        await markAsInvoiced(orderId, invoiceId, config, { clientId: undefined, clientMetadata, orderNumber: order.order_number });
         await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { invoiceId }, status: 200 });
 
         return new Response(JSON.stringify({ message: "Fatura-Recibo created", invoice_id: invoiceId }), {
@@ -446,7 +446,7 @@ export default {
           const shopifyOrder = data.order;
           if (!shopifyOrder) throw new Error("Invalid order data from Shopify");
 
-          clientId = await getOrCreateClient(config, mapClientMetadata(shopifyOrder, config));
+          // clientId = await getOrCreateClient(config, mapClientMetadata(shopifyOrder, config));
           clientMetadata = mapClientMetadata(shopifyOrder, config);
           orderNumber = shopifyOrder.order_number;
         }

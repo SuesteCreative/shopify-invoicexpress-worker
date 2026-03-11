@@ -224,7 +224,7 @@ export async function getOrCreateClient(
       method: "POST",
       headers: authHeaders,
       body: JSON.stringify({
-        client: { ...clientData, name: disambiguatedName, code: code, fiscal_id: fiscalId || undefined }
+        client: { ...clientData, name: disambiguatedName, fiscal_id: fiscalId || undefined }
       })
     });
     if (retryCreate.ok) {
@@ -280,7 +280,7 @@ function mapTaxName(rate: number | string): string {
 
 export async function createDocument(
   env: Env,
-  clientId: string,
+  clientId: string | undefined,
   order: any,
   clientMetadata: { name: string; email: string; fiscal_id: string | null; code: string },
   type: "invoice" | "fatura_recibo" = "fatura_recibo"

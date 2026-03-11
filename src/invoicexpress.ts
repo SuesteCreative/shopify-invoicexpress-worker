@@ -428,13 +428,22 @@ export async function findDocumentDetailsByReference(env: Env, reference: string
         { endpoint: "invoices", list: "invoices", type: "invoices" }
     ];
 
+    async function searchInType(endpoint: string, listKey: string, type: string, page: number = 1): Promise<{ id: string, type: string, state: string } | null> {
+        const res = await fetch(`${baseUrl}/${endpoint}.json?per_page=100&page=${page}&api_key=${apiKey}`, { headers: authHeaders });
+        if (res.status !== 200) return null;
+        
+        const data: any = await res.json();
+        const items = data[listKey] || [];
+        const found = items.find((d: any) => d.reference === reference);
+        
+        if (found) return { id: found.id, type, state: found.state };
+        if (items.length === 100) return searchInType(endpoint, listKey, type, page + 1);
+        return null;
+    }
+
     for (const t of types) {
-        const res = await fetch(`${baseUrl}/${t.endpoint}.json?per_page=100&api_key=${apiKey}`, { headers: authHeaders });
-        if (res.status === 200) {
-            const data: any = await res.json();
-            const found = data[t.list]?.find((d: any) => d.reference === reference);
-            if (found) return { id: found.id, type: t.type, state: found.state };
-        }
+        const result = await searchInType(t.endpoint, t.list, t.type);
+        if (result) return result;
     }
     return null;
 }

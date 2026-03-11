@@ -219,6 +219,7 @@ export async function getOrCreateClient(
   if (errTxt.includes("Nome não está disponível") || createRes.status === 422) {
     const disambiguatedName = `${name}${code.slice(-4)}`;
     console.log(`[IX] Name exists but belongs to a different client. Creating: ${disambiguatedName}`);
+    console.log({ ...clientData, name: disambiguatedName, code: code, fiscal_id: fiscalId || undefined });
     const retryCreate = await fetch(`${baseUrl}/clients.json?api_key=${apiKey}`, {
       method: "POST",
       headers: authHeaders,

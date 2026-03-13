@@ -100,4 +100,35 @@ export class AppStorage {
     const row = await this.ctx.env.INVOICE_KV.get(key);
     return !!row;
   }
+
+  async getInvoiceByOrderNumber(orderNumber: string): Promise<{ id: string; invoice_id: string } | null> {
+    try {
+      const row: any = await this.ctx.env.DB.prepare("SELECT id, invoice_id FROM processed_orders WHERE id = ?").bind(String(orderNumber)).first();
+      if (row && row.invoice_id) {
+        return { id: row.id, invoice_id: row.invoice_id };
+      }
+      return null;
+    } catch (e) {
+      console.error("[Rioko] Failed to get invoice by order number:", e);
+      return null;
+    }
+  }
+
+  async saveProcessedInvoice(orderId: string, invoiceId: string) {
+    const key = `shopify_order:${orderId}`;
+    
+    // 1. Record in D1 (Atomic/Strict)
+    try {
+      await this.ctx.env.DB.prepare("INSERT INTO processed_orders (id, invoice_id) VALUES (?, ?)").bind(String(orderId), String(invoiceId)).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to save processed invoice in D1:", e);
+    }
+
+    // 2. Record in KV (Fast/Eventually Consistent)
+    try {
+      await this.ctx.env.INVOICE_KV.put(key, String(invoiceId));
+    } catch (e) {
+      console.warn("[Rioko] Failed to save processed invoice in KV:", e);
+    }
+  }
 }

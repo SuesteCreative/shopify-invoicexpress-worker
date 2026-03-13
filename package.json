@@ -10,7 +10,12 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240101.0",
+    "@hey-api/openapi-ts": "^0.94.1",
     "typescript": "^5.0.0",
     "wrangler": "^4.69.0"
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "hono": "^4.12.7"
   }
 }

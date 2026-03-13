@@ -22,7 +22,8 @@
     "SHOPIFY_API_VERSION": "2026-01",
     "INVOICEXPRESS_ACCOUNT_NAME": "ultramegasonico",
     "INVOICEXPRESS_TAX_INCLUDED": "true",
-    "INVOICEXPRESS_AUTO_FINALIZE": "false"
+    "INVOICEXPRESS_AUTO_FINALIZE": "false",
+    "NORMALIZE_SHOPIFY_ORDER_API_KEY": "2b752911-eb5a-4659-b353-f07a53a3680d"
   },
   "kv_namespaces": [
     {
@@ -51,7 +52,8 @@
         "SHOPIFY_API_VERSION": "2026-01",
         "INVOICEXPRESS_ACCOUNT_NAME": "your-client-account-name",
         "INVOICEXPRESS_TAX_INCLUDED": "true",
-        "INVOICEXPRESS_AUTO_FINALIZE": "false"
+        "INVOICEXPRESS_AUTO_FINALIZE": "false",
+        "NORMALIZE_SHOPIFY_ORDER_API_KEY": "2b752911-eb5a-4659-b353-f07a53a3680d"
       },
     }
   }

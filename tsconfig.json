@@ -16,6 +16,11 @@
     "outDir": "./dist"
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "src/.old/invoicexpress.ts",
+    "src/.old/storage.ts",
+    "src/.old/nif.ts",
+    "src/.old/shopify.ts",
+    "src/.old/vat.ts"
   ]
 }

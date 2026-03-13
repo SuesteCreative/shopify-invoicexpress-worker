@@ -54,6 +54,13 @@ export class Shopify {
 
     if (!authResponse.ok) {
       console.error(`[Rioko] Failed to normalize order ${orderId}:`, await authResponse.text());
+      console.error({
+        "x-api-key": this.ctx.env.NORMALIZE_SHOPIFY_ORDER_API_KEY.trim(),
+
+        "shop-url": this.config.shopify_domain!,
+        "access-token": this.config.shopify_token!,
+        "Accept": "application/json"
+      });
       return null;
     }
 

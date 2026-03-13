@@ -378,7 +378,7 @@ export default {
         const invoiceId = await createDocument(config, undefined, order, clientMetadata);
 
         await markAsInvoiced(orderId, invoiceId, config, { clientId: undefined, clientMetadata, orderNumber: order.order_number });
-        await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { invoiceId }, status: 200 });
+        await saveLog(env, { shopify_domain: shopHeader, topic: "orders/paid", payload: orderId, response: { invoiceId, clientMetadata }, status: 200 });
 
         return new Response(JSON.stringify({ message: "Fatura-Recibo created", invoice_id: invoiceId }), {
           status: 200,

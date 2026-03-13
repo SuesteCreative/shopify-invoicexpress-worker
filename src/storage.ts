@@ -131,4 +131,48 @@ export class AppStorage {
       console.warn("[Rioko] Failed to save processed invoice in KV:", e);
     }
   }
+
+  async isWebhookProcessed(webhookId: string): Promise<{ isProcessed: boolean; state?: string }> {
+    try {
+      const row: any = await this.ctx.env.DB.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ?").bind(webhookId).first();
+      
+      if (!row) {
+        return { isProcessed: false };
+      }
+      
+      // Allow retry if failed, skip if processing or success
+      if (row.state === "failed") {
+        return { isProcessed: false, state: "failed" };
+      }
+      
+      return { isProcessed: true, state: row.state };
+    } catch (e) {
+      console.error("[Rioko] Failed to check webhook processed status:", e);
+      return { isProcessed: false };
+    }
+  }
+
+  async markWebhookAsProcessing(webhookId: string) {
+    try {
+      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, state, created_at) VALUES (?, ?, ?)").bind(
+        webhookId,
+        "processing",
+        new Date().toISOString()
+      ).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to mark webhook as processing:", e);
+    }
+  }
+
+  async markWebhookAsProcessed(webhookId: string, state: string = "success") {
+    try {
+      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, state, created_at) VALUES (?, ?, ?)").bind(
+        webhookId,
+        state,
+        new Date().toISOString()
+      ).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to mark webhook as processed:", e);
+    }
+  }
 }

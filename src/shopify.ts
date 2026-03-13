@@ -44,14 +44,16 @@ export class Shopify {
   public async normalizeOrder(orderId: string): Promise<NormalizedOrderResponse | null> {
     const authResponse = await fetch(`https://endpoint-shopify.srv1250352.hstgr.cloud/orders/normalize/${orderId}`, {
       headers: {
-        "x-api-key": this.ctx.env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
+        "x-api-key": this.ctx.env.NORMALIZE_SHOPIFY_ORDER_API_KEY.trim(),
 
         "shop-url": this.config.shopify_domain!,
         "access-token": this.config.shopify_token!,
+        "Accept": "application/json"
       },
     });
 
     if (!authResponse.ok) {
+      console.error(`[Rioko] Failed to normalize order ${orderId}:`, await authResponse.text());
       return null;
     }
 

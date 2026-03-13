@@ -90,7 +90,12 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
 
   if (ixCreateResponse.data?.data?.id) {
     console.log(`[Rioko] Invoice created for order ${orderId}`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Created", status: 200 });
+    await appStorage.saveLog({
+      shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({
+        orderId,
+        invoice: ixCreateResponse.data?.data
+      }), response: "Created", status: 200
+    });
     return c.text("Invoice created", 200);
   } else {
     console.log(`[Rioko] Failed to create invoice for order ${orderId}`);

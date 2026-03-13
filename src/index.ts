@@ -66,7 +66,7 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
     return c.text("Invoice already exists", 200);
   }
 
-  const normalizedOrderResponse = await shopify.normalizeOrder(order);
+  const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
 
   if (!normalizedOrderResponse) {
     console.log(`[Rioko] Failed to normalize order for order ${orderId}`);
@@ -128,7 +128,7 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
 
   try {
     // Normalize order
-    const normalizedOrderResponse = await shopify.normalizeOrder(order);
+    const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
 
     if (!normalizedOrderResponse) {
       console.log(`[Rioko] Failed to normalize order for order ${orderId}`);
@@ -212,7 +212,7 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
 
   try {
     // Normalize order
-    const normalizedOrderResponse = await shopify.normalizeOrder(order);
+    const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
 
     if (!normalizedOrderResponse) {
       console.log(`[Rioko] Failed to normalize order for order ${orderId}`);

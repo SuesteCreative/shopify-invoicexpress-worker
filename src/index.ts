@@ -108,6 +108,9 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
   if (ixCreateResponse.data?.data?.id) {
     console.log(`[Rioko] Invoice created for order ${orderId}`);
 
+    // Save processed invoice to database
+    await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id));
+
     // Mark webhook as processed
     if (webhookId) {
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");

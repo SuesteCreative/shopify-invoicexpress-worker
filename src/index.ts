@@ -13,7 +13,7 @@ app.get("/", (c) => c.text("OK"))
 
 // Shopify orders/created webhook endpoint
 app.post("/webhooks/shopify/orders-created", async (c) => {
-  const webhookTopic = "orders/paid";
+  const webhookTopic = "orders/created";
   const webhookId = c.req.header("x-shopify-webhook-id");
   const appStorage = new AppStorage(c);
 

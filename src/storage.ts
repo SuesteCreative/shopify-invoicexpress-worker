@@ -132,9 +132,9 @@ export class AppStorage {
     }
   }
 
-  async isWebhookProcessed(webhookId: string): Promise<{ isProcessed: boolean; state?: string }> {
+  async isWebhookProcessed(webhookId: string, topic: string): Promise<{ isProcessed: boolean; state?: string }> {
     try {
-      const row: any = await this.ctx.env.DB.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ?").bind(webhookId).first();
+      const row: any = await this.ctx.env.DB.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).first();
       
       if (!row) {
         return { isProcessed: false };
@@ -152,10 +152,11 @@ export class AppStorage {
     }
   }
 
-  async markWebhookAsProcessing(webhookId: string) {
+  async markWebhookAsProcessing(webhookId: string, topic: string) {
     try {
-      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, state, created_at) VALUES (?, ?, ?)").bind(
+      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
         webhookId,
+        topic,
         "processing",
         new Date().toISOString()
       ).run();
@@ -164,10 +165,11 @@ export class AppStorage {
     }
   }
 
-  async markWebhookAsProcessed(webhookId: string, state: string = "success") {
+  async markWebhookAsProcessed(webhookId: string, topic: string, state: string = "success") {
     try {
-      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, state, created_at) VALUES (?, ?, ?)").bind(
+      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
         webhookId,
+        topic,
         state,
         new Date().toISOString()
       ).run();

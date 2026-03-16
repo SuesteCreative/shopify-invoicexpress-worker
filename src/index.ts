@@ -26,7 +26,7 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
 
   // Check for duplicate webhook and mark as processing immediately
   if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId);
+    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
     if (isProcessed) {
       console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
       return c.text("Webhook already processed", 200);
@@ -36,7 +36,7 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
     if (state === "failed") {
       console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
     }
-    await appStorage.markWebhookAsProcessing(webhookId);
+    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
 
   const shopify = new Shopify(c, config);
@@ -110,7 +110,7 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
 
     // Mark webhook as processed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "success");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
     }
 
     await appStorage.saveLog({
@@ -123,11 +123,10 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
   } else {
     console.log(`[Rioko] Failed to create invoice for order ${orderId}`);
     console.log(ixCreateResponse);
-    console.log({ invoice, ixHeaders });
 
     // Mark webhook as failed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "failed");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
     }
 
     return c.text("Failed to create invoice", 400);
@@ -149,7 +148,7 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
 
   // Check for duplicate webhook
   if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId);
+    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
     if (isProcessed) {
       console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
       return c.text("Webhook already processed", 200);
@@ -159,7 +158,7 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
     if (state === "failed") {
       console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
     }
-    await appStorage.markWebhookAsProcessing(webhookId);
+    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
 
   const shopify = new Shopify(c, config);
@@ -228,7 +227,7 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
 
     // Mark webhook as processed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "success");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
     }
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Updated", status: 200 });
@@ -238,7 +237,7 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
 
     // Mark webhook as failed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "failed");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
     }
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: String(e), status: 500 });
@@ -261,7 +260,7 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
 
   // Check for duplicate webhook
   if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId);
+    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
     if (isProcessed) {
       console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
       return c.text("Webhook already processed", 200);
@@ -271,7 +270,7 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
     if (state === "failed") {
       console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
     }
-    await appStorage.markWebhookAsProcessing(webhookId);
+    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
 
   const shopify = new Shopify(c, config);
@@ -345,7 +344,7 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
 
     // Mark webhook as processed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "success");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
     }
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Finalized", status: 200 });
@@ -355,7 +354,7 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
 
     // Mark webhook as failed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "failed");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
     }
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: String(e), status: 500 });
@@ -379,7 +378,7 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
 
   // Check for duplicate webhook
   if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId);
+    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
     if (isProcessed) {
       console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
       return c.text("Webhook already processed", 200);
@@ -389,7 +388,7 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
     if (state === "failed") {
       console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
     }
-    await appStorage.markWebhookAsProcessing(webhookId);
+    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
 
   const shopify = new Shopify(c, config);
@@ -556,7 +555,7 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
 
     // Mark webhook as processed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "success");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
     }
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Processed", status: 200 });
@@ -566,7 +565,7 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
 
     // Mark webhook as failed
     if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, "failed");
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
     }
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: String(e), status: 500 });

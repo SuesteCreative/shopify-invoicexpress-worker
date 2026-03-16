@@ -123,7 +123,7 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
   } else {
     console.log(`[Rioko] Failed to create invoice for order ${orderId}`);
     console.log(ixCreateResponse);
-    console.log({ invoice });
+    console.log({ invoice, ixHeaders });
 
     // Mark webhook as failed
     if (webhookId) {

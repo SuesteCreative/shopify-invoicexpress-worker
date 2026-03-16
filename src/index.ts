@@ -191,10 +191,10 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
 
     // Search for invoice with retry logic
     const invoice = await pRetry(async () => {
-      const invoiceRef = await appStorage.getInvoiceByOrderNumber(String(normalizedOrderResponse.normalized.order.order_number));
+      const invoiceRef = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
 
       if (!invoiceRef || !invoiceRef.invoice_id) {
-        throw new Error(`Invoice not found by order.order_number=${normalizedOrderResponse.normalized.order.order_number}`);
+        throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
       }
 
       return invoiceRef;
@@ -306,10 +306,10 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
 
     // Search for invoice with retry logic
     const invoice = await pRetry(async () => {
-      const invoiceRef = await appStorage.getInvoiceByOrderNumber(String(normalizedOrderResponse.normalized.order.order_number));
+      const invoiceRef = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
 
       if (!invoiceRef || !invoiceRef.invoice_id) {
-        throw new Error(`Invoice not found by order.order_number=${normalizedOrderResponse.normalized.order.order_number}`);
+        throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
       }
 
       return invoiceRef;
@@ -428,10 +428,10 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
 
     // Search for invoice with retry logic
     const invoice = await pRetry(async () => {
-      const invoiceRef = await appStorage.getInvoiceByOrderNumber(String(normalizedOrderResponse.normalized.order.order_number));
+      const invoiceRef = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
 
       if (!invoiceRef || !invoiceRef.invoice_id) {
-        throw new Error(`Invoice not found by order.order_number=${normalizedOrderResponse.normalized.order.order_number}`);
+        throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
       }
 
       return invoiceRef;

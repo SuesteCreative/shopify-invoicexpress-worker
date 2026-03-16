@@ -101,9 +101,9 @@ export class AppStorage {
     return !!row;
   }
 
-  async getInvoiceByOrderNumber(orderNumber: string): Promise<{ id: string; invoice_id: string } | null> {
+  async getInvoiceByOrderId(orderId: string): Promise<{ id: string; invoice_id: string } | null> {
     try {
-      const row: any = await this.ctx.env.DB.prepare("SELECT id, invoice_id FROM processed_orders WHERE id = ?").bind(String(orderNumber)).first();
+      const row: any = await this.ctx.env.DB.prepare("SELECT id, invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
       if (row && row.invoice_id) {
         return { id: row.id, invoice_id: row.invoice_id };
       }
@@ -116,7 +116,7 @@ export class AppStorage {
 
   async saveProcessedInvoice(orderId: string, invoiceId: string) {
     const key = `shopify_order:${orderId}`;
-    
+
     // 1. Record in D1 (Atomic/Strict)
     try {
       await this.ctx.env.DB.prepare("INSERT INTO processed_orders (id, invoice_id) VALUES (?, ?)").bind(String(orderId), String(invoiceId)).run();
@@ -135,16 +135,16 @@ export class AppStorage {
   async isWebhookProcessed(webhookId: string, topic: string): Promise<{ isProcessed: boolean; state?: string }> {
     try {
       const row: any = await this.ctx.env.DB.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).first();
-      
+
       if (!row) {
         return { isProcessed: false };
       }
-      
+
       // Allow retry if failed, skip if processing or success
       if (row.state === "failed") {
         return { isProcessed: false, state: "failed" };
       }
-      
+
       return { isProcessed: true, state: row.state };
     } catch (e) {
       console.error("[Rioko] Failed to check webhook processed status:", e);

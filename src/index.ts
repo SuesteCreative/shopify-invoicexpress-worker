@@ -476,7 +476,7 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
         amountToRefund: amount - sum
       };
     }).filter(credit =>
-      !creditNotes.some(note => note.reference === `#${credit.refundId}`)
+      !creditNotes.some(note => note.reference === `OrderRefund #${credit.refundId}`)
     );
 
     const ixBuilder = new IxBuilder(config);
@@ -516,7 +516,7 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
         const creditNote: IxCreditNote = {
           ...invoiceBuildResult.invoice,
           items: items,
-          reference: `#${credit.refundId}`,
+          reference: `OrderRefund #${credit.refundId}`,
           tax_exemption_reason: requireTaxExemption
             ? ixInvoice?.data?.tax_exemption ?? config.ix_exemption_reason ?? undefined
             : undefined,

@@ -159,8 +159,8 @@ export class IxBuilder {
 
     // 4. Extract from General Order Note
     if (order.note) {
-      console.log(`[NIF] Checking Order Note: ${order.note}`);
-      const matches = String(order.note).match(/\d{9}/g);
+      console.log(`[NIF] Checking Order Note: ${order.note.trim()}`);
+      const matches = String(order.note.trim()).match(/\d{9}/g);
       if (matches) {
         console.log(`[NIF] Found matches in note: ${matches.join(", ")}`);
         candidates.push(...matches);

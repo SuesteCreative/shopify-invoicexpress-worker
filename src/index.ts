@@ -5,6 +5,7 @@ import { Shopify } from "./shopify";
 import { IxApi } from "./api/ix";
 import { IxBuilder, type IxCreditNote } from "./ix/builder";
 import pRetry from "p-retry";
+import { delay } from "./utils";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -38,6 +39,9 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
     }
     await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
+
+  // Add small delay
+  await delay(2500);
 
   const shopify = new Shopify(c, config);
 
@@ -165,6 +169,9 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
     await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
 
+  // Add small delay
+  await delay(2500);
+
   const shopify = new Shopify(c, config);
 
   console.log(`[Rioko] Webhook Received: ${webhookTopic} for ${config.shopify_domain}`);
@@ -278,6 +285,9 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
     await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
 
+  // Add small delay
+  await delay(2500);
+
   const shopify = new Shopify(c, config);
 
   console.log(`[Rioko] Webhook Received: ${webhookTopic} for ${config.shopify_domain}`);
@@ -368,7 +378,6 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
   }
 })
 
-
 // Shopify refunds/create webhook endpoint
 app.post("/webhooks/shopify/refunds-create", async (c) => {
   const webhookTopic = "refunds/create";
@@ -396,6 +405,9 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
     }
     await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
   }
+
+  // Add small delay
+  await delay(2500);
 
   const shopify = new Shopify(c, config);
 

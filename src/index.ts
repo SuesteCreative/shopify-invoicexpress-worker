@@ -596,4 +596,9 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
   }
 })
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async queue(batch: MessageBatch<Error>, env: Env) {
+
+  },
+}

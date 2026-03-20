@@ -38,6 +38,21 @@
       "database_id": "4c63109a-c05d-427f-abf2-1cb4a757df88"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MY_QUEUE",
+        "queue": "8f0792694fd74aad8c62a61bb532215a"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "8f0792694fd74aad8c62a61bb532215a",
+        "max_batch_size": 10,
+        "dead_letter_queue": "my-queue-dlq"
+      }
+    ]
+  },
   "env": {
     "production": {
       "d1_databases": [

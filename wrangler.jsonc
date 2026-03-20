@@ -42,12 +42,12 @@
     "producers": [
       {
         "binding": "SHOPIFY_ORDERS_QUEUE",
-        "queue": "8f0792694fd74aad8c62a61bb532215a"
+        "queue": "shopifyordersqueue"
       }
     ],
     "consumers": [
       {
-        "queue": "SHOPIFY_ORDERS_QUEUE",
+        "queue": "shopifyordersqueue",
         "max_batch_size": 10,
         "dead_letter_queue": "my-queue-dlq"
       }

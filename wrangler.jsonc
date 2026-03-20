@@ -41,13 +41,13 @@
   "queues": {
     "producers": [
       {
-        "binding": "MY_QUEUE",
+        "binding": "SHOPIFY_ORDERS_QUEUE",
         "queue": "8f0792694fd74aad8c62a61bb532215a"
       }
     ],
     "consumers": [
       {
-        "queue": "8f0792694fd74aad8c62a61bb532215a",
+        "queue": "SHOPIFY_ORDERS_QUEUE",
         "max_batch_size": 10,
         "dead_letter_queue": "my-queue-dlq"
       }

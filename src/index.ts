@@ -41,7 +41,7 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
   }
 
   // Add small delay
-  await delay(2500);
+  await delay(1000);
 
   const shopify = new Shopify(c, config);
 
@@ -173,7 +173,7 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
   }
 
   // Add small delay
-  await delay(2500);
+  await delay(1000);
 
   const shopify = new Shopify(c, config);
 
@@ -289,7 +289,7 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
   }
 
   // Add small delay
-  await delay(2500);
+  await delay(1000);
 
   const shopify = new Shopify(c, config);
 
@@ -410,7 +410,7 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
   }
 
   // Add small delay
-  await delay(2500);
+  await delay(1000);
 
   const shopify = new Shopify(c, config);
 

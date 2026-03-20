@@ -179,6 +179,7 @@ app.post("/webhooks/shopify/orders-updated", async (c) => {
   const order = await c.req.json();
   const orderId = order.id;
   console.log(`[Rioko] Order received: ${orderId}`);
+  console.log(order);
 
   try {
     // Normalize order
@@ -291,6 +292,7 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
   const order = await c.req.json();
   const orderId = order.id;
   console.log(`[Rioko] Order received: ${orderId}`);
+  console.log(order);
 
   try {
     // Normalize order

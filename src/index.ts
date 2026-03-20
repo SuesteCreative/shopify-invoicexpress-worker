@@ -95,6 +95,8 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
     return c.text("Failed to normalize order", 400);
   }
 
+  console.log(normalizedOrderResponse);
+
   const ixBuilder = new IxBuilder(config);
 
   const { invoice } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);

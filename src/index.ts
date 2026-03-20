@@ -99,6 +99,9 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
 
   const { invoice } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
 
+  console.log(`[Rioko] Built follwoing invoice`);
+  console.log(invoice);
+
   const ixCreateResponse = await IxApi.v2.documents.post({
     headers: ixHeaders,
     body: {

@@ -54,6 +54,7 @@ app.post("/webhooks/shopify/orders-created", async (c) => {
   const order = await c.req.json();
   const orderId = order.id;
   console.log(`[Rioko] Order received: ${orderId}`);
+  console.log(order);
 
   // Check if order was already processed.
   const alreadyExists = await appStorage.isInvoiceAlreadyProcessed(orderId);

@@ -369,6 +369,51 @@ app.post("/webhooks/shopify/orders-paid", async (c) => {
     }
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Finalized", status: 200 });
+
+    if (config.ix_send_email) {
+      const { data: invoiceData, error: invoiceError } = await IxApi.v2.documents.byId.get({
+        headers: ixHeaders,
+        path: {
+          id: Number(invoice.invoice_id)
+        }
+      });
+
+      if (invoiceError) {
+        console.error(`[Rioko] Failed to get invoice by id ${invoice.invoice_id}:`, invoiceError);
+        return c.text("Failed to get invoice", 500);
+      }
+
+      if (!invoiceData.data.client.email || !invoiceData.data.client.fiscal_id) {
+        console.error(`[Rioko] Invoice ${invoice.invoice_id} has no email address or nif`);
+        return c.text("Invoice has no email address or nif", 200);
+      }
+
+      const { error } = await IxApi.v2.documents.byId.email.post({
+        body: {
+          message: {
+            client: {
+              email: invoiceData.data.client.email,
+              save: "0"
+            },
+            body: config.ix_email_body ?? undefined,
+            subject: config.ix_email_subject ?? undefined
+          }
+        },
+        path: {
+          id: Number(invoice.invoice_id)
+        },
+        query: {
+          type: config.ix_document_type === "invoice_receipt" ? "invoice_receipts" : "invoices"
+        },
+        headers: ixHeaders
+      });
+
+      if (error) {
+        console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);
+        return c.text("Failed to send invoice", 500);
+      }
+    }
+
     return c.text("Invoice finalized", 200);
   } catch (e) {
     console.error(`[Rioko] Error finalizing invoice for order ${orderId}:`, e);
@@ -568,6 +613,38 @@ app.post("/webhooks/shopify/refunds-create", async (c) => {
             },
             headers: ixHeaders
           });
+
+          if (config.ix_send_email) {
+            if (!creditNote.client.email || !creditNote.client.fiscal_id) {
+              console.error(`[Rioko] Refund has no email address or nif`);
+              return;
+            }
+
+            const { error } = await IxApi.v2.documents.byId.email.post({
+              body: {
+                message: {
+                  client: {
+                    email: creditNote.client.email,
+                    save: "0"
+                  },
+                  body: config.ix_email_body ?? undefined,
+                  subject: config.ix_email_subject ?? undefined
+                }
+              },
+              path: {
+                id: Number(invoice.invoice_id)
+              },
+              query: {
+                type: "credit_notes"
+              },
+              headers: ixHeaders
+            });
+
+            if (error) {
+              console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);
+              return c.text("Failed to send invoice", 500);
+            }
+          }
         }
 
         console.log(`[Rioko] Credit note created for refund ${credit.refundId}`, { error });

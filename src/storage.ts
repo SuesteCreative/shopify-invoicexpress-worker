@@ -31,6 +31,9 @@ export interface IRequestConfig {
   ix_document_type: string | null;
   // default production
   ix_environment: "production" | "development" | null;
+  ix_send_email: number | null;
+  ix_email_body: string | null;
+  ix_email_subject: string | null;
 
   // 0 or 1
   vat_included: number | null;

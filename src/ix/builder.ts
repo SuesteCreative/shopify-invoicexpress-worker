@@ -115,16 +115,19 @@ export class IxBuilder {
       } else if (email) {
         name = email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
       } else {
-        name = `Consumidor Final ${format(new Date(), "dd/MM/yyyy HH:mm:ss")}`;
+        // name = `Consumidor Final ${format(new Date(), "dd/MM/yyyy HH:mm:ss")}`;
+        name = `Consumidor Final`;
       }
     } else {
       // Standard mode: Use real name if available.
       // Special case: if no NIF is provided, and the name is generic/missing, use "Consumidor Final"
       const isGeneric = !resolvedName || ["client", "unknown"].includes(resolvedName.toLowerCase());
       if (!nif && isGeneric) {
-        name = `Consumidor Final ${format(new Date(), "dd/MM/yyyy HH:mm:ss")}`;
+        // name = `Consumidor Final ${format(new Date(), "dd/MM/yyyy HH:mm:ss")}`;
+        name = `Consumidor Final`;
       } else {
-        name = resolvedName || `Consumidor Final ${format(new Date(), "dd/MM/yyyy HH:mm:ss")}`;
+        // name = resolvedName || `Consumidor Final ${format(new Date(), "dd/MM/yyyy HH:mm:ss")}`;
+        name = resolvedName || `Consumidor Final`;
       }
     }
 

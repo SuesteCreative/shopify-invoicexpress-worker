@@ -1,4 +1,3 @@
-import { Context } from "hono";
 import { Env } from "./env";
 
 export interface IRequestConfig {
@@ -48,19 +47,23 @@ export interface IRequestConfig {
 }
 
 export class AppStorage {
-  private ctx: Context<{ Bindings: Env }>;
+  private db: D1Database;
+  private kv: KVNamespace;
+  private shopDomain: string | null;
 
-  constructor(ctx: Context<{ Bindings: Env }>) {
-    this.ctx = ctx;
+  constructor(env: Env, shopDomain?: string) {
+    this.db = env.DB;
+    this.kv = env.INVOICE_KV;
+    this.shopDomain = shopDomain ?? null;
   }
 
   async loadConfig(): Promise<IRequestConfig | null> {
-    const shopHeader = this.ctx.req.header("X-Shopify-Shop-Domain");
+    const shopHeader = this.shopDomain;
     console.log(`[AppConfig] accessing shopify domain: ${shopHeader}`)
 
     if (!shopHeader) return null;
 
-    const integration = await this.ctx.env.DB.prepare(
+    const integration = await this.db.prepare(
       "SELECT * FROM integrations WHERE shopify_domain = ?"
     ).bind(shopHeader).first();
 
@@ -71,7 +74,7 @@ export class AppStorage {
 
   async saveLog(data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number }) {
     try {
-      await this.ctx.env.DB.prepare(
+      await this.db.prepare(
         "INSERT INTO logs (id, shopify_domain, topic, payload, response, status) VALUES (?, ?, ?, ?, ?, ?)"
       ).bind(
         crypto.randomUUID(),
@@ -91,7 +94,7 @@ export class AppStorage {
 
     // 1. Primary Check: Durable D1 (SQL) for strict consistency
     try {
-      const row: any = await this.ctx.env.DB.prepare("SELECT invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
+      const row: any = await this.db.prepare("SELECT invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
       if (row && row.invoice_id) {
         return true;
       };
@@ -100,13 +103,13 @@ export class AppStorage {
     }
 
     // 2. Secondary Check: Fast KV (Eventually Consistent)
-    const row = await this.ctx.env.INVOICE_KV.get(key);
+    const row = await this.kv.get(key);
     return !!row;
   }
 
   async getInvoiceByOrderId(orderId: string): Promise<{ id: string; invoice_id: string } | null> {
     try {
-      const row: any = await this.ctx.env.DB.prepare("SELECT id, invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
+      const row: any = await this.db.prepare("SELECT id, invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
       if (row && row.invoice_id) {
         return { id: row.id, invoice_id: row.invoice_id };
       }
@@ -122,14 +125,14 @@ export class AppStorage {
 
     // 1. Record in D1 (Atomic/Strict)
     try {
-      await this.ctx.env.DB.prepare("INSERT INTO processed_orders (id, invoice_id) VALUES (?, ?)").bind(String(orderId), String(invoiceId)).run();
+      await this.db.prepare("INSERT INTO processed_orders (id, invoice_id) VALUES (?, ?)").bind(String(orderId), String(invoiceId)).run();
     } catch (e) {
       console.warn("[Rioko] Failed to save processed invoice in D1:", e);
     }
 
     // 2. Record in KV (Fast/Eventually Consistent)
     try {
-      await this.ctx.env.INVOICE_KV.put(key, String(invoiceId));
+      await this.kv.put(key, String(invoiceId));
     } catch (e) {
       console.warn("[Rioko] Failed to save processed invoice in KV:", e);
     }
@@ -137,7 +140,7 @@ export class AppStorage {
 
   async isWebhookProcessed(webhookId: string, topic: string): Promise<{ isProcessed: boolean; state?: string }> {
     try {
-      const row: any = await this.ctx.env.DB.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).first();
+      const row: any = await this.db.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).first();
 
       if (!row) {
         return { isProcessed: false };
@@ -157,7 +160,7 @@ export class AppStorage {
 
   async markWebhookAsProcessing(webhookId: string, topic: string) {
     try {
-      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
+      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
         webhookId,
         topic,
         "processing",
@@ -170,7 +173,7 @@ export class AppStorage {
 
   async markWebhookAsProcessed(webhookId: string, topic: string, state: string = "success") {
     try {
-      await this.ctx.env.DB.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
+      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
         webhookId,
         topic,
         state,

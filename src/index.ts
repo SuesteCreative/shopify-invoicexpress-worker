@@ -1,10 +1,12 @@
 import type { Env } from "./env";
+import type { QueueMessage, WebhookTopic } from "./handlers/types";
 import { Hono } from "hono";
 import { AppStorage } from "./storage";
-import { Shopify } from "./shopify";
-import { IxApi } from "./api/ix";
-import { IxBuilder, type IxCreditNote } from "./ix/builder";
-import pRetry from "p-retry";
+import { verifyShopifyWebhook } from "./shopify";
+import { handleOrderCreated } from "./handlers/orders-created";
+import { handleOrderUpdated } from "./handlers/orders-updated";
+import { handleOrderPaid } from "./handlers/orders-paid";
+import { handleRefundCreate } from "./handlers/refunds-create";
 import { delay } from "./utils";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -12,670 +14,117 @@ const app = new Hono<{ Bindings: Env }>();
 // Health check endpoint
 app.get("/", (c) => c.text("OK"))
 
-// Shopify orders/created webhook endpoint
-app.post("/webhooks/shopify/orders-created", async (c) => {
-  const webhookTopic = "orders/created";
-  const webhookId = c.req.header("x-shopify-webhook-id");
-  const appStorage = new AppStorage(c);
+async function enqueueWebhook(c: any, topic: WebhookTopic) {
+  const webhookId = c.req.header("x-shopify-webhook-id") ?? null;
+  const shopDomain = c.req.header("X-Shopify-Shop-Domain");
 
+  if (!shopDomain) {
+    console.log("[Rioko] Missing X-Shopify-Shop-Domain header");
+    return c.text("Missing shop domain", 400);
+  }
+
+  const appStorage = new AppStorage(c.env, shopDomain);
   const config = await appStorage.loadConfig();
 
   if (!config) {
-    console.log("[Rioko] No config found for shopify domain")
-    return c.text("No config found", 404)
-  };
+    console.log("[Rioko] No config found for shopify domain");
+    return c.text("No config found", 404);
+  }
 
-  // Check for duplicate webhook and mark as processing immediately
+  // Check for duplicate webhook
   if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
+    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, topic);
     if (isProcessed) {
       console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
       return c.text("Webhook already processed", 200);
     }
 
-    // Mark as processing immediately to prevent duplicate processing
     if (state === "failed") {
       console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
     }
-    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
+    await appStorage.markWebhookAsProcessing(webhookId, topic);
   }
 
-  // Add small delay
-  await delay(10000);
+  // Verify webhook signature
+  const hmac = c.req.header("X-Shopify-Hmac-Sha256");
+  const rawBody = await c.req.text();
 
-  const shopify = new Shopify(c, config);
-
-  console.log(`[Rioko] Webhook Received: ${webhookTopic} for ${config.shopify_domain}`);
-  const isWebhookValid = await shopify.verifyWebhook();
-
-  if (!isWebhookValid) {
+  if (!hmac || !await verifyShopifyWebhook(hmac, rawBody, config.shopify_webhook_secret!)) {
     console.error(`[Rioko] Invalid Webhook Signature for ${config.shopify_domain}.`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Invalid Signature", status: 401 });
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic, payload: "", response: "Invalid Signature", status: 401 });
     return new Response("Invalid Signature", { status: 401 });
   }
 
-  // Get order object from request body
-  const order = await c.req.json();
-  const orderId = order.id;
-  console.log(`[Rioko] Order received: ${orderId}`);
-  console.log(order);
+  const body = JSON.parse(rawBody);
 
-  // Check if order was already processed.
-  const alreadyExists = await appStorage.isInvoiceAlreadyProcessed(orderId);
-  if (alreadyExists) {
-    console.log(`[Rioko] Invoice already processed for order ${orderId}`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Already processed", status: 401 });
-    return c.text("Invoice already processed", 200);
-  }
+  console.log(`[Rioko] Webhook Received: ${topic} for ${config.shopify_domain}, enqueuing...`);
 
-  const ixRef = `Order #${order.order_number}`;
-  const ixHeaders = {
-    "x-account-name": config.ix_account_name!,
-    "x-api-key": config.ix_api_key!,
-    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
-  };
-  // Check if invoice already exists in InvoiceXpress system
-  const ixExisting = await IxApi.v2.documents.reference.post({
-    headers: ixHeaders,
-    body: {
-      reference: ixRef,
-    },
-  });
+  // Send to queue for async processing
+  await c.env.SHOPIFY_ORDERS_QUEUE.send({
+    topic,
+    webhookId,
+    shopDomain,
+    body,
+  } satisfies QueueMessage);
 
-  if (ixExisting.data?.data?.id) {
-    console.log(`[Rioko] Invoice already exists for order ${orderId}`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Already exists", status: 401 });
-    return c.text("Invoice already exists", 200);
-  }
+  return c.text("Queued", 200);
+}
 
-  const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
-
-  if (!normalizedOrderResponse) {
-    console.log(`[Rioko] Failed to normalize order for order ${orderId}`);
-    return c.text("Failed to normalize order", 400);
-  }
-
-  console.log(normalizedOrderResponse);
-
-  const ixBuilder = new IxBuilder(config);
-
-  const { invoice } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
-
-  console.log(`[Rioko] Built follwoing invoice`);
-  console.log(invoice);
-
-  const ixCreateResponse = await IxApi.v2.documents.post({
-    headers: ixHeaders,
-    body: {
-      data: invoice,
-      type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice"
-    },
-    query: {
-      resolvers: "on_tax_fallback_search_tax_by_value"
-    },
-  });
-
-  if (ixCreateResponse.data?.data?.id) {
-    console.log(`[Rioko] Invoice created for order ${orderId}`);
-
-    // Save processed invoice to database
-    await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id));
-
-    // Mark webhook as processed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
-    }
-
-    await appStorage.saveLog({
-      shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({
-        orderId,
-        invoice: ixCreateResponse.data?.data
-      }), response: "Created", status: 200
-    });
-    return c.text("Invoice created", 200);
-  } else {
-    console.log(`[Rioko] Failed to create invoice for order ${orderId}`);
-    console.log(ixCreateResponse);
-
-    // Mark webhook as failed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
-    }
-
-    return c.text("Failed to create invoice", 400);
-  }
-})
+// Shopify orders/created webhook endpoint
+app.post("/webhooks/shopify/orders-created", (c) => enqueueWebhook(c, "orders/created"))
 
 // Shopify orders/updated webhook endpoint
-app.post("/webhooks/shopify/orders-updated", async (c) => {
-  const webhookTopic = "orders/updated";
-  const webhookId = c.req.header("x-shopify-webhook-id");
-  const appStorage = new AppStorage(c);
-
-  const config = await appStorage.loadConfig();
-
-  if (!config) {
-    console.log("[Rioko] No config found for shopify domain");
-    return c.text("No config found", 404);
-  }
-
-  // Check for duplicate webhook
-  if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
-    if (isProcessed) {
-      console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
-      return c.text("Webhook already processed", 200);
-    }
-
-    // Mark as processing
-    if (state === "failed") {
-      console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
-    }
-    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
-  }
-
-  // Add small delay
-  await delay(10000);
-
-  const shopify = new Shopify(c, config);
-
-  console.log(`[Rioko] Webhook Received: ${webhookTopic} for ${config.shopify_domain}`);
-  const isWebhookValid = await shopify.verifyWebhook();
-
-  if (!isWebhookValid) {
-    console.error(`[Rioko] Invalid Webhook Signature for ${config.shopify_domain}.`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Invalid Signature", status: 401 });
-    return new Response("Invalid Signature", { status: 401 });
-  }
-
-  const order = await c.req.json();
-  const orderId = order.id;
-  console.log(`[Rioko] Order received: ${orderId}`);
-  console.log(order);
-
-  try {
-    // Normalize order
-    const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
-
-    if (!normalizedOrderResponse) {
-      console.log(`[Rioko] Failed to normalize order for order ${orderId}`);
-      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Failed to normalize order", status: 400 });
-      return c.text("Failed to normalize order", 400);
-    }
-
-    // Search for invoice with retry logic
-    const invoice = await pRetry(async () => {
-      const invoiceRef = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
-
-      if (!invoiceRef || !invoiceRef.invoice_id) {
-        throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
-      }
-
-      return invoiceRef;
-    }, {
-      retries: 10,
-    });
-
-    const ixBuilder = new IxBuilder(config);
-    const { invoice: invoiceData } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
-
-    const ixHeaders = {
-      "x-account-name": config.ix_account_name!,
-      "x-api-key": config.ix_api_key!,
-      "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
-    };
-
-    // Update the invoice
-    const { error } = await IxApi.v2.documents.byId.put({
-      body: {
-        type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
-        data: invoiceData
-      },
-      path: {
-        id: Number(invoice.invoice_id)
-      },
-      query: {
-        resolvers: "on_tax_fallback_search_tax_by_value"
-      },
-      headers: ixHeaders
-    });
-
-    console.log(`[Rioko] Invoice updated for order ${orderId}`, { error });
-
-    // Mark webhook as processed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
-    }
-
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Updated", status: 200 });
-    return c.text("Invoice updated", 200);
-  } catch (e) {
-    console.error(`[Rioko] Error updating invoice for order ${orderId}:`, e);
-
-    // Mark webhook as failed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
-    }
-
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: String(e), status: 500 });
-    return c.text("Error updating invoice", 500);
-  }
-})
+app.post("/webhooks/shopify/orders-updated", (c) => enqueueWebhook(c, "orders/updated"))
 
 // Shopify orders/paid webhook endpoint
-app.post("/webhooks/shopify/orders-paid", async (c) => {
-  const webhookTopic = "orders/paid";
-  const webhookId = c.req.header("x-shopify-webhook-id");
-  const appStorage = new AppStorage(c);
-
-  const config = await appStorage.loadConfig();
-
-  if (!config) {
-    console.log("[Rioko] No config found for shopify domain");
-    return c.text("No config found", 404);
-  }
-
-  // Check for duplicate webhook
-  if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
-    if (isProcessed) {
-      console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
-      return c.text("Webhook already processed", 200);
-    }
-
-    // Mark as processing
-    if (state === "failed") {
-      console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
-    }
-    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
-  }
-
-  // Add small delay
-  await delay(10000);
-
-  const shopify = new Shopify(c, config);
-
-  console.log(`[Rioko] Webhook Received: ${webhookTopic} for ${config.shopify_domain}`);
-  const isWebhookValid = await shopify.verifyWebhook();
-
-  if (!isWebhookValid) {
-    console.error(`[Rioko] Invalid Webhook Signature for ${config.shopify_domain}.`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Invalid Signature", status: 401 });
-    return new Response("Invalid Signature", { status: 401 });
-  }
-
-  const order = await c.req.json();
-  const orderId = order.id;
-  console.log(`[Rioko] Order received: ${orderId}`);
-  console.log(order);
-
-  try {
-    // Normalize order
-    const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
-
-    if (!normalizedOrderResponse) {
-      console.log(`[Rioko] Failed to normalize order for order ${orderId}`);
-      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Failed to normalize order", status: 400 });
-      return c.text("Failed to normalize order", 400);
-    }
-
-    // Let's delay
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
-    // Search for invoice with retry logic
-    const invoice = await pRetry(async () => {
-      const invoiceRef = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
-
-      if (!invoiceRef || !invoiceRef.invoice_id) {
-        throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
-      }
-
-      return invoiceRef;
-    }, {
-      retries: 10,
-    });
-
-    // Check if auto_finalize is enabled
-    const finalize = config.auto_finalize === 1;
-
-    // Skip if we don't auto-finalize invoices
-    if (!finalize) {
-      console.log(`[Rioko] Auto-finalize disabled, skipping for order ${orderId}`);
-      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Auto-finalize disabled", status: 200 });
-      return c.text("Auto-finalize disabled", 200);
-    }
-
-    const ixHeaders = {
-      "x-account-name": config.ix_account_name!,
-      "x-api-key": config.ix_api_key!,
-      "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
-    };
-
-    // Finalize the invoice
-    const { data, error } = await IxApi.v2.changeState.post({
-      body: {
-        type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
-        id: Number(invoice.invoice_id),
-        state: "finalized"
-      },
-      headers: ixHeaders
-    });
-
-    console.log(`[Rioko] Invoice finalized for order ${orderId}`, { data, error });
-
-    // Mark webhook as processed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
-    }
-
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Finalized", status: 200 });
-
-    if (config.ix_send_email) {
-      const { data: invoiceData, error: invoiceError } = await IxApi.v2.documents.byId.get({
-        headers: ixHeaders,
-        path: {
-          id: Number(invoice.invoice_id)
-        }
-      });
-
-      if (invoiceError) {
-        console.error(`[Rioko] Failed to get invoice by id ${invoice.invoice_id}:`, invoiceError);
-        return c.text("Failed to get invoice", 500);
-      }
-
-      if (!invoiceData.data.client.email || !invoiceData.data.client.fiscal_id) {
-        console.error(`[Rioko] Invoice ${invoice.invoice_id} has no email address or nif`);
-        return c.text("Invoice has no email address or nif", 200);
-      }
-
-      const { error } = await IxApi.v2.documents.byId.email.post({
-        body: {
-          message: {
-            client: {
-              email: invoiceData.data.client.email,
-              save: "0"
-            },
-            body: config.ix_email_body ?? undefined,
-            subject: config.ix_email_subject ?? undefined
-          }
-        },
-        path: {
-          id: Number(invoice.invoice_id)
-        },
-        query: {
-          type: config.ix_document_type === "invoice_receipt" ? "invoice_receipts" : "invoices"
-        },
-        headers: ixHeaders
-      });
-
-      if (error) {
-        console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);
-        return c.text("Failed to send invoice", 500);
-      }
-    }
-
-    return c.text("Invoice finalized", 200);
-  } catch (e) {
-    console.error(`[Rioko] Error finalizing invoice for order ${orderId}:`, e);
-
-    // Mark webhook as failed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
-    }
-
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: String(e), status: 500 });
-    return c.text("Error finalizing invoice", 500);
-  }
-})
+app.post("/webhooks/shopify/orders-paid", (c) => enqueueWebhook(c, "orders/paid"))
 
 // Shopify refunds/create webhook endpoint
-app.post("/webhooks/shopify/refunds-create", async (c) => {
-  const webhookTopic = "refunds/create";
-  const webhookId = c.req.header("x-shopify-webhook-id");
-  const appStorage = new AppStorage(c);
-
-  const config = await appStorage.loadConfig();
-
-  if (!config) {
-    console.log("[Rioko] No config found for shopify domain");
-    return c.text("No config found", 404);
-  }
-
-  // Check for duplicate webhook
-  if (webhookId) {
-    const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, webhookTopic);
-    if (isProcessed) {
-      console.log(`[Rioko] Webhook ${webhookId} already ${state}, skipping`);
-      return c.text("Webhook already processed", 200);
-    }
-
-    // Mark as processing
-    if (state === "failed") {
-      console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
-    }
-    await appStorage.markWebhookAsProcessing(webhookId, webhookTopic);
-  }
-
-  // Add small delay
-  await delay(10000);
-
-  const shopify = new Shopify(c, config);
-
-  console.log(`[Rioko] Webhook Received: ${webhookTopic} for ${config.shopify_domain}`);
-  const isWebhookValid = await shopify.verifyWebhook();
-
-  if (!isWebhookValid) {
-    console.error(`[Rioko] Invalid Webhook Signature for ${config.shopify_domain}.`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Invalid Signature", status: 401 });
-    return new Response("Invalid Signature", { status: 401 });
-  }
-
-  const refund = await c.req.json();
-  const orderId = refund.order_id;
-
-  if (!orderId) {
-    console.log("[Rioko] Missing order_id in refund payload");
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Missing order_id", status: 400 });
-    return c.text("Missing order_id", 400);
-  }
-
-  console.log(`[Rioko] Refund received for order: ${orderId}, refund id: ${refund.id}`);
-
-  try {
-    // Normalize order using the order_id
-    const normalizedOrderResponse = await shopify.normalizeOrder(String(orderId));
-
-    if (!normalizedOrderResponse) {
-      console.log(`[Rioko] Failed to normalize order for order ${orderId}`);
-      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Failed to normalize order", status: 400 });
-      return c.text("Failed to normalize order", 400);
-    }
-
-    // Search for invoice with retry logic
-    const invoice = await pRetry(async () => {
-      const invoiceRef = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
-
-      if (!invoiceRef || !invoiceRef.invoice_id) {
-        throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
-      }
-
-      return invoiceRef;
-    }, {
-      retries: 10,
-    });
-
-    const ixHeaders = {
-      "x-account-name": config.ix_account_name!,
-      "x-api-key": config.ix_api_key!,
-      "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
-    };
-
-    // Get the invoice from InvoiceXpress
-    const { data: ixInvoice } = await IxApi.v2.documents.byId.get({
-      headers: ixHeaders,
-      path: {
-        id: Number(invoice.invoice_id),
-      }
-    });
-
-    // Get existing credit notes
-    const { data: creditNotesData } = await IxApi.v2.documents.byId.related.get({
-      headers: ixHeaders,
-      path: {
-        id: Number(invoice.invoice_id)
-      }
-    });
-
-    const creditNotes = (creditNotesData?.data?.documents ?? [])
-      .filter(document => document.type === "CreditNote");
-
-    // Process each credit/refund
-    const credits = normalizedOrderResponse.normalized.credits.map(credit => {
-      const lineItems = credit.line_items;
-      const sum = lineItems.reduce((acc, item) => acc + item.subtotal, 0);
-      const amount = credit.amount;
-
-      return {
-        refundId: credit.refund_id,
-        itemsIds: lineItems.map(item => item.id),
-        amountToRefund: amount - sum
-      };
-    }).filter(credit =>
-      !creditNotes.some(note => note.reference === `OrderRefund #${credit.refundId}`)
-    );
-
-    const ixBuilder = new IxBuilder(config);
-    const invoiceBuildResult = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
-
-    // Create credit notes for each refund
-    await Promise.all(
-      credits.map(async credit => {
-        // Get normalized items for this credit
-        const normalizedItems = normalizedOrderResponse.normalized.order.items.filter(item =>
-          credit.itemsIds.includes(item.id)
-        );
-        const items = ixBuilder.buildInvoiceItems(normalizedItems);
-
-        // Add refund amount as a line item if there's a difference
-        if (credit.amountToRefund > 0) {
-          const taxes = invoiceBuildResult.invoice.items.map(item => item.tax);
-          const maxTax = taxes.reduce((a, b) =>
-            (typeof a === "number" ? a : a.value) >= (typeof b === "number" ? b : b.value) ? a : b
-          ) ?? 0;
-
-          const taxPercentage = (typeof maxTax === "number" ? maxTax : maxTax.value) / 100;
-
-          items.push({
-            quantity: 1,
-            tax: maxTax,
-            unit_price: credit.amountToRefund / (1 + taxPercentage),
-            description: `Refund amount of ${credit.amountToRefund}`,
-            name: `Refund amount (#${credit.refundId})`,
-          });
-        }
-
-        const requireTaxExemption = items.some(item =>
-          typeof item.tax === "number" ? item.tax === 0 : item.tax.value === 0
-        );
-
-        const creditNote: IxCreditNote = {
-          ...invoiceBuildResult.invoice,
-          items: items,
-          reference: `OrderRefund #${credit.refundId}`,
-          tax_exemption_reason: requireTaxExemption
-            ? ixInvoice?.data?.tax_exemption ?? config.ix_exemption_reason ?? undefined
-            : undefined,
-          owner_invoice_id: Number(invoice.invoice_id)
-        };
-
-        // Create credit note
-        const { data: creditNoteResponse, error } = await IxApi.v2.creditNotes.post({
-          headers: ixHeaders,
-          body: {
-            credit_note: creditNote
-          },
-          query: {
-            resolvers: "on_tax_fallback_search_tax_by_value"
-          }
-        });
-
-        // Finalize credit note
-        const creditNoteId = (creditNoteResponse?.data as any)?.id ??
-          (creditNoteResponse?.data as any)?.credit_note?.id ??
-          (creditNoteResponse?.data as any)?.creditNote?.id;
-
-        if (creditNoteId) {
-          await IxApi.v2.changeState.post({
-            body: {
-              type: "credit_note",
-              id: creditNoteId,
-              state: "finalized"
-            },
-            headers: ixHeaders
-          });
-
-          if (config.ix_send_email) {
-            if (!creditNote.client.email || !creditNote.client.fiscal_id) {
-              console.error(`[Rioko] Refund has no email address or nif`);
-              return;
-            }
-
-            const { error } = await IxApi.v2.documents.byId.email.post({
-              body: {
-                message: {
-                  client: {
-                    email: creditNote.client.email,
-                    save: "0"
-                  },
-                  body: config.ix_email_body ?? undefined,
-                  subject: config.ix_email_subject ?? undefined
-                }
-              },
-              path: {
-                id: Number(invoice.invoice_id)
-              },
-              query: {
-                type: "credit_notes"
-              },
-              headers: ixHeaders
-            });
-
-            if (error) {
-              console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);
-              return c.text("Failed to send invoice", 500);
-            }
-          }
-        }
-
-        console.log(`[Rioko] Credit note created for refund ${credit.refundId}`, { error });
-      })
-    );
-
-    console.log(`[Rioko] Refund processed for order ${orderId}`);
-
-    // Mark webhook as processed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
-    }
-
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Processed", status: 200 });
-    return c.text("Refund processed", 200);
-  } catch (e) {
-    console.error(`[Rioko] Error processing refund for order ${orderId}:`, e);
-
-    // Mark webhook as failed
-    if (webhookId) {
-      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
-    }
-
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: String(e), status: 500 });
-    return c.text("Error processing refund", 500);
-  }
-})
+app.post("/webhooks/shopify/refunds-create", (c) => enqueueWebhook(c, "refunds/create"))
 
 export default {
   fetch: app.fetch,
-  async queue(batch: MessageBatch<Error>, env: Env) {
+  async queue(batch: MessageBatch<QueueMessage>, env: Env) {
+    for (const message of batch.messages) {
+      const { topic, webhookId, shopDomain, body } = message.body;
 
+      console.log(`[Rioko] Queue processing: ${topic} for ${shopDomain}`);
+
+      try {
+        const appStorage = new AppStorage(env, shopDomain);
+        const config = await appStorage.loadConfig();
+
+        if (!config) {
+          console.error(`[Rioko] No config found for ${shopDomain}, acking message`);
+          message.ack();
+          continue;
+        }
+
+        console.log(`[Rioko] Config found for ${shopDomain}, processing message. Delayin for 30 seconds`);
+        await delay(30000);
+
+        switch (topic) {
+          case "orders/created":
+            await handleOrderCreated(env, config, webhookId, body);
+            break;
+          case "orders/updated":
+            await handleOrderUpdated(env, config, webhookId, body);
+            break;
+          case "orders/paid":
+            await handleOrderPaid(env, config, webhookId, body);
+            break;
+          case "refunds/create":
+            await handleRefundCreate(env, config, webhookId, body);
+            break;
+          default:
+            console.error(`[Rioko] Unknown topic: ${topic}`);
+        }
+
+        message.ack();
+      } catch (e) {
+        console.error(`[Rioko] Queue handler error for ${topic}:`, e);
+        message.retry();
+      }
+    }
   },
 }

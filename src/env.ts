@@ -3,4 +3,5 @@ export interface Env {
   DB: D1Database;
   NORMALIZE_SHOPIFY_ORDER_API_KEY: string;
   SHOPIFY_ORDERS_QUEUE: Queue;
+  ADMIN_API_KEY: string;
 }

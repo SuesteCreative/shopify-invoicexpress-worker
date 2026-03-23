@@ -7,6 +7,7 @@ import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
+import { getUnprocessedOrders, processOrders } from "./handlers/admin";
 import { delay } from "./utils";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -81,6 +82,80 @@ app.post("/webhooks/shopify/orders-paid", (c) => enqueueWebhook(c, "orders/paid"
 
 // Shopify refunds/create webhook endpoint
 app.post("/webhooks/shopify/refunds-create", (c) => enqueueWebhook(c, "refunds/create"))
+
+// Admin: list unprocessed orders
+app.get("/admin/unprocessed-orders", async (c) => {
+  const apiKey = c.req.header("x-api-key");
+  if (!apiKey || apiKey !== c.env.ADMIN_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const shop = c.req.query("shop");
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+
+  if (!shop || !from || !to) {
+    return c.json({ error: "Missing required query params: shop, from, to" }, 400);
+  }
+
+  const appStorage = new AppStorage(c.env, shop);
+  const config = await appStorage.loadConfig();
+
+  if (!config) {
+    return c.json({ error: `No config found for ${shop}` }, 404);
+  }
+
+  try {
+    const result = await getUnprocessedOrders(c.env, config, from, to);
+    return c.json(result);
+  } catch (e) {
+    console.error("[Rioko][Admin] Error fetching unprocessed orders:", e);
+    return c.json({ error: String(e) }, 500);
+  }
+})
+
+// Admin: process (create or finalize) orders
+app.post("/admin/process-orders", async (c) => {
+  const apiKey = c.req.header("x-api-key");
+  if (!apiKey || apiKey !== c.env.ADMIN_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const body = await c.req.json<{
+    shop: string;
+    type: "create_orders" | "finalize_orders";
+    order_ids?: number[];
+    from?: string;
+    to?: string;
+  }>();
+
+  if (!body.shop || !body.type) {
+    return c.json({ error: "Missing required fields: shop, type" }, 400);
+  }
+
+  if (!["create_orders", "finalize_orders"].includes(body.type)) {
+    return c.json({ error: "type must be 'create_orders' or 'finalize_orders'" }, 400);
+  }
+
+  if (!body.order_ids?.length && (!body.from || !body.to)) {
+    return c.json({ error: "Either order_ids or from/to date range is required" }, 400);
+  }
+
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+
+  if (!config) {
+    return c.json({ error: `No config found for ${body.shop}` }, 404);
+  }
+
+  try {
+    const result = await processOrders(c.env, config, body.type, body.order_ids, body.from, body.to);
+    return c.json(result);
+  } catch (e) {
+    console.error("[Rioko][Admin] Error processing orders:", e);
+    return c.json({ error: String(e) }, 500);
+  }
+})
 
 export default {
   fetch: app.fetch,

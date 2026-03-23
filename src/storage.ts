@@ -138,6 +138,22 @@ export class AppStorage {
     }
   }
 
+  async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {
+    const processed = new Set<string>();
+    // Batch in chunks of 50 to avoid SQL parameter limits
+    for (let i = 0; i < orderIds.length; i += 50) {
+      const chunk = orderIds.slice(i, i + 50);
+      const placeholders = chunk.map(() => '?').join(',');
+      const result = await this.db.prepare(
+        `SELECT id FROM processed_orders WHERE id IN (${placeholders})`
+      ).bind(...chunk).all();
+      for (const row of result.results) {
+        processed.add(String((row as any).id));
+      }
+    }
+    return processed;
+  }
+
   async isWebhookProcessed(webhookId: string, topic: string): Promise<{ isProcessed: boolean; state?: string }> {
     try {
       const row: any = await this.db.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).first();

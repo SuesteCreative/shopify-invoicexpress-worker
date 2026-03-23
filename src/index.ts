@@ -67,7 +67,7 @@ async function enqueueWebhook(c: Context<{ Bindings: Env }>, topic: WebhookTopic
     shopDomain,
     body,
   } satisfies QueueMessage, {
-    delaySeconds: 60
+    delaySeconds: 120
   });
 
   return c.text("Queued", 200);

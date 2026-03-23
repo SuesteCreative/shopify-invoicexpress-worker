@@ -28,7 +28,7 @@ type OrderResult = {
 async function fetchShopifyOrders(config: IRequestConfig, from: string, to: string): Promise<any[]> {
   const allOrders: any[] = [];
   const apiVersion = config.shopify_api_version ?? "2026-01";
-  let url: string | null = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?created_at_min=${encodeURIComponent(from)}&created_at_max=${encodeURIComponent(to)}&status=any&limit=250`;
+  let url: string | null = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?processed_at_min=${encodeURIComponent(from)}&processed_at_max=${encodeURIComponent(to)}&status=any&limit=250`;
 
   while (url) {
     const response = await fetch(url, {

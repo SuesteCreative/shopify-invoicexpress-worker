@@ -276,6 +276,7 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
         type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
         id: Number(invoiceRef.invoice_id),
         state: "finalized",
+        actualizeDateBeforeChange: true
       },
       headers: ixHeaders,
     });

@@ -150,7 +150,7 @@ export class IxBuilder {
     const order = normalized.order;
 
     // 1. Extract from note_attributes (Dedicated NIF/VAT fields from Shopify apps)
-    if (order.note_attributes) {
+    if (order.note_attributes && Array.isArray(order.note_attributes)) {
       for (const attr of order.note_attributes) {
         const name = String(attr.name).toLowerCase();
         if (["nif", "vat", "contribuinte", "fiscal", "tax id"].includes(name) && attr.value) {

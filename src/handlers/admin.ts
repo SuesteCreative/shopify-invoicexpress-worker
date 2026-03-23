@@ -83,11 +83,38 @@ export async function getUnprocessedOrders(env: Env, config: IRequestConfig, fro
   const orderIds = shopifyOrders.map((o) => String(o.id));
   const processedIds = await appStorage.getProcessedOrderIds(orderIds);
 
-  const unprocessed = shopifyOrders.filter((o) => !processedIds.has(String(o.id)));
+  const notInDb = shopifyOrders.filter((o) => !processedIds.has(String(o.id)));
+
+  // Also check InvoiceXpress by reference to filter out orders that exist there but not in our DB
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+
+  const unprocessed: any[] = [];
+  const existsInIx: any[] = [];
+
+  for (const order of notInDb) {
+    const ixRef = `Order #${order.order_number}`;
+    const ixExisting = await IxApi.v2.documents.reference.post({
+      headers: ixHeaders,
+      body: { reference: ixRef },
+    });
+
+    if (ixExisting.data?.data?.id) {
+      // Exists in IX but not in our DB — sync it
+      await appStorage.saveProcessedInvoice(String(order.id), String(ixExisting.data.data.id));
+      existsInIx.push(order);
+    } else {
+      unprocessed.push(order);
+    }
+  }
 
   return {
     total_shopify_orders: shopifyOrders.length,
     processed_count: processedIds.size,
+    exists_in_ix_synced: existsInIx.length,
     unprocessed_count: unprocessed.length,
     unprocessed: unprocessed.map(summarizeOrder),
   };

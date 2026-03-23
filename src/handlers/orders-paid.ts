@@ -34,7 +34,10 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
 
       return invoiceRef;
     }, {
-      retries: 10,
+      retries: 360,
+      factor: 1,
+      minTimeout: 1000,
+      maxTimeout: 1000
     });
 
     // Check if auto_finalize is enabled

@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import type { QueueMessage, WebhookTopic } from "./handlers/types";
-import { Hono } from "hono";
+import { Context, Hono } from "hono";
 import { AppStorage } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -14,7 +14,7 @@ const app = new Hono<{ Bindings: Env }>();
 // Health check endpoint
 app.get("/", (c) => c.text("OK"))
 
-async function enqueueWebhook(c: any, topic: WebhookTopic) {
+async function enqueueWebhook(c: Context<{ Bindings: Env }>, topic: WebhookTopic) {
   const webhookId = c.req.header("x-shopify-webhook-id") ?? null;
   const shopDomain = c.req.header("X-Shopify-Shop-Domain");
 

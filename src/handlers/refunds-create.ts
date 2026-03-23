@@ -41,7 +41,10 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
 
       return invoiceRef;
     }, {
-      retries: 10,
+      retries: 360,
+      factor: 1,
+      minTimeout: 1000,
+      maxTimeout: 1000
     });
 
     const ixHeaders = {

@@ -4,7 +4,6 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
-import pRetry from "p-retry";
 
 export async function handleOrderUpdated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/updated";
@@ -25,21 +24,12 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
       throw new Error(`Failed to normalize order for order ${orderId}`);
     }
 
-    // Search for invoice with retry logic
-    const invoice = await pRetry(async () => {
-      const invoiceRef = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
+    // Search for invoice — if not found, throw so the queue retries in 60s
+    const invoice = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
 
-      if (!invoiceRef || !invoiceRef.invoice_id) {
-        throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
-      }
-
-      return invoiceRef;
-    }, {
-      retries: 360,
-      factor: 1,
-      minTimeout: 1000,
-      maxTimeout: 1000
-    });
+    if (!invoice || !invoice.invoice_id) {
+      throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
+    }
 
     const ixBuilder = new IxBuilder(config);
     const { invoice: invoiceData } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);

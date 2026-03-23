@@ -66,7 +66,9 @@ async function enqueueWebhook(c: Context<{ Bindings: Env }>, topic: WebhookTopic
     webhookId,
     shopDomain,
     body,
-  } satisfies QueueMessage);
+  } satisfies QueueMessage, {
+    delaySeconds: 60
+  });
 
   return c.text("Queued", 200);
 }
@@ -175,8 +177,8 @@ export default {
           continue;
         }
 
-        console.log(`[Rioko] Config found for ${shopDomain}, processing message. Delayin for 30 seconds`);
-        await delay(30000);
+        // console.log(`[Rioko] Config found for ${shopDomain}, processing message. Delayin for 45 seconds`);
+        // await delay(45000);
 
         switch (topic) {
           case "orders/created":
@@ -198,7 +200,8 @@ export default {
         message.ack();
       } catch (e) {
         console.error(`[Rioko] Queue handler error for ${topic}:`, e);
-        message.retry();
+        // 60 seconds
+        message.retry({ delaySeconds: 60 });
       }
     }
   },

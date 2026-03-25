@@ -201,7 +201,7 @@ export default {
       } catch (e) {
         console.error(`[Rioko] Queue handler error for ${topic}:`, e);
         // 60 seconds
-        message.retry({ delaySeconds: 60 });
+        message.retry({ delaySeconds: 360 });
       }
     }
   },

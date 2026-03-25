@@ -1,0 +1,345 @@
+{
+  "type": "finalize_orders",
+  "total": 56,
+  "success": 20,
+  "skipped": 0,
+  "errors": 36,
+  "results": [
+    {
+      "order_id": 7793394450778,
+      "order_number": 4846,
+      "status": "finalized",
+      "message": "Invoice 253379185 finalized"
+    },
+    {
+      "order_id": 7793366860122,
+      "order_number": 4844,
+      "status": "finalized",
+      "message": "Invoice 253379196 finalized"
+    },
+    {
+      "order_id": 7793339072858,
+      "order_number": 4843,
+      "status": "finalized",
+      "message": "Invoice 253379202 finalized"
+    },
+    {
+      "order_id": 7793333305690,
+      "order_number": 4842,
+      "status": "finalized",
+      "message": "Invoice 253379208 finalized"
+    },
+    {
+      "order_id": 7793321836890,
+      "order_number": 4841,
+      "status": "finalized",
+      "message": "Invoice 253379213 finalized"
+    },
+    {
+      "order_id": 7793314791770,
+      "order_number": 4840,
+      "status": "finalized",
+      "message": "Invoice 253379223 finalized"
+    },
+    {
+      "order_id": 7793185915226,
+      "order_number": 4835,
+      "status": "finalized",
+      "message": "Invoice 253379227 finalized"
+    },
+    {
+      "order_id": 7793182835034,
+      "order_number": 4834,
+      "status": "finalized",
+      "message": "Invoice 253379231 finalized"
+    },
+    {
+      "order_id": 7793182245210,
+      "order_number": 4833,
+      "status": "finalized",
+      "message": "Invoice 253379239 finalized"
+    },
+    {
+      "order_id": 7793175462234,
+      "order_number": 4832,
+      "status": "finalized",
+      "message": "Invoice 253379248 finalized"
+    },
+    {
+      "order_id": 7793165467994,
+      "order_number": 4831,
+      "status": "finalized",
+      "message": "Invoice 253379257 finalized"
+    },
+    {
+      "order_id": 7793134109018,
+      "order_number": 4830,
+      "status": "finalized",
+      "message": "Invoice 253379261 finalized"
+    },
+    {
+      "order_id": 7793013588314,
+      "order_number": 4827,
+      "status": "finalized",
+      "message": "Invoice 253379264 finalized"
+    },
+    {
+      "order_id": 7793004413274,
+      "order_number": 4826,
+      "status": "finalized",
+      "message": "Invoice 253379272 finalized"
+    },
+    {
+      "order_id": 7792982196570,
+      "order_number": 4824,
+      "status": "finalized",
+      "message": "Invoice 253379278 finalized"
+    },
+    {
+      "order_id": 7792894214490,
+      "order_number": 4823,
+      "status": "finalized",
+      "message": "Invoice 253379283 finalized"
+    },
+    {
+      "order_id": 7792842604890,
+      "order_number": 4821,
+      "status": "finalized",
+      "message": "Invoice 253379287 finalized"
+    },
+    {
+      "order_id": 7792810525018,
+      "order_number": 4820,
+      "status": "finalized",
+      "message": "Invoice 253379290 finalized"
+    },
+    {
+      "order_id": 7792807674202,
+      "order_number": 4819,
+      "status": "finalized",
+      "message": "Invoice 253379292 finalized"
+    },
+    {
+      "order_id": 7792806920538,
+      "order_number": 4818,
+      "status": "finalized",
+      "message": "Invoice 253379297 finalized"
+    },
+    {
+      "order_id": 7791766962522,
+      "order_number": 4815,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791757885786,
+      "order_number": 4814,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791697690970,
+      "order_number": 4813,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791683862874,
+      "order_number": 4812,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791606235482,
+      "order_number": 4808,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791511568730,
+      "order_number": 4806,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791508652378,
+      "order_number": 4805,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791475949914,
+      "order_number": 4804,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791471133018,
+      "order_number": 4803,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791468970330,
+      "order_number": 4802,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791465955674,
+      "order_number": 4801,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791419425114,
+      "order_number": 4800,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791374041434,
+      "order_number": 4799,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791372009818,
+      "order_number": 4798,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791338193242,
+      "order_number": 4797,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791299330394,
+      "order_number": 4793,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791295791450,
+      "order_number": 4792,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791198470490,
+      "order_number": 4791,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791197290842,
+      "order_number": 4790,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791193850202,
+      "order_number": 4789,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791138373978,
+      "order_number": 4788,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791134507354,
+      "order_number": 4787,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791103410522,
+      "order_number": 4786,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791083913562,
+      "order_number": 4784,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7791017591130,
+      "order_number": 4781,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790997209434,
+      "order_number": 4780,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790994915674,
+      "order_number": 4778,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790969553242,
+      "order_number": 4777,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790959755610,
+      "order_number": 4776,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790953234778,
+      "order_number": 4775,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790942650714,
+      "order_number": 4774,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790922432858,
+      "order_number": 4773,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790913618266,
+      "order_number": 4772,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790913225050,
+      "order_number": 4771,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790910308698,
+      "order_number": 4770,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    },
+    {
+      "order_id": 7790810759514,
+      "order_number": 4769,
+      "status": "error",
+      "message": "Finalize failed: {\"data\":null,\"error\":{\"message\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\",\"code\":\"UNKNOWN\",\"metadata\":{\"jsonData\":{\"errors\":[{\"error\":\"Data não pode ser anterior à da(o) última(o) fatura-recibo desta série[22 Mar 26]\"}]}}},\"success\":false,\"metadata\":{}}"
+    }
+  ]
+}

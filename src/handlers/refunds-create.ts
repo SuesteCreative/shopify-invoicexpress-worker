@@ -165,7 +165,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
                 }
               },
               path: {
-                id: Number(invoice.invoice_id)
+                id: Number(creditNoteId)
               },
               query: {
                 type: "credit_notes"

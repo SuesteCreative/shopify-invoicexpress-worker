@@ -9,7 +9,7 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
   const webhookTopic = "orders/updated";
   const appStorage = new AppStorage(env, config.shopify_domain!);
 
-  const orderId = order.id;
+  const orderId = order.order_id ?? order.id;
   console.log(`[Rioko] Order received: ${orderId}`);
   console.log(order);
 

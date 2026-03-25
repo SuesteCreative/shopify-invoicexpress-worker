@@ -3,6 +3,7 @@ import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
+import { delay } from "../utils";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -11,6 +12,8 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
   const orderId = order.id;
   console.log(`[Rioko] Order received: ${orderId}`);
   console.log(order);
+
+  await delay(15000);
 
   try {
     // Normalize order

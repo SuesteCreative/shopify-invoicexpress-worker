@@ -148,8 +148,10 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           });
 
           if (config.ix_send_email) {
-            if (!creditNote.client.email || !creditNote.client.fiscal_id) {
-              console.error(`[Rioko] Refund has no email address or nif`);
+            // if (!creditNote.client.email || !creditNote.client.fiscal_id) {
+            if (!creditNote.client.email) {
+              // console.error(`[Rioko] Refund has no email address or nif`);
+              console.error(`[Rioko] Refund has no email address`);
               return;
             }
 

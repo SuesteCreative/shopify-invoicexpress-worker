@@ -81,8 +81,10 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
         throw new Error(`Failed to get invoice by id ${invoice.invoice_id}`);
       }
 
-      if (!invoiceData.data.client.email || !invoiceData.data.client.fiscal_id) {
-        console.error(`[Rioko] Invoice ${invoice.invoice_id} has no email address or nif`);
+      // if (!invoiceData.data.client.email || !invoiceData.data.client.fiscal_id) {
+      if (!invoiceData.data.client.email) {
+        // console.error(`[Rioko] Invoice ${invoice.invoice_id} has no email address or nif`);
+        console.error(`[Rioko] Invoice ${invoice.invoice_id} has no email address`);
         return;
       }
 

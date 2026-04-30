@@ -52,20 +52,17 @@ export default function WelcomeDashboard() {
     );
   }
 
-  if (isRegistered === false) {
-    return (
-      <div className="py-12">
-        <RegistrationForm
-          onComplete={() => setIsRegistered(true)}
-          initialEmail={clerkUser?.primaryEmailAddress?.emailAddress}
-          initialName={clerkUser?.fullName || ""}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
+      {isRegistered === false && (
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="p-8 glass bg-amber-500/5 border border-amber-500/20 rounded-[2rem]">
+          <div className="flex flex-col md:flex-row items-center gap-6">
+            <div className="p-4 bg-amber-500/10 rounded-2xl"><AlertCircle className="w-8 h-8 text-amber-500" /></div>
+            <div className="flex-1 text-center md:text-left"><h3 className="text-xl font-bold text-amber-500">Registo Incompleto</h3><p className="text-sm text-slate-400 font-medium">Complete os seus dados fiscais para garantir suporte total da Kapta.</p></div>
+            <Link href="/help" className="px-6 py-3 rounded-xl bg-amber-500 text-black font-black text-[10px] uppercase tracking-widest hover:bg-amber-400 group flex items-center gap-2">Completar Registo <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" /></Link>
+          </div>
+        </motion.div>
+      )}
       {/* Welcome Message */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="space-y-2">

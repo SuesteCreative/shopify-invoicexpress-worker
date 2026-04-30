@@ -11,7 +11,7 @@ INVOICEXPRESS_AUTO_FINALIZE = "false"
 
 [[kv_namespaces]]
 binding = "INVOICE_KV"
-id = "396a96276266418ba7fc6ee08a487b6d"
+id = "490b5fedae3e428d977d93745c1061b2"
 
 [[d1_databases]]
 binding = "DB"

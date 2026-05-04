@@ -534,7 +534,7 @@ export default function ShopifyIXIntegration() {
                                                 <div className="glass p-6 rounded-2xl flex items-center justify-between border-slate-800/50">
                                                     <div>
                                                         <div className="flex items-center gap-3"><h3 className="font-bold text-sm">IVA Incluído</h3><a href="/help#vat" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors"><BookOpen className="w-3 h-3" />O que é?</a></div>
-                                                        <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Os preços no Shopify já incluem IVA</p>
+                                                        <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">{vatIncluded ? "ON: Preços Shopify já incluem IVA (ex: 2€ = 1,63€ + IVA)" : "OFF: Preços Shopify são líquidos, soma 23% (ex: 2€ → 2€ + IVA = 2,46€)"}</p>
                                                     </div>
                                                     <button onClick={() => setVatIncluded(!vatIncluded)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", vatIncluded ? "bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]" : "bg-slate-800")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", vatIncluded ? "left-7" : "left-1")} /></button>
                                                 </div>

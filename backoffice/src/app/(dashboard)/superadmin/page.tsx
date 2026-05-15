@@ -3,9 +3,10 @@
 export const runtime = "edge";
 
 import { useState, useEffect, useMemo } from "react";
-import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog } from "lucide-react";
+import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
+import Link from "next/link";
 
 type Role = "hiperadmin" | "superadmin" | "user";
 
@@ -270,6 +271,13 @@ export default function SuperadminPage() {
                                                 {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
                                                 Impersonar
                                             </button>
+                                        )}
+
+                                        {!isSelf && (
+                                            <Link href={`/superadmin/users/${user.id}/dev-mode`}
+                                                className="bg-sky-500/10 text-sky-300 border border-sky-500/20 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-sky-500/20 transition-all active:scale-95">
+                                                <Wrench className="w-3 h-3" /> Dev Mode
+                                            </Link>
                                         )}
 
                                         {/* Role change buttons */}

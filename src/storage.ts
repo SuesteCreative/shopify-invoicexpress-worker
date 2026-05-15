@@ -125,7 +125,8 @@ export class AppStorage {
 
     // 1. Record in D1 (Atomic/Strict)
     try {
-      await this.db.prepare("INSERT INTO processed_orders (id, invoice_id) VALUES (?, ?)").bind(String(orderId), String(invoiceId)).run();
+      await this.db.prepare("INSERT INTO processed_orders (id, invoice_id, shopify_domain, created_at) VALUES (?, ?, ?, ?)")
+        .bind(String(orderId), String(invoiceId), this.shopDomain, new Date().toISOString()).run();
     } catch (e) {
       console.warn("[Rioko] Failed to save processed invoice in D1:", e);
     }
@@ -136,6 +137,162 @@ export class AppStorage {
     } catch (e) {
       console.warn("[Rioko] Failed to save processed invoice in KV:", e);
     }
+  }
+
+  async deleteProcessedInvoice(orderId: string) {
+    const key = `shopify_order:${orderId}`;
+    try {
+      await this.db.prepare("DELETE FROM processed_orders WHERE id = ?").bind(String(orderId)).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to delete processed invoice in D1:", e);
+    }
+    try {
+      await this.kv.delete(key);
+    } catch (e) {
+      console.warn("[Rioko] Failed to delete processed invoice in KV:", e);
+    }
+  }
+
+  async getLastProcessedDate(): Promise<string | null> {
+    try {
+      const row: any = await this.db.prepare(
+        "SELECT MAX(created_at) as last FROM processed_orders WHERE shopify_domain = ?"
+      ).bind(this.shopDomain).first();
+      return row?.last ?? null;
+    } catch (e) {
+      console.error("[Rioko] Failed to get last processed date:", e);
+      return null;
+    }
+  }
+
+  async listProcessedInvoices(limit = 500): Promise<Array<{ id: string; invoice_id: string; created_at: string | null }>> {
+    try {
+      const result = await this.db.prepare(
+        "SELECT id, invoice_id, created_at FROM processed_orders WHERE shopify_domain = ? ORDER BY rowid DESC LIMIT ?"
+      ).bind(this.shopDomain, limit).all();
+      return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null }));
+    } catch (e) {
+      console.error("[Rioko] Failed to list processed invoices:", e);
+      return [];
+    }
+  }
+
+  async startDevJob(params: {
+    id: string;
+    type: string;
+    params: any;
+    triggered_by?: string | null;
+    reason?: string | null;
+  }) {
+    try {
+      await this.db.prepare(
+        "INSERT INTO dev_jobs (id, shopify_domain, type, params, status, triggered_by, reason, started_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)"
+      ).bind(
+        params.id,
+        this.shopDomain,
+        params.type,
+        JSON.stringify(params.params),
+        params.triggered_by ?? null,
+        params.reason ?? null,
+        new Date().toISOString()
+      ).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to start dev job:", e);
+    }
+  }
+
+  async finishDevJob(id: string, status: "success" | "partial" | "error", summary: any, results: any) {
+    try {
+      await this.db.prepare(
+        "UPDATE dev_jobs SET status = ?, summary = ?, results = ?, finished_at = ? WHERE id = ?"
+      ).bind(status, JSON.stringify(summary), JSON.stringify(results), new Date().toISOString(), id).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to finish dev job:", e);
+    }
+  }
+
+  async getDevJobs(limit = 50): Promise<any[]> {
+    try {
+      const result = await this.db.prepare(
+        "SELECT id, type, status, summary, triggered_by, reason, started_at, finished_at FROM dev_jobs WHERE shopify_domain = ? ORDER BY started_at DESC LIMIT ?"
+      ).bind(this.shopDomain, limit).all();
+      return (result.results as any[]).map(r => ({
+        ...r,
+        summary: r.summary ? JSON.parse(r.summary) : null,
+      }));
+    } catch (e) {
+      console.error("[Rioko] Failed to get dev jobs:", e);
+      return [];
+    }
+  }
+
+  async getDevJob(id: string): Promise<any | null> {
+    try {
+      const row: any = await this.db.prepare(
+        "SELECT * FROM dev_jobs WHERE id = ? AND shopify_domain = ?"
+      ).bind(id, this.shopDomain).first();
+      if (!row) return null;
+      return {
+        ...row,
+        params: row.params ? JSON.parse(row.params) : null,
+        summary: row.summary ? JSON.parse(row.summary) : null,
+        results: row.results ? JSON.parse(row.results) : null,
+      };
+    } catch (e) {
+      console.error("[Rioko] Failed to get dev job:", e);
+      return null;
+    }
+  }
+
+  async getLogs(limit = 100, statusFilter?: "errors" | "all"): Promise<any[]> {
+    try {
+      const where = statusFilter === "errors"
+        ? "WHERE shopify_domain = ? AND status >= 400"
+        : "WHERE shopify_domain = ?";
+      const result = await this.db.prepare(
+        `SELECT id, topic, payload, response, status FROM logs ${where} ORDER BY rowid DESC LIMIT ?`
+      ).bind(this.shopDomain, limit).all();
+      return result.results as any[];
+    } catch (e) {
+      console.error("[Rioko] Failed to get logs:", e);
+      return [];
+    }
+  }
+
+  async getWebhookEvents(limit = 100): Promise<any[]> {
+    try {
+      const result = await this.db.prepare(
+        "SELECT webhook_id, topic, state, created_at FROM webhook_info WHERE shopify_domain = ? OR shopify_domain IS NULL ORDER BY created_at DESC LIMIT ?"
+      ).bind(this.shopDomain, limit).all();
+      return result.results as any[];
+    } catch (e) {
+      console.error("[Rioko] Failed to get webhook events:", e);
+      return [];
+    }
+  }
+
+  async getNotifyEmails(): Promise<string[]> {
+    try {
+      const row: any = await this.db.prepare(
+        "SELECT dev_notify_emails FROM integrations WHERE shopify_domain = ?"
+      ).bind(this.shopDomain).first();
+      if (!row?.dev_notify_emails) return [];
+      try {
+        const parsed = JSON.parse(row.dev_notify_emails);
+        return Array.isArray(parsed) ? parsed.filter((e: any) => typeof e === "string") : [];
+      } catch {
+        return [];
+      }
+    } catch (e) {
+      console.error("[Rioko] Failed to get notify emails:", e);
+      return [];
+    }
+  }
+
+  async setNotifyEmails(emails: string[]) {
+    await this.db.prepare(
+      "UPDATE integrations SET dev_notify_emails = ? WHERE shopify_domain = ?"
+    ).bind(JSON.stringify(emails), this.shopDomain).run();
   }
 
   async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {
@@ -176,11 +333,12 @@ export class AppStorage {
 
   async markWebhookAsProcessing(webhookId: string, topic: string) {
     try {
-      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
+      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain) VALUES (?, ?, ?, ?, ?)").bind(
         webhookId,
         topic,
         "processing",
-        new Date().toISOString()
+        new Date().toISOString(),
+        this.shopDomain
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to mark webhook as processing:", e);
@@ -189,11 +347,12 @@ export class AppStorage {
 
   async markWebhookAsProcessed(webhookId: string, topic: string, state: string = "success") {
     try {
-      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at) VALUES (?, ?, ?, ?)").bind(
+      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain) VALUES (?, ?, ?, ?, ?)").bind(
         webhookId,
         topic,
         state,
-        new Date().toISOString()
+        new Date().toISOString(),
+        this.shopDomain
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to mark webhook as processed:", e);

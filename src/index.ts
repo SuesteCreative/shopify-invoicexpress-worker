@@ -7,7 +7,8 @@ import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
-import { getUnprocessedOrders, processOrders } from "./handlers/admin";
+import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts } from "./handlers/admin";
+import { sendDevModeEmail } from "./handlers/notify";
 import { delay } from "./utils";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -116,12 +117,18 @@ app.get("/admin/unprocessed-orders", async (c) => {
   }
 })
 
-// Admin: process (create or finalize) orders
-app.post("/admin/process-orders", async (c) => {
+function requireAdmin(c: Context<{ Bindings: Env }>) {
   const apiKey = c.req.header("x-api-key");
   if (!apiKey || apiKey !== c.env.ADMIN_API_KEY) {
     return c.json({ error: "Unauthorized" }, 401);
   }
+  return null;
+}
+
+// Admin: process (create or finalize) orders
+app.post("/admin/process-orders", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
 
   const body = await c.req.json<{
     shop: string;
@@ -129,6 +136,11 @@ app.post("/admin/process-orders", async (c) => {
     order_ids?: number[];
     from?: string;
     to?: string;
+    dry_run?: boolean;
+    since_last_processed?: boolean;
+    notify_emails?: string[];
+    triggered_by?: string;
+    reason?: string;
   }>();
 
   if (!body.shop || !body.type) {
@@ -139,8 +151,8 @@ app.post("/admin/process-orders", async (c) => {
     return c.json({ error: "type must be 'create_orders' or 'finalize_orders'" }, 400);
   }
 
-  if (!body.order_ids?.length && (!body.from || !body.to)) {
-    return c.json({ error: "Either order_ids or from/to date range is required" }, 400);
+  if (!body.order_ids?.length && !body.since_last_processed && (!body.from || !body.to)) {
+    return c.json({ error: "Either order_ids, since_last_processed, or from/to date range is required" }, 400);
   }
 
   const appStorage = new AppStorage(c.env, body.shop);
@@ -151,12 +163,163 @@ app.post("/admin/process-orders", async (c) => {
   }
 
   try {
-    const result = await processOrders(c.env, config, body.type, body.order_ids, body.from, body.to);
+    const result = await processOrders(c.env, config, body.type, body.order_ids, body.from, body.to, {
+      dry_run: body.dry_run,
+      since_last_processed: body.since_last_processed,
+      notify_emails: body.notify_emails,
+      triggered_by: body.triggered_by ?? null,
+      reason: body.reason ?? null,
+    });
     return c.json(result);
   } catch (e) {
     console.error("[Rioko][Admin] Error processing orders:", e);
     return c.json({ error: String(e) }, 500);
   }
+})
+
+// Admin: re-emit single order by order_number
+app.post("/admin/reemit-order", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+
+  const body = await c.req.json<{
+    shop: string;
+    order_number: number;
+    force?: boolean;
+    reason?: string;
+    triggered_by?: string;
+    notify_emails?: string[];
+  }>();
+
+  if (!body.shop || !body.order_number) {
+    return c.json({ error: "Missing required fields: shop, order_number" }, 400);
+  }
+
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+
+  try {
+    const result = await reemitOrder(c.env, config, body.order_number, {
+      force: body.force,
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    return c.json(result);
+  } catch (e) {
+    console.error("[Rioko][Admin] Error re-emitting order:", e);
+    return c.json({ error: String(e) }, 500);
+  }
+})
+
+// Admin: finalize drafts
+app.post("/admin/finalize-drafts", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+
+  const body = await c.req.json<{
+    shop: string;
+    dry_run?: boolean;
+    limit?: number;
+    reason?: string;
+    triggered_by?: string;
+    notify_emails?: string[];
+  }>();
+
+  if (!body.shop) return c.json({ error: "Missing required field: shop" }, 400);
+
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+
+  try {
+    const result = await finalizeDrafts(c.env, config, {
+      dry_run: body.dry_run,
+      limit: body.limit,
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    return c.json(result);
+  } catch (e) {
+    console.error("[Rioko][Admin] Error finalizing drafts:", e);
+    return c.json({ error: String(e) }, 500);
+  }
+})
+
+// Admin: per-shop logs / jobs / webhooks
+app.get("/admin/logs", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+
+  const shop = c.req.query("shop");
+  const type = (c.req.query("type") ?? "jobs") as "errors" | "webhooks" | "jobs" | "all";
+  const limit = Math.min(parseInt(c.req.query("limit") ?? "100", 10) || 100, 500);
+
+  if (!shop) return c.json({ error: "Missing required query param: shop" }, 400);
+
+  const appStorage = new AppStorage(c.env, shop);
+  try {
+    if (type === "errors") {
+      return c.json({ entries: await appStorage.getLogs(limit, "errors") });
+    }
+    if (type === "all") {
+      return c.json({ entries: await appStorage.getLogs(limit, "all") });
+    }
+    if (type === "webhooks") {
+      return c.json({ entries: await appStorage.getWebhookEvents(limit) });
+    }
+    return c.json({ entries: await appStorage.getDevJobs(limit) });
+  } catch (e) {
+    return c.json({ error: String(e) }, 500);
+  }
+})
+
+// Admin: fetch single job detail (per-order results)
+app.get("/admin/jobs/:id", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+
+  const shop = c.req.query("shop");
+  const id = c.req.param("id");
+  if (!shop) return c.json({ error: "Missing shop" }, 400);
+
+  const appStorage = new AppStorage(c.env, shop);
+  const job = await appStorage.getDevJob(id);
+  if (!job) return c.json({ error: "Not found" }, 404);
+  return c.json(job);
+})
+
+// Admin: get/set per-account notify emails
+app.get("/admin/notify-emails", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const shop = c.req.query("shop");
+  if (!shop) return c.json({ error: "Missing shop" }, 400);
+  const appStorage = new AppStorage(c.env, shop);
+  return c.json({ emails: await appStorage.getNotifyEmails() });
+})
+
+app.put("/admin/notify-emails", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ shop: string; emails: string[] }>();
+  if (!body.shop) return c.json({ error: "Missing shop" }, 400);
+  const emails = (body.emails ?? []).filter(e => typeof e === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  const appStorage = new AppStorage(c.env, body.shop);
+  await appStorage.setNotifyEmails(emails);
+  return c.json({ emails });
+})
+
+// Admin: ad-hoc test notify
+app.post("/admin/notify", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ recipients: string[]; subject: string; body: string }>();
+  if (!body.recipients?.length) return c.json({ error: "Missing recipients" }, 400);
+  const res = await sendDevModeEmail({ recipients: body.recipients, subject: body.subject, body: body.body });
+  return c.json(res, res.ok ? 200 : 500);
 })
 
 export default {

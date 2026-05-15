@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
+import { sendDevModeEmail } from "./notify";
 
 interface ShopifyOrderSummary {
   id: number;
@@ -21,9 +22,17 @@ interface ShopifyOrderSummary {
 type OrderResult = {
   order_id: number;
   order_number: number;
-  status: "created" | "finalized" | "skipped" | "error";
+  status: "created" | "finalized" | "skipped" | "error" | "dry_run";
   message: string;
 };
+
+export interface ProcessOrdersOptions {
+  dry_run?: boolean;
+  since_last_processed?: boolean;
+  notify_emails?: string[];
+  triggered_by?: string | null;
+  reason?: string | null;
+}
 
 async function fetchShopifyOrders(config: IRequestConfig, from: string, to: string): Promise<any[]> {
   const allOrders: any[] = [];
@@ -126,49 +135,278 @@ export async function processOrders(
   type: "create_orders" | "finalize_orders",
   orderIds: number[] | undefined,
   from?: string,
-  to?: string
+  to?: string,
+  options: ProcessOrdersOptions = {}
 ) {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const dryRun = !!options.dry_run;
+
   let orders: any[];
+  let effectiveFrom = from;
+  let effectiveTo = to;
 
   if (orderIds && orderIds.length > 0) {
-    // Fetch specific orders by ID from Shopify
     orders = await fetchOrdersByIds(config, orderIds);
-  } else if (from && to) {
-    // Fetch unprocessed orders from date range
-    const appStorage = new AppStorage(env, config.shopify_domain!);
-    const shopifyOrders = await fetchShopifyOrders(config, from, to);
+  } else {
+    if (options.since_last_processed) {
+      const last = await appStorage.getLastProcessedDate();
+      effectiveFrom = last ?? (effectiveFrom ?? "2020-01-01T00:00:00Z");
+      effectiveTo = effectiveTo ?? new Date().toISOString();
+    }
+    if (!effectiveFrom || !effectiveTo) {
+      throw new Error("Either order_ids or from/to date range (or since_last_processed) is required");
+    }
+    const shopifyOrders = await fetchShopifyOrders(config, effectiveFrom, effectiveTo);
     const allIds = shopifyOrders.map((o) => String(o.id));
     const processedIds = await appStorage.getProcessedOrderIds(allIds);
 
     if (type === "create_orders") {
-      // For create: only unprocessed (not in DB)
       orders = shopifyOrders.filter((o) => !processedIds.has(String(o.id)));
     } else {
-      // For finalize: only processed (in DB, have invoice)
       orders = shopifyOrders.filter((o) => processedIds.has(String(o.id)));
     }
-  } else {
-    throw new Error("Either order_ids or from/to date range is required");
   }
+
+  const jobId = crypto.randomUUID();
+  await appStorage.startDevJob({
+    id: jobId,
+    type: dryRun ? `${type}_dry_run` : type,
+    params: { orderIds, from: effectiveFrom, to: effectiveTo, options },
+    triggered_by: options.triggered_by ?? null,
+    reason: options.reason ?? null,
+  });
 
   const results: OrderResult[] = [];
 
   for (const order of orders) {
-    if (type === "create_orders") {
+    if (dryRun) {
+      results.push(await adminDryRunCreate(env, config, order, type));
+    } else if (type === "create_orders") {
       results.push(await adminCreateOrder(env, config, order));
     } else {
       results.push(await adminFinalizeOrder(env, config, order));
     }
   }
 
-  return {
+  const summary = {
     type,
+    dry_run: dryRun,
     total: results.length,
     success: results.filter((r) => r.status === "created" || r.status === "finalized").length,
     skipped: results.filter((r) => r.status === "skipped").length,
     errors: results.filter((r) => r.status === "error").length,
-    results,
+    would_create: results.filter((r) => r.status === "dry_run").length,
+    from: effectiveFrom,
+    to: effectiveTo,
   };
+
+  const status: "success" | "partial" | "error" = summary.errors === 0
+    ? "success"
+    : summary.success > 0 || summary.would_create > 0 ? "partial" : "error";
+
+  await appStorage.finishDevJob(jobId, status, summary, results);
+
+  if (options.notify_emails && options.notify_emails.length > 0) {
+    const subject = `Rioko Dev Mode — ${type}${dryRun ? " (dry-run)" : ""} for ${config.shopify_domain}`;
+    const body = [
+      `Job: ${type}${dryRun ? " (dry-run)" : ""}`,
+      `Shop: ${config.shopify_domain}`,
+      `Triggered by: ${options.triggered_by ?? "unknown"}`,
+      `Reason: ${options.reason ?? "—"}`,
+      `From: ${effectiveFrom ?? "—"}  To: ${effectiveTo ?? "—"}`,
+      ``,
+      `Total: ${summary.total}`,
+      `Success: ${summary.success}`,
+      `Skipped: ${summary.skipped}`,
+      `Errors: ${summary.errors}`,
+      dryRun ? `Would create: ${summary.would_create}` : ``,
+      ``,
+      `Job ID: ${jobId}`,
+    ].filter(Boolean).join("\n");
+    await sendDevModeEmail({ recipients: options.notify_emails, subject, body });
+  }
+
+  return { job_id: jobId, ...summary, results };
+}
+
+async function adminDryRunCreate(env: Env, config: IRequestConfig, order: any, type: "create_orders" | "finalize_orders"): Promise<OrderResult> {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const orderId = String(order.id);
+
+  try {
+    if (type === "finalize_orders") {
+      const ref = await appStorage.getInvoiceByOrderId(orderId);
+      return ref
+        ? { order_id: order.id, order_number: order.order_number, status: "dry_run", message: `Would finalize invoice ${ref.invoice_id}` }
+        : { order_id: order.id, order_number: order.order_number, status: "skipped", message: "No invoice on file" };
+    }
+
+    const already = await appStorage.isInvoiceAlreadyProcessed(orderId);
+    if (already) return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Already in DB" };
+
+    const ixHeaders = {
+      "x-account-name": config.ix_account_name!,
+      "x-api-key": config.ix_api_key!,
+      "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+    };
+    const ixExisting = await IxApi.v2.documents.reference.post({
+      headers: ixHeaders,
+      body: { reference: `Order #${order.order_number}` },
+    });
+    if (ixExisting.data?.data?.id) {
+      return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Exists in IX (id=${ixExisting.data.data.id})` };
+    }
+    return { order_id: order.id, order_number: order.order_number, status: "dry_run", message: "Would create invoice" };
+  } catch (e) {
+    return { order_id: order.id, order_number: order.order_number, status: "error", message: String(e) };
+  }
+}
+
+export async function reemitOrder(
+  env: Env,
+  config: IRequestConfig,
+  orderNumber: number,
+  options: { force?: boolean; reason?: string | null; triggered_by?: string | null; notify_emails?: string[] }
+) {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const jobId = crypto.randomUUID();
+  await appStorage.startDevJob({
+    id: jobId,
+    type: "reemit",
+    params: { order_number: orderNumber, force: !!options.force },
+    triggered_by: options.triggered_by ?? null,
+    reason: options.reason ?? null,
+  });
+
+  const apiVersion = config.shopify_api_version ?? "2026-01";
+  const url = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?name=${encodeURIComponent("#" + orderNumber)}&status=any&limit=1`;
+  let order: any = null;
+
+  try {
+    const res = await fetch(url, {
+      headers: { "X-Shopify-Access-Token": config.shopify_token!, "Accept": "application/json" },
+    });
+    if (!res.ok) throw new Error(`Shopify ${res.status}: ${await res.text()}`);
+    const data = await res.json() as { orders: any[] };
+    order = data.orders?.[0];
+  } catch (e) {
+    const summary = { error: String(e) };
+    await appStorage.finishDevJob(jobId, "error", summary, []);
+    return { job_id: jobId, status: "error", ...summary };
+  }
+
+  if (!order) {
+    const summary = { error: `Order #${orderNumber} not found in Shopify` };
+    await appStorage.finishDevJob(jobId, "error", summary, []);
+    return { job_id: jobId, status: "error", ...summary };
+  }
+
+  if (options.force) {
+    await appStorage.deleteProcessedInvoice(String(order.id));
+  }
+
+  const result = await adminCreateOrder(env, config, order, { skipIxReferenceCheck: !!options.force });
+  const status: "success" | "error" = result.status === "created" ? "success" : "error";
+  const summary = { result, force: !!options.force };
+  await appStorage.finishDevJob(jobId, status === "success" ? "success" : "partial", summary, [result]);
+
+  if (options.notify_emails && options.notify_emails.length > 0) {
+    await sendDevModeEmail({
+      recipients: options.notify_emails,
+      subject: `Rioko Dev Mode — Re-emit ${order.name} for ${config.shopify_domain}`,
+      body: `Order: ${order.name}\nStatus: ${result.status}\nMessage: ${result.message}\nForce: ${options.force ? "yes" : "no"}\nReason: ${options.reason ?? "—"}\nJob ID: ${jobId}`,
+    });
+  }
+
+  return { job_id: jobId, ...result };
+}
+
+export async function finalizeDrafts(
+  env: Env,
+  config: IRequestConfig,
+  options: { dry_run?: boolean; limit?: number; triggered_by?: string | null; reason?: string | null; notify_emails?: string[] }
+) {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const limit = Math.min(options.limit ?? 100, 500);
+  const dryRun = !!options.dry_run;
+  const jobId = crypto.randomUUID();
+  await appStorage.startDevJob({
+    id: jobId,
+    type: dryRun ? "finalize_drafts_dry_run" : "finalize_drafts",
+    params: { limit, dry_run: dryRun },
+    triggered_by: options.triggered_by ?? null,
+    reason: options.reason ?? null,
+  });
+
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+
+  const processed = await appStorage.listProcessedInvoices(limit);
+  const results: Array<{ order_id: string; invoice_id: string; status: "finalized" | "dry_run" | "skipped" | "error"; message: string }> = [];
+
+  for (const row of processed) {
+    try {
+      const { data: docData, error: docError } = await IxApi.v2.documents.byId.get({
+        headers: ixHeaders,
+        path: { id: Number(row.invoice_id) },
+      });
+      if (docError || !docData?.data) {
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: `Fetch failed: ${JSON.stringify(docError)}` });
+        continue;
+      }
+      const state = (docData.data as any).status ?? (docData.data as any).state;
+      if (state !== "draft") {
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Not draft (status=${state})` });
+        continue;
+      }
+      if (dryRun) {
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "dry_run", message: "Would finalize" });
+        continue;
+      }
+      const { error } = await IxApi.v2.changeState.post({
+        body: {
+          type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+          id: Number(row.invoice_id),
+          state: "finalized",
+          actualizeDateBeforeChange: true,
+        },
+        headers: ixHeaders,
+      });
+      if (error) {
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: JSON.stringify(error) });
+      } else {
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "finalized", message: "OK" });
+      }
+    } catch (e) {
+      results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: String(e) });
+    }
+  }
+
+  const summary = {
+    total: results.length,
+    finalized: results.filter(r => r.status === "finalized").length,
+    skipped: results.filter(r => r.status === "skipped").length,
+    errors: results.filter(r => r.status === "error").length,
+    would_finalize: results.filter(r => r.status === "dry_run").length,
+    dry_run: dryRun,
+  };
+  const status: "success" | "partial" | "error" = summary.errors === 0
+    ? "success"
+    : summary.finalized > 0 || summary.would_finalize > 0 ? "partial" : "error";
+  await appStorage.finishDevJob(jobId, status, summary, results);
+
+  if (options.notify_emails && options.notify_emails.length > 0) {
+    await sendDevModeEmail({
+      recipients: options.notify_emails,
+      subject: `Rioko Dev Mode — Finalize drafts${dryRun ? " (dry-run)" : ""} for ${config.shopify_domain}`,
+      body: `Total: ${summary.total}\nFinalized: ${summary.finalized}\nSkipped: ${summary.skipped}\nErrors: ${summary.errors}${dryRun ? `\nWould finalize: ${summary.would_finalize}` : ""}\nJob ID: ${jobId}`,
+    });
+  }
+
+  return { job_id: jobId, ...summary, results };
 }
 
 async function fetchOrdersByIds(config: IRequestConfig, orderIds: number[]): Promise<any[]> {
@@ -191,7 +429,7 @@ async function fetchOrdersByIds(config: IRequestConfig, orderIds: number[]): Pro
   return data.orders;
 }
 
-async function adminCreateOrder(env: Env, config: IRequestConfig, order: any): Promise<OrderResult> {
+async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, opts: { skipIxReferenceCheck?: boolean } = {}): Promise<OrderResult> {
   const appStorage = new AppStorage(env, config.shopify_domain!);
   const orderId = String(order.id);
 
@@ -209,16 +447,18 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any): P
       "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
     };
 
-    // Check if invoice already exists in InvoiceXpress
-    const ixExisting = await IxApi.v2.documents.reference.post({
-      headers: ixHeaders,
-      body: { reference: ixRef },
-    });
+    if (!opts.skipIxReferenceCheck) {
+      // Check if invoice already exists in InvoiceXpress
+      const ixExisting = await IxApi.v2.documents.reference.post({
+        headers: ixHeaders,
+        body: { reference: ixRef },
+      });
 
-    if (ixExisting.data?.data?.id) {
-      // Exists in IX but not in our DB — save the reference
-      await appStorage.saveProcessedInvoice(orderId, String(ixExisting.data.data.id));
-      return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Already exists in InvoiceXpress (id=${ixExisting.data.data.id}), synced to DB` };
+      if (ixExisting.data?.data?.id) {
+        // Exists in IX but not in our DB — save the reference
+        await appStorage.saveProcessedInvoice(orderId, String(ixExisting.data.data.id));
+        return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Already exists in InvoiceXpress (id=${ixExisting.data.data.id}), synced to DB` };
+      }
     }
 
     // Normalize order

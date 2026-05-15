@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
-    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar
+    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent
 } from "lucide-react";
 
 type Target = {
@@ -106,6 +106,7 @@ export function DevModePanel({ target }: { target: Target }) {
 
             {!noShop && (
                 <>
+                    <TaxOverrideCard targetUserId={target.id} />
                     <NotifyEmailsCard emails={notifyEmails} input={emailInput} setInput={setEmailInput} onAdd={addEmail} onRemove={removeEmail} saving={savingEmails} />
                     <BackfillCard targetUserId={target.id} notifyEmails={notifyEmails} />
                     <ReemitCard targetUserId={target.id} notifyEmails={notifyEmails} />
@@ -141,6 +142,72 @@ function ResultBox({ result }: { result: JobResult | null }) {
         <pre className={`mt-4 rounded-2xl p-5 text-[11px] font-mono whitespace-pre-wrap border ${errored ? "bg-red-500/5 border-red-500/20 text-red-300" : "bg-slate-900/70 border-slate-800 text-slate-300"}`}>
             {JSON.stringify(result, null, 2)}
         </pre>
+    );
+}
+
+function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
+    const [rate, setRate] = useState<string>("");
+    const [oss, setOss] = useState(true);
+    const [loaded, setLoaded] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+
+    useEffect(() => {
+        fetch(`/api/admin/dev-mode/tax-override?targetUserId=${targetUserId}`)
+            .then(r => r.json())
+            .then((d: any) => {
+                setRate(d.force_tax_rate != null ? String(d.force_tax_rate) : "");
+                setOss(d.oss_enabled !== 0);
+                setLoaded(true);
+            })
+            .catch(console.error);
+    }, [targetUserId]);
+
+    const save = async () => {
+        setSaving(true);
+        try {
+            const parsed = rate.trim() === "" ? null : Number(rate);
+            const res = await fetch("/api/admin/dev-mode/tax-override", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetUserId, force_tax_rate: parsed, oss_enabled: oss }),
+            });
+            await res.json();
+            setSavedAt(Date.now());
+        } catch (e) { console.error(e); }
+        finally { setSaving(false); }
+    };
+
+    return (
+        <Section icon={<Percent className="w-5 h-5 text-cyan-400" />} title="Override de IVA" desc="Força uma taxa fixa em todas as faturas geradas (backfill + webhooks). Deixa vazio para usar dados do Shopify.">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Force Tax (%)
+                    <input
+                        type="number" min={0} max={100} step="0.01"
+                        value={rate} onChange={e => setRate(e.target.value)}
+                        placeholder="ex: 6 ou vazio"
+                        disabled={!loaded}
+                        className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white"
+                    />
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer pb-2">
+                    <input type="checkbox" checked={oss} onChange={e => setOss(e.target.checked)} disabled={!loaded} className="accent-cyan-500 w-4 h-4" />
+                    <span className="text-xs font-bold text-slate-300">
+                        OSS ativo (vendedor cross-border EU)
+                    </span>
+                </label>
+                <button onClick={save} disabled={!loaded || saving}
+                    className="bg-white text-black py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-cyan-500 hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? <CheckCircle2 className="w-3 h-3" /> : null}
+                    {savedAt && Date.now() - savedAt < 2000 ? "Guardado" : "Guardar"}
+                </button>
+            </div>
+            <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
+                <strong className="text-slate-500">Force Tax:</strong> aplica esta taxa a todas as linhas de fatura, ignorando Shopify. Útil para vendedores com catálogo de taxa única (ex: livraria 6%).<br />
+                <strong className="text-slate-500">OSS:</strong> informativo por agora. Rotação completa para small-seller (substituir taxas destino por taxa origem) requer rewrite do builder.
+            </p>
+        </Section>
     );
 }
 

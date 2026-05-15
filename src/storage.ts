@@ -42,6 +42,9 @@ export interface IRequestConfig {
   webhooks_active: number | null;
   // 0 or 1
   pos_mode: number | null;
+  // Dev Mode tax overrides
+  force_tax_rate: number | null;
+  oss_enabled: number | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -293,6 +296,27 @@ export class AppStorage {
     await this.db.prepare(
       "UPDATE integrations SET dev_notify_emails = ? WHERE shopify_domain = ?"
     ).bind(JSON.stringify(emails), this.shopDomain).run();
+  }
+
+  async getTaxOverride(): Promise<{ force_tax_rate: number | null; oss_enabled: number }> {
+    try {
+      const row: any = await this.db.prepare(
+        "SELECT force_tax_rate, oss_enabled FROM integrations WHERE shopify_domain = ?"
+      ).bind(this.shopDomain).first();
+      return {
+        force_tax_rate: row?.force_tax_rate ?? null,
+        oss_enabled: row?.oss_enabled ?? 1,
+      };
+    } catch (e) {
+      console.error("[Rioko] Failed to get tax override:", e);
+      return { force_tax_rate: null, oss_enabled: 1 };
+    }
+  }
+
+  async setTaxOverride(force_tax_rate: number | null, oss_enabled: boolean) {
+    await this.db.prepare(
+      "UPDATE integrations SET force_tax_rate = ?, oss_enabled = ? WHERE shopify_domain = ?"
+    ).bind(force_tax_rate, oss_enabled ? 1 : 0, this.shopDomain).run();
   }
 
   async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {

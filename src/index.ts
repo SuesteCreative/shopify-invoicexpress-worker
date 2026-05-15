@@ -312,6 +312,30 @@ app.put("/admin/notify-emails", async (c) => {
   return c.json({ emails });
 })
 
+// Admin: get/set per-account tax override
+app.get("/admin/tax-override", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const shop = c.req.query("shop");
+  if (!shop) return c.json({ error: "Missing shop" }, 400);
+  const appStorage = new AppStorage(c.env, shop);
+  return c.json(await appStorage.getTaxOverride());
+})
+
+app.put("/admin/tax-override", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ shop: string; force_tax_rate: number | null; oss_enabled: boolean }>();
+  if (!body.shop) return c.json({ error: "Missing shop" }, 400);
+  const rate = body.force_tax_rate;
+  if (rate != null && (typeof rate !== "number" || rate < 0 || rate > 100)) {
+    return c.json({ error: "force_tax_rate must be a number between 0 and 100, or null" }, 400);
+  }
+  const appStorage = new AppStorage(c.env, body.shop);
+  await appStorage.setTaxOverride(rate, !!body.oss_enabled);
+  return c.json(await appStorage.getTaxOverride());
+})
+
 // Admin: ad-hoc test notify
 app.post("/admin/notify", async (c) => {
   const unauth = requireAdmin(c);

@@ -23,10 +23,12 @@ export class IxBuilder {
   }
 
   buildInvoiceItems(normalizedItems: Normalized["order"]["items"]): IxInvoice["items"] {
+    const forceTax = this.config.force_tax_rate;
     return normalizedItems.map(item => ({
       quantity: item.quantity,
-      // TODO: Ruben has to fix it
-      tax: item.tax.unit_amount === 0 ? 0 : item.tax.value,
+      tax: forceTax != null
+        ? forceTax
+        : (item.tax.unit_amount === 0 ? 0 : item.tax.value),
       unit_price: item.unit_price,
       discount: item?.discount?.percent ?? undefined,
       name: item.variant_title ? `${item.title} / ${item.variant_title}`.slice(0, 200) : item.title.slice(0, 200),

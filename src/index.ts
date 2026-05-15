@@ -374,14 +374,20 @@ app.get("/admin/tax-override", async (c) => {
 app.put("/admin/tax-override", async (c) => {
   const unauth = requireAdmin(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ shop: string; force_tax_rate: number | null; oss_enabled: boolean }>();
+  const body = await c.req.json<{ shop: string; force_tax_rate: number | null; force_shipping_tax_rate: number | null; oss_enabled: boolean }>();
   if (!body.shop) return c.json({ error: "Missing shop" }, 400);
-  const rate = body.force_tax_rate;
-  if (rate != null && (typeof rate !== "number" || rate < 0 || rate > 100)) {
-    return c.json({ error: "force_tax_rate must be a number between 0 and 100, or null" }, 400);
-  }
+  const validate = (r: number | null | undefined, label: string) => {
+    if (r != null && (typeof r !== "number" || r < 0 || r > 100)) {
+      return c.json({ error: `${label} must be a number between 0 and 100, or null` }, 400);
+    }
+    return null;
+  };
+  const e1 = validate(body.force_tax_rate, "force_tax_rate");
+  if (e1) return e1;
+  const e2 = validate(body.force_shipping_tax_rate, "force_shipping_tax_rate");
+  if (e2) return e2;
   const appStorage = new AppStorage(c.env, body.shop);
-  await appStorage.setTaxOverride(rate, !!body.oss_enabled);
+  await appStorage.setTaxOverride(body.force_tax_rate ?? null, body.force_shipping_tax_rate ?? null, !!body.oss_enabled);
   return c.json(await appStorage.getTaxOverride());
 })
 

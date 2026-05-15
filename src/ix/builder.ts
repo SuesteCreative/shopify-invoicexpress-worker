@@ -23,7 +23,8 @@ export class IxBuilder {
   }
 
   buildInvoiceItems(normalizedItems: Normalized["order"]["items"]): IxInvoice["items"] {
-    const forceTax = this.config.force_tax_rate;
+    const forceTaxProducts = this.config.force_tax_rate;
+    const forceTaxShipping = this.config.force_shipping_tax_rate;
     return normalizedItems.map(item => {
       const isShipping = !item.product_id && !item.variant_id;
       const name = isShipping
@@ -34,6 +35,7 @@ export class IxBuilder {
       const description = isShipping
         ? undefined
         : (item.sku ? `SKU: ${item.sku}`.slice(0, 200) : undefined);
+      const forceTax = isShipping ? forceTaxShipping : forceTaxProducts;
       return {
         quantity: item.quantity,
         tax: forceTax != null

@@ -148,6 +148,7 @@ function ResultBox({ result }: { result: JobResult | null }) {
 
 function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
     const [rate, setRate] = useState<string>("");
+    const [shippingRate, setShippingRate] = useState<string>("");
     const [oss, setOss] = useState(true);
     const [loaded, setLoaded] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -158,6 +159,7 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
             .then(r => r.json())
             .then((d: any) => {
                 setRate(d.force_tax_rate != null ? String(d.force_tax_rate) : "");
+                setShippingRate(d.force_shipping_tax_rate != null ? String(d.force_shipping_tax_rate) : "");
                 setOss(d.oss_enabled !== 0);
                 setLoaded(true);
             })
@@ -168,10 +170,11 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
         setSaving(true);
         try {
             const parsed = rate.trim() === "" ? null : Number(rate);
+            const parsedShipping = shippingRate.trim() === "" ? null : Number(shippingRate);
             const res = await fetch("/api/admin/dev-mode/tax-override", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetUserId, force_tax_rate: parsed, oss_enabled: oss }),
+                body: JSON.stringify({ targetUserId, force_tax_rate: parsed, force_shipping_tax_rate: parsedShipping, oss_enabled: oss }),
             });
             await res.json();
             setSavedAt(Date.now());
@@ -181,9 +184,9 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
 
     return (
         <Section icon={<Percent className="w-5 h-5 text-cyan-400" />} title="Override de IVA" desc="Força uma taxa fixa em todas as faturas geradas (backfill + webhooks). Deixa vazio para usar dados do Shopify.">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    Force Tax (%)
+                    Force Tax Produtos (%)
                     <input
                         type="number" min={0} max={100} step="0.01"
                         value={rate} onChange={e => setRate(e.target.value)}
@@ -192,10 +195,20 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                         className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white"
                     />
                 </label>
+                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Force Tax Portes (%)
+                    <input
+                        type="number" min={0} max={100} step="0.01"
+                        value={shippingRate} onChange={e => setShippingRate(e.target.value)}
+                        placeholder="ex: 23 ou vazio"
+                        disabled={!loaded}
+                        className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white"
+                    />
+                </label>
                 <label className="flex items-center gap-3 cursor-pointer pb-2">
                     <input type="checkbox" checked={oss} onChange={e => setOss(e.target.checked)} disabled={!loaded} className="accent-cyan-500 w-4 h-4" />
                     <span className="text-xs font-bold text-slate-300">
-                        OSS ativo (vendedor cross-border EU)
+                        OSS ativo
                     </span>
                 </label>
                 <button onClick={save} disabled={!loaded || saving}
@@ -205,8 +218,9 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                 </button>
             </div>
             <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
-                <strong className="text-slate-500">Force Tax:</strong> aplica esta taxa a todas as linhas de fatura, ignorando Shopify. Útil para vendedores com catálogo de taxa única (ex: livraria 6%).<br />
-                <strong className="text-slate-500">OSS:</strong> informativo por agora. Rotação completa para small-seller (substituir taxas destino por taxa origem) requer rewrite do builder.
+                <strong className="text-slate-500">Force Tax Produtos:</strong> aplica taxa fixa a linhas com product_id (livros, etc). Vazio = usa Shopify.<br />
+                <strong className="text-slate-500">Force Tax Portes:</strong> aplica taxa fixa à linha de envio (sem product_id). Vazio = usa Shopify (default).<br />
+                <strong className="text-slate-500">OSS:</strong> informativo por agora. Rotação completa para small-seller requer rewrite do builder.
             </p>
         </Section>
     );

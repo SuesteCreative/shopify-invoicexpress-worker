@@ -7,7 +7,7 @@ import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
-import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts } from "./handlers/admin";
+import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
 import { sendDevModeEmail } from "./handlers/notify";
 import { delay } from "./utils";
 
@@ -310,6 +310,48 @@ app.put("/admin/notify-emails", async (c) => {
   const appStorage = new AppStorage(c.env, body.shop);
   await appStorage.setNotifyEmails(emails);
   return c.json({ emails });
+})
+
+// Admin: delete draft by order_number
+app.post("/admin/delete-draft", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ shop: string; order_number: number; reason?: string; triggered_by?: string; notify_emails?: string[] }>();
+  if (!body.shop || !body.order_number) return c.json({ error: "Missing shop or order_number" }, 400);
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+  try {
+    const result = await deleteDraftByOrderNumber(c.env, config, body.order_number, {
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: String(e) }, 500);
+  }
+})
+
+// Admin: issue credit note by order_number
+app.post("/admin/issue-credit-note", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ shop: string; order_number: number; reason?: string; triggered_by?: string; notify_emails?: string[] }>();
+  if (!body.shop || !body.order_number) return c.json({ error: "Missing shop or order_number" }, 400);
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+  try {
+    const result = await issueCreditNoteByOrderNumber(c.env, config, body.order_number, {
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: String(e) }, 500);
+  }
 })
 
 // Admin: get/set per-account tax override

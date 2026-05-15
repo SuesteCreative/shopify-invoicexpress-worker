@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
-    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent
+    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt
 } from "lucide-react";
 
 type Target = {
@@ -110,6 +110,7 @@ export function DevModePanel({ target }: { target: Target }) {
                     <NotifyEmailsCard emails={notifyEmails} input={emailInput} setInput={setEmailInput} onAdd={addEmail} onRemove={removeEmail} saving={savingEmails} />
                     <BackfillCard targetUserId={target.id} notifyEmails={notifyEmails} />
                     <ReemitCard targetUserId={target.id} notifyEmails={notifyEmails} />
+                    <CancelInvoiceCard targetUserId={target.id} notifyEmails={notifyEmails} />
                     <FinalizeDraftsCard targetUserId={target.id} notifyEmails={notifyEmails} />
                     <LogsCard targetUserId={target.id} />
                 </>
@@ -365,6 +366,78 @@ function ReemitCard({ targetUserId, notifyEmails }: { targetUserId: string; noti
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
                 Re-emitir
             </button>
+            <ResultBox result={result} />
+        </Section>
+    );
+}
+
+function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+    const [orderNumber, setOrderNumber] = useState("");
+    const [mode, setMode] = useState<"delete_draft" | "credit_note">("delete_draft");
+    const [reason, setReason] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [confirm, setConfirm] = useState(false);
+    const [result, setResult] = useState<JobResult | null>(null);
+
+    const run = async () => {
+        if (!orderNumber) return;
+        setLoading(true); setResult(null); setConfirm(false);
+        try {
+            const path = mode === "delete_draft" ? "delete-draft" : "issue-credit-note";
+            const res = await fetch(`/api/admin/dev-mode/${path}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetUserId, order_number: Number(orderNumber), reason, notify_emails: notifyEmails }),
+            });
+            setResult(await res.json());
+        } catch (e: any) { setResult({ error: String(e) }); }
+        finally { setLoading(false); }
+    };
+
+    const isDelete = mode === "delete_draft";
+    return (
+        <Section
+            icon={isDelete ? <Trash2 className="w-5 h-5 text-red-400" /> : <Receipt className="w-5 h-5 text-orange-400" />}
+            title="Cancelar / Anular Fatura"
+            desc="Elimina draft (se ainda não finalizada) ou emite nota de crédito (se já finalizada), a partir do número da encomenda."
+        >
+            <div className="flex gap-2">
+                {(["delete_draft", "credit_note"] as const).map(m => (
+                    <button key={m} onClick={() => setMode(m)}
+                        className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? (m === "delete_draft" ? "bg-red-500/20 text-red-300 border-red-500/40" : "bg-orange-500/20 text-orange-300 border-orange-500/40") : "bg-slate-900/50 text-slate-500 border-slate-800 hover:text-slate-300"}`}>
+                        {m === "delete_draft" ? "Eliminar Draft" : "Emitir Nota de Crédito"}
+                    </button>
+                ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 md:col-span-1">
+                    Order #
+                    <input type="number" value={orderNumber} onChange={e => setOrderNumber(e.target.value)} placeholder="1137"
+                        className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                </label>
+                <textarea placeholder="Motivo (recomendado)..." value={reason} onChange={e => setReason(e.target.value)} rows={2}
+                    className="md:col-span-2 bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
+            </div>
+            {confirm ? (
+                <div className="flex items-center gap-3 bg-red-500/5 border border-red-500/20 rounded-2xl p-4">
+                    <AlertCircle className="w-4 h-4 text-red-400" />
+                    <span className="text-xs font-bold text-red-300 flex-1">
+                        Confirmar: {isDelete ? `eliminar draft da #${orderNumber}` : `emitir nota de crédito para #${orderNumber}`}? Ação irreversível em IX.
+                    </span>
+                    <button onClick={run} disabled={loading}
+                        className={`px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest ${isDelete ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"} text-white disabled:opacity-50 flex items-center gap-2`}>
+                        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                        Confirmar
+                    </button>
+                    <button onClick={() => setConfirm(false)} className="px-3 py-2 rounded-xl bg-slate-800 text-slate-400 text-[10px] font-black uppercase">Cancelar</button>
+                </div>
+            ) : (
+                <button onClick={() => setConfirm(true)} disabled={loading || !orderNumber}
+                    className={`w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${isDelete ? "bg-white text-black hover:bg-red-500 hover:text-white" : "bg-white text-black hover:bg-orange-500 hover:text-white"}`}>
+                    {isDelete ? <Trash2 className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
+                    {isDelete ? "Eliminar Draft" : "Emitir Nota de Crédito"}
+                </button>
+            )}
             <ResultBox result={result} />
         </Section>
     );

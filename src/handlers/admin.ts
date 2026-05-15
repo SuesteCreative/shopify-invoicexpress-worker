@@ -157,13 +157,17 @@ export async function processOrders(
       throw new Error("Either order_ids or from/to date range (or since_last_processed) is required");
     }
     const shopifyOrders = await fetchShopifyOrders(config, effectiveFrom, effectiveTo);
-    const allIds = shopifyOrders.map((o) => String(o.id));
+    // Hard rule: only paid orders are eligible for invoice creation
+    const paidOrders = type === "create_orders"
+      ? shopifyOrders.filter((o) => o.financial_status === "paid")
+      : shopifyOrders;
+    const allIds = paidOrders.map((o) => String(o.id));
     const processedIds = await appStorage.getProcessedOrderIds(allIds);
 
     if (type === "create_orders") {
-      orders = shopifyOrders.filter((o) => !processedIds.has(String(o.id)));
+      orders = paidOrders.filter((o) => !processedIds.has(String(o.id)));
     } else {
-      orders = shopifyOrders.filter((o) => processedIds.has(String(o.id)));
+      orders = paidOrders.filter((o) => processedIds.has(String(o.id)));
     }
   }
 
@@ -301,6 +305,12 @@ export async function reemitOrder(
     return { job_id: jobId, status: "error", ...summary };
   }
 
+  if (order.financial_status !== "paid") {
+    const summary = { error: `Order #${orderNumber} is not paid (financial_status=${order.financial_status})` };
+    await appStorage.finishDevJob(jobId, "error", summary, []);
+    return { job_id: jobId, status: "error", ...summary };
+  }
+
   if (options.force) {
     await appStorage.deleteProcessedInvoice(String(order.id));
   }
@@ -319,6 +329,198 @@ export async function reemitOrder(
   }
 
   return { job_id: jobId, ...result };
+}
+
+async function lookupOrderAndInvoice(
+  env: Env,
+  config: IRequestConfig,
+  orderNumber: number
+): Promise<{ order: any | null; invoiceId: string | null; ixInvoice: any | null; error?: string }> {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const apiVersion = config.shopify_api_version ?? "2026-01";
+  const url = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?name=${encodeURIComponent("#" + orderNumber)}&status=any&limit=1`;
+
+  const res = await fetch(url, { headers: { "X-Shopify-Access-Token": config.shopify_token!, "Accept": "application/json" } });
+  if (!res.ok) return { order: null, invoiceId: null, ixInvoice: null, error: `Shopify ${res.status}: ${await res.text()}` };
+  const data = await res.json() as { orders: any[] };
+  const order = data.orders?.[0];
+  if (!order) return { order: null, invoiceId: null, ixInvoice: null, error: `Order #${orderNumber} not found in Shopify` };
+
+  const invoiceRef = await appStorage.getInvoiceByOrderId(String(order.id));
+  if (!invoiceRef) return { order, invoiceId: null, ixInvoice: null, error: `No invoice registered for order ${order.id}` };
+
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+  const { data: ixData, error: ixErr } = await IxApi.v2.documents.byId.get({
+    headers: ixHeaders, path: { id: Number(invoiceRef.invoice_id) },
+  });
+  if (ixErr || !ixData?.data) return { order, invoiceId: invoiceRef.invoice_id, ixInvoice: null, error: `IX fetch failed: ${JSON.stringify(ixErr)}` };
+  return { order, invoiceId: invoiceRef.invoice_id, ixInvoice: ixData.data };
+}
+
+export async function deleteDraftByOrderNumber(
+  env: Env,
+  config: IRequestConfig,
+  orderNumber: number,
+  options: { reason?: string | null; triggered_by?: string | null; notify_emails?: string[] }
+) {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const jobId = crypto.randomUUID();
+  await appStorage.startDevJob({
+    id: jobId, type: "delete_draft", params: { order_number: orderNumber },
+    triggered_by: options.triggered_by ?? null, reason: options.reason ?? null,
+  });
+
+  const lookup = await lookupOrderAndInvoice(env, config, orderNumber);
+  if (lookup.error) {
+    await appStorage.finishDevJob(jobId, "error", { error: lookup.error }, []);
+    return { job_id: jobId, status: "error", error: lookup.error };
+  }
+  const state = (lookup.ixInvoice as any).status ?? (lookup.ixInvoice as any).state;
+  if (state !== "draft") {
+    const err = `Invoice ${lookup.invoiceId} is not draft (status=${state}). Use issue-credit-note for finalized invoices.`;
+    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
+    return { job_id: jobId, status: "error", error: err };
+  }
+
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+  const { error } = await IxApi.v2.changeState.post({
+    body: {
+      type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+      id: Number(lookup.invoiceId),
+      state: "deleted",
+    },
+    headers: ixHeaders,
+  });
+  if (error) {
+    const err = `IX delete failed: ${JSON.stringify(error)}`;
+    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
+    return { job_id: jobId, status: "error", error: err };
+  }
+
+  await appStorage.deleteProcessedInvoice(String(lookup.order.id));
+  const summary = { invoice_id: lookup.invoiceId, order_id: lookup.order.id, order_number: orderNumber };
+  await appStorage.finishDevJob(jobId, "success", summary, [summary]);
+
+  if (options.notify_emails && options.notify_emails.length > 0) {
+    await sendDevModeEmail({
+      recipients: options.notify_emails,
+      subject: `Rioko Dev Mode — Draft eliminado #${orderNumber} (${config.shopify_domain})`,
+      body: `Invoice ${lookup.invoiceId} eliminado.\nReason: ${options.reason ?? "—"}\nTriggered by: ${options.triggered_by ?? "—"}\nJob ID: ${jobId}`,
+    });
+  }
+
+  return { job_id: jobId, status: "success", ...summary };
+}
+
+export async function issueCreditNoteByOrderNumber(
+  env: Env,
+  config: IRequestConfig,
+  orderNumber: number,
+  options: { reason?: string | null; triggered_by?: string | null; notify_emails?: string[] }
+) {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const jobId = crypto.randomUUID();
+  await appStorage.startDevJob({
+    id: jobId, type: "issue_credit_note", params: { order_number: orderNumber },
+    triggered_by: options.triggered_by ?? null, reason: options.reason ?? null,
+  });
+
+  const lookup = await lookupOrderAndInvoice(env, config, orderNumber);
+  if (lookup.error) {
+    await appStorage.finishDevJob(jobId, "error", { error: lookup.error }, []);
+    return { job_id: jobId, status: "error", error: lookup.error };
+  }
+  const state = (lookup.ixInvoice as any).status ?? (lookup.ixInvoice as any).state;
+  if (state === "draft") {
+    const err = `Invoice ${lookup.invoiceId} is still draft. Use delete-draft instead.`;
+    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
+    return { job_id: jobId, status: "error", error: err };
+  }
+
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+
+  // Idempotency: check existing CNs for this invoice
+  const { data: rel } = await IxApi.v2.documents.byId.related.get({
+    headers: ixHeaders, path: { id: Number(lookup.invoiceId) },
+  });
+  const reference = `OrderCancel #${orderNumber}`;
+  const existing = (rel?.data?.documents ?? []).find((d: any) => d.type === "CreditNote" && d.reference === reference);
+  if (existing) {
+    const summary = { invoice_id: lookup.invoiceId, credit_note_id: existing.id, message: "Credit note already exists, skipped" };
+    await appStorage.finishDevJob(jobId, "success", summary, [summary]);
+    return { job_id: jobId, status: "success", ...summary };
+  }
+
+  // Build CN from normalized order
+  const shopify = new Shopify(env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config);
+  const normalized = await shopify.normalizeOrder(String(lookup.order.id));
+  if (!normalized) {
+    const err = "Failed to normalize order";
+    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
+    return { job_id: jobId, status: "error", error: err };
+  }
+
+  const ixBuilder = new IxBuilder(config);
+  const { invoice: built } = ixBuilder.createInvoiceFromNormalizedOrder(normalized.normalized);
+  const items = built.items;
+  const requireTaxExemption = items.some((it: any) =>
+    typeof it.tax === "number" ? it.tax === 0 : it.tax.value === 0
+  );
+  const creditNote: any = {
+    ...built,
+    reference,
+    tax_exemption_reason: requireTaxExemption
+      ? (lookup.ixInvoice as any)?.tax_exemption ?? config.ix_exemption_reason ?? undefined
+      : undefined,
+    owner_invoice_id: Number(lookup.invoiceId),
+  };
+
+  const { data: cnResp, error: cnErr } = await IxApi.v2.creditNotes.post({
+    headers: ixHeaders,
+    body: { credit_note: creditNote },
+    query: { resolvers: "on_tax_fallback_search_tax_by_value" },
+  });
+  if (cnErr) {
+    const err = `IX credit note create failed: ${JSON.stringify(cnErr)}`;
+    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
+    return { job_id: jobId, status: "error", error: err };
+  }
+
+  const cnId = (cnResp?.data as any)?.id
+    ?? (cnResp?.data as any)?.credit_note?.id
+    ?? (cnResp?.data as any)?.creditNote?.id;
+
+  if (cnId) {
+    await IxApi.v2.changeState.post({
+      body: { type: "credit_note", id: cnId, state: "finalized" },
+      headers: ixHeaders,
+    });
+  }
+
+  const summary = { invoice_id: lookup.invoiceId, credit_note_id: cnId, order_number: orderNumber };
+  await appStorage.finishDevJob(jobId, "success", summary, [summary]);
+
+  if (options.notify_emails && options.notify_emails.length > 0) {
+    await sendDevModeEmail({
+      recipients: options.notify_emails,
+      subject: `Rioko Dev Mode — Nota de crédito #${orderNumber} (${config.shopify_domain})`,
+      body: `Credit note ${cnId} emitida para invoice ${lookup.invoiceId}.\nReason: ${options.reason ?? "—"}\nTriggered by: ${options.triggered_by ?? "—"}\nJob ID: ${jobId}`,
+    });
+  }
+
+  return { job_id: jobId, status: "success", ...summary };
 }
 
 export async function finalizeDrafts(

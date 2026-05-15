@@ -9,6 +9,13 @@ import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
 import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
 import { sendDevModeEmail } from "./handlers/notify";
+import {
+  getReconciliation,
+  approveReconciliationMatch,
+  revertReconciliationMatch,
+  setReconciliationDecisionAction,
+  getShopForUser,
+} from "./handlers/reconciliation";
 import { delay } from "./utils";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -376,6 +383,78 @@ app.put("/admin/tax-override", async (c) => {
   const appStorage = new AppStorage(c.env, body.shop);
   await appStorage.setTaxOverride(rate, !!body.oss_enabled);
   return c.json(await appStorage.getTaxOverride());
+})
+
+// Admin: reconciliation list
+app.get("/admin/reconciliation", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const shop = c.req.query("shop");
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  if (!shop || !from || !to) return c.json({ error: "Missing shop/from/to" }, 400);
+
+  const appStorage = new AppStorage(c.env, shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${shop}` }, 404);
+
+  try {
+    const result = await getReconciliation(c.env, config, from, to);
+    return c.json(result);
+  } catch (e) {
+    console.error("[Rioko][Recon] error:", e);
+    return c.json({ error: String(e) }, 500);
+  }
+})
+
+app.post("/admin/reconciliation/approve", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ shop: string; order_id: string; invoice_id: string; approved_by?: string }>();
+  if (!body.shop || !body.order_id || !body.invoice_id) return c.json({ error: "Missing shop/order_id/invoice_id" }, 400);
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+  try {
+    return c.json(await approveReconciliationMatch(c.env, config, body.order_id, body.invoice_id, body.approved_by ?? null));
+  } catch (e) { return c.json({ error: String(e) }, 500); }
+})
+
+app.delete("/admin/reconciliation/approve", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const shop = c.req.query("shop");
+  const orderId = c.req.query("order_id");
+  if (!shop || !orderId) return c.json({ error: "Missing shop or order_id" }, 400);
+  const appStorage = new AppStorage(c.env, shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${shop}` }, 404);
+  try {
+    return c.json(await revertReconciliationMatch(c.env, config, orderId));
+  } catch (e) { return c.json({ error: String(e) }, 500); }
+})
+
+app.post("/admin/reconciliation/decision", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ shop: string; order_id: string; decision: string | null; reason?: string; decided_by?: string }>();
+  if (!body.shop || !body.order_id) return c.json({ error: "Missing shop/order_id" }, 400);
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+  try {
+    return c.json(await setReconciliationDecisionAction(c.env, config, body.order_id, body.decision ?? null, body.reason ?? null, body.decided_by ?? null));
+  } catch (e) { return c.json({ error: String(e) }, 500); }
+})
+
+app.get("/admin/user-shop", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "Missing user_id" }, 400);
+  try {
+    return c.json(await getShopForUser(c.env, userId));
+  } catch (e) { return c.json({ error: String(e) }, 500); }
 })
 
 // Admin: ad-hoc test notify

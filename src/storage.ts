@@ -319,6 +319,97 @@ export class AppStorage {
     ).bind(force_tax_rate, oss_enabled ? 1 : 0, this.shopDomain).run();
   }
 
+  async getReconciliationOverrides(orderIds: string[]): Promise<{
+    matches: Map<string, { invoice_id: string; approved_by: string | null; approved_at: string }>;
+    decisions: Map<string, { decision: string; reason: string | null; decided_by: string | null; decided_at: string }>;
+  }> {
+    const matches = new Map();
+    const decisions = new Map();
+    if (orderIds.length === 0) return { matches, decisions };
+
+    for (let i = 0; i < orderIds.length; i += 50) {
+      const chunk = orderIds.slice(i, i + 50);
+      const placeholders = chunk.map(() => "?").join(",");
+      try {
+        const mRes = await this.db.prepare(
+          `SELECT order_id, invoice_id, approved_by, approved_at FROM reconciliation_match WHERE shopify_domain = ? AND order_id IN (${placeholders})`
+        ).bind(this.shopDomain, ...chunk).all();
+        for (const r of mRes.results as any[]) {
+          matches.set(String(r.order_id), { invoice_id: String(r.invoice_id), approved_by: r.approved_by ?? null, approved_at: r.approved_at });
+        }
+        const dRes = await this.db.prepare(
+          `SELECT order_id, decision, reason, decided_by, decided_at FROM reconciliation_decision WHERE shopify_domain = ? AND order_id IN (${placeholders})`
+        ).bind(this.shopDomain, ...chunk).all();
+        for (const r of dRes.results as any[]) {
+          decisions.set(String(r.order_id), { decision: r.decision, reason: r.reason ?? null, decided_by: r.decided_by ?? null, decided_at: r.decided_at });
+        }
+      } catch (e) {
+        console.error("[Rioko] reconciliation overrides chunk failed:", e);
+      }
+    }
+    return { matches, decisions };
+  }
+
+  async upsertReconciliationMatch(orderId: string, invoiceId: string, approvedBy: string | null) {
+    await this.db.prepare(
+      `INSERT INTO reconciliation_match (shopify_domain, order_id, invoice_id, approved_by, approved_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(shopify_domain, order_id) DO UPDATE SET invoice_id=excluded.invoice_id, approved_by=excluded.approved_by, approved_at=excluded.approved_at`
+    ).bind(this.shopDomain, String(orderId), String(invoiceId), approvedBy, new Date().toISOString()).run();
+  }
+
+  async deleteReconciliationMatch(orderId: string) {
+    await this.db.prepare(
+      "DELETE FROM reconciliation_match WHERE shopify_domain = ? AND order_id = ?"
+    ).bind(this.shopDomain, String(orderId)).run();
+  }
+
+  async setReconciliationDecision(orderId: string, decision: string, reason: string | null, decidedBy: string | null) {
+    await this.db.prepare(
+      `INSERT INTO reconciliation_decision (shopify_domain, order_id, decision, reason, decided_by, decided_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(shopify_domain, order_id) DO UPDATE SET decision=excluded.decision, reason=excluded.reason, decided_by=excluded.decided_by, decided_at=excluded.decided_at`
+    ).bind(this.shopDomain, String(orderId), decision, reason, decidedBy, new Date().toISOString()).run();
+  }
+
+  async clearReconciliationDecision(orderId: string) {
+    await this.db.prepare(
+      "DELETE FROM reconciliation_decision WHERE shopify_domain = ? AND order_id = ?"
+    ).bind(this.shopDomain, String(orderId)).run();
+  }
+
+  async getShopByUserId(userId: string): Promise<string | null> {
+    try {
+      const row: any = await this.db.prepare(
+        "SELECT shopify_domain FROM integrations WHERE user_id = ?"
+      ).bind(userId).first();
+      return row?.shopify_domain ?? null;
+    } catch (e) {
+      console.error("[Rioko] getShopByUserId failed:", e);
+      return null;
+    }
+  }
+
+  async getProcessedInvoicesByOrderIds(orderIds: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (orderIds.length === 0) return map;
+    for (let i = 0; i < orderIds.length; i += 50) {
+      const chunk = orderIds.slice(i, i + 50);
+      const placeholders = chunk.map(() => "?").join(",");
+      try {
+        const result = await this.db.prepare(
+          `SELECT id, invoice_id FROM processed_orders WHERE id IN (${placeholders})`
+        ).bind(...chunk).all();
+        for (const row of result.results as any[]) {
+          if (row.invoice_id) map.set(String(row.id), String(row.invoice_id));
+        }
+      } catch (e) {
+        console.error("[Rioko] getProcessedInvoicesByOrderIds chunk failed:", e);
+      }
+    }
+    return map;
+  }
+
   async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {
     const processed = new Set<string>();
     // Batch in chunks of 50 to avoid SQL parameter limits

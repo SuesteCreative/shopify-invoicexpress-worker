@@ -36,3 +36,12 @@ export async function resolveShopForUser(userId: string): Promise<string | null>
     const row: any = await db.prepare("SELECT shopify_domain FROM integrations WHERE user_id = ?").bind(userId).first();
     return row?.shopify_domain ?? null;
 }
+
+/** Impersonation-aware: returns the shop for whoever is currently viewing
+ *  (impersonated user when admin is impersonating, else the auth user). */
+export async function resolveSelfShop(request: Request, fallbackUserId: string): Promise<string | null> {
+    const cookieHeader = request.headers.get("cookie") ?? "";
+    const m = cookieHeader.match(/rioko_impersonate_id=([^;]+)/);
+    const viewerId = m ? m[1] : fallbackUserId;
+    return resolveShopForUser(viewerId);
+}

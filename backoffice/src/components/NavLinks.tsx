@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Zap, Store } from "lucide-react";
+import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Zap, Store, ScrollText } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -111,6 +111,15 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         label="Faturas"
                         colorClass="text-indigo-400"
                         activeClass="bg-indigo-500/10 text-indigo-400 border-indigo-500/20 shadow-[0_0_20px_rgba(129,140,248,0.1)]"
+                        disabled={!isRegistered}
+                        tooltip="Faça o registo no dashboard primeiro"
+                    />
+                    <LinkItem
+                        href="/conciliacao"
+                        icon={ScrollText}
+                        label="Conciliação"
+                        colorClass="text-emerald-400"
+                        activeClass="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.1)]"
                         disabled={!isRegistered}
                         tooltip="Faça o registo no dashboard primeiro"
                     />

@@ -106,15 +106,6 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                     />
 
                     <LinkItem
-                        href="/invoices"
-                        icon={ClipboardList}
-                        label="Faturas"
-                        colorClass="text-indigo-400"
-                        activeClass="bg-indigo-500/10 text-indigo-400 border-indigo-500/20 shadow-[0_0_20px_rgba(129,140,248,0.1)]"
-                        disabled={!isRegistered}
-                        tooltip="Faça o registo no dashboard primeiro"
-                    />
-                    <LinkItem
                         href="/conciliacao"
                         icon={ScrollText}
                         label="Conciliação"

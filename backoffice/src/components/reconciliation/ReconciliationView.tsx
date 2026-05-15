@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCcw, Search, ScrollText } from "lucide-react";
+import { Loader2, RefreshCcw, Search, ScrollText, FileDown } from "lucide-react";
 import { ReconciliationRow, type Row } from "./ReconciliationRow";
 import { DateRangePicker } from "./DateRangePicker";
 import { Filters, type FilterKey } from "./Filters";
+import { exportReconciliationToExcel } from "./exportToExcel";
 
 type Response = {
     from: string;
@@ -29,6 +30,7 @@ export function ReconciliationView({ shop }: { shop: string }) {
     const [filter, setFilter] = useState<FilterKey>("all");
     const [search, setSearch] = useState("");
     const [error, setError] = useState<string | null>(null);
+    const [exporting, setExporting] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -84,6 +86,19 @@ export function ReconciliationView({ shop }: { shop: string }) {
                     className="bg-white text-black px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-500 hover:text-white transition-all disabled:opacity-50">
                     {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
                     Atualizar
+                </button>
+                <button
+                    onClick={async () => {
+                        if (!data) return;
+                        setExporting(true);
+                        try { await exportReconciliationToExcel(filtered, shop, from, to); }
+                        catch (e: any) { setError(String(e)); }
+                        finally { setExporting(false); }
+                    }}
+                    disabled={loading || exporting || !data || filtered.length === 0}
+                    className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-500/20 transition-all disabled:opacity-50">
+                    {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
+                    Excel
                 </button>
                 <div className="relative flex-1">
                     <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />

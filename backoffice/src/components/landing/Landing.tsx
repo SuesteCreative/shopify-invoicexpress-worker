@@ -734,8 +734,11 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
             key={slot.id}
             initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
-            transition={{ duration: 0.45, ease: EASE }}
+            exit={{
+              opacity: 0,
+              transition: { duration: 0.12, ease: "easeOut" },
+            }}
+            transition={{ duration: 0.5, ease: EASE }}
             className="flex items-center justify-between gap-3 p-4"
           >
             <FlowSlotIdentity label={label} slot={slot} />

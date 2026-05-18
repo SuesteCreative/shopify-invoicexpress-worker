@@ -31,32 +31,6 @@ function mapClientMetadata(order: any, config: any) {
     };
 }
 
-async function checkSubscriptionGate(shopifyDomain: string | null, config: any): Promise<{ blocked: boolean; reason?: string }> {
-    if (!shopifyDomain) return { blocked: false };
-    const baseUrl = config.BACKOFFICE_URL || process.env.BACKOFFICE_URL || "https://app.rioko.pt";
-    const key = config.INTERNAL_GATE_API_KEY || process.env.INTERNAL_GATE_API_KEY || config.ADMIN_API_KEY || process.env.ADMIN_API_KEY;
-    if (!key) {
-        console.warn("[Rioko] INTERNAL_GATE_API_KEY missing — failing OPEN");
-        return { blocked: false };
-    }
-    try {
-        const res = await fetch(`${baseUrl}/api/internal/subscription-check?shopify_domain=${encodeURIComponent(shopifyDomain)}`, {
-            headers: { "x-internal-api-key": key },
-            // 3s timeout — fail-open if backoffice slow
-            signal: AbortSignal.timeout(3000),
-        });
-        if (!res.ok) {
-            console.warn(`[Rioko] subscription-check returned ${res.status} — failing OPEN`);
-            return { blocked: false };
-        }
-        const data: any = await res.json();
-        return { blocked: !!data.blocked, reason: data.reason };
-    } catch (e: any) {
-        console.warn(`[Rioko] subscription-check failed: ${e.message} — failing OPEN`);
-        return { blocked: false };
-    }
-}
-
 export async function POST(req: NextRequest) {
     const shopHeader = req.headers.get("X-Shopify-Shop-Domain");
     const config: any = {
@@ -68,13 +42,6 @@ export async function POST(req: NextRequest) {
         const isValid = await verifyShopifyWebhook(req, config.SHOPIFY_WEBHOOK_SECRET);
         if (!isValid) {
             return NextResponse.json({ error: "Invalid Signature" }, { status: 401 });
-        }
-
-        // Subscription gate: check with backoffice if this shop's owner has an active subscription
-        const gate = await checkSubscriptionGate(shopHeader, config);
-        if (gate.blocked) {
-            await saveLog({ shopify_domain: shopHeader, topic: "orders/paid", payload: "gate", response: `subscription_inactive:${gate.reason}`, status: 402 });
-            return NextResponse.json({ skipped: "subscription_inactive", reason: gate.reason }, { status: 200 });
         }
 
         const order = await req.json();

@@ -1,5 +1,64 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 6.0.0 — Stripe Subscription Billing — May 18, 2026
+
+Monetização do integrador: Kapta cobra subscrição mensal/anual pelo uso, com gate automático nas integrações Shopify→IX quando inativa.
+
+### Novo
+
+- **Stripe Subscription Layer** — Checkout integrado em `/integrations/shopify-ix` com 2 planos: **7,50€/mês** ou **75€/ano** (-17%), ambos +IVA 23% fixo (via Stripe Tax rate estático, não automático — força 23% PT independente de geografia).
+- **Página `/faturação`** — Histórico de cobranças, gestão de subscrição (mudar cartão, cancelar/reativar), links diretos para faturas/notas de crédito IX correspondentes na conta Kapta.
+- **Card de Subscrição** em `/integrations/shopify-ix` com 6 estados visuais: `active` (verde), `trialing_earlybird` (amarelo), `trialing` (azul), `blocked` (vermelho), `exempt` (roxo, admins), `none`.
+- **Early Bird Trial** — Todos os utilizadores existentes à data do deploy receberam trial gratuito até **1 Agosto 2026**. Novos utilizadores criados antes do cutoff também recebem trial automaticamente via Clerk webhook. Botão "Adicionar Pagamento" permite registar cartão antes do trial expirar — cobrança automática a partir de 1 Ago.
+- **Gate Automático no Worker** — `src/handlers/orders-paid.ts` verifica subscrição no D1 antes de emitir fatura InvoiceXpress. Se subscrição inativa (`canceled`, `past_due`, `unpaid`, trial expirado sem cartão), o webhook Shopify retorna 200 mas **não emite fatura**. Restabelece automaticamente quando subscrição volta a `active`.
+- **Admin Exemption** — Utilizadores com role `superadmin`/`hiperadmin` ficam isentos do gate. Integração corre sempre, sem necessidade de subscrição.
+- **Superadmin Subscription Controls** — Novo painel em `/superadmin/users/[id]/dev-mode` permite definir manualmente `early_bird` e `trial_end` para qualquer utilizador.
+- **NIF Custom Field** no Stripe Checkout — Validado (9 dígitos), guardado como `fiscal_id` na metadata Stripe + DB. Skip se vazio.
+- **IX Invoice Matching** — Automação Stripe→IX da Kapta gera faturas com referência `pi_xxx`. O webhook backoffice procura essa fatura por referência exata (primário) ou heurística (fallback: NIF + email + valor + nome + data proximity), guardando link permalink em `billing_events.ix_invoice_permalink`.
+- **Refund Handling** — Webhook `charge.refunded` cria linha laranja em `/faturação` com link para a nota de crédito IX correspondente. Mesma lógica de matching (referência + heurística).
+- **Cron Diário de Retry** — Worker scheduled handler (`0 8 * * *` UTC) chama `/api/cron/ix-match` para re-tentar matching IX de eventos pendentes nos últimos 30 dias.
+
+### Endpoints novos (backoffice edge runtime)
+
+- `POST /api/billing/checkout` — cria Stripe Checkout Session (com impersonation support)
+- `GET /api/billing/subscription` — estado actual (exempt para admins)
+- `GET /api/billing/invoices` — histórico billing_events
+- `POST /api/billing/cancel`, `/reactivate`, `/update-card`
+- `POST /api/webhooks/stripe` — 8 eventos: `checkout.session.completed`, `customer.subscription.{created,updated,deleted,trial_will_end}`, `invoice.{paid,payment_failed}`, `charge.refunded`
+- `POST /api/admin/subscription` — superadmin set early_bird + trial_end
+- `GET /api/internal/subscription-check` — gate API (auth via `INTERNAL_GATE_API_KEY`)
+- `GET /api/cron/ix-match` — retry pending IX matches (auth via `CRON_SECRET`)
+
+### Schema
+
+- Migration `0005_stripe_subscriptions.sql` — tabelas `subscriptions` + `billing_events`
+- Migration `0005b_early_bird_backfill.sql` — backfill idempotente (todos `users` → trial até 2026-08-01)
+- Migration `0006_subscription_indexes.sql` — index em `subscriptions(stripe_customer_id)`
+
+### Hardening pré-prod
+
+- **Webhook retry storm prevention** — handler retorna 200 após registar event_id em `billing_events` (idempotente); falhas internas (IX, etc.) não causam Stripe retries em loop.
+- **Trial-end gate baseado em status** — confia no Stripe para transitar `trialing → active|past_due`, elimina race condition à meia-noite do trial.
+- **Price validation** — checkout rejeita preços inactivos ou em moeda errada.
+- **NIF validation** — apenas 9 dígitos aceites no webhook.
+- **`tax_id_collection` desactivado** quando `STRIPE_TAX_RATE_ID` está definido — evita confusão B2B EU sobre reverse-charge.
+- **Cron auth restrito** — apenas `CRON_SECRET` (sem fallback para `ADMIN_API_KEY`).
+- **Heuristic IX matching** com date proximity scoring para desambiguar clientes recorrentes com mesmo valor.
+
+### Env vars novas (CF Pages backoffice)
+
+```
+STRIPE_SECRET_KEY, STRIPE_PUBLIC_KEY, STRIPE_WEBHOOK_SECRET
+STRIPE_PRICE_MONTHLY_LOOKUP, STRIPE_PRICE_YEARLY_LOOKUP
+STRIPE_TAX_RATE_ID
+KAPTA_IX_ACCOUNT_NAME, KAPTA_IX_API_KEY, KAPTA_IX_ENV
+EARLY_BIRD_TRIAL_END
+SUCCESS_REDIRECT_URL, CANCEL_REDIRECT_URL
+INTERNAL_GATE_API_KEY, CRON_SECRET
+```
+
+CF Worker: adicionado `CRON_SECRET` (secret) + `BACKOFFICE_URL` (var).
+
 ## 💎 Version 5.0.0 — Invoices Hub & Premium Dashboard — March 2, 2026
 
 - **New: Rioko Invoices Hub** – Dashboard premium construído com **Tailwind CSS e Framer Motion** para uma experiência fluida de gestão fiscal.

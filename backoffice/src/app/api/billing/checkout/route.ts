@@ -21,15 +21,20 @@ export async function POST(req: NextRequest) {
             ? getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP")
             : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP");
 
-        // Accept either a real price ID (price_xxx) or a lookup_key
+        // Accept any of: real price ID (price_xxx), custom ID, or lookup_key.
+        // Try retrieve first (works for any valid Stripe ID), then fall back to lookup_keys.
         let priceId: string | null = null;
-        if (lookupOrId.startsWith("price_")) {
-            priceId = lookupOrId;
-        } else {
+        try {
+            const p = await stripe.prices.retrieve(lookupOrId);
+            if (p?.id) priceId = p.id;
+        } catch {
+            // not a valid id — try lookup_keys
+        }
+        if (!priceId) {
             const prices = await stripe.prices.list({ lookup_keys: [lookupOrId], limit: 1 });
             priceId = prices.data[0]?.id || null;
         }
-        if (!priceId) return NextResponse.json({ error: `Price not found by lookup_key/id: ${lookupOrId}. Set lookup_key in Stripe Dashboard OR use price_xxx ID.` }, { status: 500 });
+        if (!priceId) return NextResponse.json({ error: `Price not found: ${lookupOrId}` }, { status: 500 });
 
         const db = getDB();
         const sub: any = await db.prepare(

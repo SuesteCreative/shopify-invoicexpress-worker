@@ -19,19 +19,30 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
-// Design tokens (local to landing — overrides global dark theme)
+// Design tokens — Stripe Apps / Raycast tech-dark
 // ─────────────────────────────────────────────────────────────
-const PAPER = "#F4F1EA";
-const PAPER_DEEP = "#EAE5DA";
-const INK = "#0B0E14";
-const INK_60 = "rgba(11,14,20,0.62)";
-const INK_40 = "rgba(11,14,20,0.42)";
-const RULE = "rgba(11,14,20,0.12)";
-const HAIRLINE = "rgba(11,14,20,0.08)";
-const SAGE = "#2C5E4A";
-const AMBER = "#9A6A1F";
+const SURFACE = "#0E1116"; // charcoal base
+const SURFACE_2 = "#14181F"; // tile bg one step up
+const FG = "#F0F0F0";
+const FG_60 = "rgba(240,240,240,0.62)";
+const FG_40 = "rgba(240,240,240,0.40)";
+const RULE = "rgba(255,255,255,0.08)";
+const HAIRLINE = "rgba(255,255,255,0.06)";
+const ACCENT = "#028DC4"; // Rioko brand cyan (matches logo pill)
+const ACCENT_HOT = "#5EEAD4"; // mint — live indicators, ticks
+const SOON = "#F59E0B"; // amber — "em breve" badges
 
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
+
+// Glass surface recipe — applied uniformly to all cards
+const GLASS = {
+  background: "rgba(255,255,255,0.03)",
+  border: `1px solid ${HAIRLINE}`,
+  backdropFilter: "blur(20px)",
+  WebkitBackdropFilter: "blur(20px)",
+  boxShadow:
+    "inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 48px -28px rgba(0,0,0,0.6)",
+} as const;
 
 // ─────────────────────────────────────────────────────────────
 // Integration registry
@@ -43,7 +54,6 @@ type Integration = {
   name: string;
   kind: "pagamentos" | "faturação";
   status: Status;
-  // Either a real asset (logoSrc) OR a stylised monogram (mark, brand)
   logoSrc?: string;
   logoW?: number;
   logoH?: number;
@@ -127,17 +137,40 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Tiny mono token — replaces serif italic emphasis
+// ─────────────────────────────────────────────────────────────
+function Mono({
+  children,
+  color = ACCENT_HOT,
+}: {
+  children: React.ReactNode;
+  color?: string;
+}) {
+  return (
+    <span
+      style={{
+        fontFamily: "var(--font-mono), ui-monospace, monospace",
+        color,
+        letterSpacing: "-0.02em",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
 export default function Landing() {
-  // Override global body chrome (which is force-dark in root layout)
+  // Body chrome — match SURFACE so overscroll doesn't flash slate-950
   useEffect(() => {
     const prev = {
       bg: document.body.style.backgroundColor,
       color: document.body.style.color,
     };
-    document.body.style.backgroundColor = PAPER;
-    document.body.style.color = INK;
+    document.body.style.backgroundColor = SURFACE;
+    document.body.style.color = FG;
     return () => {
       document.body.style.backgroundColor = prev.bg;
       document.body.style.color = prev.color;
@@ -148,32 +181,33 @@ export default function Landing() {
     <div
       className="relative min-h-[100dvh] w-full overflow-x-hidden"
       style={{
-        backgroundColor: PAPER,
-        color: INK,
-        "--paper": PAPER,
-        "--paper-deep": PAPER_DEEP,
-        "--ink": INK,
+        backgroundColor: SURFACE,
+        color: FG,
+        "--surface": SURFACE,
+        "--surface-2": SURFACE_2,
+        "--fg": FG,
         "--rule": RULE,
         "--hairline": HAIRLINE,
+        "--accent": ACCENT,
       } as React.CSSProperties}
     >
-      {/* Fixed film-grain overlay (perf-safe: pointer-events-none, fixed) */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-[60] opacity-[0.035] mix-blend-multiply"
-        style={{
-          backgroundImage:
-            'url("data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22220%22 height=%22220%22><filter id=%22n%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%222%22 stitchTiles=%22stitch%22/></filter><rect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/></svg>")',
-        }}
-      />
-
-      {/* Soft warm wash in the far corners */}
+      {/* Cool radial washes — single accent family, low opacity */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0"
         style={{
-          backgroundImage: `radial-gradient(60% 40% at 8% 0%, rgba(154,106,31,0.05), transparent 60%),
-                            radial-gradient(50% 35% at 100% 100%, rgba(44,94,74,0.05), transparent 60%)`,
+          backgroundImage: `radial-gradient(60% 40% at 8% 0%, rgba(2,141,196,0.10), transparent 60%),
+                            radial-gradient(50% 35% at 100% 100%, rgba(94,234,212,0.06), transparent 60%)`,
+        }}
+      />
+
+      {/* Subtle hero vignette to ground the showcase */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[900px]"
+        style={{
+          backgroundImage:
+            "radial-gradient(60% 50% at 50% 0%, rgba(255,255,255,0.04), transparent 70%)",
         }}
       />
 
@@ -192,7 +226,7 @@ export default function Landing() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Nav — floating glass pill, detached
+// Nav — floating glass pill on charcoal
 // ─────────────────────────────────────────────────────────────
 function Nav() {
   return (
@@ -201,25 +235,23 @@ function Nav() {
         initial={{ y: -16, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE }}
-        className="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-4 rounded-full border px-2 py-2 backdrop-blur-xl"
+        className="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-4 rounded-full px-2 py-2"
         style={{
-          borderColor: HAIRLINE,
-          background: "rgba(244,241,234,0.72)",
-          boxShadow:
-            "0 1px 0 rgba(255,255,255,0.6) inset, 0 12px 40px -20px rgba(11,14,20,0.18)",
+          ...GLASS,
+          background: "rgba(20,24,31,0.62)",
         }}
       >
         <div className="flex items-center gap-3 pl-3">
           <Image
-            src="/images/rioko2-logo-black.svg"
+            src="/images/rioko2-logo.svg"
             alt="Rioko 2.0"
             width={132}
-            height={25}
+            height={27}
             priority
           />
           <span
             className="hidden font-mono text-[10px] uppercase tracking-[0.18em] sm:inline-block"
-            style={{ color: INK_40 }}
+            style={{ color: FG_40 }}
           >
             Engine
           </span>
@@ -229,21 +261,21 @@ function Nav() {
           <a
             href="#integracoes"
             className="text-[13px] transition-colors hover:opacity-100"
-            style={{ color: INK_60 }}
+            style={{ color: FG_60 }}
           >
             Integrações
           </a>
           <a
             href="#como-funciona"
             className="text-[13px] transition-colors"
-            style={{ color: INK_60 }}
+            style={{ color: FG_60 }}
           >
             Como funciona
           </a>
           <a
             href="#fiscal"
             className="text-[13px] transition-colors"
-            style={{ color: INK_60 }}
+            style={{ color: FG_60 }}
           >
             Conformidade
           </a>
@@ -253,7 +285,7 @@ function Nav() {
           <Link
             href="/sign-in"
             className="hidden px-4 py-2 text-[13px] sm:inline-block"
-            style={{ color: INK }}
+            style={{ color: FG }}
           >
             Entrar
           </Link>
@@ -261,10 +293,10 @@ function Nav() {
             href="/sign-up"
             className="group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-[13px] font-medium transition-all duration-500 active:scale-[0.98]"
             style={{
-              background: INK,
-              color: PAPER,
+              background: FG,
+              color: SURFACE,
               boxShadow:
-                "0 1px 0 rgba(255,255,255,0.08) inset, 0 8px 20px -10px rgba(11,14,20,0.5)",
+                "0 1px 0 rgba(0,0,0,0.08) inset, 0 8px 20px -10px rgba(0,0,0,0.6)",
               transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
             }}
           >
@@ -272,7 +304,7 @@ function Nav() {
             <span
               className="flex h-7 w-7 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
               style={{
-                background: "rgba(244,241,234,0.14)",
+                background: "rgba(0,0,0,0.08)",
                 transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
               }}
             >
@@ -286,36 +318,28 @@ function Nav() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Hero — editorial split: serif headline + integration showcase
+// Hero
 // ─────────────────────────────────────────────────────────────
 function Hero() {
   return (
     <section className="relative px-4 pt-14 md:pt-24">
       <div className="mx-auto grid w-full max-w-[1280px] grid-cols-1 gap-12 md:grid-cols-12 md:gap-10">
-        {/* LEFT — headline column (7/12) */}
+        {/* LEFT — headline */}
         <div className="md:col-span-7">
           <motion.div
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.6, ease: EASE, delay: 0.05 }}
-            className="mb-7 inline-flex items-center gap-2 rounded-full border px-3 py-1.5"
-            style={{ borderColor: RULE, background: "rgba(255,255,255,0.4)" }}
+            className="mb-7 inline-flex items-center gap-2 rounded-full px-3 py-1.5"
+            style={{
+              border: `1px solid ${RULE}`,
+              background: "rgba(255,255,255,0.03)",
+            }}
           >
-            <span
-              className="relative flex h-1.5 w-1.5 items-center justify-center"
-            >
-              <span
-                className="absolute inset-0 animate-ping rounded-full"
-                style={{ background: SAGE, opacity: 0.6 }}
-              />
-              <span
-                className="relative h-1.5 w-1.5 rounded-full"
-                style={{ background: SAGE }}
-              />
-            </span>
+            <LiveDot />
             <span
               className="font-mono text-[10px] uppercase tracking-[0.22em]"
-              style={{ color: INK_60 }}
+              style={{ color: FG_60 }}
             >
               Motor fiscal · Portugal
             </span>
@@ -325,20 +349,20 @@ function Hero() {
             initial={{ y: 18, opacity: 0, filter: "blur(6px)" }}
             animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
             transition={{ duration: 0.9, ease: EASE, delay: 0.1 }}
-            className="font-[var(--font-editorial)] tracking-[-0.02em]"
+            className="tracking-[-0.025em]"
             style={{
-              fontFamily: "var(--font-editorial), Georgia, serif",
+              fontFamily: "var(--font-sans-display), system-ui, sans-serif",
               fontSize: "clamp(3rem, 7vw, 6.5rem)",
               lineHeight: 0.95,
-              color: INK,
+              color: FG,
+              fontWeight: 500,
               textWrap: "balance" as const,
             }}
           >
             Uma fatura.<br />
-            Para <em style={{ fontStyle: "italic", color: INK }}>cada</em>{" "}
-            encomenda.<br />
-            <span style={{ color: INK_60 }}>
-              De <em style={{ fontStyle: "italic" }}>cada</em> plataforma.
+            Para <Mono>cada</Mono> encomenda.<br />
+            <span style={{ color: FG_60 }}>
+              De <Mono>cada</Mono> plataforma.
             </span>
           </motion.h1>
 
@@ -347,13 +371,13 @@ function Hero() {
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.7, ease: EASE, delay: 0.25 }}
             className="mt-7 max-w-[52ch] text-[16px] leading-[1.55]"
-            style={{ color: INK_60 }}
+            style={{ color: FG_60 }}
           >
             Rioko é o motor que conecta a sua loja, o seu gateway de pagamento
             e o seu programa de faturação. Webhook entra,{" "}
-            <span style={{ color: INK }}>fatura sai</span> — em menos de um
-            segundo, com NIF detectado, IVA calculado e isenção fiscal aplicada
-            conforme o código M01–M99.
+            <span style={{ color: ACCENT_HOT }}>fatura sai</span> — em menos
+            de um segundo, com NIF detectado, IVA calculado e isenção fiscal
+            aplicada conforme o código M01–M99.
           </motion.p>
 
           <motion.div
@@ -366,18 +390,18 @@ function Hero() {
               href="/sign-up"
               className="group inline-flex items-center gap-2 rounded-full py-3 pl-6 pr-2 text-[14px] font-medium transition-transform duration-500 active:scale-[0.98]"
               style={{
-                background: INK,
-                color: PAPER,
+                background: FG,
+                color: SURFACE,
                 transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 boxShadow:
-                  "0 1px 0 rgba(255,255,255,0.08) inset, 0 14px 30px -16px rgba(11,14,20,0.55)",
+                  "0 1px 0 rgba(0,0,0,0.08) inset, 0 14px 30px -16px rgba(0,0,0,0.6)",
               }}
             >
               Criar conta grátis
               <span
                 className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                 style={{
-                  background: "rgba(244,241,234,0.14)",
+                  background: "rgba(0,0,0,0.08)",
                   transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 }}
               >
@@ -388,11 +412,11 @@ function Hero() {
             <a
               href="#integracoes"
               className="group inline-flex items-center gap-2 text-[14px]"
-              style={{ color: INK }}
+              style={{ color: FG }}
             >
               <span
                 className="border-b transition-[border-color]"
-                style={{ borderColor: RULE }}
+                style={{ borderColor: "rgba(255,255,255,0.16)" }}
               >
                 Ver integrações disponíveis
               </span>
@@ -403,7 +427,6 @@ function Hero() {
             </a>
           </motion.div>
 
-          {/* Live counters strip */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -417,7 +440,7 @@ function Hero() {
           </motion.div>
         </div>
 
-        {/* RIGHT — integration showcase (5/12) */}
+        {/* RIGHT — showcase */}
         <div className="md:col-span-5">
           <HeroShowcase />
         </div>
@@ -426,18 +449,35 @@ function Hero() {
   );
 }
 
+function LiveDot() {
+  return (
+    <span className="relative flex h-1.5 w-1.5 items-center justify-center">
+      <motion.span
+        className="absolute inset-0 rounded-full"
+        style={{ background: ACCENT_HOT }}
+        animate={{ scale: [1, 1.8, 1], opacity: [0.5, 0, 0.5] }}
+        transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+      />
+      <span
+        className="relative h-1.5 w-1.5 rounded-full"
+        style={{ background: ACCENT_HOT }}
+      />
+    </span>
+  );
+}
+
 function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div>
       <div
         className="font-mono text-[22px] tabular-nums"
-        style={{ color: INK, letterSpacing: "-0.01em" }}
+        style={{ color: FG, letterSpacing: "-0.01em" }}
       >
         {value}
       </div>
       <div
         className="mt-1 text-[10px] uppercase tracking-[0.18em]"
-        style={{ color: INK_40 }}
+        style={{ color: FG_40 }}
       >
         {label}
       </div>
@@ -446,7 +486,7 @@ function Stat({ value, label }: { value: string; label: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Hero showcase — double-bezel card with live flow
+// Hero showcase — glass card w/ live flow
 // ─────────────────────────────────────────────────────────────
 function HeroShowcase() {
   return (
@@ -456,26 +496,17 @@ function HeroShowcase() {
       transition={{ duration: 1, ease: EASE, delay: 0.3 }}
       className="relative"
     >
-      {/* Outer shell (Doppelrand) */}
       <div
-        className="rounded-[2.25rem] p-1.5"
-        style={{
-          background: "rgba(11,14,20,0.04)",
-          boxShadow: "0 1px 0 rgba(255,255,255,0.6) inset",
-        }}
+        className="rounded-[1.75rem] p-1.5"
+        style={{ background: "rgba(255,255,255,0.04)" }}
       >
-        {/* Inner core */}
         <div
-          className="overflow-hidden rounded-[calc(2.25rem-0.375rem)] p-6"
+          className="overflow-hidden rounded-[calc(1.75rem-0.375rem)] p-6"
           style={{
-            background:
-              "linear-gradient(180deg, #FBF9F4 0%, #F4F1EA 100%)",
-            boxShadow:
-              "0 1px 0 rgba(255,255,255,0.7) inset, 0 30px 60px -30px rgba(11,14,20,0.18)",
-            border: "1px solid " + HAIRLINE,
+            ...GLASS,
+            background: "rgba(20,24,31,0.7)",
           }}
         >
-          {/* Top row — origin platform */}
           <FlowCard
             label="Origem"
             title="Shopify"
@@ -484,41 +515,34 @@ function HeroShowcase() {
             delay={0.5}
           />
 
-          {/* Connector — animated dotted line */}
           <FlowConnector delay={0.7} />
 
-          {/* Middle row — Rioko engine */}
+          {/* Rioko Engine — accent moment */}
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: EASE, delay: 0.9 }}
             className="relative rounded-2xl p-4"
             style={{
-              background: INK,
-              color: PAPER,
+              background: "linear-gradient(135deg, #028DC4 0%, #0369A1 100%)",
+              color: "#FFFFFF",
               boxShadow:
-                "0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 30px -16px rgba(11,14,20,0.55)",
+                "inset 0 1px 0 rgba(255,255,255,0.15), 0 0 40px -10px rgba(2,141,196,0.55), 0 12px 30px -16px rgba(0,0,0,0.6)",
             }}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div
                   className="flex h-9 w-9 items-center justify-center rounded-full"
-                  style={{ background: "rgba(244,241,234,0.08)" }}
+                  style={{ background: "rgba(255,255,255,0.14)" }}
                 >
-                  <Workflow
-                    className="h-4 w-4"
-                    style={{ color: PAPER }}
-                    strokeWidth={1.5}
-                  />
+                  <Workflow className="h-4 w-4" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <div className="text-[13px] font-medium">
-                    Rioko Engine
-                  </div>
+                  <div className="text-[13px] font-medium">Rioko Engine</div>
                   <div
                     className="font-mono text-[10px] uppercase tracking-[0.18em]"
-                    style={{ color: "rgba(244,241,234,0.5)" }}
+                    style={{ color: "rgba(255,255,255,0.7)" }}
                   >
                     NIF · IVA · Isenção · Cliente
                   </div>
@@ -526,13 +550,12 @@ function HeroShowcase() {
               </div>
               <div
                 className="font-mono text-[10px] tabular-nums"
-                style={{ color: "rgba(244,241,234,0.6)" }}
+                style={{ color: "rgba(255,255,255,0.8)" }}
               >
                 347 ms
               </div>
             </div>
 
-            {/* Mini pipeline ticks */}
             <div className="mt-4 grid grid-cols-4 gap-2">
               {["NIF", "IVA", "Cliente", "M99"].map((step, i) => (
                 <motion.div
@@ -545,16 +568,16 @@ function HeroShowcase() {
                     delay: 1.05 + i * 0.08,
                   }}
                   className="flex items-center gap-1.5 rounded-md px-2 py-1"
-                  style={{ background: "rgba(244,241,234,0.06)" }}
+                  style={{ background: "rgba(255,255,255,0.12)" }}
                 >
                   <Check
                     className="h-3 w-3"
-                    style={{ color: "#86C9A4" }}
-                    strokeWidth={2}
+                    style={{ color: ACCENT_HOT }}
+                    strokeWidth={2.4}
                   />
                   <span
                     className="font-mono text-[10px]"
-                    style={{ color: "rgba(244,241,234,0.85)" }}
+                    style={{ color: "rgba(255,255,255,0.95)" }}
                   >
                     {step}
                   </span>
@@ -565,7 +588,6 @@ function HeroShowcase() {
 
           <FlowConnector delay={1.3} />
 
-          {/* Bottom row — destination */}
           <FlowCard
             label="Destino"
             title="InvoiceXpress"
@@ -575,10 +597,9 @@ function HeroShowcase() {
             tone="success"
           />
 
-          {/* Footer caption */}
           <div
             className="mt-5 flex items-center justify-between border-t pt-4 text-[11px]"
-            style={{ borderColor: HAIRLINE, color: INK_40 }}
+            style={{ borderColor: HAIRLINE, color: FG_40 }}
           >
             <span className="font-mono uppercase tracking-[0.16em]">
               fluxo real · ao vivo
@@ -591,17 +612,16 @@ function HeroShowcase() {
         </div>
       </div>
 
-      {/* Floating offset stamp */}
       <motion.div
         initial={{ opacity: 0, rotate: -6, y: 12 }}
         animate={{ opacity: 1, rotate: -6, y: 0 }}
         transition={{ duration: 0.8, ease: EASE, delay: 1.7 }}
-        className="absolute -bottom-5 -left-5 hidden rounded-full border px-3 py-1.5 md:inline-flex"
+        className="absolute -bottom-5 -left-5 hidden rounded-full px-3 py-1.5 md:inline-flex"
         style={{
-          borderColor: RULE,
-          background: PAPER,
-          color: SAGE,
-          boxShadow: "0 10px 24px -12px rgba(11,14,20,0.2)",
+          border: `1px solid ${RULE}`,
+          background: SURFACE_2,
+          color: ACCENT_HOT,
+          boxShadow: "0 10px 24px -12px rgba(0,0,0,0.6)",
         }}
       >
         <span className="font-mono text-[10px] uppercase tracking-[0.22em]">
@@ -632,17 +652,20 @@ function FlowCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: EASE, delay }}
-      className="flex items-center justify-between rounded-2xl border p-4"
+      className="flex items-center justify-between rounded-2xl p-4"
       style={{
-        borderColor: HAIRLINE,
-        background: "#FFFFFF",
-        boxShadow: "0 1px 0 rgba(255,255,255,0.8) inset",
+        border: `1px solid ${HAIRLINE}`,
+        background: SURFACE_2,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
       }}
     >
       <div className="flex items-center gap-3">
         <div
           className="flex h-9 w-9 items-center justify-center rounded-xl"
-          style={{ background: PAPER_DEEP, border: "1px solid " + HAIRLINE }}
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: `1px solid ${HAIRLINE}`,
+          }}
         >
           <Image
             src={asset}
@@ -655,11 +678,11 @@ function FlowCard({
         <div>
           <div
             className="font-mono text-[10px] uppercase tracking-[0.18em]"
-            style={{ color: INK_40 }}
+            style={{ color: FG_40 }}
           >
             {label}
           </div>
-          <div className="text-[14px] font-medium" style={{ color: INK }}>
+          <div className="text-[14px] font-medium" style={{ color: FG }}>
             {title}
           </div>
         </div>
@@ -667,7 +690,7 @@ function FlowCard({
       <div className="text-right">
         <div
           className="font-mono text-[11px] tabular-nums"
-          style={{ color: INK_60 }}
+          style={{ color: FG_60 }}
         >
           {sub}
         </div>
@@ -675,8 +698,8 @@ function FlowCard({
           <div
             className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
             style={{
-              background: "rgba(44,94,74,0.08)",
-              color: SAGE,
+              background: "rgba(94,234,212,0.10)",
+              color: ACCENT_HOT,
             }}
           >
             <Check className="h-2.5 w-2.5" strokeWidth={2.4} />
@@ -702,7 +725,7 @@ function FlowConnector({ delay }: { delay: number }) {
       <div
         className="h-6 w-px"
         style={{
-          backgroundImage: `repeating-linear-gradient(180deg, ${INK_40} 0 2px, transparent 2px 6px)`,
+          backgroundImage: `repeating-linear-gradient(180deg, ${FG_40} 0 2px, transparent 2px 6px)`,
         }}
       />
     </motion.div>
@@ -710,72 +733,60 @@ function FlowConnector({ delay }: { delay: number }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Integration Matrix — THE section the old page was missing
+// Integration Matrix
 // ─────────────────────────────────────────────────────────────
 function IntegrationMatrix() {
   const pagamentos = INTEGRATIONS.filter((i) => i.kind === "pagamentos");
   const faturação = INTEGRATIONS.filter((i) => i.kind === "faturação");
 
   return (
-    <section
-      id="integracoes"
-      className="relative px-4 pt-32 md:pt-44"
-    >
+    <section id="integracoes" className="relative px-4 pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
           eyebrow="O hub"
           title={
             <>
-              Cada plataforma fala com a&nbsp;
-              <em style={{ fontStyle: "italic" }}>Rioko</em>.
-              <br />A Rioko fala com&nbsp;
-              <em style={{ fontStyle: "italic" }}>cada</em> programa de
-              faturação.
+              Cada plataforma fala com a <Mono color={ACCENT_HOT}>Rioko</Mono>.
+              <br />A Rioko fala com <Mono color={ACCENT_HOT}>cada</Mono>{" "}
+              programa de faturação.
             </>
           }
           sub="Em vez de manter sete integrações ponto-a-ponto, mantém uma. Adicionamos pagamentos e programas de faturação ao motor à medida que o ecossistema cresce."
         />
 
-        {/* Pagamentos row */}
         <IntegrationGroup
           kind="Pagamentos"
           subtitle="entrada · pedidos pagos chegam por webhook"
           items={pagamentos}
         />
 
-        <div
-          className="my-14 h-px w-full"
-          style={{ background: RULE }}
-        />
+        <div className="my-14 h-px w-full" style={{ background: RULE }} />
 
-        {/* Faturação row */}
         <IntegrationGroup
           kind="Faturação"
           subtitle="saída · documentos emitidos ao gateway certo"
           items={faturação}
         />
 
-        {/* Roadmap line */}
         <div
-          className="mt-16 flex flex-wrap items-center justify-between gap-4 rounded-2xl border px-5 py-4"
+          className="mt-16 flex flex-wrap items-center justify-between gap-4 rounded-2xl px-5 py-4"
           style={{
-            borderColor: RULE,
-            background: "rgba(255,255,255,0.45)",
+            ...GLASS,
           }}
         >
           <div className="flex items-center gap-3">
             <Layers
               className="h-4 w-4"
-              style={{ color: INK_60 }}
+              style={{ color: FG_60 }}
               strokeWidth={1.5}
             />
             <div>
-              <div className="text-[13px]" style={{ color: INK }}>
+              <div className="text-[13px]" style={{ color: FG }}>
                 Falta uma integração que precisa?
               </div>
               <div
                 className="font-mono text-[10px] uppercase tracking-[0.18em]"
-                style={{ color: INK_40 }}
+                style={{ color: FG_40 }}
               >
                 priorizamos por procura real
               </div>
@@ -784,11 +795,11 @@ function IntegrationMatrix() {
           <a
             href="mailto:rioko@kapta.pt?subject=Pedido%20de%20integração"
             className="group inline-flex items-center gap-2 text-[13px]"
-            style={{ color: INK }}
+            style={{ color: FG }}
           >
             <span
               className="border-b"
-              style={{ borderColor: RULE }}
+              style={{ borderColor: "rgba(255,255,255,0.16)" }}
             >
               Pedir nova integração
             </span>
@@ -815,15 +826,12 @@ function IntegrationGroup({
   return (
     <div className="mt-12">
       <div className="mb-6 flex items-baseline justify-between gap-4">
-        <h3
-          className="text-[14px] font-medium"
-          style={{ color: INK }}
-        >
+        <h3 className="text-[14px] font-medium" style={{ color: FG }}>
           {kind}
         </h3>
         <span
           className="font-mono text-[10px] uppercase tracking-[0.18em]"
-          style={{ color: INK_40 }}
+          style={{ color: FG_40 }}
         >
           {subtitle}
         </span>
@@ -860,35 +868,46 @@ function IntegrationCard({ item }: { item: Integration }) {
           transition: { duration: 0.6, ease: EASE },
         },
       }}
-      className="group relative rounded-[1.5rem] p-1.5"
+      className="group relative rounded-[1.25rem] p-1.5"
       style={{
-        background: isLive ? "rgba(11,14,20,0.05)" : "rgba(11,14,20,0.025)",
+        background: isLive
+          ? "rgba(255,255,255,0.05)"
+          : "rgba(255,255,255,0.025)",
       }}
     >
       <div
-        className="relative h-full overflow-hidden rounded-[calc(1.5rem-0.375rem)] p-5"
+        className="relative h-full overflow-hidden rounded-[calc(1.25rem-0.375rem)] p-5 transition-all duration-500"
         style={{
-          background: "#FFFFFF",
-          border: "1px solid " + HAIRLINE,
-          boxShadow:
-            "0 1px 0 rgba(255,255,255,0.7) inset, 0 18px 40px -28px rgba(11,14,20,0.15)",
+          ...GLASS,
+          background: "rgba(20,24,31,0.55)",
+          transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
         }}
       >
-        <div className="flex items-start justify-between">
+        {/* Hover ring */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-[calc(1.25rem-0.375rem)] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+          style={{
+            boxShadow: `inset 0 0 0 1px rgba(2,141,196,0.35)`,
+            transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
+          }}
+        />
+
+        <div className="relative flex items-start justify-between">
           <Mark item={item} />
           <StatusBadge status={item.status} />
         </div>
 
-        <div className="mt-6">
+        <div className="relative mt-6">
           <div
             className="text-[18px] font-medium tracking-tight"
-            style={{ color: INK }}
+            style={{ color: FG }}
           >
             {item.name}
           </div>
           <div
             className="mt-1 text-[13px] leading-[1.45]"
-            style={{ color: INK_60 }}
+            style={{ color: FG_60 }}
           >
             {item.note}
           </div>
@@ -897,10 +916,10 @@ function IntegrationCard({ item }: { item: Integration }) {
         {!isLive && (
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 rounded-[calc(1.5rem-0.375rem)]"
+            className="pointer-events-none absolute inset-0 rounded-[calc(1.25rem-0.375rem)]"
             style={{
-              background:
-                "repeating-linear-gradient(135deg, rgba(11,14,20,0.02) 0 6px, transparent 6px 12px)",
+              backgroundImage:
+                "repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0 6px, transparent 6px 12px)",
             }}
           />
         )}
@@ -915,8 +934,8 @@ function Mark({ item }: { item: Integration }) {
       <div
         className="flex h-11 w-11 items-center justify-center rounded-xl"
         style={{
-          background: PAPER_DEEP,
-          border: "1px solid " + HAIRLINE,
+          background: "rgba(255,255,255,0.06)",
+          border: `1px solid ${HAIRLINE}`,
         }}
       >
         <Image
@@ -933,9 +952,10 @@ function Mark({ item }: { item: Integration }) {
     <div
       className="flex h-11 w-11 items-center justify-center rounded-xl font-mono text-[13px] font-medium"
       style={{
-        background: item.brand ?? INK,
+        background: item.brand ?? SURFACE_2,
         color: "#FFFFFF",
         letterSpacing: "-0.02em",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18)",
       }}
     >
       {item.mark}
@@ -945,9 +965,9 @@ function Mark({ item }: { item: Integration }) {
 
 function StatusBadge({ status }: { status: Status }) {
   const styles: Record<Status, React.CSSProperties> = {
-    live: { background: "rgba(44,94,74,0.08)", color: SAGE },
-    soon: { background: "rgba(154,106,31,0.08)", color: AMBER },
-    planned: { background: "rgba(11,14,20,0.06)", color: INK_60 },
+    live: { background: "rgba(94,234,212,0.10)", color: ACCENT_HOT },
+    soon: { background: "rgba(245,158,11,0.10)", color: SOON },
+    planned: { background: "rgba(255,255,255,0.06)", color: FG_60 },
   };
   return (
     <span
@@ -957,7 +977,7 @@ function StatusBadge({ status }: { status: Status }) {
       {status === "live" && (
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ background: SAGE }}
+          style={{ background: ACCENT_HOT }}
         />
       )}
       {STATUS_LABEL[status]}
@@ -966,7 +986,7 @@ function StatusBadge({ status }: { status: Status }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// How it works — 3 zig-zag steps (no 3-col card cliché)
+// How it works
 // ─────────────────────────────────────────────────────────────
 function HowItWorks() {
   const steps = [
@@ -974,7 +994,7 @@ function HowItWorks() {
       n: "01",
       icon: Plug,
       title: "Conecta a loja e o programa",
-      body: "Cole o domínio Shopify e a sua chave da InvoiceXpress. O assistente de 4 passos detecta scopes, regista webhooks e valida credenciais em tempo real.",
+      body: "Cola o domínio Shopify e a sua chave da InvoiceXpress. O assistente de 4 passos detecta scopes, regista webhooks e valida credenciais em tempo real.",
       code: [
         "POST  /api/integrations/activate",
         '{ "shopify_domain": "minha-loja.myshopify.com",',
@@ -1003,16 +1023,13 @@ function HowItWorks() {
   ];
 
   return (
-    <section
-      id="como-funciona"
-      className="relative px-4 pt-32 md:pt-44"
-    >
+    <section id="como-funciona" className="relative px-4 pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
           eyebrow="O fluxo"
           title={
             <>
-              Três passos. <em style={{ fontStyle: "italic" }}>Uma vez.</em>
+              Três passos. <Mono color={ACCENT_HOT}>Uma vez.</Mono>
             </>
           }
           sub="Configurar a Rioko demora menos do que abrir uma fatura à mão. Depois disso, nunca mais."
@@ -1048,34 +1065,31 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
       viewport={{ once: true, margin: "-100px" }}
       className="grid grid-cols-1 items-center gap-10 md:grid-cols-12 md:gap-12"
     >
-      {/* Number + text */}
       <div className={"md:col-span-6 " + (flip ? "md:order-2" : "")}>
         <div className="flex items-center gap-3">
           <span
             className="font-mono text-[11px] uppercase tracking-[0.24em]"
-            style={{ color: INK_40 }}
+            style={{ color: FG_40 }}
           >
             Passo {step.n}
           </span>
-          <span
-            className="h-px flex-1"
-            style={{ background: RULE }}
-          />
+          <span className="h-px flex-1" style={{ background: RULE }} />
         </div>
         <h3
-          className="mt-5 tracking-[-0.02em]"
+          className="mt-5 tracking-[-0.025em]"
           style={{
-            fontFamily: "var(--font-editorial), Georgia, serif",
+            fontFamily: "var(--font-sans-display), system-ui, sans-serif",
             fontSize: "clamp(2rem, 3.4vw, 3rem)",
             lineHeight: 1.02,
-            color: INK,
+            color: FG,
+            fontWeight: 500,
           }}
         >
           {step.title}
         </h3>
         <p
           className="mt-5 max-w-[52ch] text-[15px] leading-[1.6]"
-          style={{ color: INK_60 }}
+          style={{ color: FG_60 }}
         >
           {step.body}
         </p>
@@ -1086,11 +1100,11 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
               <li
                 key={t}
                 className="flex items-start gap-2.5 text-[14px]"
-                style={{ color: INK }}
+                style={{ color: FG }}
               >
                 <span
                   className="mt-1.5 inline-flex h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: SAGE }}
+                  style={{ background: ACCENT_HOT }}
                 />
                 {t}
               </li>
@@ -1099,68 +1113,96 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
         )}
       </div>
 
-      {/* Visual */}
       <div className={"md:col-span-6 " + (flip ? "md:order-1" : "")}>
         <div
-          className="rounded-[2rem] p-1.5"
-          style={{ background: "rgba(11,14,20,0.04)" }}
+          className="rounded-[1.75rem] p-1.5"
+          style={{ background: "rgba(255,255,255,0.04)" }}
         >
           <div
-            className="overflow-hidden rounded-[calc(2rem-0.375rem)] border p-6"
+            className="overflow-hidden rounded-[calc(1.75rem-0.375rem)] p-6"
             style={{
-              borderColor: HAIRLINE,
-              background: "#FFFFFF",
-              boxShadow:
-                "0 1px 0 rgba(255,255,255,0.75) inset, 0 24px 48px -28px rgba(11,14,20,0.18)",
+              ...GLASS,
+              background: "rgba(20,24,31,0.7)",
             }}
           >
             <div className="flex items-center justify-between">
               <div
                 className="flex h-10 w-10 items-center justify-center rounded-xl"
                 style={{
-                  background: PAPER_DEEP,
-                  border: "1px solid " + HAIRLINE,
+                  background: "rgba(255,255,255,0.04)",
+                  border: `1px solid ${HAIRLINE}`,
+                  color: FG,
                 }}
               >
-                <Icon
-                  className="h-4 w-4"
-                  strokeWidth={1.5}
-                />
+                <Icon className="h-4 w-4" strokeWidth={1.5} />
               </div>
               <span
                 className="font-mono text-[10px] uppercase tracking-[0.18em]"
-                style={{ color: INK_40 }}
+                style={{ color: FG_40 }}
               >
                 {step.n}
               </span>
             </div>
 
             {step.code && (
-              <pre
-                className="mt-6 overflow-x-auto rounded-xl p-4 font-mono text-[12px] leading-[1.6]"
-                style={{
-                  background: INK,
-                  color: PAPER,
-                  boxShadow:
-                    "0 1px 0 rgba(255,255,255,0.08) inset",
-                }}
-              >
-                {step.code.map((line, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      color:
-                        i === 0
-                          ? "#86C9A4"
-                          : i === step.code!.length - 1
-                          ? "#86C9A4"
-                          : "rgba(244,241,234,0.78)",
-                    }}
-                  >
-                    {line}
+              <div className="mt-6">
+                {/* Terminal chrome */}
+                <div
+                  className="flex items-center justify-between rounded-t-xl px-3 py-2"
+                  style={{
+                    background: "rgba(0,0,0,0.4)",
+                    border: `1px solid ${HAIRLINE}`,
+                    borderBottom: "none",
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: "rgba(255,255,255,0.18)" }}
+                    />
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: "rgba(255,255,255,0.18)" }}
+                    />
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: "rgba(255,255,255,0.18)" }}
+                    />
                   </div>
-                ))}
-              </pre>
+                  <span
+                    className="font-mono text-[10px] uppercase tracking-[0.18em]"
+                    style={{ color: FG_40 }}
+                  >
+                    activate.sh
+                  </span>
+                  <span className="w-8" />
+                </div>
+                <pre
+                  className="overflow-x-auto rounded-b-xl p-4 font-mono text-[12px] leading-[1.6]"
+                  style={{
+                    background: "rgba(0,0,0,0.5)",
+                    border: `1px solid ${HAIRLINE}`,
+                    borderTop: "none",
+                    color: FG,
+                  }}
+                >
+                  {step.code.map((line, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        color:
+                          i === 0
+                            ? ACCENT
+                            : i === step.code!.length - 1
+                            ? ACCENT_HOT
+                            : "rgba(240,240,240,0.85)",
+                      }}
+                    >
+                      {line}
+                    </div>
+                  ))}
+                </pre>
+              </div>
             )}
 
             {step.pills && (
@@ -1168,11 +1210,11 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
                 {step.pills.map((p) => (
                   <span
                     key={p}
-                    className="rounded-full border px-3 py-1.5 text-[12px]"
+                    className="rounded-full px-3 py-1.5 text-[12px] font-mono"
                     style={{
-                      borderColor: HAIRLINE,
-                      background: PAPER,
-                      color: INK,
+                      border: `1px solid ${HAIRLINE}`,
+                      background: "rgba(255,255,255,0.03)",
+                      color: FG,
                     }}
                   >
                     {p}
@@ -1191,19 +1233,25 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
                     key={tag}
                     className="rounded-lg px-2 py-3 text-center"
                     style={{
-                      background: PAPER_DEEP,
-                      border: "1px solid " + HAIRLINE,
+                      background:
+                        i === 0
+                          ? "rgba(2,141,196,0.10)"
+                          : "rgba(255,255,255,0.03)",
+                      border:
+                        i === 0
+                          ? `1px solid rgba(2,141,196,0.35)`
+                          : `1px solid ${HAIRLINE}`,
                     }}
                   >
                     <div
                       className="font-mono text-[11px]"
-                      style={{ color: INK }}
+                      style={{ color: i === 0 ? ACCENT_HOT : FG }}
                     >
                       {tag}
                     </div>
                     <div
                       className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em]"
-                      style={{ color: INK_40 }}
+                      style={{ color: FG_40 }}
                     >
                       {i === 0
                         ? "atómico"
@@ -1223,7 +1271,7 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Fiscal trust — Portuguese context
+// Fiscal trust
 // ─────────────────────────────────────────────────────────────
 function FiscalTrust() {
   const items = [
@@ -1250,10 +1298,7 @@ function FiscalTrust() {
   ];
 
   return (
-    <section
-      id="fiscal"
-      className="relative px-4 pt-32 md:pt-44"
-    >
+    <section id="fiscal" className="relative px-4 pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
           eyebrow="Confiança"
@@ -1261,37 +1306,41 @@ function FiscalTrust() {
             <>
               Feito para fiscalidade portuguesa.
               <br />
-              <span style={{ color: INK_60 }}>
-                <em style={{ fontStyle: "italic" }}>Não</em> traduzido dela.
+              <span style={{ color: FG_60 }}>
+                <Mono color={ACCENT_HOT}>Não</Mono> traduzido dela.
               </span>
             </>
           }
           sub="A Rioko nasceu em Lisboa, num escritório fiscal. Não é uma SaaS americana com pacote PT — é o contrário."
         />
 
-        <div className="mt-14 grid grid-cols-1 gap-px overflow-hidden rounded-[2rem] border md:grid-cols-2"
-          style={{ borderColor: HAIRLINE, background: RULE }}
+        <div
+          className="mt-14 grid grid-cols-1 gap-px overflow-hidden rounded-[1.75rem] md:grid-cols-2"
+          style={{
+            border: `1px solid ${HAIRLINE}`,
+            background: RULE,
+          }}
         >
           {items.map((it) => (
             <div
               key={it.title}
               className="p-8 md:p-10"
-              style={{ background: "#FFFFFF" }}
+              style={{ background: SURFACE }}
             >
               <it.icon
                 className="h-5 w-5"
-                style={{ color: INK }}
+                style={{ color: ACCENT_HOT }}
                 strokeWidth={1.5}
               />
               <h4
                 className="mt-5 text-[18px] font-medium tracking-tight"
-                style={{ color: INK }}
+                style={{ color: FG }}
               >
                 {it.title}
               </h4>
               <p
                 className="mt-2 max-w-[42ch] text-[14px] leading-[1.55]"
-                style={{ color: INK_60 }}
+                style={{ color: FG_60 }}
               >
                 {it.body}
               </p>
@@ -1304,23 +1353,24 @@ function FiscalTrust() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Final CTA
+// Final CTA — only loud-cyan moment
 // ─────────────────────────────────────────────────────────────
 function FinalCTA() {
   return (
     <section className="relative px-4 pt-32 pb-24 md:pt-44 md:pb-32">
       <div className="mx-auto w-full max-w-[1280px]">
         <div
-          className="relative overflow-hidden rounded-[2.5rem] p-1.5"
-          style={{ background: "rgba(11,14,20,0.06)" }}
+          className="relative overflow-hidden rounded-[2rem] p-1.5"
+          style={{ background: "rgba(2,141,196,0.18)" }}
         >
           <div
-            className="relative overflow-hidden rounded-[calc(2.5rem-0.375rem)] px-8 py-16 md:px-16 md:py-24"
+            className="relative overflow-hidden rounded-[calc(2rem-0.375rem)] px-8 py-16 md:px-16 md:py-24"
             style={{
-              background: INK,
-              color: PAPER,
+              background:
+                "linear-gradient(135deg, #0A0A0A 0%, #14181F 60%, #0A2540 100%)",
+              color: FG,
               boxShadow:
-                "0 1px 0 rgba(255,255,255,0.06) inset",
+                "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 0 1px rgba(2,141,196,0.18)",
             }}
           >
             <div
@@ -1328,7 +1378,7 @@ function FinalCTA() {
               className="pointer-events-none absolute inset-0"
               style={{
                 backgroundImage:
-                  "radial-gradient(50% 60% at 20% 0%, rgba(244,241,234,0.07), transparent 60%), radial-gradient(40% 50% at 90% 100%, rgba(134,201,164,0.08), transparent 60%)",
+                  "radial-gradient(50% 60% at 20% 0%, rgba(2,141,196,0.18), transparent 60%), radial-gradient(40% 50% at 90% 100%, rgba(94,234,212,0.10), transparent 60%)",
               }}
             />
 
@@ -1336,27 +1386,28 @@ function FinalCTA() {
               <div className="md:col-span-7">
                 <span
                   className="font-mono text-[10px] uppercase tracking-[0.22em]"
-                  style={{ color: "rgba(244,241,234,0.55)" }}
+                  style={{ color: "rgba(240,240,240,0.55)" }}
                 >
                   Pronto?
                 </span>
                 <h2
-                  className="mt-4 tracking-[-0.02em]"
+                  className="mt-4 tracking-[-0.025em]"
                   style={{
                     fontFamily:
-                      "var(--font-editorial), Georgia, serif",
+                      "var(--font-sans-display), system-ui, sans-serif",
                     fontSize: "clamp(2.5rem, 5vw, 4.75rem)",
                     lineHeight: 0.98,
+                    fontWeight: 500,
                   }}
                 >
-                  Liga a primeira loja em&nbsp;
-                  <em style={{ fontStyle: "italic" }}>quatro</em> minutos.
+                  Liga a primeira loja em{" "}
+                  <Mono color={ACCENT_HOT}>quatro</Mono> minutos.
                 </h2>
               </div>
               <div className="md:col-span-5">
                 <p
                   className="mb-7 max-w-[40ch] text-[15px] leading-[1.55]"
-                  style={{ color: "rgba(244,241,234,0.7)" }}
+                  style={{ color: "rgba(240,240,240,0.7)" }}
                 >
                   Sem cartão. Sem instalação. Sem extensões no checkout.
                   Configure uma vez, fature para sempre.
@@ -1366,17 +1417,19 @@ function FinalCTA() {
                     href="/sign-up"
                     className="group inline-flex items-center gap-2 rounded-full py-3 pl-6 pr-2 text-[14px] font-medium transition-transform duration-500 active:scale-[0.98]"
                     style={{
-                      background: PAPER,
-                      color: INK,
+                      background: ACCENT,
+                      color: "#FFFFFF",
                       transitionTimingFunction:
                         "cubic-bezier(0.32,0.72,0,1)",
+                      boxShadow:
+                        "0 1px 0 rgba(255,255,255,0.18) inset, 0 14px 30px -10px rgba(2,141,196,0.55)",
                     }}
                   >
                     Começar grátis
                     <span
                       className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                       style={{
-                        background: "rgba(11,14,20,0.08)",
+                        background: "rgba(255,255,255,0.16)",
                         transitionTimingFunction:
                           "cubic-bezier(0.32,0.72,0,1)",
                       }}
@@ -1390,11 +1443,11 @@ function FinalCTA() {
                   <Link
                     href="/sign-in"
                     className="text-[14px]"
-                    style={{ color: "rgba(244,241,234,0.8)" }}
+                    style={{ color: "rgba(240,240,240,0.8)" }}
                   >
                     <span
                       className="border-b"
-                      style={{ borderColor: "rgba(244,241,234,0.25)" }}
+                      style={{ borderColor: "rgba(240,240,240,0.25)" }}
                     >
                       Já tenho conta
                     </span>
@@ -1410,7 +1463,7 @@ function FinalCTA() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Footer (Kapta — preserved, polished)
+// Footer (Kapta preserved)
 // ─────────────────────────────────────────────────────────────
 function Footer() {
   return (
@@ -1421,14 +1474,14 @@ function Footer() {
       <div className="mx-auto flex w-full max-w-[1280px] flex-col items-center gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <Image
-            src="/images/rioko2-logo-black.svg"
+            src="/images/rioko2-logo.svg"
             alt="Rioko 2.0"
             width={110}
-            height={21}
+            height={23}
           />
           <span
             className="font-mono text-[10px] uppercase tracking-[0.2em]"
-            style={{ color: INK_40 }}
+            style={{ color: FG_40 }}
           >
             © {new Date().getFullYear()} · todos os direitos reservados
           </span>
@@ -1438,14 +1491,14 @@ function Footer() {
           <Link
             href="/privacy"
             className="text-[12px]"
-            style={{ color: INK_60 }}
+            style={{ color: FG_60 }}
           >
             Privacidade
           </Link>
           <Link
             href="/terms"
             className="text-[12px]"
-            style={{ color: INK_60 }}
+            style={{ color: FG_60 }}
           >
             Termos
           </Link>
@@ -1454,7 +1507,7 @@ function Footer() {
         <div className="flex flex-col items-center gap-3">
           <div
             className="font-mono text-[10px] uppercase tracking-[0.22em]"
-            style={{ color: INK_40 }}
+            style={{ color: FG_40 }}
           >
             Developed by
           </div>
@@ -1472,8 +1525,7 @@ function Footer() {
               alt="Kapta"
               width={80}
               height={22}
-              className="opacity-80"
-              style={{ filter: "invert(1)" }}
+              className="opacity-80 transition-opacity duration-500 hover:opacity-100"
             />
           </a>
         </div>
@@ -1483,7 +1535,7 @@ function Footer() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Section head (shared)
+// Section head
 // ─────────────────────────────────────────────────────────────
 function SectionHead({
   eyebrow,
@@ -1498,22 +1550,27 @@ function SectionHead({
     <div className="grid grid-cols-1 gap-8 md:grid-cols-12">
       <div className="md:col-span-5">
         <span
-          className="inline-flex items-center gap-2 rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.22em]"
-          style={{ borderColor: RULE, color: INK_60 }}
+          className="inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.22em]"
+          style={{
+            border: `1px solid ${RULE}`,
+            color: FG_60,
+            background: "rgba(255,255,255,0.02)",
+          }}
         >
           <span
             className="h-1 w-1 rounded-full"
-            style={{ background: INK }}
+            style={{ background: ACCENT_HOT }}
           />
           {eyebrow}
         </span>
         <h2
-          className="mt-6 tracking-[-0.02em]"
+          className="mt-6 tracking-[-0.025em]"
           style={{
-            fontFamily: "var(--font-editorial), Georgia, serif",
+            fontFamily: "var(--font-sans-display), system-ui, sans-serif",
             fontSize: "clamp(2.25rem, 4vw, 3.75rem)",
             lineHeight: 1.02,
-            color: INK,
+            color: FG,
+            fontWeight: 500,
           }}
         >
           {title}
@@ -1522,7 +1579,7 @@ function SectionHead({
       <div className="md:col-span-6 md:col-start-7">
         <p
           className="max-w-[52ch] text-[15px] leading-[1.6] md:mt-14"
-          style={{ color: INK_60 }}
+          style={{ color: FG_60 }}
         >
           {sub}
         </p>

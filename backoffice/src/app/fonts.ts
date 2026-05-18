@@ -1,12 +1,4 @@
-import { Instrument_Serif, Geist, Geist_Mono } from "next/font/google";
-
-export const editorialSerif = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-editorial",
-  display: "swap",
-});
+import { Geist, Geist_Mono } from "next/font/google";
 
 export const sansDisplay = Geist({
   subsets: ["latin"],

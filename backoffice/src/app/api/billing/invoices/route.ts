@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
                    status, ix_invoice_id, ix_invoice_permalink, ix_match_method, ix_match_score,
                    created_at
             FROM billing_events
-            WHERE user_id = ? AND type IN ('invoice.paid','invoice.payment_failed')
+            WHERE user_id = ? AND type IN ('invoice.paid','invoice.payment_failed','charge.refunded')
             ORDER BY created_at DESC
             LIMIT 100
         `).bind(targetUserId).all();

@@ -250,6 +250,64 @@ export async function POST(req: NextRequest) {
                 break;
             }
 
+            case "charge.refunded": {
+                const charge = event.data.object as Stripe.Charge;
+                const userId = await resolveUserIdFromCustomer(db, stripe, charge.customer);
+                if (!userId) {
+                    console.error("[Stripe webhook] charge.refunded with no user_id", event.id);
+                    break;
+                }
+
+                const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+                const refundAmount = charge.amount_refunded || 0;
+                const latestRefund = charge.refunds?.data?.[0];
+
+                await db.prepare(`
+                    INSERT OR IGNORE INTO billing_events (
+                        id, user_id, type, stripe_object_id, payment_intent_id,
+                        amount_cents, currency, status, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).bind(
+                    event.id,
+                    userId,
+                    event.type,
+                    latestRefund?.id || charge.id,
+                    piId || null,
+                    refundAmount,
+                    charge.currency || "eur",
+                    "refunded",
+                    JSON.stringify(charge),
+                ).run();
+
+                // Try to match IX credit note for this refund
+                try {
+                    const subRow: any = await db.prepare("SELECT nif, name, email, address FROM subscriptions WHERE user_id = ?").bind(userId).first();
+                    const match = await matchStripeChargeToIX({
+                        payment_intent_id: piId,
+                        doc_type: "credit_note",
+                        extra_refs: latestRefund?.id ? [latestRefund.id, `re_${latestRefund.id.replace(/^re_/, "")}`] : [],
+                        candidate: {
+                            nif: subRow?.nif || null,
+                            email: subRow?.email || charge.billing_details?.email || null,
+                            name: subRow?.name || charge.billing_details?.name || null,
+                            address: subRow?.address || charge.billing_details?.address?.line1 || null,
+                            amount_cents: refundAmount,
+                            paid_at: new Date(charge.created * 1000),
+                        },
+                    });
+                    if (match.ix_invoice_id) {
+                        await db.prepare(`
+                            UPDATE billing_events
+                            SET ix_invoice_id = ?, ix_invoice_permalink = ?, ix_match_method = ?, ix_match_score = ?
+                            WHERE id = ?
+                        `).bind(match.ix_invoice_id, match.ix_invoice_permalink, match.ix_match_method, match.ix_match_score, event.id).run();
+                    }
+                } catch (ixErr: any) {
+                    console.error(`[Stripe webhook] IX credit note match failed for ${event.id} — cron will retry: ${ixErr.message}`);
+                }
+                break;
+            }
+
             case "customer.subscription.trial_will_end": {
                 // Optional: send email notification
                 console.log("[Stripe webhook] trial_will_end", event.id);

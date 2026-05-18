@@ -8,7 +8,7 @@ interface KaptaIXConfig {
 
 interface IXDocument {
     id: string;
-    type: "invoice_receipts" | "invoices";
+    type: "invoice_receipts" | "invoices" | "credit_notes";
     state: string;
     reference?: string;
     date?: string;
@@ -66,12 +66,15 @@ function buildPermalink(cfg: KaptaIXConfig, baseUrl: string, doc: IXDocument): s
     return `${baseUrl}/${doc.type}/${doc.id}`;
 }
 
-async function listRecent(cfg: KaptaIXConfig, baseUrl: string): Promise<IXDocument[]> {
+async function listRecent(cfg: KaptaIXConfig, baseUrl: string, docType: "invoice" | "credit_note" = "invoice"): Promise<IXDocument[]> {
     const authHeaders = { "X-InvoiceXpress-API-Key": cfg.apiKey, "Accept": "application/json" };
-    const types: { endpoint: string; list: string; type: "invoice_receipts" | "invoices" }[] = [
-        { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
-        { endpoint: "invoices", list: "invoices", type: "invoices" },
-    ];
+    const types: { endpoint: string; list: string; type: "invoice_receipts" | "invoices" | "credit_notes" }[] =
+        docType === "credit_note"
+            ? [{ endpoint: "credit_notes", list: "credit_notes", type: "credit_notes" }]
+            : [
+                { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
+                { endpoint: "invoices", list: "invoices", type: "invoices" },
+            ];
     const docs: IXDocument[] = [];
     for (const t of types) {
         try {
@@ -89,15 +92,18 @@ async function listRecent(cfg: KaptaIXConfig, baseUrl: string): Promise<IXDocume
     return docs;
 }
 
-export async function findByReference(reference: string): Promise<IXDocument | null> {
+export async function findByReference(reference: string, docType: "invoice" | "credit_note" = "invoice"): Promise<IXDocument | null> {
     const cfg = getConfig();
     if (!cfg) return null;
     const baseUrl = await getBaseUrl(cfg);
     const authHeaders = { "X-InvoiceXpress-API-Key": cfg.apiKey, "Accept": "application/json" };
-    const types: { endpoint: string; list: string; type: "invoice_receipts" | "invoices" }[] = [
-        { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
-        { endpoint: "invoices", list: "invoices", type: "invoices" },
-    ];
+    const types: { endpoint: string; list: string; type: "invoice_receipts" | "invoices" | "credit_notes" }[] =
+        docType === "credit_note"
+            ? [{ endpoint: "credit_notes", list: "credit_notes", type: "credit_notes" }]
+            : [
+                { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
+                { endpoint: "invoices", list: "invoices", type: "invoices" },
+            ];
     for (const t of types) {
         try {
             const res = await fetch(`${baseUrl}/${t.endpoint}.json?per_page=100&api_key=${cfg.apiKey}&text=${encodeURIComponent(reference)}`, { headers: authHeaders });
@@ -172,11 +178,11 @@ function scoreCandidate(doc: IXDocument, c: MatchCandidate): number {
     return score;
 }
 
-export async function findByHeuristic(c: MatchCandidate): Promise<{ doc: IXDocument; score: number } | null> {
+export async function findByHeuristic(c: MatchCandidate, docType: "invoice" | "credit_note" = "invoice"): Promise<{ doc: IXDocument; score: number } | null> {
     const cfg = getConfig();
     if (!cfg) return null;
     const baseUrl = await getBaseUrl(cfg);
-    const docs = await listRecent(cfg, baseUrl);
+    const docs = await listRecent(cfg, baseUrl, docType);
 
     let best: { doc: IXDocument; score: number } | null = null;
     for (const d of docs) {
@@ -194,11 +200,21 @@ export async function findByHeuristic(c: MatchCandidate): Promise<{ doc: IXDocum
 export async function matchStripeChargeToIX(opts: {
     payment_intent_id?: string | null;
     candidate: MatchCandidate;
+    doc_type?: "invoice" | "credit_note";
+    extra_refs?: string[];
 }): Promise<MatchResult> {
-    // Try 1: exact reference match
+    const docType = opts.doc_type || "invoice";
+
+    // Try 1: exact reference match (try multiple refs: pi_xxx, bare id, re_xxx for refunds, etc.)
+    const refsToTry: string[] = [];
     if (opts.payment_intent_id) {
-        const ref = `pi_${opts.payment_intent_id.replace(/^pi_/, "")}`;
-        const doc = await findByReference(ref);
+        const bare = opts.payment_intent_id.replace(/^pi_/, "");
+        refsToTry.push(`pi_${bare}`, opts.payment_intent_id);
+    }
+    if (opts.extra_refs) refsToTry.push(...opts.extra_refs);
+
+    for (const ref of refsToTry) {
+        const doc = await findByReference(ref, docType);
         if (doc) {
             return {
                 ix_invoice_id: doc.id,
@@ -207,20 +223,10 @@ export async function matchStripeChargeToIX(opts: {
                 ix_match_score: 100,
             };
         }
-        // Try also without prefix
-        const docBare = await findByReference(opts.payment_intent_id);
-        if (docBare) {
-            return {
-                ix_invoice_id: docBare.id,
-                ix_invoice_permalink: docBare.permalink || null,
-                ix_match_method: "reference",
-                ix_match_score: 100,
-            };
-        }
     }
 
     // Try 2: heuristic
-    const h = await findByHeuristic(opts.candidate);
+    const h = await findByHeuristic(opts.candidate, docType);
     if (h) {
         return {
             ix_invoice_id: h.doc.id,

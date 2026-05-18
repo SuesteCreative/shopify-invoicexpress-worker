@@ -17,16 +17,17 @@ export async function GET(req: NextRequest) {
 
     const db = getDB();
     const pending: any = await db.prepare(`
-        SELECT e.id, e.user_id, e.payment_intent_id, e.amount_cents,
+        SELECT e.id, e.user_id, e.type, e.stripe_object_id, e.payment_intent_id, e.amount_cents,
                s.nif, s.email, s.name, s.address
         FROM billing_events e
         LEFT JOIN subscriptions s ON s.user_id = e.user_id
         WHERE e.ix_invoice_id IS NULL
-          AND e.type = 'invoice.paid'
-          AND e.status = 'paid'
-          AND e.created_at > datetime('now', '-7 days')
+          AND e.type IN ('invoice.paid', 'charge.refunded')
+          AND e.status IN ('paid', 'refunded')
+          AND e.amount_cents > 0
+          AND e.created_at > datetime('now', '-30 days')
         ORDER BY e.created_at DESC
-        LIMIT 50
+        LIMIT 100
     `).all();
 
     const rows: any[] = pending.results || [];
@@ -35,8 +36,11 @@ export async function GET(req: NextRequest) {
 
     for (const row of rows) {
         try {
+            const isRefund = row.type === "charge.refunded";
             const result = await matchStripeChargeToIX({
                 payment_intent_id: row.payment_intent_id,
+                doc_type: isRefund ? "credit_note" : "invoice",
+                extra_refs: isRefund && row.stripe_object_id ? [row.stripe_object_id] : [],
                 candidate: {
                     nif: row.nif,
                     email: row.email,

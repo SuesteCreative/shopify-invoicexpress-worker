@@ -14,7 +14,7 @@ function cn(...inputs: ClassValue[]) {
 
 interface BillingEvent {
     id: string;
-    type: string;
+    type: "invoice.paid" | "invoice.payment_failed" | "charge.refunded" | string;
     stripe_object_id: string;
     payment_intent_id: string | null;
     amount_cents: number;
@@ -40,7 +40,15 @@ function formatRef(pi: string | null, invId: string): string {
     return `#stripe ${invId}`;
 }
 
-function statusBadge(status: string) {
+function statusBadge(status: string, type: string) {
+    if (type === "charge.refunded") {
+        return (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border bg-orange-500/10 text-orange-400 border-orange-500/20">
+                <RefreshCw className="w-3 h-3" />
+                Reembolso
+            </span>
+        );
+    }
     const config: Record<string, { bg: string; label: string; icon: any }> = {
         paid: { bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", label: "Pago", icon: CheckCircle2 },
         failed: { bg: "bg-red-500/10 text-red-400 border-red-500/20", label: "Falhou", icon: XCircle },
@@ -223,27 +231,32 @@ export default function FaturacaoPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {events.map((e) => (
-                                    <tr key={e.id} className="border-b border-slate-800/30 hover:bg-white/[0.02] transition-colors">
-                                        <td className="px-6 py-4 text-sm text-slate-300 font-medium">{formatDate(e.created_at)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-400 font-mono">{formatRef(e.payment_intent_id, e.stripe_object_id)}</td>
-                                        <td className="px-6 py-4 text-sm text-white font-black text-right">{formatAmount(e.amount_cents, e.currency)}</td>
-                                        <td className="px-6 py-4">{statusBadge(e.status)}</td>
-                                        <td className="px-6 py-4">
-                                            {e.ix_invoice_permalink ? (
-                                                <a href={e.ix_invoice_permalink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-xs font-bold text-sky-400 hover:text-sky-300 transition-colors">
-                                                    Ver fatura
-                                                    <ExternalLink className="w-3 h-3" />
-                                                    {e.ix_match_method === "heuristic" && (
-                                                        <span className="text-[9px] text-amber-400 font-black uppercase tracking-widest" title={`Match heurístico · score ${e.ix_match_score}`}>~</span>
-                                                    )}
-                                                </a>
-                                            ) : (
-                                                <span className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">A processar</span>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {events.map((e) => {
+                                    const isRefund = e.type === "charge.refunded";
+                                    return (
+                                        <tr key={e.id} className={cn("border-b border-slate-800/30 hover:bg-white/[0.02] transition-colors", isRefund && "bg-orange-500/[0.02]")}>
+                                            <td className="px-6 py-4 text-sm text-slate-300 font-medium">{formatDate(e.created_at)}</td>
+                                            <td className="px-6 py-4 text-xs text-slate-400 font-mono">{formatRef(e.payment_intent_id, e.stripe_object_id)}</td>
+                                            <td className={cn("px-6 py-4 text-sm font-black text-right", isRefund ? "text-orange-300" : "text-white")}>
+                                                {isRefund ? "-" : ""}{formatAmount(e.amount_cents, e.currency)}
+                                            </td>
+                                            <td className="px-6 py-4">{statusBadge(e.status, e.type)}</td>
+                                            <td className="px-6 py-4">
+                                                {e.ix_invoice_permalink ? (
+                                                    <a href={e.ix_invoice_permalink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-xs font-bold text-sky-400 hover:text-sky-300 transition-colors">
+                                                        {isRefund ? "Ver nota crédito" : "Ver fatura"}
+                                                        <ExternalLink className="w-3 h-3" />
+                                                        {e.ix_match_method === "heuristic" && (
+                                                            <span className="text-[9px] text-amber-400 font-black uppercase tracking-widest" title={`Match heurístico · score ${e.ix_match_score}`}>~</span>
+                                                        )}
+                                                    </a>
+                                                ) : (
+                                                    <span className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">A processar</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

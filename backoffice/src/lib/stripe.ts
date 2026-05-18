@@ -1,40 +1,36 @@
 import Stripe from "stripe";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 
-let _stripe: Stripe | null = null;
+function readEnv(name: string): string | undefined {
+    // process.env works for plaintext on next-on-pages
+    const fromProc = process.env[name];
+    if (fromProc) return fromProc;
+    // Bindings + secrets resolve via getRequestContext().env
+    try {
+        const ctx = getRequestContext();
+        const v = (ctx?.env as any)?.[name];
+        if (v) return v as string;
+    } catch { /* not in request scope */ }
+    return undefined;
+}
 
 export function getStripe(): Stripe {
-    if (_stripe) return _stripe;
-
-    const key = process.env.STRIPE_SECRET_KEY
-        || ((): string | undefined => {
-            try { return (getRequestContext().env as any).STRIPE_SECRET_KEY; }
-            catch { return undefined; }
-        })();
-
+    const key = readEnv("STRIPE_SECRET_KEY");
     if (!key) throw new Error("STRIPE_SECRET_KEY not configured");
-
-    _stripe = new Stripe(key, {
+    return new Stripe(key, {
         apiVersion: "2025-01-27.acacia" as any,
         httpClient: Stripe.createFetchHttpClient(),
     });
-    return _stripe;
 }
 
 export function getStripeEnv(name: string): string {
-    const v = process.env[name] || ((): string | undefined => {
-        try { return (getRequestContext().env as any)[name]; }
-        catch { return undefined; }
-    })();
+    const v = readEnv(name);
     if (!v) throw new Error(`${name} not configured`);
     return v;
 }
 
 export function getStripeEnvOptional(name: string): string | undefined {
-    return process.env[name] || ((): string | undefined => {
-        try { return (getRequestContext().env as any)[name]; }
-        catch { return undefined; }
-    })();
+    return readEnv(name);
 }
 
 export function getDB() {
@@ -72,8 +68,9 @@ export function isSubscriptionBlocked(sub: SubscriptionRow | null | undefined): 
     return false;
 }
 
-export function subscriptionUIState(sub: SubscriptionRow | null | undefined): "active" | "trialing_earlybird" | "trialing" | "blocked" | "none" {
+export function subscriptionUIState(sub: SubscriptionRow | null | undefined): "active" | "trialing_earlybird" | "trialing" | "blocked" | "none" | "exempt" {
     if (!sub) return "none";
+    if (sub.status === "exempt") return "exempt";
     if (sub.status === "active") return "active";
     if (sub.status === "trialing") {
         const expired = sub.trial_end && new Date(sub.trial_end) < new Date();

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB, isSubscriptionBlocked, SubscriptionRow } from "@/lib/stripe";
+import { getRole } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -25,6 +26,12 @@ export async function GET(req: NextRequest) {
 
         if (!integration?.user_id) {
             return NextResponse.json({ blocked: true, reason: "no_integration" });
+        }
+
+        // Admins/superadmins: exempt from subscription gate
+        const role = await getRole(integration.user_id);
+        if (role === "superadmin" || role === "hiperadmin") {
+            return NextResponse.json({ blocked: false, reason: null, status: "exempt", user_id: integration.user_id });
         }
 
         const sub: SubscriptionRow | null = await db.prepare(

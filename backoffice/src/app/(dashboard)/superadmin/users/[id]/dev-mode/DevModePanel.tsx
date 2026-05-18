@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
-    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt
+    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles
 } from "lucide-react";
 
 type Target = {
@@ -104,6 +104,8 @@ export function DevModePanel({ target }: { target: Target }) {
                 )}
             </div>
 
+            <SubscriptionAdminCard targetUserId={target.id} targetRole={target.role} />
+
             {!noShop && (
                 <>
                     <TaxOverrideCard targetUserId={target.id} />
@@ -143,6 +145,93 @@ function ResultBox({ result }: { result: JobResult | null }) {
         <pre className={`mt-4 rounded-2xl p-5 text-[11px] font-mono whitespace-pre-wrap border ${errored ? "bg-red-500/5 border-red-500/20 text-red-300" : "bg-slate-900/70 border-slate-800 text-slate-300"}`}>
             {JSON.stringify(result, null, 2)}
         </pre>
+    );
+}
+
+function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: string; targetRole: string }) {
+    const [sub, setSub] = useState<any>(null);
+    const [earlyBird, setEarlyBird] = useState(false);
+    const [trialEnd, setTrialEnd] = useState<string>("");
+    const [loaded, setLoaded] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+
+    const isAdminTarget = targetRole === "superadmin" || targetRole === "hiperadmin";
+
+    useEffect(() => {
+        if (isAdminTarget) { setLoaded(true); return; }
+        fetch(`/api/admin/subscription?user_id=${targetUserId}`)
+            .then(r => r.json())
+            .then((d: any) => {
+                if (d.subscription) {
+                    setSub(d.subscription);
+                    setEarlyBird(d.subscription.early_bird === 1);
+                    setTrialEnd(d.subscription.trial_end ? d.subscription.trial_end.split("T")[0] : "");
+                } else {
+                    setEarlyBird(false);
+                    setTrialEnd("2026-08-01");
+                }
+                setLoaded(true);
+            })
+            .catch(console.error);
+    }, [targetUserId, isAdminTarget]);
+
+    const save = async () => {
+        setSaving(true);
+        try {
+            const trialEndIso = trialEnd ? `${trialEnd}T00:00:00Z` : null;
+            const res = await fetch("/api/admin/subscription", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: targetUserId, early_bird: earlyBird, trial_end: trialEndIso }),
+            });
+            const d: any = await res.json();
+            if (d.subscription) setSub(d.subscription);
+            setSavedAt(Date.now());
+        } catch (e) { console.error(e); }
+        finally { setSaving(false); }
+    };
+
+    if (isAdminTarget) {
+        return (
+            <Section icon={<Sparkles className="w-5 h-5 text-violet-400" />} title="Subscrição" desc="Admins não precisam de subscrição — integração corre sempre.">
+                <div className="px-4 py-3 rounded-xl bg-violet-500/5 border border-violet-500/20 text-violet-300 text-xs font-bold">
+                    Conta {targetRole} · isenta de subscrição
+                </div>
+            </Section>
+        );
+    }
+
+    return (
+        <Section icon={<Sparkles className="w-5 h-5 text-amber-400" />} title="Subscrição" desc="Controla early bird + data limite do trial deste user. Não cria sub no Stripe — apenas marca elegibilidade para checkout com trial.">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <label className="flex items-center gap-3 cursor-pointer pb-2">
+                    <input type="checkbox" checked={earlyBird} onChange={e => setEarlyBird(e.target.checked)} disabled={!loaded} className="accent-amber-500 w-4 h-4" />
+                    <span className="text-xs font-bold text-slate-300">Early Bird</span>
+                </label>
+                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Trial termina em
+                    <input
+                        type="date"
+                        value={trialEnd}
+                        onChange={e => setTrialEnd(e.target.value)}
+                        disabled={!loaded}
+                        className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white"
+                    />
+                </label>
+                <button onClick={save} disabled={!loaded || saving}
+                    className="bg-white text-black py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? <CheckCircle2 className="w-3 h-3" /> : null}
+                    {savedAt && Date.now() - savedAt < 2000 ? "Guardado" : "Guardar"}
+                </button>
+            </div>
+            {sub && (
+                <div className="text-[10px] text-slate-500 font-medium space-y-1">
+                    <p><strong className="text-slate-400">Status atual:</strong> {sub.status}{sub.stripe_subscription_id && <span className="text-slate-600"> · {sub.stripe_subscription_id}</span>}</p>
+                    {sub.current_period_end && <p><strong className="text-slate-400">Próxima cobrança:</strong> {new Date(sub.current_period_end).toLocaleDateString("pt-PT")}</p>}
+                </div>
+            )}
+        </Section>
     );
 }
 

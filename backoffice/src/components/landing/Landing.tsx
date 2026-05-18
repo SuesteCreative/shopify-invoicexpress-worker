@@ -211,17 +211,17 @@ function Nav() {
       >
         <div className="flex items-center gap-3 pl-3">
           <Image
-            src="/images/logo-rioko-black.svg"
-            alt="Rioko"
-            width={86}
-            height={22}
+            src="/images/rioko2-logo-black.svg"
+            alt="Rioko 2.0"
+            width={132}
+            height={25}
             priority
           />
           <span
             className="hidden font-mono text-[10px] uppercase tracking-[0.18em] sm:inline-block"
             style={{ color: INK_40 }}
           >
-            v6 · Engine
+            Engine
           </span>
         </div>
 
@@ -1421,10 +1421,10 @@ function Footer() {
       <div className="mx-auto flex w-full max-w-[1280px] flex-col items-center gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <Image
-            src="/images/logo-rioko-black.svg"
-            alt="Rioko"
-            width={72}
-            height={18}
+            src="/images/rioko2-logo-black.svg"
+            alt="Rioko 2.0"
+            width={110}
+            height={21}
           />
           <span
             className="font-mono text-[10px] uppercase tracking-[0.2em]"

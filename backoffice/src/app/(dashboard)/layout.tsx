@@ -34,17 +34,16 @@ export default async function DashboardLayout({
             {/* Sidebar */}
             <aside className="w-full md:w-72 glass border-r-0 md:border-r border-slate-800/60 p-8 flex flex-col items-center md:items-start shrink-0 z-20 md:sticky md:top-0 h-screen overflow-y-auto scrollbar-hide">
                 <div className="mb-14 flex flex-col items-center md:items-start w-full">
-                    <div className="flex items-end gap-3 transition-transform hover:scale-[1.02]">
-                        <Link href="/" className="pb-1">
+                    <div className="flex items-center transition-transform hover:scale-[1.02]">
+                        <Link href="/">
                             <Image
-                                src="/images/logo-rioko-white.svg"
-                                alt="Rioko Logo"
-                                width={110}
-                                height={28}
+                                src="/images/rioko2-logo.svg"
+                                alt="Rioko 2.0"
+                                width={140}
+                                height={29}
                                 priority
                             />
                         </Link>
-                        <span className="text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded text-[10px] font-black tracking-tighter border border-sky-400/20 mb-1 align-bottom">2.0</span>
                     </div>
 
                     <div className="mt-4 flex flex-col items-start gap-1">

@@ -4,4 +4,6 @@ export interface Env {
   NORMALIZE_SHOPIFY_ORDER_API_KEY: string;
   SHOPIFY_ORDERS_QUEUE: Queue;
   ADMIN_API_KEY: string;
+  CRON_SECRET?: string;
+  BACKOFFICE_URL?: string;
 }

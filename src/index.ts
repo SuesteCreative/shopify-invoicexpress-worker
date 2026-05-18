@@ -519,4 +519,19 @@ export default {
       }
     }
   },
+  async scheduled(_event: ScheduledEvent, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
+    const baseUrl = env.BACKOFFICE_URL || "https://rioko.online";
+    const key = env.CRON_SECRET || env.ADMIN_API_KEY;
+    if (!key) {
+      console.error("[Cron] CRON_SECRET missing — skipping IX match retry");
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/cron/ix-match?key=${encodeURIComponent(key)}`);
+      const body = await res.text();
+      console.log(`[Cron] IX match retry: ${res.status} ${body.slice(0, 200)}`);
+    } catch (e: any) {
+      console.error(`[Cron] IX match retry failed: ${e.message}`);
+    }
+  },
 }

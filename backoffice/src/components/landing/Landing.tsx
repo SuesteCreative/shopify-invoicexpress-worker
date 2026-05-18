@@ -981,9 +981,9 @@ function IntegrationMatrix() {
           eyebrow="O hub"
           title={
             <>
-              Cada plataforma fala com a <Mono color={ACCENT_HOT}>Rioko</Mono>.
-              <br />A Rioko fala com <Mono color={ACCENT_HOT}>cada</Mono>{" "}
-              programa de faturação.
+              Cada plataforma fala com a <Gradient>Rioko</Gradient>.
+              <br />A Rioko fala com <Gradient>cada</Gradient> programa de
+              faturação.
             </>
           }
           sub="Em vez de manter sete integrações ponto-a-ponto, mantém uma. Adicionamos pagamentos e programas de faturação ao motor à medida que o ecossistema cresce."
@@ -1246,7 +1246,7 @@ function HowItWorks() {
           eyebrow="O fluxo"
           title={
             <>
-              Três passos. <Mono color={ACCENT_HOT}>Uma vez.</Mono>
+              Três passos. <Gradient>Uma vez.</Gradient>
             </>
           }
           sub="Configurar a Rioko demora menos do que abrir uma fatura à mão. Depois disso, nunca mais."
@@ -1523,7 +1523,7 @@ function FiscalTrust() {
               Feito para fiscalidade portuguesa.
               <br />
               <span style={{ color: FG_60 }}>
-                <Mono color={ACCENT_HOT}>Não</Mono> traduzido dela.
+                <Gradient>Não</Gradient> traduzido dela.
               </span>
             </>
           }
@@ -1640,7 +1640,7 @@ function Pricing() {
           eyebrow="Preço"
           title={
             <>
-              Simples. <Mono color={ACCENT_HOT}>Por integração.</Mono>
+              Simples. <Gradient>Por integração.</Gradient>
             </>
           }
           sub="Paga apenas pelas integrações que ligar. Sem fees por documento emitido, sem limites por volume. Cancela quando quiser."
@@ -1909,8 +1909,8 @@ function FinalCTA() {
                     fontWeight: 500,
                   }}
                 >
-                  Liga a primeira loja em{" "}
-                  <Mono color={ACCENT_HOT}>quatro</Mono> minutos.
+                  Liga a primeira loja em <Gradient>quatro</Gradient>{" "}
+                  minutos.
                 </h2>
               </div>
               <div className="md:col-span-5">

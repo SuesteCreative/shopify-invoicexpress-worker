@@ -1,5 +1,49 @@
 # 📜 Shopify-InvoiceXpress Integration Changelog
 
+## 💎 Version 6.1.0 — Landing Redesign & Brand System — May 18, 2026
+
+Reposicionamento visual da landing pública de "Shopify + InvoiceXpress" para **Hub de Integrações multi-plataforma**, com sistema de marca unificado (logo Rioko 2.0, paleta brand-cyan, tipografia Geist) e preço público.
+
+### Novo — Landing page (`/`)
+
+- **Pivô de mensagem** — produto deixa de ser apresentado como integração ponto-a-ponto Shopify↔IX e passa a "Hub de Integrações": carrossel ao vivo mostra Shopify → Stripe → Easypay → EuPago → Ifthenpay no lado origem, e InvoiceXpress → Moloni → Vendus no destino, em torno do motor Rioko central.
+- **Identidade visual** — re-skin tonal completo no eixo Stripe Apps / Raycast: charcoal `#0E1116` com radial washes cyan, tipografia Geist Sans + Geist Mono, sem serif italic, sem glow halos.
+- **Logo Rioko 2.0** — novo lockup SVG (variante branca + preta) substitui o antigo "RIOKO" com pill `2.0` hardcoded em JSX. O pill cyan vive agora dentro do SVG, e a cor do pill (`#028DC4`) é o acento singular da marca.
+- **Favicon** — novo `icon.svg` + `apple-icon.svg` (Next 15 app-router auto-injected); legacy `favicon.ico` removido.
+- **Pricing público** — secção `#preco` com 3 planos: Standard mensal 7,50 €/mês, Standard anual 75 €/ano (recomendado, com chip "Poupa 15 €/ano"), Personalizada → redirect `https://kapta.pt/`.
+- **Carrossel duplo com animações** — origem e destino rotam de forma offset (half-period), AnimatePresence crossfade w/ y+blur enter, opacity-only exit rápido (sem blank entre slots), progress-dots cyan abaixo de cada cartão, conector animado (CSS keyframe `rk-flow-down`).
+- **Engine card sincronizado** — pills NIF / IVA / Cliente / M99 dentro do cartão `Rioko 2.0 · Hub de Integrações` fazem spring-stagger reentry em cada rotação do destino (re-key on `destIdx`).
+- **Logos das plataformas** — 7 SVGs reais em `backoffice/public/images/` (Stripe, EuPago, Easypay, Ifthenpay, InvoiceXpress, Moloni, Vendus). Renderizados transparentes em cartões de "paper" `#EAEAE4` para contraste com fills mistos (sem chips brancos pelo meio).
+- **Headline gradient** — `linear-gradient(135deg, #06B6D4, #028DC4, #0369A1)` aplicado consistentemente nos substantivos-chave de todas as section heads (`fatura`, `encomenda`, `plataforma`, `Rioko`, `Uma vez.`, `Por integração.`, `quatro`, `Não`).
+- **Body chrome local** — landing override do background dark do root layout via `useEffect` (set + restore), sem tocar no chrome global do dashboard.
+
+### Arquitectura
+
+- `backoffice/src/app/page.tsx` reduzido a server shell (auth redirect + edge runtime + font-vars wrapper) → `backoffice/src/components/landing/Landing.tsx` cliente.
+- Rotation state lifted ao `HeroShowcase` parent (RotatingFlowCard agora controlado via `idx` prop) para sincronizar engine pulse com destination cycle.
+- `RotatingFlowCard` memoizado (`React.memo`), interval isolado — perpetual motion não dispara re-renders no parent.
+- `BrandLogo` shared component com fallback monogram para integrações futuras sem SVG.
+
+### Documentação
+
+- **Novo: `docs/brand-guideline.md`** — referência completa de tokens, tipografia, motion, surfaces, componentes e padrões proibidos. Ponto de partida para qualquer trabalho visual futuro no projecto.
+
+### Removido / depreciado
+
+- Antigo `backoffice/src/app/favicon.ico` (visual outdated).
+- Imports de `Instrument_Serif` em `fonts.ts` (cozy-editorial variant rejeitado pelo cliente — feedback "looks like slop / not techy enough").
+- Helper `Mono color={ACCENT_HOT}` deixou de ser usado em headlines (substituído por `Gradient`). Mantido no ficheiro para emphasis de copy futuro.
+
+### Dependências
+
+Nenhuma nova. `framer-motion 12`, `lucide-react`, `next/font/google` (Geist, Geist Mono) já presentes.
+
+### Mobile
+
+- Hero collapsa para single-column abaixo de `md:` (768px).
+- Carrossel mantém-se funcional mas mais compacto.
+- `min-h-[100dvh]` em vez de `h-screen` para evitar viewport jumping no iOS Safari.
+
 ## 💎 Version 6.0.0 — Stripe Subscription Billing — May 18, 2026
 
 Monetização do integrador: Kapta cobra subscrição mensal/anual pelo uso, com gate automático nas integrações Shopify→IX quando inativa.

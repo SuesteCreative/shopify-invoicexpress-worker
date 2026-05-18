@@ -4,7 +4,7 @@ A high-performance, production-ready integration that automatically syncs Shopif
 
 **Current Version: v5.0.0** | Developed by [Kapta](https://kapta.pt)
 
-**Production URL**: [https://rioko-7nk.pages.dev](https://rioko-7nk.pages.dev)
+**Production URL**: [https://rioko.online](https://rioko.online)
 
 ---
 
@@ -180,6 +180,6 @@ As of **v4.1.0**, the engine is fully compliant with Portuguese fiscal requireme
 - **Identity Protection**: Anonymous buyers are handled according to Portuguese fiscal standards ("Consumidor Final").
 
 ### 🔐 Clerk Sync Strategy
-The system uses a dedicated webhook at `https://rioko-7nk.pages.dev/api/webhooks/clerk` to instantly sync new Clerk users into the D1 database. This ensures that every new registration is visible to the Superadmin without requiring the user to first open the dashboard.
+The system uses a dedicated webhook at `https://rioko.online/api/webhooks/clerk` to instantly sync new Clerk users into the D1 database. This ensures that every new registration is visible to the Superadmin without requiring the user to first open the dashboard.
 
 **Developed by [Kapta](https://kapta.pt)**

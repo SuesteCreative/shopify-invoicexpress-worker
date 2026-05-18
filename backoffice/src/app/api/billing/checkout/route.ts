@@ -68,14 +68,20 @@ export async function POST(req: NextRequest) {
 
         const successUrl = getStripeEnv("SUCCESS_REDIRECT_URL");
         const cancelUrl = getStripeEnv("CANCEL_REDIRECT_URL");
+        const taxRateId = getStripeEnvOptional("STRIPE_TAX_RATE_ID");
 
         const session = await stripe.checkout.sessions.create({
             mode: "subscription",
-            line_items: [{ price: priceId, quantity: 1 }],
+            line_items: [{
+                price: priceId,
+                quantity: 1,
+                ...(taxRateId ? { tax_rates: [taxRateId] } : {}),
+            }],
             customer: sub?.stripe_customer_id || undefined,
             customer_email: sub?.stripe_customer_id ? undefined : email,
             client_reference_id: targetUserId,
-            automatic_tax: { enabled: true },
+            // Force fixed 23% PT VAT (Stripe Tax automatic would vary by location)
+            ...(taxRateId ? {} : { automatic_tax: { enabled: true } }),
             tax_id_collection: { enabled: true },
             billing_address_collection: "required",
             phone_number_collection: { enabled: true },

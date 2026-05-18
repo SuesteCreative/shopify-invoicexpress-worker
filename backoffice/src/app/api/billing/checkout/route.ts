@@ -17,13 +17,19 @@ export async function POST(req: NextRequest) {
         const plan = body.plan === "annual" ? "annual" : "monthly";
 
         const stripe = getStripe();
-        const lookupKey = plan === "annual"
+        const lookupOrId = plan === "annual"
             ? getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP")
             : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP");
 
-        const prices = await stripe.prices.list({ lookup_keys: [lookupKey], expand: ["data.product"], limit: 1 });
-        const price = prices.data[0];
-        if (!price) return NextResponse.json({ error: `Price lookup_key not found: ${lookupKey}` }, { status: 500 });
+        // Accept either a real price ID (price_xxx) or a lookup_key
+        let priceId: string | null = null;
+        if (lookupOrId.startsWith("price_")) {
+            priceId = lookupOrId;
+        } else {
+            const prices = await stripe.prices.list({ lookup_keys: [lookupOrId], limit: 1 });
+            priceId = prices.data[0]?.id || null;
+        }
+        if (!priceId) return NextResponse.json({ error: `Price not found by lookup_key/id: ${lookupOrId}. Set lookup_key in Stripe Dashboard OR use price_xxx ID.` }, { status: 500 });
 
         const db = getDB();
         const sub: any = await db.prepare(
@@ -43,7 +49,7 @@ export async function POST(req: NextRequest) {
 
         const session = await stripe.checkout.sessions.create({
             mode: "subscription",
-            line_items: [{ price: price.id, quantity: 1 }],
+            line_items: [{ price: priceId, quantity: 1 }],
             customer: sub?.stripe_customer_id || undefined,
             customer_email: sub?.stripe_customer_id ? undefined : email,
             client_reference_id: userId,

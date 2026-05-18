@@ -1,25 +1,27 @@
 import Link from "next/link";
 
+export const runtime = "edge";
+
 export const metadata = {
     title: "Política de Privacidade | Rioko",
 };
 
 export default function PrivacyPage() {
     return (
-        <div className="min-h-screen bg-[#05080a] text-slate-200">
+        <div className="min-h-screen bg-slate-950 text-slate-200">
             <div className="mx-auto max-w-3xl px-6 py-16">
                 <Link href="/" className="text-sm text-slate-400 hover:text-slate-200 transition">
                     ← Voltar
                 </Link>
 
-                <h1 className="mt-8 text-4xl font-semibold text-white">Política de Privacidade</h1>
+                <h1 className="mt-8 text-4xl font-black text-white">Política de Privacidade</h1>
                 <p className="mt-2 text-sm text-slate-500">Última atualização: 18 de maio de 2026</p>
 
-                <div className="prose prose-invert mt-10 max-w-none">
+                <div className="mt-10 space-y-8">
                     <Section title="1. Quem somos">
                         A Rioko é um serviço operado pela <strong>Kapta</strong>, com sede em Portugal, que automatiza a
                         faturação de lojas Shopify através do InvoiceXpress. Para questões de privacidade, contacta-nos
-                        em <a href="mailto:pedro@kapta.pt" className="text-emerald-400 underline">pedro@kapta.pt</a>.
+                        em <a href="mailto:pedro@kapta.pt" className="text-sky-400 underline">pedro@kapta.pt</a>.
                     </Section>
 
                     <Section title="2. Dados que recolhemos">
@@ -69,7 +71,7 @@ export default function PrivacyPage() {
                             <li>Retirar consentimento a qualquer momento.</li>
                             <li>Apresentar queixa à <strong>CNPD</strong> (Comissão Nacional de Proteção de Dados).</li>
                         </ul>
-                        <p className="mt-3">Para exercer qualquer direito, envia email para <a href="mailto:pedro@kapta.pt" className="text-emerald-400 underline">pedro@kapta.pt</a>.</p>
+                        <p className="mt-3">Para exercer qualquer direito, envia email para <a href="mailto:pedro@kapta.pt" className="text-sky-400 underline">pedro@kapta.pt</a>.</p>
                     </Section>
 
                     <Section title="7. Segurança">
@@ -89,8 +91,8 @@ export default function PrivacyPage() {
                     </Section>
 
                     <Section title="10. Contacto">
-                        Kapta — <a href="mailto:pedro@kapta.pt" className="text-emerald-400 underline">pedro@kapta.pt</a><br />
-                        Site: <a href="https://kapta.pt" className="text-emerald-400 underline">kapta.pt</a>
+                        Kapta — <a href="mailto:pedro@kapta.pt" className="text-sky-400 underline">pedro@kapta.pt</a><br />
+                        Site: <a href="https://kapta.pt" className="text-sky-400 underline">kapta.pt</a>
                     </Section>
                 </div>
             </div>
@@ -100,8 +102,8 @@ export default function PrivacyPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (
-        <section className="mt-8">
-            <h2 className="text-xl font-semibold text-white">{title}</h2>
+        <section>
+            <h2 className="text-xl font-bold text-white">{title}</h2>
             <div className="mt-3 text-slate-300 leading-relaxed text-[15px]">{children}</div>
         </section>
     );

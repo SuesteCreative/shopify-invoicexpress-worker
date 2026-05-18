@@ -1,6 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getStripeEnvOptional, getDB } from "@/lib/stripe";
+import { isAdmin, getImpersonationId } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -9,9 +10,25 @@ export async function POST(req: NextRequest) {
         const { userId } = await auth();
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        const user = await currentUser();
-        const email = user?.emailAddresses?.[0]?.emailAddress;
-        if (!email) return NextResponse.json({ error: "No email" }, { status: 400 });
+        // If admin is impersonating, checkout creates subscription FOR the impersonated user
+        let targetUserId = userId;
+        let targetEmail: string | null = null;
+        if (await isAdmin(userId)) {
+            const imp = await getImpersonationId(req);
+            if (imp) {
+                targetUserId = imp;
+                const db0 = getDB();
+                const u: any = await db0.prepare("SELECT email FROM users WHERE id = ?").bind(imp).first();
+                targetEmail = u?.email || null;
+            }
+        }
+
+        if (!targetEmail) {
+            const user = await currentUser();
+            targetEmail = user?.emailAddresses?.[0]?.emailAddress || null;
+        }
+        if (!targetEmail) return NextResponse.json({ error: "No email for target user" }, { status: 400 });
+        const email = targetEmail;
 
         const body = (await req.json().catch(() => ({}))) as { plan?: "monthly" | "annual" };
         const plan = body.plan === "annual" ? "annual" : "monthly";
@@ -39,7 +56,7 @@ export async function POST(req: NextRequest) {
         const db = getDB();
         const sub: any = await db.prepare(
             "SELECT stripe_customer_id, stripe_subscription_id, status, early_bird, trial_end FROM subscriptions WHERE user_id = ?"
-        ).bind(userId).first();
+        ).bind(targetUserId).first();
 
         // Determine trial config
         const trialEndIso = getStripeEnvOptional("EARLY_BIRD_TRIAL_END") || "2026-08-01T00:00:00Z";
@@ -57,7 +74,7 @@ export async function POST(req: NextRequest) {
             line_items: [{ price: priceId, quantity: 1 }],
             customer: sub?.stripe_customer_id || undefined,
             customer_email: sub?.stripe_customer_id ? undefined : email,
-            client_reference_id: userId,
+            client_reference_id: targetUserId,
             automatic_tax: { enabled: true },
             tax_id_collection: { enabled: true },
             billing_address_collection: "required",
@@ -70,7 +87,7 @@ export async function POST(req: NextRequest) {
             }],
             subscription_data: {
                 metadata: {
-                    user_id: userId,
+                    user_id: targetUserId,
                     early_bird: isEarlyBird ? "1" : "0",
                     plan,
                 },
@@ -78,7 +95,7 @@ export async function POST(req: NextRequest) {
             },
             payment_method_collection: "always",
             metadata: {
-                user_id: userId,
+                user_id: targetUserId,
                 plan,
                 early_bird: isEarlyBird ? "1" : "0",
             },

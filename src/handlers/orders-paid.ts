@@ -20,12 +20,12 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
       const isAdminUser = user?.role === "superadmin" || user?.role === "hiperadmin";
       if (!isAdminUser) {
         const sub: any = await env.DB.prepare(
-          "SELECT status, trial_end FROM subscriptions WHERE user_id = ?"
+          "SELECT status, trial_end, stripe_subscription_id FROM subscriptions WHERE user_id = ?"
         ).bind(config.user_id).first();
         const now = new Date();
         const blocked = !sub
           || ["canceled", "unpaid", "incomplete_expired", "incomplete", "past_due"].includes(sub.status)
-          || (sub.status === "trialing" && sub.trial_end && new Date(sub.trial_end) < now);
+          || (sub.status === "trialing" && !sub.stripe_subscription_id && sub.trial_end && new Date(sub.trial_end) < now);
         if (blocked) {
           console.log(`[Rioko] Subscription inactive for user ${config.user_id} (status=${sub?.status}) — skipping IX emission`);
           await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: `Blocked: subscription_inactive (${sub?.status || 'none'})`, status: 402 });

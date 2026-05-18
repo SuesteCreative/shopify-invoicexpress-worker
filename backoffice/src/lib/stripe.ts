@@ -60,11 +60,19 @@ export interface SubscriptionRow {
     updated_at: string;
 }
 
+// Gate purely on Stripe status. Trust Stripe to transition trialing → active|past_due|unpaid.
+// Reason: gating on local trial_end timestamp creates a fragile window at exactly midnight
+// where Stripe is processing the first invoice but local check would already block.
 export function isSubscriptionBlocked(sub: SubscriptionRow | null | undefined): boolean {
     if (!sub) return true;
-    if (["canceled", "unpaid", "incomplete_expired", "past_due"].includes(sub.status)) return true;
-    if (sub.status === "incomplete") return true;
-    if (sub.status === "trialing" && sub.trial_end && new Date(sub.trial_end) < new Date()) return true;
+    if (["canceled", "unpaid", "incomplete_expired", "past_due", "incomplete"].includes(sub.status)) return true;
+    // For backfilled early-bird rows that never had a Stripe sub (stripe_subscription_id IS NULL),
+    // we still allow access while status='trialing' and trial_end is in the future.
+    // If trial_end is in the past and there's no Stripe sub, it means the user never added a payment method
+    // — block.
+    if (sub.status === "trialing" && !sub.stripe_subscription_id) {
+        if (sub.trial_end && new Date(sub.trial_end) < new Date()) return true;
+    }
     return false;
 }
 
@@ -73,7 +81,8 @@ export function subscriptionUIState(sub: SubscriptionRow | null | undefined): "a
     if (sub.status === "exempt") return "exempt";
     if (sub.status === "active") return "active";
     if (sub.status === "trialing") {
-        const expired = sub.trial_end && new Date(sub.trial_end) < new Date();
+        // For backfilled rows w/o Stripe sub: trial expiry blocks UI
+        const expired = !sub.stripe_subscription_id && sub.trial_end && new Date(sub.trial_end) < new Date();
         if (expired) return "blocked";
         return sub.early_bird ? "trialing_earlybird" : "trialing";
     }

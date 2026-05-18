@@ -26,6 +26,18 @@ export async function POST(req: NextRequest) {
         const targetUserId = body.user_id;
         if (!targetUserId) return NextResponse.json({ error: "user_id required" }, { status: 400 });
 
+        // Validate trial_end if provided — must be a valid ISO date string in the future (or null)
+        let trialEndIso: string | null = body.trial_end || null;
+        if (trialEndIso) {
+            const d = new Date(trialEndIso);
+            if (isNaN(d.getTime())) return NextResponse.json({ error: "Invalid trial_end format" }, { status: 400 });
+            trialEndIso = d.toISOString();
+        }
+        // If marking early_bird=true, require a trial_end (otherwise user gets free service forever).
+        if (body.early_bird && !trialEndIso) {
+            return NextResponse.json({ error: "trial_end required when early_bird=true" }, { status: 400 });
+        }
+
         const db = getDB();
 
         const existing: any = await db.prepare(
@@ -39,7 +51,7 @@ export async function POST(req: NextRequest) {
                 WHERE user_id = ?
             `).bind(
                 body.early_bird ? 1 : 0,
-                body.trial_end || null,
+                trialEndIso,
                 targetUserId,
             ).run();
         } else {
@@ -48,7 +60,7 @@ export async function POST(req: NextRequest) {
                 VALUES (?, 'trialing', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             `).bind(
                 targetUserId,
-                body.trial_end || null,
+                trialEndIso,
                 body.early_bird ? 1 : 0,
             ).run();
         }

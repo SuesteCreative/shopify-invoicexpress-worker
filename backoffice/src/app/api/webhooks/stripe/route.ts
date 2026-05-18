@@ -90,7 +90,12 @@ export async function POST(req: NextRequest) {
                     ).bind(userId, session.customer_details?.email || null, session.customer_details?.name || "User").run();
                 }
 
-                const nif = session.custom_fields?.find(f => f.key === "nif")?.text?.value || null;
+                const rawNif = session.custom_fields?.find(f => f.key === "nif")?.text?.value?.trim() || null;
+                // PT NIF: exactly 9 digits. Reject anything else (free-text "abc", phone numbers, etc.)
+                const nif = rawNif && /^\d{9}$/.test(rawNif) ? rawNif : null;
+                if (rawNif && !nif) {
+                    console.warn(`[Stripe webhook] Invalid NIF rejected: "${rawNif}" for user ${userId}`);
+                }
                 const details = session.customer_details;
                 const addr = details?.address;
 
@@ -215,27 +220,31 @@ export async function POST(req: NextRequest) {
                     JSON.stringify(invoice),
                 ).run();
 
-                // For paid invoices: try IX matching
+                // For paid invoices: try IX matching. Errors here MUST NOT bubble (cron retries).
                 if (event.type === "invoice.paid" && piId) {
-                    const sub: any = await db.prepare("SELECT nif, name, email, address FROM subscriptions WHERE user_id = ?").bind(userId).first();
-                    const match = await matchStripeChargeToIX({
-                        payment_intent_id: piId,
-                        candidate: {
-                            nif: sub?.nif || invoice.customer_tax_ids?.[0]?.value || null,
-                            email: sub?.email || invoice.customer_email || null,
-                            name: sub?.name || invoice.customer_name || null,
-                            address: sub?.address || null,
-                            amount_cents: invoice.amount_paid || 0,
-                            paid_at: new Date((invoice.status_transitions?.paid_at || Date.now() / 1000) * 1000),
-                        },
-                    });
+                    try {
+                        const sub: any = await db.prepare("SELECT nif, name, email, address FROM subscriptions WHERE user_id = ?").bind(userId).first();
+                        const match = await matchStripeChargeToIX({
+                            payment_intent_id: piId,
+                            candidate: {
+                                nif: sub?.nif || invoice.customer_tax_ids?.[0]?.value || null,
+                                email: sub?.email || invoice.customer_email || null,
+                                name: sub?.name || invoice.customer_name || null,
+                                address: sub?.address || null,
+                                amount_cents: invoice.amount_paid || 0,
+                                paid_at: new Date((invoice.status_transitions?.paid_at || Date.now() / 1000) * 1000),
+                            },
+                        });
 
-                    if (match.ix_invoice_id) {
-                        await db.prepare(`
-                            UPDATE billing_events
-                            SET ix_invoice_id = ?, ix_invoice_permalink = ?, ix_match_method = ?, ix_match_score = ?
-                            WHERE id = ?
-                        `).bind(match.ix_invoice_id, match.ix_invoice_permalink, match.ix_match_method, match.ix_match_score, event.id).run();
+                        if (match.ix_invoice_id) {
+                            await db.prepare(`
+                                UPDATE billing_events
+                                SET ix_invoice_id = ?, ix_invoice_permalink = ?, ix_match_method = ?, ix_match_score = ?
+                                WHERE id = ?
+                            `).bind(match.ix_invoice_id, match.ix_invoice_permalink, match.ix_match_method, match.ix_match_score, event.id).run();
+                        }
+                    } catch (ixErr: any) {
+                        console.error(`[Stripe webhook] IX match failed for ${event.id} — cron will retry: ${ixErr.message}`);
                     }
                 }
                 break;
@@ -252,7 +261,10 @@ export async function POST(req: NextRequest) {
         }
     } catch (err: any) {
         console.error(`[Stripe webhook] handler error for ${event.type}`, err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        // Return 200 anyway: we've recorded the event_id in billing_events (idempotency),
+        // and Stripe retrying won't help with persistent bugs. Cron retries IX matching.
+        // Only signature/parse failures above this catch return 400.
+        return NextResponse.json({ received: true, handler_error: err.message });
     }
 
     return NextResponse.json({ received: true });

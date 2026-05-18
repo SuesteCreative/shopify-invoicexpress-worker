@@ -10,7 +10,7 @@ export const runtime = "edge";
  */
 export async function GET(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-    const expected = process.env.CRON_SECRET || process.env.ADMIN_API_KEY;
+    const expected = process.env.CRON_SECRET;
     if (!expected || key !== expected) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

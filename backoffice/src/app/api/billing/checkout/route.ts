@@ -40,18 +40,20 @@ export async function POST(req: NextRequest) {
 
         // Accept any of: real price ID (price_xxx), custom ID, or lookup_key.
         // Try retrieve first (works for any valid Stripe ID), then fall back to lookup_keys.
-        let priceId: string | null = null;
+        let price: any = null;
         try {
-            const p = await stripe.prices.retrieve(lookupOrId);
-            if (p?.id) priceId = p.id;
+            price = await stripe.prices.retrieve(lookupOrId);
         } catch {
             // not a valid id — try lookup_keys
         }
-        if (!priceId) {
-            const prices = await stripe.prices.list({ lookup_keys: [lookupOrId], limit: 1 });
-            priceId = prices.data[0]?.id || null;
+        if (!price) {
+            const prices = await stripe.prices.list({ lookup_keys: [lookupOrId], limit: 1, active: true });
+            price = prices.data[0];
         }
-        if (!priceId) return NextResponse.json({ error: `Price not found: ${lookupOrId}` }, { status: 500 });
+        if (!price) return NextResponse.json({ error: `Price not found: ${lookupOrId}` }, { status: 500 });
+        if (!price.active) return NextResponse.json({ error: `Price ${price.id} is inactive` }, { status: 500 });
+        if (price.currency !== "eur") return NextResponse.json({ error: `Price ${price.id} currency must be EUR (got ${price.currency})` }, { status: 500 });
+        const priceId = price.id;
 
         const db = getDB();
         const sub: any = await db.prepare(
@@ -60,7 +62,11 @@ export async function POST(req: NextRequest) {
 
         // Determine trial config
         const trialEndIso = getStripeEnvOptional("EARLY_BIRD_TRIAL_END") || "2026-08-01T00:00:00Z";
-        const trialEndUnix = Math.floor(new Date(trialEndIso).getTime() / 1000);
+        const trialEndDate = new Date(trialEndIso);
+        if (isNaN(trialEndDate.getTime())) {
+            return NextResponse.json({ error: `Invalid EARLY_BIRD_TRIAL_END: ${trialEndIso}` }, { status: 500 });
+        }
+        const trialEndUnix = Math.floor(trialEndDate.getTime() / 1000);
         const nowUnix = Math.floor(Date.now() / 1000);
 
         const isEarlyBird = !!sub?.early_bird;
@@ -80,9 +86,13 @@ export async function POST(req: NextRequest) {
             customer: sub?.stripe_customer_id || undefined,
             customer_email: sub?.stripe_customer_id ? undefined : email,
             client_reference_id: targetUserId,
-            // Force fixed 23% PT VAT (Stripe Tax automatic would vary by location)
-            ...(taxRateId ? {} : { automatic_tax: { enabled: true } }),
-            tax_id_collection: { enabled: true },
+            // Force fixed 23% PT VAT (Stripe Tax automatic would vary by location).
+            // With static tax_rate we disable tax_id_collection — collecting EU VAT IDs would mislead B2B
+            // customers into expecting reverse-charge (0%), but we apply 23% regardless.
+            ...(taxRateId
+                ? {}
+                : { automatic_tax: { enabled: true }, tax_id_collection: { enabled: true } }
+            ),
             billing_address_collection: "required",
             phone_number_collection: { enabled: true },
             custom_fields: [{

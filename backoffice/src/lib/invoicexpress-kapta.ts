@@ -158,6 +158,17 @@ function scoreCandidate(doc: IXDocument, c: MatchCandidate): number {
         else if (dist <= 3 && dist < Math.max(cName.length, dName.length) / 3) score += 7;
     }
 
+    // Date proximity: discriminator for repeat customers paying same amount monthly
+    if (doc.date) {
+        const docDate = new Date(doc.date);
+        if (!isNaN(docDate.getTime())) {
+            const hoursDiff = Math.abs(c.paid_at.getTime() - docDate.getTime()) / 3600000;
+            if (hoursDiff <= 24) score += 15;
+            else if (hoursDiff <= 72) score += 8;
+            else if (hoursDiff > 168) score -= 10; // older than a week → penalize
+        }
+    }
+
     return score;
 }
 

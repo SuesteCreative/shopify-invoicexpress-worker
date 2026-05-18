@@ -4,7 +4,8 @@ import * as React from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect } from "react";
+import { useEffect, useState, memo } from "react";
+import { AnimatePresence } from "framer-motion";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -128,6 +129,15 @@ const INTEGRATIONS: Integration[] = [
     brand: "#E11D48",
     note: "Sincronização total de documentos",
   },
+  {
+    id: "vendus",
+    name: "Vendus",
+    kind: "faturação",
+    status: "planned",
+    mark: "Vd",
+    brand: "#16A34A",
+    note: "POS + faturação certificada",
+  },
 ];
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -137,7 +147,7 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Tiny mono token — replaces serif italic emphasis
+// Tiny mono token — used for inline technical emphasis
 // ─────────────────────────────────────────────────────────────
 function Mono({
   children,
@@ -158,6 +168,108 @@ function Mono({
     </span>
   );
 }
+
+// Gradient highlight — same family as the Rioko Engine card
+const HEADLINE_GRADIENT =
+  "linear-gradient(135deg, #06B6D4 0%, #028DC4 55%, #0369A1 100%)";
+
+function Gradient({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        backgroundImage: HEADLINE_GRADIENT,
+        WebkitBackgroundClip: "text",
+        backgroundClip: "text",
+        color: "transparent",
+        WebkitTextFillColor: "transparent",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Flow rotation registries — origin + destination carousels
+// Placeholder logos use brand monograms until SVG assets land.
+// To swap in a real logo: set logoSrc to "/images/<name>-logo.svg"
+// ─────────────────────────────────────────────────────────────
+type FlowSlot = {
+  id: string;
+  title: string;
+  sub: string;
+  logoSrc: string | null;
+  mark?: string;
+  brand?: string;
+};
+
+const ORIGIN_SLOTS: FlowSlot[] = [
+  {
+    id: "shopify",
+    title: "Shopify",
+    sub: "encomenda paga · #1042",
+    logoSrc: "/images/shopify-logo.webp",
+  },
+  {
+    id: "stripe",
+    title: "Stripe",
+    sub: "charge succeeded · ch_3R9",
+    logoSrc: null,
+    mark: "S",
+    brand: "#635BFF",
+  },
+  {
+    id: "easypay",
+    title: "Easypay",
+    sub: "capture · pmt_5921",
+    logoSrc: null,
+    mark: "Ep",
+    brand: "#D7263D",
+  },
+  {
+    id: "eupago",
+    title: "EuPago",
+    sub: "MB WAY confirmado · #2847",
+    logoSrc: null,
+    mark: "Eu",
+    brand: "#E63946",
+  },
+  {
+    id: "ifthenpay",
+    title: "Ifthenpay",
+    sub: "MB referência · #883",
+    logoSrc: null,
+    mark: "If",
+    brand: "#1F6FEB",
+  },
+];
+
+const DESTINATION_SLOTS: FlowSlot[] = [
+  {
+    id: "invoicexpress",
+    title: "InvoiceXpress",
+    sub: "FT 2026/A/847 · finalizada",
+    logoSrc: "/images/invoicexpress_logo2.png",
+  },
+  {
+    id: "moloni",
+    title: "Moloni",
+    sub: "FT 2026/A/523 · finalizada",
+    logoSrc: null,
+    mark: "Mo",
+    brand: "#E11D48",
+  },
+  {
+    id: "vendus",
+    title: "Vendus",
+    sub: "FT 2026/A/319 · finalizada",
+    logoSrc: null,
+    mark: "Vd",
+    brand: "#16A34A",
+  },
+];
+
+const ROTATION_MS = 3200;
 
 // ─────────────────────────────────────────────────────────────
 // Component
@@ -341,7 +453,7 @@ function Hero() {
               className="font-mono text-[10px] uppercase tracking-[0.22em]"
               style={{ color: FG_60 }}
             >
-              Motor fiscal · Portugal
+              Hub de Integrações
             </span>
           </motion.div>
 
@@ -359,10 +471,10 @@ function Hero() {
               textWrap: "balance" as const,
             }}
           >
-            Uma fatura.<br />
-            Para <Mono>cada</Mono> encomenda.<br />
+            Uma <Gradient>fatura</Gradient>.<br />
+            Para cada <Gradient>encomenda</Gradient>.<br />
             <span style={{ color: FG_60 }}>
-              De <Mono>cada</Mono> plataforma.
+              De cada <Gradient>plataforma</Gradient>.
             </span>
           </motion.h1>
 
@@ -507,12 +619,10 @@ function HeroShowcase() {
             background: "rgba(20,24,31,0.7)",
           }}
         >
-          <FlowCard
+          <RotatingFlowCard
             label="Origem"
-            title="Shopify"
-            sub="encomenda paga · #1042"
-            asset="/images/shopify-logo.webp"
-            delay={0.5}
+            slots={ORIGIN_SLOTS}
+            initialDelayMs={500}
           />
 
           <FlowConnector delay={0.7} />
@@ -588,12 +698,11 @@ function HeroShowcase() {
 
           <FlowConnector delay={1.3} />
 
-          <FlowCard
+          <RotatingFlowCard
             label="Destino"
-            title="InvoiceXpress"
-            sub="FT 2026/A/847 · finalizada"
-            asset="/images/invoicexpress_logo2.png"
-            delay={1.5}
+            slots={DESTINATION_SLOTS}
+            initialDelayMs={1500}
+            offsetMs={ROTATION_MS / 2}
             tone="success"
           />
 
@@ -632,84 +741,161 @@ function HeroShowcase() {
   );
 }
 
-function FlowCard({
+// ─────────────────────────────────────────────────────────────
+// Rotating flow card — isolated client component, memoized.
+// Owns its own interval so its re-renders don't trigger
+// re-renders in the parent hero showcase.
+// ─────────────────────────────────────────────────────────────
+const RotatingFlowCard = memo(function RotatingFlowCard({
   label,
-  title,
-  sub,
-  asset,
-  delay,
+  slots,
+  initialDelayMs = 0,
+  offsetMs = 0,
   tone,
 }: {
   label: string;
-  title: string;
-  sub: string;
-  asset: string;
-  delay: number;
+  slots: FlowSlot[];
+  initialDelayMs?: number;
+  offsetMs?: number;
   tone?: "success";
 }) {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const start = setTimeout(() => {
+      intervalId = setInterval(() => {
+        setIdx((p) => (p + 1) % slots.length);
+      }, ROTATION_MS);
+    }, initialDelayMs + offsetMs);
+
+    return () => {
+      clearTimeout(start);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [slots.length, initialDelayMs, offsetMs]);
+
+  const slot = slots[idx];
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: EASE, delay }}
-      className="flex items-center justify-between rounded-2xl p-4"
-      style={{
-        border: `1px solid ${HAIRLINE}`,
-        background: SURFACE_2,
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
-      }}
-    >
-      <div className="flex items-center gap-3">
-        <div
-          className="flex h-9 w-9 items-center justify-center rounded-xl"
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: `1px solid ${HAIRLINE}`,
-          }}
-        >
+    <div className="relative">
+      {/* Static outer frame so heights stay locked while inner content swaps */}
+      <div
+        className="relative overflow-hidden rounded-2xl"
+        style={{
+          border: `1px solid ${HAIRLINE}`,
+          background: SURFACE_2,
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+          minHeight: 72,
+        }}
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={slot.id}
+            initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
+            transition={{ duration: 0.45, ease: EASE }}
+            className="flex items-center justify-between p-4"
+          >
+            <FlowSlotIdentity label={label} slot={slot} />
+            <div className="text-right">
+              <div
+                className="font-mono text-[11px] tabular-nums"
+                style={{ color: FG_60 }}
+              >
+                {slot.sub}
+              </div>
+              {tone === "success" && (
+                <div
+                  className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
+                  style={{
+                    background: "rgba(94,234,212,0.10)",
+                    color: ACCENT_HOT,
+                  }}
+                >
+                  <Check className="h-2.5 w-2.5" strokeWidth={2.4} />
+                  <span className="font-mono text-[9px] uppercase tracking-[0.2em]">
+                    emitida
+                  </span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Progress dots */}
+      <div className="mt-2 flex items-center justify-center gap-1.5">
+        {slots.map((s, i) => (
+          <span
+            key={s.id}
+            className="h-1 rounded-full transition-all duration-500"
+            style={{
+              width: i === idx ? 12 : 4,
+              background: i === idx ? ACCENT : "rgba(255,255,255,0.16)",
+              transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
+
+function FlowSlotIdentity({
+  label,
+  slot,
+}: {
+  label: string;
+  slot: FlowSlot;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden"
+        style={{
+          background: slot.logoSrc
+            ? "rgba(255,255,255,0.04)"
+            : slot.brand ?? SURFACE,
+          border: slot.logoSrc ? `1px solid ${HAIRLINE}` : "none",
+          boxShadow: slot.logoSrc
+            ? "none"
+            : "inset 0 1px 0 rgba(255,255,255,0.18)",
+        }}
+      >
+        {slot.logoSrc ? (
           <Image
-            src={asset}
+            src={slot.logoSrc}
             alt=""
             width={20}
             height={20}
             className="object-contain"
           />
-        </div>
-        <div>
-          <div
-            className="font-mono text-[10px] uppercase tracking-[0.18em]"
-            style={{ color: FG_40 }}
-          >
-            {label}
-          </div>
-          <div className="text-[14px] font-medium" style={{ color: FG }}>
-            {title}
-          </div>
-        </div>
-      </div>
-      <div className="text-right">
-        <div
-          className="font-mono text-[11px] tabular-nums"
-          style={{ color: FG_60 }}
-        >
-          {sub}
-        </div>
-        {tone === "success" && (
-          <div
-            className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
+        ) : (
+          <span
+            className="font-mono text-[12px] font-medium"
             style={{
-              background: "rgba(94,234,212,0.10)",
-              color: ACCENT_HOT,
+              color: "#FFFFFF",
+              letterSpacing: "-0.02em",
             }}
           >
-            <Check className="h-2.5 w-2.5" strokeWidth={2.4} />
-            <span className="font-mono text-[9px] uppercase tracking-[0.2em]">
-              emitida
-            </span>
-          </div>
+            {slot.mark}
+          </span>
         )}
       </div>
-    </motion.div>
+      <div>
+        <div
+          className="font-mono text-[10px] uppercase tracking-[0.18em]"
+          style={{ color: FG_40 }}
+        >
+          {label}
+        </div>
+        <div className="text-[14px] font-medium" style={{ color: FG }}>
+          {slot.title}
+        </div>
+      </div>
+    </div>
   );
 }
 

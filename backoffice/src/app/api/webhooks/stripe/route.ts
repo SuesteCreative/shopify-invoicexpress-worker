@@ -94,10 +94,12 @@ export async function POST(req: NextRequest) {
                 const details = session.customer_details;
                 const addr = details?.address;
 
-                // Update customer metadata with NIF
+                // Update customer metadata. Always include user_id; only set fiscal_id if NIF provided.
                 const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
-                if (customerId && nif) {
-                    await stripe.customers.update(customerId, { metadata: { nif, user_id: userId } });
+                if (customerId) {
+                    const customerMetadata: Record<string, string> = { user_id: userId };
+                    if (nif) customerMetadata.fiscal_id = nif;
+                    await stripe.customers.update(customerId, { metadata: customerMetadata });
                 }
 
                 // Pull subscription
@@ -105,6 +107,12 @@ export async function POST(req: NextRequest) {
                 if (session.subscription) {
                     const subId = typeof session.subscription === "string" ? session.subscription : session.subscription.id;
                     sub = await stripe.subscriptions.retrieve(subId);
+                    // Also mirror fiscal_id on subscription metadata so it propagates onto invoices
+                    if (nif) {
+                        await stripe.subscriptions.update(sub.id, {
+                            metadata: { ...(sub.metadata || {}), fiscal_id: nif, user_id: userId },
+                        });
+                    }
                 }
 
                 await db.prepare(`

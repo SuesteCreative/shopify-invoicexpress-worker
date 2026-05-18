@@ -79,8 +79,7 @@ const INTEGRATIONS: Integration[] = [
     name: "Stripe",
     kind: "pagamentos",
     status: "live",
-    mark: "S",
-    brand: "#635BFF",
+    logoSrc: "/images/stripe-logo.svg",
     note: "Assinaturas, charges e refunds via webhook",
   },
   {
@@ -88,8 +87,7 @@ const INTEGRATIONS: Integration[] = [
     name: "EuPago",
     kind: "pagamentos",
     status: "soon",
-    mark: "Eu",
-    brand: "#E63946",
+    logoSrc: "/images/eupago-logo.svg",
     note: "Multibanco, MB WAY e referências",
   },
   {
@@ -97,8 +95,7 @@ const INTEGRATIONS: Integration[] = [
     name: "Easypay",
     kind: "pagamentos",
     status: "soon",
-    mark: "Ep",
-    brand: "#D7263D",
+    logoSrc: "/images/easypay-logo.svg",
     note: "Captura imediata e diferida",
   },
   {
@@ -106,8 +103,7 @@ const INTEGRATIONS: Integration[] = [
     name: "Ifthenpay",
     kind: "pagamentos",
     status: "planned",
-    mark: "If",
-    brand: "#1F6FEB",
+    logoSrc: "/images/ifthenpay-logo.svg",
     note: "MB WAY, Multibanco, Payshop",
   },
   {
@@ -115,9 +111,7 @@ const INTEGRATIONS: Integration[] = [
     name: "InvoiceXpress",
     kind: "faturação",
     status: "live",
-    logoSrc: "/images/invoicexpress_logo2.png",
-    logoW: 30,
-    logoH: 30,
+    logoSrc: "/images/invoicexpress-logo.svg",
     note: "Faturas, recibos, notas de crédito",
   },
   {
@@ -125,8 +119,7 @@ const INTEGRATIONS: Integration[] = [
     name: "Moloni",
     kind: "faturação",
     status: "planned",
-    mark: "Mo",
-    brand: "#E11D48",
+    logoSrc: "/images/moloni-logo.svg",
     note: "Sincronização total de documentos",
   },
   {
@@ -134,8 +127,7 @@ const INTEGRATIONS: Integration[] = [
     name: "Vendus",
     kind: "faturação",
     status: "planned",
-    mark: "Vd",
-    brand: "#16A34A",
+    logoSrc: "/images/vendus-logo.svg",
     note: "POS + faturação certificada",
   },
 ];
@@ -214,33 +206,25 @@ const ORIGIN_SLOTS: FlowSlot[] = [
     id: "stripe",
     title: "Stripe",
     sub: "charge succeeded · ch_3R9",
-    logoSrc: null,
-    mark: "S",
-    brand: "#635BFF",
+    logoSrc: "/images/stripe-logo.svg",
   },
   {
     id: "easypay",
     title: "Easypay",
     sub: "capture · pmt_5921",
-    logoSrc: null,
-    mark: "Ep",
-    brand: "#D7263D",
+    logoSrc: "/images/easypay-logo.svg",
   },
   {
     id: "eupago",
     title: "EuPago",
     sub: "MB WAY confirmado · #2847",
-    logoSrc: null,
-    mark: "Eu",
-    brand: "#E63946",
+    logoSrc: "/images/eupago-logo.svg",
   },
   {
     id: "ifthenpay",
     title: "Ifthenpay",
     sub: "MB referência · #883",
-    logoSrc: null,
-    mark: "If",
-    brand: "#1F6FEB",
+    logoSrc: "/images/ifthenpay-logo.svg",
   },
 ];
 
@@ -249,23 +233,19 @@ const DESTINATION_SLOTS: FlowSlot[] = [
     id: "invoicexpress",
     title: "InvoiceXpress",
     sub: "FT 2026/A/847 · finalizada",
-    logoSrc: "/images/invoicexpress_logo2.png",
+    logoSrc: "/images/invoicexpress-logo.svg",
   },
   {
     id: "moloni",
     title: "Moloni",
     sub: "FT 2026/A/523 · finalizada",
-    logoSrc: null,
-    mark: "Mo",
-    brand: "#E11D48",
+    logoSrc: "/images/moloni-logo.svg",
   },
   {
     id: "vendus",
     title: "Vendus",
     sub: "FT 2026/A/319 · finalizada",
-    logoSrc: null,
-    mark: "Vd",
-    brand: "#16A34A",
+    logoSrc: "/images/vendus-logo.svg",
   },
 ];
 
@@ -852,38 +832,7 @@ function FlowSlotIdentity({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <div
-        className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden"
-        style={{
-          background: slot.logoSrc
-            ? "rgba(255,255,255,0.04)"
-            : slot.brand ?? SURFACE,
-          border: slot.logoSrc ? `1px solid ${HAIRLINE}` : "none",
-          boxShadow: slot.logoSrc
-            ? "none"
-            : "inset 0 1px 0 rgba(255,255,255,0.18)",
-        }}
-      >
-        {slot.logoSrc ? (
-          <Image
-            src={slot.logoSrc}
-            alt=""
-            width={20}
-            height={20}
-            className="object-contain"
-          />
-        ) : (
-          <span
-            className="font-mono text-[12px] font-medium"
-            style={{
-              color: "#FFFFFF",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            {slot.mark}
-          </span>
-        )}
-      </div>
+      <BrandChip slot={slot} width={88} height={36} logoH={20} />
       <div>
         <div
           className="font-mono text-[10px] uppercase tracking-[0.18em]"
@@ -895,6 +844,60 @@ function FlowSlotIdentity({
           {slot.title}
         </div>
       </div>
+    </div>
+  );
+}
+
+// White brand chip — uniform container that hosts any platform logo.
+// Logos render via object-contain so wordmarks + icons coexist cleanly.
+function BrandChip({
+  slot,
+  width,
+  height,
+  logoH,
+}: {
+  slot: { logoSrc: string | null; mark?: string; brand?: string; title: string };
+  width: number;
+  height: number;
+  logoH: number;
+}) {
+  if (slot.logoSrc) {
+    return (
+      <div
+        className="flex items-center justify-center rounded-lg overflow-hidden"
+        style={{
+          width,
+          height,
+          background: "#FFFFFF",
+          boxShadow:
+            "0 1px 0 rgba(255,255,255,0.08) inset, 0 2px 6px -2px rgba(0,0,0,0.4)",
+        }}
+      >
+        <Image
+          src={slot.logoSrc}
+          alt={slot.title}
+          width={width - 16}
+          height={logoH}
+          className="object-contain"
+          style={{ maxHeight: logoH, width: "auto" }}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="flex items-center justify-center rounded-lg font-mono font-medium"
+      style={{
+        width: height,
+        height,
+        background: slot.brand ?? SURFACE,
+        color: "#FFFFFF",
+        letterSpacing: "-0.02em",
+        fontSize: 13,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18)",
+      }}
+    >
+      {slot.mark}
     </div>
   );
 }
@@ -1115,37 +1118,18 @@ function IntegrationCard({ item }: { item: Integration }) {
 }
 
 function Mark({ item }: { item: Integration }) {
-  if (item.logoSrc) {
-    return (
-      <div
-        className="flex h-11 w-11 items-center justify-center rounded-xl"
-        style={{
-          background: "rgba(255,255,255,0.06)",
-          border: `1px solid ${HAIRLINE}`,
-        }}
-      >
-        <Image
-          src={item.logoSrc}
-          alt={item.name}
-          width={item.logoW ?? 22}
-          height={item.logoH ?? 22}
-          className="object-contain"
-        />
-      </div>
-    );
-  }
   return (
-    <div
-      className="flex h-11 w-11 items-center justify-center rounded-xl font-mono text-[13px] font-medium"
-      style={{
-        background: item.brand ?? SURFACE_2,
-        color: "#FFFFFF",
-        letterSpacing: "-0.02em",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18)",
+    <BrandChip
+      slot={{
+        logoSrc: item.logoSrc ?? null,
+        mark: item.mark,
+        brand: item.brand,
+        title: item.name,
       }}
-    >
-      {item.mark}
-    </div>
+      width={104}
+      height={44}
+      logoH={24}
+    />
   );
 }
 

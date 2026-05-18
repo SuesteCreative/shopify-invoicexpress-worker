@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Zap, Store, ScrollText } from "lucide-react";
+import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Zap, Store, ScrollText, Receipt } from "lucide-react";
 import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -113,6 +113,13 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         activeClass="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.1)]"
                         disabled={!isRegistered}
                         tooltip="Faça o registo no dashboard primeiro"
+                    />
+                    <LinkItem
+                        href="/faturacao"
+                        icon={Receipt}
+                        label="Faturação"
+                        colorClass="text-amber-400"
+                        activeClass="bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.1)]"
                     />
                     <LinkItem
                         href="/help"

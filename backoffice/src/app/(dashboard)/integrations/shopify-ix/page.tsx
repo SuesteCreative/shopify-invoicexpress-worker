@@ -10,6 +10,8 @@ import Link from "next/link";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useUser } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
+import SubscriptionCard from "@/components/SubscriptionCard";
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -17,6 +19,8 @@ function cn(...inputs: ClassValue[]) {
 
 export default function ShopifyIXIntegration() {
     const { user: clerkUser } = useUser();
+    const searchParams = useSearchParams();
+    const stripeSuccess = searchParams?.get("stripe") === "success";
     // Use DB name (correct under impersonation). Falls back to Clerk name until data loads.
     const [dbUserName, setDbUserName] = useState("");
     const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
@@ -483,6 +487,8 @@ export default function ShopifyIXIntegration() {
                     </div>
                 </div>
             </div>
+
+            <SubscriptionCard onSuccess={stripeSuccess} />
 
             <div className="grid gap-8">
                 {steps.map((s) => {

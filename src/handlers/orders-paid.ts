@@ -13,6 +13,26 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
   console.log(`[Rioko] Order received: ${orderId}`);
   console.log(order);
 
+  // Subscription gate: block IX emission if user's Kapta subscription inactive
+  if (config.user_id) {
+    try {
+      const sub: any = await env.DB.prepare(
+        "SELECT status, trial_end FROM subscriptions WHERE user_id = ?"
+      ).bind(config.user_id).first();
+      const now = new Date();
+      const blocked = !sub
+        || ["canceled", "unpaid", "incomplete_expired", "incomplete", "past_due"].includes(sub.status)
+        || (sub.status === "trialing" && sub.trial_end && new Date(sub.trial_end) < now);
+      if (blocked) {
+        console.log(`[Rioko] Subscription inactive for user ${config.user_id} (status=${sub?.status}) — skipping IX emission`);
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: `Blocked: subscription_inactive (${sub?.status || 'none'})`, status: 402 });
+        return;
+      }
+    } catch (e: any) {
+      console.warn(`[Rioko] Gate check failed (fail-open): ${e.message}`);
+    }
+  }
+
   await delay(15000);
 
   try {

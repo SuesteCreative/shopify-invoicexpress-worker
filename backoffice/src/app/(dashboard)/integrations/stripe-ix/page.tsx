@@ -4,8 +4,7 @@ export const runtime = "edge";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Check, Lock, ChevronRight, CreditCard, ClipboardList, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen, X, Copy, ArrowLeft } from "lucide-react";
-import Image from "next/image";
+import { Check, Lock, ChevronRight, CreditCard, ClipboardList, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen, X, Copy, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -40,11 +39,13 @@ export default function StripeIXIntegration() {
     // Stripe form state
     const [stripeAccountId, setStripeAccountId] = useState("");
     const [restrictedKey, setRestrictedKey] = useState("");
-    const [webhookSecret, setWebhookSecret] = useState("");
+    const [webhookSecret, setWebhookSecret] = useState(""); // fallback path only
     const [hasStripeSaved, setHasStripeSaved] = useState(false);
     const [hasWebhookSaved, setHasWebhookSaved] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<"draft" | "active" | "paused" | "error" | "">("");
     const [stripeError, setStripeError] = useState("");
+    const [installError, setInstallError] = useState("");
+    const [showManualFallback, setShowManualFallback] = useState(false);
 
     // IX form state (only used if needsIxStep)
     const [needsIxStep, setNeedsIxStep] = useState(false);
@@ -60,7 +61,7 @@ export default function StripeIXIntegration() {
     const [ixAuthorized, setIxAuthorized] = useState(false);
     const [ixError, setIxError] = useState("");
 
-    // For POSTing /api/integrations we need the Shopify fields too — preserve whatever's already in DB
+    // Carry-over Shopify fields (so POST /api/integrations doesn't clobber them)
     const [shopifyDomain, setShopifyDomain] = useState("");
     const [shopifyToken, setShopifyToken] = useState("");
     const [shopifyWebhookSecret, setShopifyWebhookSecret] = useState("");
@@ -108,7 +109,6 @@ export default function StripeIXIntegration() {
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
             fetch("/api/integrations/stripe-source").then(r => r.json()).catch(() => ({}))
         ]).then(([integ, stripe]: any) => {
-            // Hydrate IX side
             if (integ._user_name) setDbUserName(integ._user_name);
             if (integ.shopify_domain) setShopifyDomain(integ.shopify_domain);
             if (integ.shopify_token) setShopifyToken(integ.shopify_token);
@@ -131,7 +131,6 @@ export default function StripeIXIntegration() {
             const ixOk = integ.ix_authorized === 1;
             setNeedsIxStep(!ixOk);
 
-            // Hydrate Stripe side
             const conn = stripe?.connection;
             const sCfg = conn?.source_config ?? {};
             if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
@@ -141,20 +140,19 @@ export default function StripeIXIntegration() {
             setHasWebhookSaved(webhookSaved);
             setConnectionStatus(conn?.status ?? "");
 
-            // Smart resume — step IDs are sequential regardless of IX presence
-            // Without IX: 1=stripe, 2=webhook, 3=activate
-            // With IX:    1=stripe, 2=webhook, 3=ix, 4=activate
-            const activateStep = ixOk ? 3 : 4;
-            if (conn?.status === "active") setStep(activateStep + 1); // completion card
+            // Smart resume — Stripe step is unified (creds + webhook auto-install)
+            // Without IX: 1=stripe, 2=activate
+            // With IX:    1=stripe, 2=ix, 3=activate
+            const activateStep = ixOk ? 2 : 3;
+            if (conn?.status === "active") setStep(activateStep + 1);
             else if (webhookSaved && ixOk) setStep(activateStep);
-            else if (webhookSaved && !ixOk) setStep(3); // IX step
-            else if (stripeSaved) setStep(2);
+            else if (webhookSaved && !ixOk) setStep(2);
             else setStep(1);
         }).finally(() => setLoading(false));
     }, []);
 
-    const totalSteps = needsIxStep ? 4 : 3;
-    const activateStepId = totalSteps; // last interactive step
+    const totalSteps = needsIxStep ? 3 : 2;
+    const activateStepId = totalSteps;
     const allComplete = connectionStatus === "active" && hasWebhookSaved && (!needsIxStep || ixAuthorized);
 
     // ─── Handlers ─────────────────────────────────────────────────────────────
@@ -165,31 +163,48 @@ export default function StripeIXIntegration() {
             destination_kind: "invoicexpress",
             ...patch
         };
-        const res = await fetch("/api/integrations/stripe-source", {
+        return fetch("/api/integrations/stripe-source", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
         });
-        return res;
     };
 
-    const handleStripeCreds = async () => {
-        if (!stripeAccountId.trim()) return;
+    const handleStripeStep = async () => {
+        if (!stripeAccountId.trim() || !restrictedKey.trim()) return;
         setSaving(true);
+        setStripeError("");
+        setInstallError("");
         try {
-            const res = await postStripeSource({
+            // 1. Save credentials (draft)
+            const saveRes = await postStripeSource({
                 stripe_account_id: stripeAccountId.trim(),
-                restricted_key: restrictedKey || undefined,
+                restricted_key: restrictedKey.trim(),
                 status: "draft"
             });
-            if (!res.ok) {
-                const data: any = await res.json().catch(() => ({}));
+            if (!saveRes.ok) {
+                const data: any = await saveRes.json().catch(() => ({}));
                 setStripeError(data.error || "Erro ao guardar credenciais.");
                 return;
             }
             setHasStripeSaved(true);
-            setStripeError("");
-            setStep(2);
+
+            // 2. Auto-install webhook via Stripe API (server-side)
+            const instRes = await fetch("/api/integrations/stripe-source/install-webhook", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ restricted_key: restrictedKey.trim() })
+            });
+            const instData: any = await instRes.json().catch(() => ({}));
+            if (!instRes.ok) {
+                const msg = instData.error || "Falha ao instalar webhook automaticamente.";
+                setInstallError(`${msg}${instData.stripe_code ? ` (${instData.stripe_code})` : ""}`);
+                setShowManualFallback(true);
+                return; // stay on step 1, show fallback UI
+            }
+
+            setHasWebhookSaved(true);
+            setStep(needsIxStep ? 2 : activateStepId);
         } catch (e: any) {
             setStripeError(`Erro de rede: ${e.message}`);
         } finally {
@@ -197,7 +212,7 @@ export default function StripeIXIntegration() {
         }
     };
 
-    const handleWebhookSecret = async () => {
+    const handleManualSecret = async () => {
         if (!webhookSecret.trim() || !stripeAccountId) return;
         setSaving(true);
         try {
@@ -211,8 +226,8 @@ export default function StripeIXIntegration() {
                 return;
             }
             setHasWebhookSaved(true);
-            setStripeError("");
-            setStep(needsIxStep ? 3 : activateStepId);
+            setShowManualFallback(false);
+            setStep(needsIxStep ? 2 : activateStepId);
         } catch (e: any) {
             setStripeError(`Erro de rede: ${e.message}`);
         } finally {
@@ -321,7 +336,7 @@ export default function StripeIXIntegration() {
         );
     }
 
-    // ─── StatusBadge (mirrors shopify-ix; force-auth available for IX flag only) ─
+    // ─── StatusBadge ──────────────────────────────────────────────────────────
 
     const StatusBadge = ({ isAuthorized, errorMsg, stepId, flagName }: { isAuthorized: boolean; errorMsg?: string; stepId: number; flagName?: string }) => {
         const isHiper = userRole === "hiperadmin" || userRole === "superadmin";
@@ -408,22 +423,18 @@ export default function StripeIXIntegration() {
         isAuthorized: boolean;
         errorMsg?: string;
         flagName?: string;
-        kind: "stripe-creds" | "webhook" | "ix" | "activate";
+        kind: "stripe" | "ix" | "activate";
     };
 
     const steps: StepDef[] = [
         {
-            id: 1, title: "Passo 1: Credenciais Stripe",
-            description: "Ligue a sua conta Stripe ao Rioko com o ID da conta e a chave restrita opcional.",
-            icon: CreditCard, isAuthorized: hasStripeSaved, errorMsg: stripeError, kind: "stripe-creds"
-        },
-        {
-            id: 2, title: "Passo 2: Webhook Stripe",
-            description: "Configure o webhook no Stripe Dashboard para o Rioko receber pagamentos em tempo real.",
-            icon: Webhook, isAuthorized: hasWebhookSaved, errorMsg: stripeError, kind: "webhook"
+            id: 1, title: "Passo 1: Stripe",
+            description: "Ligue a sua conta Stripe — webhook instalado automaticamente.",
+            icon: CreditCard, isAuthorized: hasStripeSaved && hasWebhookSaved,
+            errorMsg: stripeError || installError, kind: "stripe"
         },
         ...(needsIxStep ? [{
-            id: 3, title: "Passo 3: InvoiceXpress",
+            id: 2, title: "Passo 2: InvoiceXpress",
             description: "Introduza os detalhes da sua conta InvoiceXpress para emitir faturas.",
             icon: ClipboardList, isAuthorized: ixAuthorized, errorMsg: ixError, flagName: "ix_authorized", kind: "ix" as const
         }] : []),
@@ -502,8 +513,20 @@ export default function StripeIXIntegration() {
                             <motion.div animate={{ height: isActive ? "auto" : 0 }} className="overflow-hidden bg-slate-950/40 border-t border-slate-800/30">
                                 {isActive && (
                                     <div className="p-10 pt-8 animate-in zoom-in-95 duration-700">
-                                        {s.kind === "stripe-creds" && (
+                                        {s.kind === "stripe" && (
                                             <div className="grid md:grid-cols-2 gap-8">
+                                                <div className="md:col-span-2 flex items-start gap-4 bg-indigo-500/5 border border-indigo-500/20 rounded-2xl px-6 py-4">
+                                                    <Info className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
+                                                    <div>
+                                                        <p className="text-sm font-bold text-indigo-300">Como criar a Restricted Key</p>
+                                                        <ol className="text-[11px] text-slate-400 mt-2 leading-relaxed list-decimal pl-4 space-y-1">
+                                                            <li>Stripe Dashboard → <span className="text-indigo-300 font-semibold">Developers → API keys → Restricted keys → Create restricted key</span>.</li>
+                                                            <li>Permissões: <code className="bg-slate-800 px-1 rounded text-indigo-200">Webhook Endpoints: Write</code>. Tudo o resto: None.</li>
+                                                            <li>Copie a chave (começa por <code className="bg-slate-800 px-1 rounded">rk_live_</code> ou <code className="bg-slate-800 px-1 rounded">rk_test_</code>) e cole abaixo. O Rioko criará o webhook automaticamente.</li>
+                                                        </ol>
+                                                    </div>
+                                                </div>
+
                                                 <div className="space-y-3">
                                                     <div className="flex items-center justify-between ml-1">
                                                         <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent-blue" />Stripe Account ID</label>
@@ -513,60 +536,56 @@ export default function StripeIXIntegration() {
                                                 </div>
                                                 <div className="space-y-3">
                                                     <div className="flex items-center justify-between ml-1">
-                                                        <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent-blue" />Restricted Key (opcional)</label>
+                                                        <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent-blue" />Restricted Key</label>
                                                         <a href="/help#stripe-restricted-key" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors"><BookOpen className="w-3 h-3" />O que é?</a>
                                                     </div>
                                                     <input type="password" value={restrictedKey} onChange={(e) => setRestrictedKey(e.target.value)} placeholder="rk_live_xxxxxxxxxxxxxxxx" className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent-blue/20 focus:border-accent-blue outline-none transition-all placeholder:text-slate-800" />
-                                                    <p className="text-[10px] text-slate-600 font-medium mt-2 ml-1 uppercase tracking-wider">Usado para verificações futuras (consulta de saldo, validação).</p>
+                                                    <p className="text-[10px] text-slate-600 font-medium mt-2 ml-1 uppercase tracking-wider">Scope obrigatório: <code className="text-indigo-300">Webhook Endpoints: Write</code></p>
                                                 </div>
+
                                                 <div className="md:col-span-2 pt-4">
-                                                    <button onClick={handleStripeCreds} disabled={saving || !stripeAccountId.trim()} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-blue hover:text-white disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
-                                                        {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Guardar Credenciais <ChevronRight className="w-4 h-4" /></>}
+                                                    <button onClick={handleStripeStep} disabled={saving || !stripeAccountId.trim() || !restrictedKey.trim()} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-blue hover:text-white disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                                                        {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> A instalar webhook...</> : <><Webhook className="w-4 h-4" /> Conectar Stripe + Instalar Webhook</>}
                                                     </button>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {s.kind === "webhook" && (
-                                            <div className="grid md:grid-cols-2 gap-8">
-                                                <div className="md:col-span-2 flex items-start gap-4 bg-violet-500/5 border border-violet-500/20 rounded-2xl px-6 py-4">
-                                                    <Webhook className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
-                                                    <div>
-                                                        <p className="text-sm font-bold text-violet-300">Configurar o webhook no Stripe Dashboard</p>
-                                                        <ol className="text-[11px] text-slate-400 mt-2 leading-relaxed list-decimal pl-4 space-y-1">
-                                                            <li>Abra o <span className="text-violet-300 font-semibold">Stripe Dashboard → Developers → Webhooks → Add endpoint</span>.</li>
-                                                            <li>Cole o URL abaixo no campo &quot;Endpoint URL&quot;.</li>
-                                                            <li>Selecione os eventos: <code className="bg-slate-800 px-1 rounded text-violet-200">{RECOMMENDED_EVENTS.join(", ")}</code>.</li>
-                                                            <li>Após criar, revele o <span className="text-violet-300 font-semibold">Signing Secret</span> (whsec_...) e cole no campo abaixo.</li>
-                                                        </ol>
-                                                    </div>
+                                                    {installError && (
+                                                        <p className="text-[11px] text-rose-400 font-bold text-center mt-4">{installError}</p>
+                                                    )}
                                                 </div>
 
-                                                <div className="md:col-span-2 space-y-3">
-                                                    <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-violet-400" />Endpoint URL</label>
-                                                    <div className="flex gap-3">
-                                                        <input type="text" readOnly value={WEBHOOK_URL} className="flex-1 bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-mono text-violet-200 focus:ring-2 focus:ring-violet-500/20 outline-none" onClick={(e) => (e.target as HTMLInputElement).select()} />
-                                                        <button onClick={copyWebhookUrl} className="px-5 py-4 rounded-2xl bg-violet-500/10 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-all font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
-                                                            {copied ? <><Check className="w-4 h-4" />Copiado</> : <><Copy className="w-4 h-4" />Copiar</>}
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="md:col-span-2 space-y-3">
-                                                    <div className="flex items-center justify-between ml-1">
-                                                        <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-violet-400" />Signing Secret</label>
-                                                        <a href="/help#stripe-webhook-secret" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors"><BookOpen className="w-3 h-3" />Onde Encontrar</a>
-                                                    </div>
-                                                    <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxx" className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 outline-none transition-all placeholder:text-slate-800" />
-                                                    {hasWebhookSaved && !webhookSecret && <p className="text-[10px] text-emerald-500 font-bold mt-2 ml-1 uppercase tracking-wider">Segredo já guardado. Deixe vazio para manter.</p>}
-                                                </div>
-
-                                                <div className="md:col-span-2 pt-4 flex items-center gap-4">
-                                                    <button onClick={() => setStep(step - 1)} className="text-slate-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all px-4">Voltar</button>
-                                                    <button onClick={handleWebhookSecret} disabled={saving || (!webhookSecret.trim() && !hasWebhookSaved)} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-blue hover:text-white disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
-                                                        {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{hasWebhookSaved && !webhookSecret.trim() ? "Continuar" : "Guardar Webhook"} <ChevronRight className="w-4 h-4" /></>}
-                                                    </button>
-                                                </div>
+                                                {/* Fallback: manual paste of signing secret if auto-install failed */}
+                                                <AnimatePresence>
+                                                    {showManualFallback && (
+                                                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="md:col-span-2 overflow-hidden">
+                                                            <div className="mt-4 p-6 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-4">
+                                                                <div className="flex items-start gap-3">
+                                                                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                                                                    <div>
+                                                                        <p className="text-sm font-bold text-amber-300">Fallback manual</p>
+                                                                        <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">A instalação automática falhou. Crie o webhook manualmente no Stripe Dashboard usando o URL abaixo e cole o Signing Secret.</p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] ml-1">Endpoint URL</label>
+                                                                    <div className="flex gap-3">
+                                                                        <input type="text" readOnly value={WEBHOOK_URL} className="flex-1 bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-3 text-xs font-mono text-violet-200 outline-none" onClick={(e) => (e.target as HTMLInputElement).select()} />
+                                                                        <button onClick={copyWebhookUrl} className="px-4 py-3 rounded-2xl bg-violet-500/10 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-all font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
+                                                                            {copied ? <><Check className="w-3 h-3" />Copiado</> : <><Copy className="w-3 h-3" />Copiar</>}
+                                                                        </button>
+                                                                    </div>
+                                                                    <p className="text-[10px] text-slate-600 ml-1 mt-1">Eventos a selecionar: <code className="text-violet-300">{RECOMMENDED_EVENTS.join(", ")}</code></p>
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    <label className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] ml-1">Signing Secret</label>
+                                                                    <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxx" className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-3 text-xs font-medium focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all placeholder:text-slate-800" />
+                                                                </div>
+                                                                <button onClick={handleManualSecret} disabled={saving || !webhookSecret.trim()} className="w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                                                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                                                    Guardar Signing Secret
+                                                                </button>
+                                                            </div>
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
                                             </div>
                                         )}
 
@@ -653,7 +672,7 @@ export default function StripeIXIntegration() {
                                                     </div>
                                                     <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-emerald-500/5 border-emerald-500/20">
                                                         <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500/10"><Webhook className="w-4 h-4 text-emerald-400" /></div>
-                                                        <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Webhook</p><p className="text-xs font-bold text-emerald-400">Configurado</p></div>
+                                                        <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Webhook</p><p className="text-xs font-bold text-emerald-400">Instalado</p></div>
                                                         <Check className="w-4 h-4 text-emerald-400 ml-auto" />
                                                     </div>
                                                     <div className={cn("flex items-center gap-3 px-5 py-4 rounded-2xl border", ixAuthorized ? "bg-emerald-500/5 border-emerald-500/20" : "bg-amber-500/5 border-amber-500/20")}>

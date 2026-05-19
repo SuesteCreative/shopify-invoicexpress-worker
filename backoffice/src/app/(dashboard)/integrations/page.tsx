@@ -16,7 +16,7 @@ function cn(...inputs: ClassValue[]) {
 
 const PAYMENT_PLATFORMS = [
     { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
-    { id: "stripe", name: "Stripe", icon: CreditCard, logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "stripe", name: "Stripe", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
     { id: "eupago", name: "EuPago", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
     { id: "easypay", name: "Easypay", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
     { id: "ifthenpay", name: "Ifthenpay", icon: Landmark, logo: null, logoW: 0, logoH: 0, active: false },
@@ -48,7 +48,8 @@ export default function IntegrationsPage() {
             });
     }, []);
 
-    const canConnect = selectedPayment === "shopify" && selectedInvoicing === "invoicexpress";
+    const canConnect = (selectedPayment === "shopify" || selectedPayment === "stripe") && selectedInvoicing === "invoicexpress";
+    const configuratorHref = selectedPayment === "stripe" ? "/integrations/stripe-ix" : "/integrations/shopify-ix";
 
     return (
         <div className="max-w-6xl mx-auto space-y-16 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -206,7 +207,7 @@ export default function IntegrationsPage() {
                                     </div>
                                     {canConnect ? (
                                         <Link
-                                            href="/integrations/shopify-ix"
+                                            href={configuratorHref}
                                             className="w-full py-5 rounded-3xl bg-emerald-500 text-white font-black text-sm uppercase tracking-widest hover:bg-emerald-400 transition-all transform active:scale-95 shadow-xl shadow-emerald-500/10"
                                         >
                                             Configurar Agora

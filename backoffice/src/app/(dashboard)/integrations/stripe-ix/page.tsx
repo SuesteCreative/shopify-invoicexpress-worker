@@ -529,7 +529,8 @@ export default function StripeIXIntegration() {
                                                         <p className="text-sm font-bold text-indigo-300">Como criar a Restricted Key</p>
                                                         <ol className="text-[11px] text-slate-400 mt-2 leading-relaxed list-decimal pl-4 space-y-1">
                                                             <li>Stripe Dashboard → <span className="text-indigo-300 font-semibold">Developers → API keys → Restricted keys → Create restricted key</span>.</li>
-                                                            <li>Permissões: <code className="bg-slate-800 px-1 rounded text-indigo-200">Webhook Endpoints: Write</code>. Tudo o resto: None.</li>
+                                                            <li>Permissões necessárias (toggle <code className="bg-slate-800 px-1 rounded text-indigo-200">Read</code> em cada): <code className="bg-slate-800 px-1 rounded text-indigo-200">Core</code>, <code className="bg-slate-800 px-1 rounded text-indigo-200">Billing</code>, <code className="bg-slate-800 px-1 rounded text-indigo-200">Connect</code>, <code className="bg-slate-800 px-1 rounded text-indigo-200">Checkout</code>, <code className="bg-slate-800 px-1 rounded text-indigo-200">Orders</code>, <code className="bg-slate-800 px-1 rounded text-indigo-200">Radar</code>, <code className="bg-slate-800 px-1 rounded text-indigo-200">Tax</code>. Mais <code className="bg-slate-800 px-1 rounded text-indigo-200">Webhook Endpoints: Write</code>. Tudo o resto: None.</li>
+                                                            <li>Se <em>Connected Permissions</em> estiver disponível, dar <code className="bg-slate-800 px-1 rounded text-indigo-200">Read</code> aos mesmos: Core, Billing, Checkout, Orders, Radar, Tax.</li>
                                                             <li>Copie a chave (começa por <code className="bg-slate-800 px-1 rounded">rk_live_</code> ou <code className="bg-slate-800 px-1 rounded">rk_test_</code>) e cole abaixo. O Rioko criará o webhook automaticamente.</li>
                                                         </ol>
                                                     </div>
@@ -548,7 +549,7 @@ export default function StripeIXIntegration() {
                                                         <a href="/help#stripe-restricted-key" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-rose-400 transition-colors"><BookOpen className="w-3 h-3" />O que é?</a>
                                                     </div>
                                                     <input type="password" value={restrictedKey} onChange={(e) => setRestrictedKey(e.target.value)} placeholder="rk_live_xxxxxxxxxxxxxxxx" className="w-full bg-slate-950/50 border border-slate-800/80 rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent-blue/20 focus:border-accent-blue outline-none transition-all placeholder:text-slate-800" />
-                                                    <p className="text-[10px] text-slate-600 font-medium mt-2 ml-1 uppercase tracking-wider">Scope obrigatório: <code className="text-indigo-300">Webhook Endpoints: Write</code></p>
+                                                    <p className="text-[10px] text-slate-600 font-medium mt-2 ml-1 uppercase tracking-wider">Scopes: <code className="text-indigo-300">Core/Billing/Connect/Checkout/Orders/Radar/Tax — Read</code> + <code className="text-indigo-300">Webhook Endpoints — Write</code></p>
                                                 </div>
 
                                                 <div className="md:col-span-2 pt-4">

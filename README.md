@@ -103,13 +103,11 @@ Configure fiscal rules.
 
 The system extracts the customer's fiscal ID (NIF/VAT) from multiple sources, in priority order:
 
-1. `note_attributes` — Dedicated NIF/VAT fields from Shopify checkout apps
-2. `customer.note` — Stored customer note in Shopify
-3. `customer.tags` — Customer tags (if NIF is stored there)
-4. `order.note` — The general order note (customer-writable at checkout)
-5. `billing_address.company` / `billing_address.address2` — Alternative fields
+1. `note_attributes` — Dedicated NIF/VAT fields from Shopify checkout apps. Matches any attribute whose name contains "nif", "vat", "contribuinte", "fiscal", or "tax" (case- and whitespace-insensitive). As a fallback, also scans attribute values for a `\d{9}` run regardless of name.
+2. `order.note` — The general order note (customer-writable at checkout). Scanned for `\d{9}` runs.
+3. `billing_address.company` / `billing_address.address2` — Scanned for `\b\d{9}\b` runs.
 
-All candidates are validated against the **Portuguese NIF algorithm** before use.
+All candidates are validated against the **Portuguese NIF algorithm** first. If no candidate passes, the first 9-digit candidate found is used (covers international or non-PT NIFs).
 
 **If the client already exists in InvoiceXpress without a NIF**, the system automatically patches their `fiscal_id` via `PUT /clients/{id}.json` before creating the invoice.
 

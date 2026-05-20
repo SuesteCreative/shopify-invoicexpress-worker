@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder, type IxCreditNote } from "../ix/builder";
+import { makeViesChecker } from "../ix/vies";
 
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
@@ -77,8 +78,32 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
       !creditNotes.some(note => note.reference === `OrderRefund #${credit.refundId}`)
     );
 
-    const ixBuilder = new IxBuilder(config);
-    const invoiceBuildResult = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
+    const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
+    const ixBuilder = new IxBuilder(config, viesChecker);
+    const build = await ixBuilder.createInvoiceFromNormalizedOrderAsync(normalizedOrderResponse.normalized);
+
+    if (build.status === "deferred") {
+      // Refund came in before VIES validation finished. Queue a pending row;
+      // the cron + manual approval will eventually issue the credit note via
+      // a follow-up path. (For v1 we defer the credit-note creation entirely;
+      // when reverse-charge is finally decided, this refund will be retried
+      // via the orders/updated re-emission.)
+      const nextRetryAt = new Date(Date.now() + 15 * 60_000).toISOString();
+      await appStorage.enqueuePendingReverseCharge({
+        shopify_domain: config.shopify_domain!,
+        order_id: String(normalizedOrderResponse.normalized.order.id),
+        vat_id: build.vatNumber,
+        country_code: build.countryCode,
+        normalized_json: JSON.stringify(normalizedOrderResponse.normalized),
+        webhook_topic: webhookTopic,
+        webhook_id: webhookId,
+        next_retry_at: nextRetryAt,
+      });
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Deferred: VIES retry queued", status: 202 });
+      return;
+    }
+    const invoiceBuildResult = { invoice: build.invoice, requestTaxExemptionReason: build.requestTaxExemptionReason };
 
     // Create credit notes for each refund
     await Promise.all(
@@ -87,14 +112,14 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         const normalizedItems = normalizedOrderResponse.normalized.order.items.filter(item =>
           credit.itemsIds.includes(item.id)
         );
-        const items = ixBuilder.buildInvoiceItems(normalizedItems);
+        const items = ixBuilder.buildInvoiceItems(normalizedItems, { forceZeroTax: build.reverseCharge });
 
         // Add refund amount as a line item if there's a difference
         if (credit.amountToRefund > 0) {
           const taxes = invoiceBuildResult.invoice.items.map(item => item.tax);
-          const maxTax = taxes.reduce((a, b) =>
+          const maxTax = build.reverseCharge ? 0 : (taxes.reduce((a, b) =>
             (typeof a === "number" ? a : a.value) >= (typeof b === "number" ? b : b.value) ? a : b
-          ) ?? 0;
+          ) ?? 0);
 
           const taxPercentage = (typeof maxTax === "number" ? maxTax : maxTax.value) / 100;
 
@@ -111,13 +136,18 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           typeof item.tax === "number" ? item.tax === 0 : item.tax.value === 0
         );
 
+        const reverseChargeReason = build.reverseCharge
+          ? (config.ix_b2b_exemption_reason ?? "M16")
+          : null;
+
         const creditNote: IxCreditNote = {
           ...invoiceBuildResult.invoice,
           items: items,
           reference: `OrderRefund #${credit.refundId}`,
-          tax_exemption_reason: requireTaxExemption
-            ? ixInvoice?.data?.tax_exemption ?? config.ix_exemption_reason ?? undefined
-            : undefined,
+          tax_exemption_reason: reverseChargeReason
+            ?? (requireTaxExemption
+              ? ixInvoice?.data?.tax_exemption ?? config.ix_exemption_reason ?? undefined
+              : undefined),
           owner_invoice_id: Number(invoice.invoice_id)
         };
 

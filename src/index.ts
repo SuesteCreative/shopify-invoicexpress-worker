@@ -1,8 +1,11 @@
 import type { Env } from "./env";
-import type { QueueMessage, WebhookTopic } from "./handlers/types";
+import type { QueueMessage, StripeQueueMessage, StripeCanonicalTopic, WebhookTopic } from "./handlers/types";
 import { Context, Hono } from "hono";
 import { AppStorage } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
+import { getSourceAdapter } from "./adapters/registry";
+import { runAdapterPipeline } from "./handlers/generic-pipeline";
+import { reportIncident, runIncidentDigest } from "./services/incidents";
 import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
@@ -16,7 +19,32 @@ import {
   setReconciliationDecisionAction,
   getShopForUser,
 } from "./handlers/reconciliation";
+import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
 import { delay } from "./utils";
+
+function shopifyTopicToCanonical(topic: WebhookTopic): StripeCanonicalTopic | null {
+  switch (topic) {
+    case "orders/created": return "created";
+    case "orders/paid": return "paid";
+    case "refunds/create": return "refund";
+    default: return null;
+  }
+}
+
+function stripeEventToCanonical(eventType: string): StripeCanonicalTopic | null {
+  // PaymentIntent flow (Kapta's primary path): payment_intent.succeeded fires
+  // when a PI reaches "succeeded" — equivalent to a paid Shopify order. We
+  // treat it as a combined create+(auto-finalize if configured) trigger since
+  // there's no separate "created" event for PaymentIntents.
+  if (eventType === "payment_intent.succeeded") return "created";
+  // Legacy/standalone Charge flow.
+  if (eventType === "charge.succeeded") return "created";
+  if (eventType === "charge.refunded") return "refund";
+  // Stripe-issued Invoice flow (separate lifecycle).
+  if (eventType === "invoice.created" || eventType === "invoice.finalized") return "created";
+  if (eventType === "invoice.paid") return "paid";
+  return null;
+}
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -40,7 +68,27 @@ async function enqueueWebhook(c: Context<{ Bindings: Env }>, topic: WebhookTopic
     return c.text("No config found", 404);
   }
 
-  // Check for duplicate webhook
+  // Verify webhook signature FIRST — prevents attackers spamming webhook ids
+  // to flood the webhook_info table with bogus "processing" rows.
+  const hmac = c.req.header("X-Shopify-Hmac-Sha256");
+  const rawBody = await c.req.text();
+
+  if (!hmac || !await verifyShopifyWebhook(hmac, rawBody, config.shopify_webhook_secret!)) {
+    console.error(`[Rioko] Invalid Webhook Signature for ${config.shopify_domain}.`);
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic, payload: "", response: "Invalid Signature", status: 401 });
+    await reportIncident(c.env, {
+      user_id: config.user_id,
+      severity: "critical",
+      kind: "webhook_invalid_signature",
+      summary: `Shopify webhook ${topic} rejeitado por assinatura inválida em ${config.shopify_domain}`,
+      detail: { shop: config.shopify_domain, topic },
+      connection_label: "shopify → invoicexpress",
+      bucket: "daily", // signature failures cluster — one alert per day is enough
+    });
+    return new Response("Invalid Signature", { status: 401 });
+  }
+
+  // Only after HMAC passes do we check/mark webhook state.
   if (webhookId) {
     const { isProcessed, state } = await appStorage.isWebhookProcessed(webhookId, topic);
     if (isProcessed) {
@@ -52,16 +100,6 @@ async function enqueueWebhook(c: Context<{ Bindings: Env }>, topic: WebhookTopic
       console.log(`[Rioko] Retrying failed webhook ${webhookId}`);
     }
     await appStorage.markWebhookAsProcessing(webhookId, topic);
-  }
-
-  // Verify webhook signature
-  const hmac = c.req.header("X-Shopify-Hmac-Sha256");
-  const rawBody = await c.req.text();
-
-  if (!hmac || !await verifyShopifyWebhook(hmac, rawBody, config.shopify_webhook_secret!)) {
-    console.error(`[Rioko] Invalid Webhook Signature for ${config.shopify_domain}.`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic, payload: "", response: "Invalid Signature", status: 401 });
-    return new Response("Invalid Signature", { status: 401 });
   }
 
   const body = JSON.parse(rawBody);
@@ -92,6 +130,110 @@ app.post("/webhooks/shopify/orders-paid", (c) => enqueueWebhook(c, "orders/paid"
 
 // Shopify refunds/create webhook endpoint
 app.post("/webhooks/shopify/refunds-create", (c) => enqueueWebhook(c, "refunds/create"))
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stripe webhooks. Gated by STRIPE_SOURCE_ENABLED env flag — disabled by default
+// in Phase 3. To enable in prod: set STRIPE_SOURCE_ENABLED=1 + set
+// STRIPE_WEBHOOK_SECRET via `wrangler secret put STRIPE_WEBHOOK_SECRET`.
+// ────────────────────────────────────────────────────────────────────────────
+app.post("/webhooks/stripe", async (c) => {
+  if (c.env.STRIPE_SOURCE_ENABLED !== "1") {
+    return c.text("Stripe source disabled", 404);
+  }
+
+  const sig = c.req.header("Stripe-Signature");
+  const rawBody = await c.req.text();
+  if (!sig) return c.text("Missing Stripe-Signature", 400);
+
+  const adapter = getSourceAdapter("stripe");
+  const stripeAccount = c.req.header("Stripe-Account"); // present only for Connect platforms
+
+  // Resolve the owning connection. Two modes:
+  //   a) Stripe Connect — match by stripe_account_id from header.
+  //   b) Standalone — no header; try every active connection and use whichever
+  //      signature verifies. Bounded by # active stripe connections (small).
+  let ownerRow: any | null = null;
+  let secret: string | undefined;
+
+  if (stripeAccount) {
+    ownerRow = await c.env.DB.prepare(
+      `SELECT id, user_id, source_config_json FROM connections
+       WHERE source_kind = 'stripe' AND status = 'active'
+         AND json_extract(source_config_json, '$.stripe_account_id') = ?
+       LIMIT 1`
+    ).bind(stripeAccount).first();
+    if (ownerRow) {
+      const cfg = ownerRow.source_config_json ? JSON.parse(ownerRow.source_config_json) : {};
+      secret = cfg.webhook_secret || c.env.STRIPE_WEBHOOK_SECRET;
+    }
+  } else {
+    const rows = await c.env.DB.prepare(
+      `SELECT id, user_id, source_config_json FROM connections
+       WHERE source_kind = 'stripe' AND status = 'active'`
+    ).all();
+    for (const row of (rows.results ?? []) as any[]) {
+      const cfg = row.source_config_json ? JSON.parse(row.source_config_json) : {};
+      const candidateSecret = cfg.webhook_secret || c.env.STRIPE_WEBHOOK_SECRET;
+      if (!candidateSecret) continue;
+      if (await adapter.verifyWebhook(rawBody, sig, candidateSecret)) {
+        ownerRow = row;
+        secret = candidateSecret;
+        break;
+      }
+    }
+  }
+
+  if (!ownerRow) {
+    console.log(`[Stripe] No matching connection found (header=${stripeAccount ?? "none"})`);
+    return c.text("No connection found", 404);
+  }
+  if (!secret) {
+    console.error("[Stripe] No webhook secret configured");
+    return c.text("Secret not configured", 500);
+  }
+
+  // For Connect (header) path we still need to verify signature now that we
+  // have the secret; the no-header path already verified during the scan.
+  if (stripeAccount && !await adapter.verifyWebhook(rawBody, sig, secret)) {
+    console.error("[Stripe] Invalid signature");
+    await reportIncident(c.env, {
+      user_id: ownerRow.user_id,
+      severity: "critical",
+      kind: "webhook_invalid_signature",
+      summary: `Stripe webhook rejeitado por assinatura inválida (account=${stripeAccount})`,
+      detail: { stripeAccount },
+      connection_label: "stripe → invoicexpress",
+      bucket: "daily",
+    });
+    return c.text("Invalid signature", 401);
+  }
+
+  const event = JSON.parse(rawBody);
+  const eventId: string = event.id ?? "";
+  const canonical = stripeEventToCanonical(event.type ?? "");
+  if (!canonical) {
+    console.log(`[Stripe] Ignoring unhandled event type: ${event.type}`);
+    return c.text("Event type ignored", 200);
+  }
+
+  // Dedup by Stripe event id (use webhook_info table since it's source-agnostic
+  // after Phase 2's source_kind ALTER ADD).
+  const appStorage = new AppStorage(c.env);
+  const { isProcessed, state } = await appStorage.isWebhookProcessed(eventId, `stripe/${canonical}`);
+  if (isProcessed && state !== "failed") {
+    return c.text("Already processed", 200);
+  }
+  await appStorage.markWebhookAsProcessing(eventId, `stripe/${canonical}`);
+
+  await c.env.STRIPE_QUEUE.send({
+    topic: canonical,
+    eventId,
+    userId: ownerRow.user_id,
+    body: event,
+  } satisfies StripeQueueMessage);
+
+  return c.text("Queued", 200);
+});
 
 // Admin: list unprocessed orders
 app.get("/admin/unprocessed-orders", async (c) => {
@@ -374,7 +516,14 @@ app.get("/admin/tax-override", async (c) => {
 app.put("/admin/tax-override", async (c) => {
   const unauth = requireAdmin(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ shop: string; force_tax_rate: number | null; force_shipping_tax_rate: number | null; oss_enabled: boolean }>();
+  const body = await c.req.json<{
+    shop: string;
+    force_tax_rate: number | null;
+    force_shipping_tax_rate: number | null;
+    oss_enabled: boolean;
+    b2b_reverse_charge?: boolean;
+    ix_b2b_exemption_reason?: string;
+  }>();
   if (!body.shop) return c.json({ error: "Missing shop" }, 400);
   const validate = (r: number | null | undefined, label: string) => {
     if (r != null && (typeof r !== "number" || r < 0 || r > 100)) {
@@ -386,9 +535,58 @@ app.put("/admin/tax-override", async (c) => {
   if (e1) return e1;
   const e2 = validate(body.force_shipping_tax_rate, "force_shipping_tax_rate");
   if (e2) return e2;
+  const reason = body.ix_b2b_exemption_reason && body.ix_b2b_exemption_reason.trim().length > 0
+    ? body.ix_b2b_exemption_reason.trim().slice(0, 16)
+    : "M16";
   const appStorage = new AppStorage(c.env, body.shop);
-  await appStorage.setTaxOverride(body.force_tax_rate ?? null, body.force_shipping_tax_rate ?? null, !!body.oss_enabled);
+  await appStorage.setTaxOverride(
+    body.force_tax_rate ?? null,
+    body.force_shipping_tax_rate ?? null,
+    !!body.oss_enabled,
+    !!body.b2b_reverse_charge,
+    reason,
+  );
   return c.json(await appStorage.getTaxOverride());
+})
+
+// Admin: list pending reverse-charge rows for a shop (pending status only).
+app.get("/admin/pending-reverse-charge", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const shop = c.req.query("shop");
+  if (!shop) return c.json({ error: "Missing shop" }, 400);
+  const result = await c.env.DB.prepare(
+    "SELECT id, order_id, vat_id, country_code, attempts, status, next_retry_at, last_error, incident_id, created_at, updated_at FROM pending_reverse_charge WHERE shopify_domain = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 100"
+  ).bind(shop).all();
+  return c.json({ rows: result.results ?? [] });
+})
+
+// Admin: manual VIES decisions for pending reverse-charge rows.
+// Both routes idempotently submit the deferred invoice and resolve the row.
+app.post("/admin/pending-reverse-charge/:id/approve", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const id = c.req.param("id");
+  const appStorage = new AppStorage(c.env);
+  const row = await appStorage.getPendingById(id);
+  if (!row) return c.json({ error: "Not found" }, 404);
+  if (row.status !== "pending") return c.json({ ok: true, alreadyResolved: row.status });
+  const result = await submitInvoiceForPendingRow(c.env, row, "apply");
+  if (!result.ok) return c.json({ error: result.error }, 500);
+  return c.json({ ok: true, invoiceId: result.invoiceId, disposition: "apply" });
+})
+
+app.post("/admin/pending-reverse-charge/:id/reject", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
+  const id = c.req.param("id");
+  const appStorage = new AppStorage(c.env);
+  const row = await appStorage.getPendingById(id);
+  if (!row) return c.json({ error: "Not found" }, 404);
+  if (row.status !== "pending") return c.json({ ok: true, alreadyResolved: row.status });
+  const result = await submitInvoiceForPendingRow(c.env, row, "reject");
+  if (!result.ok) return c.json({ error: result.error }, 500);
+  return c.json({ ok: true, invoiceId: result.invoiceId, disposition: "reject" });
 })
 
 // Admin: reconciliation list
@@ -473,65 +671,204 @@ app.post("/admin/notify", async (c) => {
   return c.json(res, res.ok ? 200 : 500);
 })
 
-export default {
-  fetch: app.fetch,
-  async queue(batch: MessageBatch<QueueMessage>, env: Env) {
-    for (const message of batch.messages) {
-      const { topic, webhookId, shopDomain, body } = message.body;
+// Admin: render an incident template and send it via Resend. Bypasses the
+// incident dedup bucket so it can fire repeatedly for QA.
+app.post("/admin/test-incident-email", async (c) => {
+  const unauth = requireAdmin(c);
+  if (unauth) return unauth;
 
-      console.log(`[Rioko] Queue processing: ${topic} for ${shopDomain}`);
+  const body = await c.req.json<{
+    recipient: string;
+    kind?: string;
+    severity?: "info" | "warning" | "error" | "critical";
+    merchantName?: string;
+    connectionLabel?: string;
+  }>();
 
-      try {
-        const appStorage = new AppStorage(env, shopDomain);
-        const config = await appStorage.loadConfig();
+  if (!body.recipient) return c.json({ error: "Missing recipient" }, 400);
 
-        if (!config) {
-          console.error(`[Rioko] No config found for ${shopDomain}, acking message`);
+  const { renderIncidentTemplate, type: _t } = await import("./services/email-templates") as any;
+  const { sendEmail } = await import("./services/email");
+
+  const kinds = [
+    "auth_failure_destination", "auth_failure_source", "destination_reject",
+    "normalize_fail", "nif_invalid", "subscription_inactive",
+    "queue_retry_exhausted", "webhook_invalid_signature",
+  ];
+  const kind = body.kind && kinds.includes(body.kind) ? body.kind : "webhook_invalid_signature";
+
+  const now = new Date().toISOString();
+  const tpl = renderIncidentTemplate(kind, {
+    merchantName: body.merchantName ?? "Pedro Porto",
+    connectionLabel: body.connectionLabel ?? "stripe → invoicexpress",
+    occurrences: 1,
+    firstSeenAt: now,
+    lastSeenAt: now,
+    summary: "Test render — verifying mobile dark-mode title visibility.",
+    severity: body.severity ?? "critical",
+    affectedIds: ["test_order_001", "test_order_002"],
+    dashboardUrl: "https://rioko.online",
+  });
+
+  const result = await sendEmail(c.env, {
+    to: body.recipient,
+    subject: `[TEST] ${tpl.subject}`,
+    html: tpl.html,
+  });
+  return c.json({ ok: result.ok, provider: result.provider, id: result.id, detail: result.detail, kind }, result.ok ? 200 : 500);
+})
+
+async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) {
+  for (const message of batch.messages) {
+    const { topic, webhookId, shopDomain, body } = message.body;
+
+    console.log(`[Rioko] Queue processing: ${topic} for ${shopDomain}`);
+
+    try {
+      const appStorage = new AppStorage(env, shopDomain);
+      const config = await appStorage.loadConfig();
+
+      if (!config) {
+        console.error(`[Rioko] No config found for ${shopDomain}, acking message`);
+        message.ack();
+        continue;
+      }
+
+      // Phase 3 feature flag: when "1", route Shopify traffic through the
+      // adapter pipeline instead of the legacy handlers. Default "0" keeps
+      // existing behavior. Roll forward gradually.
+      if (env.DESTINATION_VIA_ADAPTER === "1") {
+        const canonical = shopifyTopicToCanonical(topic);
+        if (canonical) {
+          await runAdapterPipeline({
+            env, config, source: "shopify", destination: "invoicexpress",
+            topic: canonical, webhookId, body,
+          });
           message.ack();
           continue;
         }
-
-        // console.log(`[Rioko] Config found for ${shopDomain}, processing message. Delayin for 45 seconds`);
-        // await delay(45000);
-
-        switch (topic) {
-          case "orders/created":
-            await handleOrderCreated(env, config, webhookId, body);
-            break;
-          case "orders/updated":
-            await handleOrderUpdated(env, config, webhookId, body);
-            break;
-          case "orders/paid":
-            await handleOrderPaid(env, config, webhookId, body);
-            break;
-          case "refunds/create":
-            await handleRefundCreate(env, config, webhookId, body);
-            break;
-          default:
-            console.error(`[Rioko] Unknown topic: ${topic}`);
-        }
-
-        message.ack();
-      } catch (e) {
-        console.error(`[Rioko] Queue handler error for ${topic}:`, e);
-        // 60 seconds
-        message.retry({ delaySeconds: 360 });
+        // "orders/updated" still goes through legacy until generic pipeline handles it.
       }
+
+      switch (topic) {
+        case "orders/created":
+          await handleOrderCreated(env, config, webhookId, body);
+          break;
+        case "orders/updated":
+          await handleOrderUpdated(env, config, webhookId, body);
+          break;
+        case "orders/paid":
+          await handleOrderPaid(env, config, webhookId, body);
+          break;
+        case "refunds/create":
+          await handleRefundCreate(env, config, webhookId, body);
+          break;
+        default:
+          console.error(`[Rioko] Unknown topic: ${topic}`);
+      }
+
+      message.ack();
+    } catch (e) {
+      console.error(`[Rioko] Queue handler error for ${topic}:`, e);
+      message.retry({ delaySeconds: 360 });
     }
+  }
+}
+
+async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: Env) {
+  for (const message of batch.messages) {
+    const { topic, eventId, userId, body } = message.body;
+    console.log(`[Stripe] Queue processing: ${topic} event=${eventId} user=${userId}`);
+
+    try {
+      // Stripe-source connection drives config + destination choice.
+      const connRow: any = await env.DB.prepare(
+        `SELECT destination_kind, destination_config_json, behavior_json
+         FROM connections WHERE user_id = ? AND source_kind = 'stripe' AND status = 'active' LIMIT 1`
+      ).bind(userId).first();
+
+      if (!connRow) {
+        console.error(`[Stripe] No active connection for user ${userId}, acking`);
+        message.ack();
+        continue;
+      }
+
+      // Load legacy `integrations` row for now — Phase 5 will project the full
+      // config out of `connections.destination_config_json`. For Phase 3 we
+      // reuse the existing per-user IX credentials so behavior stays identical.
+      const legacy: any = await env.DB.prepare(
+        "SELECT * FROM integrations WHERE user_id = ?"
+      ).bind(userId).first();
+
+      if (!legacy) {
+        console.error(`[Stripe] No legacy integrations row for user ${userId}, acking`);
+        message.ack();
+        continue;
+      }
+
+      await runAdapterPipeline({
+        env,
+        config: legacy,
+        source: "stripe",
+        destination: connRow.destination_kind ?? "invoicexpress",
+        topic,
+        webhookId: eventId,
+        body,
+      });
+
+      message.ack();
+    } catch (e) {
+      console.error(`[Stripe] Queue handler error for event ${eventId}:`, e);
+      message.retry({ delaySeconds: 360 });
+    }
+  }
+}
+
+export default {
+  fetch: app.fetch,
+  async queue(batch: MessageBatch<QueueMessage | StripeQueueMessage>, env: Env) {
+    // Dispatch by queue name. Stripe and Shopify queues share this consumer
+    // but have different message shapes + retry policies.
+    if (batch.queue === "stripeeventsqueue") {
+      await processStripeBatch(batch as MessageBatch<StripeQueueMessage>, env);
+      return;
+    }
+    await processShopifyBatch(batch as MessageBatch<QueueMessage>, env);
   },
   async scheduled(_event: ScheduledEvent, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
     const baseUrl = env.BACKOFFICE_URL || "https://rioko.online";
     const key = env.CRON_SECRET || env.ADMIN_API_KEY;
     if (!key) {
       console.error("[Cron] CRON_SECRET missing — skipping IX match retry");
-      return;
+    } else {
+      try {
+        const res = await fetch(`${baseUrl}/api/cron/ix-match?key=${encodeURIComponent(key)}`);
+        const body = await res.text();
+        console.log(`[Cron] IX match retry: ${res.status} ${body.slice(0, 200)}`);
+      } catch (e: any) {
+        console.error(`[Cron] IX match retry failed: ${e.message}`);
+      }
     }
+
+    // Phase 4a.1 — daily incident digest. Sends one summary email per merchant
+    // with all open + un-notified incidents from the last 24h, and auto-resolves
+    // stale incidents (no recurrence in 24h). Gated by INCIDENT_DIGEST_ENABLED.
+    if (env.INCIDENT_DIGEST_ENABLED === "1") {
+      try {
+        const result = await runIncidentDigest(env);
+        console.log(`[Cron] Incident digest: ${result.digestsSent} sent, ${result.autoResolved} auto-resolved`);
+      } catch (e: any) {
+        console.error(`[Cron] Incident digest failed: ${e.message}`);
+      }
+    }
+
+    // VIES retry sweep — picks up pending_reverse_charge rows whose retry
+    // window has expired, re-checks VIES, submits or escalates to incident.
     try {
-      const res = await fetch(`${baseUrl}/api/cron/ix-match?key=${encodeURIComponent(key)}`);
-      const body = await res.text();
-      console.log(`[Cron] IX match retry: ${res.status} ${body.slice(0, 200)}`);
+      const result = await runViesRetry(env);
+      console.log(`[Cron] VIES retry: retried=${result.retried} resolved=${result.resolved} deferred=${result.deferred} incidents=${result.incidents}`);
     } catch (e: any) {
-      console.error(`[Cron] IX match retry failed: ${e.message}`);
+      console.error(`[Cron] VIES retry failed: ${e.message}`);
     }
   },
 }

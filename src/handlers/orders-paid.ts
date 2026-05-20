@@ -3,7 +3,8 @@ import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
-import { delay } from "../utils";
+import { awaitInvoiceVisibility } from "../utils";
+import { checkSubscriptionGate } from "../services/subscription-gate";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -14,30 +15,14 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
   console.log(order);
 
   // Subscription gate: block IX emission if user's Kapta subscription inactive (admins exempt)
-  if (config.user_id) {
-    try {
-      const user: any = await env.DB.prepare("SELECT role FROM users WHERE id = ?").bind(config.user_id).first();
-      const isAdminUser = user?.role === "superadmin" || user?.role === "hiperadmin";
-      if (!isAdminUser) {
-        const sub: any = await env.DB.prepare(
-          "SELECT status, trial_end, stripe_subscription_id FROM subscriptions WHERE user_id = ?"
-        ).bind(config.user_id).first();
-        const now = new Date();
-        const blocked = !sub
-          || ["canceled", "unpaid", "incomplete_expired", "incomplete", "past_due"].includes(sub.status)
-          || (sub.status === "trialing" && !sub.stripe_subscription_id && sub.trial_end && new Date(sub.trial_end) < now);
-        if (blocked) {
-          console.log(`[Rioko] Subscription inactive for user ${config.user_id} (status=${sub?.status}) — skipping IX emission`);
-          await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: `Blocked: subscription_inactive (${sub?.status || 'none'})`, status: 402 });
-          return;
-        }
-      }
-    } catch (e: any) {
-      console.warn(`[Rioko] Gate check failed (fail-open): ${e.message}`);
-    }
+  const gate = await checkSubscriptionGate(env, config);
+  if (!gate.allowed) {
+    console.log(`[Rioko] Subscription gate blocked order ${orderId}: ${gate.reason}`);
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: `Blocked: ${gate.reason}`, status: 402 });
+    return;
   }
 
-  await delay(15000);
+  await awaitInvoiceVisibility();
 
   try {
     // Normalize order
@@ -63,7 +48,7 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
     // Skip if we don't auto-finalize invoices
     if (!finalize) {
       console.log(`[Rioko] Auto-finalize disabled, skipping for order ${orderId}`);
-      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Auto-finalize disabled", status: 200 });
+      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }), response: "Auto-finalize disabled", status: 200 });
       return;
     }
 
@@ -90,7 +75,7 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
     }
 
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Finalized", status: 200 });
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }), response: "Finalized", status: 200 });
 
     if (config.ix_send_email) {
       const { data: invoiceData, error: invoiceError } = await IxApi.v2.documents.byId.get({

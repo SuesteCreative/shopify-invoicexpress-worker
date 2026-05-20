@@ -1,0 +1,45 @@
+import type { Normalized } from "../api/normalize-shopify";
+import type { IRequestConfig } from "../storage";
+
+export type SourceKind = "shopify" | "stripe";
+export type DestinationKind = "invoicexpress" | "moloni";
+
+export interface AdapterCtx {
+  apiKey: string;
+  config: IRequestConfig;
+}
+
+export interface WebhookVerification {
+  ok: boolean;
+  rawBody: string;
+}
+
+export interface SourceAdapter {
+  readonly kind: SourceKind;
+  verifyWebhook(rawBody: string, signature: string, secret: string): Promise<boolean>;
+  externalId(parsedBody: any): string;
+  toNormalized(parsedBody: any, ctx: AdapterCtx): Promise<Normalized | null>;
+}
+
+export interface NormalizedRefund {
+  refundId: string | number;
+  itemsIds: Array<string | number>;
+  amountToRefund: number;
+}
+
+export interface DestinationInvoiceCreateResult {
+  invoiceId: string;
+}
+
+export interface DestinationCreditResult {
+  creditId: string;
+}
+
+export interface DestinationAdapter {
+  readonly kind: DestinationKind;
+  createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult>;
+  finalize(invoiceId: string, ctx: AdapterCtx): Promise<void>;
+  issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult>;
+  emailDocument?(invoiceId: string, ctx: AdapterCtx): Promise<void>;
+  findByReference?(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null>;
+}

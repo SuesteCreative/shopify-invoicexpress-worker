@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integração Cliente Novo (Auto-Webhooks) — Shopify → InvoiceXpress (Rioko)</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --panel: #f7f8fa;
+    --panel-2: #eef0f5;
+    --border: #d4d8e0;
+    --text: #0d1117;
+    --muted: #5a6477;
+    --accent: #5b3df5;
+    --accent-2: #128a5b;
+    --warn: #b66600;
+    --danger: #c92a2a;
+    --code-bg: #f1f3f7;
+    --code-text: #8a3b00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    font-size: 15px;
+  }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 32px 24px 96px;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+  }
+  h1 {
+    font-size: 26px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 20px;
+    margin: 36px 0 12px;
+    color: var(--text);
+    border-left: 3px solid var(--accent);
+    padding-left: 10px;
+  }
+  h3 {
+    font-size: 16px;
+    margin: 20px 0 8px;
+    color: var(--text);
+  }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .warn-box {
+    background: #fff8e6;
+    border: 1px solid #f0c060;
+    color: #6b4500;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .danger-box {
+    background: #fdecec;
+    border: 1px solid #e08080;
+    color: #7a1818;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .info-box {
+    background: #e6f7ee;
+    border: 1px solid #6abf91;
+    color: #0e5535;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    background: var(--panel);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 14px;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--panel-2);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  tr:last-child td { border-bottom: none; }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--code-text);
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: #1a1f2c;
+    margin: 8px 0;
+    position: relative;
+  }
+  .builder {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    margin: 16px 0;
+  }
+  .builder label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+    margin-top: 10px;
+  }
+  .builder input[type="text"],
+  .builder input[type="password"] {
+    width: 100%;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .builder input:focus {
+    border-color: var(--accent);
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 640px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: filter 0.15s, transform 0.05s;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:active { transform: translateY(1px); }
+  button.secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.success {
+    background: var(--accent-2);
+    color: #ffffff;
+  }
+  body { color-scheme: light; }
+  ::selection { background: rgba(91, 61, 245, 0.2); }
+  .output-block {
+    margin-top: 14px;
+  }
+  .output-block .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .output-block .label-tag {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  ol, ul { padding-left: 22px; }
+  ol li, ul li { margin: 4px 0; }
+  .step-num {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 22px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+  }
+  .toc a { color: var(--accent); text-decoration: none; font-size: 14px; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ol { margin: 6px 0 0; padding-left: 20px; }
+  a { color: var(--accent); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+  .pill {
+    display: inline-block;
+    background: var(--accent-2);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Integração Cliente Novo — Shopify → InvoiceXpress <span class="pill">Auto-Webhooks</span></h1>
+  <p class="muted">Fluxo novo: OAuth offline → access token → <strong>instalação automática de webhooks via API</strong>. Não requer criar webhooks manualmente no Shopify Admin.</p>
+  <div class="danger-box"><strong>Aviso:</strong> Não partilhar Client Secret, tokens ou authorization codes por chat, email ou screenshots. Tratar como credenciais.</div>
+  <div class="info-box">
+    <strong>Diferenças face ao fluxo manual antigo:</strong>
+    <ul style="margin:6px 0 0">
+      <li>Os 4 webhooks são instalados via <code>POST /admin/api/.../webhooks.json</code> — não no Settings → Notifications.</li>
+      <li>Não é necessário copiar o "Webhook Signing Secret" do Shopify Admin. Webhooks criados via API usam o <strong>Client Secret</strong> da app (já guardado no worker como <code>SHOPIFY_API_SECRET</code>).</li>
+      <li>Custom Apps (uma loja só) têm acesso automático a Protected Customer Data — não há formulário a preencher.</li>
+    </ul>
+  </div>
+</header>
+
+<div class="toc">
+  <strong>Índice</strong>
+  <ol>
+    <li><a href="#parte-a">Parte A — Criar App no Shopify Dev Dashboard</a></li>
+    <li><a href="#parte-b">Parte B — Builder do Link <code>/authorize</code></a></li>
+    <li><a href="#parte-c">Parte C — Builder do <code>curl</code> Code → Access Token</a></li>
+    <li><a href="#parte-d">Parte D — Instalar Webhooks via API (Auto)</a></li>
+    <li><a href="#parte-e">Parte E — Configurar o Integrador Rioko (3 Passos)</a></li>
+    <li><a href="#parte-f">Parte F — Verificação Final</a></li>
+    <li><a href="#parte-g">Parte G — Troubleshooting</a></li>
+  </ol>
+</div>
+
+<!-- ============ PARTE A ============ -->
+<h2 id="parte-a">Parte A — Criar App no Shopify Dev Dashboard</h2>
+
+<p>Aceder a <a href="https://dev.shopify.com/dashboard" target="_blank">dev.shopify.com/dashboard</a> (ou <a href="https://partners.shopify.com/" target="_blank">partners.shopify.com</a> conforme o caso) → <strong>Apps</strong> → <strong>Create app</strong> → manualmente.</p>
+
+<table>
+  <tr><th>Campo</th><th>Valor</th></tr>
+  <tr><td>App name</td><td>Nome do cliente (ex: <code>Rioko — NomeDoCliente</code>)</td></tr>
+  <tr><td>App URL</td><td>Link da empresa no Konnector (ex: <code>https://kapta-teste.konnector.pt/</code>)</td></tr>
+  <tr><td>Embed app in Shopify admin</td><td><strong>DESLIGADO</strong></td></tr>
+  <tr><td>Allowed redirection URL(s)</td><td><code>https://example.com/</code></td></tr>
+  <tr><td>Scopes (Admin API)</td><td><code>read_customers, read_discounts, read_order_edits, read_orders, read_products</code></td></tr>
+</table>
+
+<div class="info-box"><strong>Nota:</strong> <code>read_webhooks</code> / <code>write_webhooks</code> <strong>já não existem como scopes válidos</strong>. A criação de webhooks via Admin API é autorizada pelo scope do tópico (ex: <code>orders/*</code> requer <code>read_orders</code>). Como Custom App, o acesso a Protected Customer Data é automático — não há formulário PCD a preencher.</div>
+
+<h3>Versão e Release</h3>
+<ol>
+  <li>Sempre que alterares scopes ou redirect URLs, criar <strong>nova versão</strong> e fazer <strong>Release</strong>.</li>
+  <li>Versão tem de estar <strong>Active / Ativa</strong>.</li>
+  <li>Após release, copiar (em <strong>Definições / Settings</strong> da app):
+    <ul>
+      <li><strong>Client ID</strong> (API key)</li>
+      <li><strong>Client Secret</strong> <span class="muted">(também serve para verificar a assinatura dos webhooks instalados via API)</span></li>
+      <li>Domínio nativo da loja (ex: <code>quickstart-66f9e5ef.myshopify.com</code>)</li>
+    </ul>
+  </li>
+</ol>
+
+<div class="danger-box"><strong>Não fazer instalação direta da app</strong> pelo botão da lista. Usar o Builder da Parte B para construir o link <code>/authorize</code>.</div>
+
+<!-- ============ PARTE B ============ -->
+<h2 id="parte-b">Parte B — Builder do Link <code>/authorize</code></h2>
+
+<p>Construir o URL de autorização. Abrir em nova tab → clicar <strong>Install</strong> → vai redireccionar para uma página de erro (<code>example.com</code> não existe) — copiar <code>code=...</code> do URL.</p>
+
+<div class="builder">
+  <label for="b-shop">Domínio Shopify (.myshopify.com)</label>
+  <input type="text" id="b-shop" placeholder="quickstart-66f9e5ef.myshopify.com" oninput="buildAuthorize()">
+
+  <div class="grid-2">
+    <div>
+      <label for="b-client-id">Client ID</label>
+      <input type="text" id="b-client-id" placeholder="abc123def456..." oninput="buildAuthorize()">
+    </div>
+    <div>
+      <label for="b-state">State</label>
+      <input type="text" id="b-state" value="kapta123" oninput="buildAuthorize()">
+    </div>
+  </div>
+
+  <label for="b-redirect">Redirect URI</label>
+  <input type="text" id="b-redirect" value="https://example.com/" oninput="buildAuthorize()">
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">URL gerado</span>
+    </div>
+    <pre id="b-output">Preencher os campos acima…</pre>
+    <div class="actions">
+      <button onclick="copyText('b-output', this)">📋 Copiar URL</button>
+      <button class="success" onclick="openAuthorize()">↗ Abrir em nova tab</button>
+    </div>
+  </div>
+</div>
+
+<div class="info-box">
+  <strong>Após clicar Install:</strong> o Shopify redirecciona para <code>https://example.com/?code=SEU_CODE&hmac=...&shop=...&state=kapta123</code>.<br>
+  Página vai dar erro DNS (normal) — copiar apenas o valor do <code>code=</code> do URL no topo.
+</div>
+
+<div class="warn-box"><strong>Importante:</strong> O <code>code</code> expira em poucos minutos e só pode ser usado <strong>uma vez</strong>. Se falhar a troca, repete a Parte B para obter novo code.</div>
+
+<!-- ============ PARTE C ============ -->
+<h2 id="parte-c">Parte C — Builder do <code>curl</code> Code → Access Token</h2>
+
+<p>Trocar o <code>code</code> por um <strong>access token offline</strong> (longa duração).</p>
+
+<div class="builder">
+  <div class="grid-2">
+    <div>
+      <label for="c-shop">Domínio Shopify</label>
+      <input type="text" id="c-shop" placeholder="quickstart-66f9e5ef.myshopify.com" oninput="buildCurl()">
+    </div>
+    <div>
+      <label for="c-client-id">Client ID</label>
+      <input type="text" id="c-client-id" placeholder="abc123def456..." oninput="buildCurl()">
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <label for="c-secret">Client Secret</label>
+      <input type="password" id="c-secret" placeholder="shpss_..." oninput="buildCurl()">
+    </div>
+    <div>
+      <label for="c-code">Authorization Code (da Parte B)</label>
+      <input type="text" id="c-code" placeholder="886743b39bf5cd4c..." oninput="buildCurl()">
+    </div>
+  </div>
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">Windows PowerShell</span>
+      <button class="secondary" onclick="copyText('c-out-ps', this)">📋 Copiar</button>
+    </div>
+    <pre id="c-out-ps">Preencher os campos acima…</pre>
+  </div>
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">macOS / Linux Terminal</span>
+      <button class="secondary" onclick="copyText('c-out-mac', this)">📋 Copiar</button>
+    </div>
+    <pre id="c-out-mac">Preencher os campos acima…</pre>
+  </div>
+</div>
+
+<div class="info-box">
+  Resposta esperada:
+  <pre style="margin-top:6px">{ "access_token": "shpat_xxxxxxxxxxxxxxxxxxxx", "scope": "read_customers,read_discounts,..." }</pre>
+  Copiar o <code>access_token</code> — vai ser usado no Passo 1 do integrador (Parte E) e no curl da Parte D.
+</div>
+
+<h3>Verificar token (opcional mas recomendado)</h3>
+<p>Confirmar que o token responde HTTP 200 antes de avançar.</p>
+
+<div class="builder">
+  <div class="grid-2">
+    <div>
+      <label for="t-shop">Domínio Shopify</label>
+      <input type="text" id="t-shop" placeholder="quickstart-66f9e5ef.myshopify.com" oninput="buildTest()">
+    </div>
+    <div>
+      <label for="t-token">Access Token (shpat_…)</label>
+      <input type="password" id="t-token" placeholder="shpat_..." oninput="buildTest()">
+    </div>
+  </div>
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">Windows PowerShell — Teste</span>
+      <button class="secondary" onclick="copyText('t-out-ps', this)">📋 Copiar</button>
+    </div>
+    <pre id="t-out-ps">Preencher os campos acima…</pre>
+  </div>
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">macOS / Linux — Teste</span>
+      <button class="secondary" onclick="copyText('t-out-mac', this)">📋 Copiar</button>
+    </div>
+    <pre id="t-out-mac">Preencher os campos acima…</pre>
+  </div>
+</div>
+
+<!-- ============ PARTE D ============ -->
+<h2 id="parte-d">Parte D — Instalar Webhooks via API <span class="pill">Auto</span></h2>
+
+<p>Em vez de criar 4 webhooks manualmente no Shopify Admin, fazemos 4 chamadas <code>POST</code> ao endpoint <code>/admin/api/2026-01/webhooks.json</code>. O token só precisa do scope do tópico (<code>read_orders</code> cobre <code>orders/*</code> e <code>refunds/create</code>).</p>
+
+<div class="builder">
+  <div class="grid-2">
+    <div>
+      <label for="d-shop">Domínio Shopify</label>
+      <input type="text" id="d-shop" placeholder="quickstart-66f9e5ef.myshopify.com" oninput="buildWebhookCurls()">
+    </div>
+    <div>
+      <label for="d-token">Access Token (shpat_…)</label>
+      <input type="password" id="d-token" placeholder="shpat_..." oninput="buildWebhookCurls()">
+    </div>
+  </div>
+
+  <label for="d-base">URL Base do Worker</label>
+  <input type="text" id="d-base" value="https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev" oninput="buildWebhookCurls()">
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">Windows PowerShell — instala os 4 webhooks</span>
+      <button class="secondary" onclick="copyText('d-out-ps', this)">📋 Copiar</button>
+    </div>
+    <pre id="d-out-ps">Preencher os campos acima…</pre>
+  </div>
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">macOS / Linux — instala os 4 webhooks</span>
+      <button class="secondary" onclick="copyText('d-out-mac', this)">📋 Copiar</button>
+    </div>
+    <pre id="d-out-mac">Preencher os campos acima…</pre>
+  </div>
+
+  <div class="output-block">
+    <div class="header-row">
+      <span class="label-tag">Listar webhooks instalados (verificação)</span>
+      <button class="secondary" onclick="copyText('d-out-list', this)">📋 Copiar</button>
+    </div>
+    <pre id="d-out-list">Preencher os campos acima…</pre>
+  </div>
+</div>
+
+<div class="info-box">
+  <strong>Resposta esperada por chamada:</strong>
+  <pre style="margin-top:6px">HTTP/2 201
+{ "webhook": { "id": 9876543210, "topic": "orders/paid", "address": "https://.../webhooks/shopify/orders-paid", "format": "json", ... } }</pre>
+  <strong>Códigos:</strong>
+  <ul style="margin:6px 0 0">
+    <li><code>201 Created</code> → instalado.</li>
+    <li><code>422 Unprocessable Entity</code> com <em>"address has already been taken"</em> → já existia, OK.</li>
+    <li><code>403 Forbidden</code> → token sem scope do tópico OU app não distribuída como custom. Repetir Parte A com scopes correctos.</li>
+    <li><code>401 Unauthorized</code> → token inválido. Repetir Parte B+C.</li>
+  </ul>
+</div>
+
+<div class="warn-box"><strong>Atenção à assinatura dos webhooks:</strong> webhooks criados via API são assinados com o <strong>Client Secret</strong> da app (<code>shpss_…</code>), <em>não</em> com o secret de "Your webhooks will be signed with" do Shopify Admin (esse só serve para webhooks criados manualmente em Settings → Notifications). No worker, o HMAC tem de ser verificado contra a env var <code>SHOPIFY_API_SECRET</code> (Client Secret).</div>
+
+<!-- ============ PARTE E ============ -->
+<h2 id="parte-e">Parte E — Configurar o Integrador Rioko (3 Passos)</h2>
+
+<p>Abrir <a href="https://rioko.online/integrations/shopify-ix" target="_blank">https://rioko.online/integrations/shopify-ix</a> com a conta do cliente.</p>
+
+<h3><span class="step-num">1</span>Passo 1 — Ligação Shopify</h3>
+<table>
+  <tr><th>Campo</th><th>Valor</th></tr>
+  <tr><td>Domínio Shopify</td><td>Ex: <code>exemplo.myshopify.com</code> (sem <code>https://</code>)</td></tr>
+  <tr><td>Admin API Access Token</td><td>O <code>shpat_…</code> obtido na Parte C</td></tr>
+  <tr><td>Versão da API</td><td>Default: <code>2026-01</code></td></tr>
+</table>
+<p class="muted">Clicar <strong>Validar e Guardar</strong>. Aguardar badge "Autorizado".</p>
+
+<h3><span class="step-num">2</span>Passo 2 — Webhooks <span class="pill">Auto</span></h3>
+<p>Após instalar os 4 webhooks via curl (Parte D), no integrador clicar <strong>"Verificar Webhooks Instalados"</strong>. O integrador lê <code>GET /webhooks.json</code> e confirma os 4 endpoints. Não é preciso introduzir Webhook Signing Secret — o worker usa o Client Secret da env.</p>
+
+<div class="info-box">
+  <strong>Alternativa (em desenvolvimento):</strong> botão <em>"Instalar Webhooks Automaticamente"</em> no integrador, que executa os 4 POSTs internamente a partir do token guardado. Substitui a Parte D em curl. Quando estiver pronto, a Parte D fica opcional.
+</div>
+
+<h3><span class="step-num">3</span>Passo 3 — Conexão InvoiceXpress</h3>
+<table>
+  <tr><th>Campo</th><th>Valor</th></tr>
+  <tr><td>Nome da Conta</td><td>Slug antes de <code>.invoicexpress.com</code> (ex: <code>ultramegasonico</code>)</td></tr>
+  <tr><td>Chave API</td><td>IX → <strong>Definições da Conta</strong> → <strong>Integrações / API</strong></td></tr>
+  <tr><td>Ambiente</td><td><code>production</code> ou <code>sandbox</code></td></tr>
+</table>
+
+<h3>Definições de Integração</h3>
+<table>
+  <tr><th>Definição</th><th>Descrição</th></tr>
+  <tr><td>IVA Incluído</td><td>Toggle ON se preços Shopify já incluem IVA</td></tr>
+  <tr><td>Auto Finalizar</td><td>Toggle ON = emitir e finalizar documento imediatamente</td></tr>
+  <tr><td>Tipo de Fatura</td><td><code>Fatura-Recibo</code> (default) ou <code>Fatura</code></td></tr>
+  <tr><td>Prazo Pagamento (dias)</td><td>Apenas se Tipo = Fatura</td></tr>
+  <tr><td>Série de Faturação</td><td>Vazio = série pré-definida no IX (ou ex: <code>WEB</code>)</td></tr>
+  <tr><td>Razão de Isenção (IVA 0%)</td><td>Default <code>M01</code> — códigos M01 a M99 disponíveis</td></tr>
+</table>
+
+<!-- ============ PARTE F ============ -->
+<h2 id="parte-f">Parte F — Verificação Final</h2>
+
+<ul>
+  <li>✅ App em estado <strong>Ativa</strong> no Dev Dashboard com os 5 scopes correctos.</li>
+  <li>✅ Token <code>shpat_…</code> responde HTTP 200 em <code>shop.json</code>.</li>
+  <li>✅ <code>GET /admin/api/2026-01/webhooks.json</code> devolve <strong>4 webhooks</strong> com os endpoints do worker.</li>
+  <li>✅ Badge <strong>Autorizado</strong> nos cartões Shopify e Webhooks do integrador.</li>
+  <li>✅ Badge <strong>Autorizado</strong> no cartão InvoiceXpress.</li>
+  <li>✅ Encomenda de teste paga na loja → verificar:
+    <ul>
+      <li>Aparece em <strong>Logs</strong> do dashboard</li>
+      <li>HMAC verificado com sucesso (sem erro 401 no worker)</li>
+      <li>Fatura criada no <strong>Invoices Hub</strong> e no InvoiceXpress</li>
+    </ul>
+  </li>
+</ul>
+
+<h3>Checklist resumido</h3>
+<ul>
+  <li>App criada no Dev Dashboard com 5 scopes (sem <code>*_webhooks</code>).</li>
+  <li>Versão Active após Release.</li>
+  <li>Code capturado e trocado por <code>shpat_…</code> (Partes B+C).</li>
+  <li>Token testado com <code>shop.json</code> (HTTP 200).</li>
+  <li>4 webhooks instalados via curl (Parte D) → todos HTTP 201 ou 422.</li>
+  <li>Worker valida HMAC com <code>SHOPIFY_API_SECRET</code> (Client Secret).</li>
+  <li>IX conectado e ambiente correcto.</li>
+  <li>Definições fiscais ajustadas ao cliente.</li>
+  <li>Encomenda de teste validada end-to-end.</li>
+</ul>
+
+<!-- ============ PARTE G ============ -->
+<h2 id="parte-g">Parte G — Troubleshooting</h2>
+
+<h3>Sem <code>code</code> no redirect</h3>
+<ul>
+  <li>Redirect URI aponta para servidor que força login → usar <code>https://example.com/</code>.</li>
+  <li><strong>Embed app in Shopify admin</strong> activo consome o code → desligar.</li>
+  <li>Redirect URI tem de ser <strong>exactamente</strong> o que está em <em>Allowed redirection URL(s)</em>, incluindo barra final.</li>
+</ul>
+
+<h3>Erro ao trocar code por token</h3>
+<ul>
+  <li><code>code expirado</code> → repetir Parte B para obter novo.</li>
+  <li><code>code já usado</code> → cada code só pode ser trocado uma vez.</li>
+  <li>Verificar que <code>client_id</code>, <code>client_secret</code> e <code>shop</code> correspondem à mesma app/loja.</li>
+</ul>
+
+<h3>Scope <code>read_webhooks</code> / <code>write_webhooks</code> marcado como inválido</h3>
+<ul>
+  <li>Esperado. Esses scopes <strong>foram removidos</strong>. Usar apenas os 5 da tabela da Parte A.</li>
+  <li>Webhook subscription via API só requer o scope do <em>tópico</em> (<code>read_orders</code> para <code>orders/*</code>).</li>
+</ul>
+
+<h3>POST <code>/webhooks.json</code> devolve 403</h3>
+<ul>
+  <li>Confirmar que o token tem <code>read_orders</code> (no <em>scope</em> da resposta da Parte C).</li>
+  <li>Confirmar que a versão da app está <strong>Active</strong> com os scopes correctos.</li>
+  <li>Se a app for Public (não Custom), pode faltar aprovação de Protected Customer Data — manter app como custom (distribuição directa por OAuth a uma loja).</li>
+</ul>
+
+<h3>POST <code>/webhooks.json</code> devolve 422 "address has already been taken"</h3>
+<ul>
+  <li>O webhook já existe (de tentativa anterior ou criação manual). Tratar como sucesso, ou apagar antes: <code>DELETE /admin/api/2026-01/webhooks/{id}.json</code>.</li>
+</ul>
+
+<h3>Webhooks chegam ao worker mas falham HMAC</h3>
+<ul>
+  <li>Webhooks criados via API são assinados com <strong>Client Secret</strong>, não com o "Your webhooks will be signed with" do Admin.</li>
+  <li>Confirmar que <code>SHOPIFY_API_SECRET</code> (env do worker) = Client Secret da app.</li>
+  <li>Header é <code>X-Shopify-Hmac-SHA256</code>. Comparar HMAC base64 do raw body com esse header.</li>
+</ul>
+
+<h3>Webhooks não disparam</h3>
+<ul>
+  <li>Listar com curl da Parte D → confirmar que os 4 estão lá.</li>
+  <li>Confirmar Format = <strong>json</strong> e Address sem trailing slash extra.</li>
+  <li>Encomenda de teste tem de ser paga (não só criada) para disparar <code>orders/paid</code>.</li>
+</ul>
+
+<hr>
+<p class="muted" style="text-align:center">Rioko 2.0 Engine — Kapta · Onboarding interno (Auto-Webhooks)</p>
+
+</div>
+
+<script>
+  const SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_products";
+  const API_VERSION = "2026-01";
+  const WEBHOOKS = [
+    { topic: "orders/create",   path: "/webhooks/shopify/orders-created" },
+    { topic: "orders/updated",  path: "/webhooks/shopify/orders-updated" },
+    { topic: "orders/paid",     path: "/webhooks/shopify/orders-paid"    },
+    { topic: "refunds/create",  path: "/webhooks/shopify/refunds-create" }
+  ];
+
+  function cleanShop(raw) {
+    if (!raw) return "";
+    return raw
+      .trim()
+      .replace(/^https?:\/\//i, "")
+      .replace(/\/admin.*$/i, "")
+      .replace(/\/+$/, "");
+  }
+
+  function cleanBase(raw) {
+    if (!raw) return "";
+    return raw.trim().replace(/\/+$/, "");
+  }
+
+  function buildAuthorize() {
+    const shop = cleanShop(document.getElementById("b-shop").value);
+    const clientId = document.getElementById("b-client-id").value.trim();
+    const redirect = document.getElementById("b-redirect").value.trim() || "https://example.com/";
+    const state = document.getElementById("b-state").value.trim() || "kapta123";
+    const out = document.getElementById("b-output");
+
+    if (!shop || !clientId) {
+      out.textContent = "Preencher os campos acima…";
+      return;
+    }
+
+    const url = `https://${shop}/admin/oauth/authorize`
+      + `?client_id=${encodeURIComponent(clientId)}`
+      + `&scope=${SCOPES}`
+      + `&redirect_uri=${encodeURIComponent(redirect)}`
+      + `&state=${encodeURIComponent(state)}`;
+    out.textContent = url;
+  }
+
+  function openAuthorize() {
+    const txt = document.getElementById("b-output").textContent;
+    if (txt && txt.startsWith("https://")) {
+      window.open(txt, "_blank", "noopener");
+    } else {
+      alert("Preencher domínio e Client ID primeiro.");
+    }
+  }
+
+  function buildCurl() {
+    const shop = cleanShop(document.getElementById("c-shop").value);
+    const clientId = document.getElementById("c-client-id").value.trim();
+    const secret = document.getElementById("c-secret").value.trim();
+    const code = document.getElementById("c-code").value.trim();
+    const outPs = document.getElementById("c-out-ps");
+    const outMac = document.getElementById("c-out-mac");
+
+    if (!shop || !clientId || !secret || !code) {
+      outPs.textContent = "Preencher os campos acima…";
+      outMac.textContent = "Preencher os campos acima…";
+      return;
+    }
+
+    const ps = `curl.exe -X POST "https://${shop}/admin/oauth/access_token" \`
+  -H "Content-Type: application/x-www-form-urlencoded" \`
+  -H "Accept: application/json" \`
+  --data-urlencode "client_id=${clientId}" \`
+  --data-urlencode "client_secret=${secret}" \`
+  --data-urlencode "code=${code}"`;
+
+    const mac = `curl -X POST "https://${shop}/admin/oauth/access_token" \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -H "Accept: application/json" \\
+  --data-urlencode "client_id=${clientId}" \\
+  --data-urlencode "client_secret=${secret}" \\
+  --data-urlencode "code=${code}"`;
+
+    outPs.textContent = ps;
+    outMac.textContent = mac;
+  }
+
+  function buildTest() {
+    const shop = cleanShop(document.getElementById("t-shop").value);
+    const token = document.getElementById("t-token").value.trim();
+    const outPs = document.getElementById("t-out-ps");
+    const outMac = document.getElementById("t-out-mac");
+
+    if (!shop || !token) {
+      outPs.textContent = "Preencher os campos acima…";
+      outMac.textContent = "Preencher os campos acima…";
+      return;
+    }
+
+    const ps = `curl.exe -i -X GET "https://${shop}/admin/api/${API_VERSION}/shop.json" \`
+  -H "X-Shopify-Access-Token: ${token}" \`
+  -H "Accept: application/json"`;
+
+    const mac = `curl -i -X GET "https://${shop}/admin/api/${API_VERSION}/shop.json" \\
+  -H "X-Shopify-Access-Token: ${token}" \\
+  -H "Accept: application/json"`;
+
+    outPs.textContent = ps;
+    outMac.textContent = mac;
+  }
+
+  function buildWebhookCurls() {
+    const shop = cleanShop(document.getElementById("d-shop").value);
+    const token = document.getElementById("d-token").value.trim();
+    const base = cleanBase(document.getElementById("d-base").value);
+    const outPs = document.getElementById("d-out-ps");
+    const outMac = document.getElementById("d-out-mac");
+    const outList = document.getElementById("d-out-list");
+
+    if (!shop || !token || !base) {
+      outPs.textContent = "Preencher os campos acima…";
+      outMac.textContent = "Preencher os campos acima…";
+      outList.textContent = "Preencher os campos acima…";
+      return;
+    }
+
+    const url = `https://${shop}/admin/api/${API_VERSION}/webhooks.json`;
+
+    const psBlocks = WEBHOOKS.map(w => {
+      const body = `{"webhook":{"topic":"${w.topic}","address":"${base}${w.path}","format":"json"}}`;
+      return `# ${w.topic}
+curl.exe -i -X POST "${url}" \`
+  -H "X-Shopify-Access-Token: ${token}" \`
+  -H "Content-Type: application/json" \`
+  -d '${body}'`;
+    }).join("\n\n");
+
+    const macBlocks = WEBHOOKS.map(w => {
+      const body = `{"webhook":{"topic":"${w.topic}","address":"${base}${w.path}","format":"json"}}`;
+      return `# ${w.topic}
+curl -i -X POST "${url}" \\
+  -H "X-Shopify-Access-Token: ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '${body}'`;
+    }).join("\n\n");
+
+    const listPs = `curl.exe -i -X GET "${url}" \`
+  -H "X-Shopify-Access-Token: ${token}" \`
+  -H "Accept: application/json"`;
+
+    outPs.textContent = psBlocks;
+    outMac.textContent = macBlocks;
+    outList.textContent = listPs;
+  }
+
+  function copyText(elementId, btn) {
+    const el = document.getElementById(elementId);
+    const text = el.textContent;
+    if (!text || text.includes("Preencher")) {
+      flashBtn(btn, "Vazio", true);
+      return;
+    }
+    navigator.clipboard.writeText(text).then(
+      () => flashBtn(btn, "✓ Copiado"),
+      () => flashBtn(btn, "Erro", true)
+    );
+  }
+
+  function flashBtn(btn, msg, isError) {
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = msg;
+    if (isError) btn.style.background = "var(--danger)";
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.style.background = "";
+    }, 1400);
+  }
+
+  // Init
+  buildAuthorize();
+  buildCurl();
+  buildTest();
+  buildWebhookCurls();
+</script>
+</body>
+</html>

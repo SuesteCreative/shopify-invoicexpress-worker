@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
+import { makeViesChecker } from "../ix/vies";
 
 export async function handleOrderUpdated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/updated";
@@ -31,8 +32,30 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
       throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
     }
 
-    const ixBuilder = new IxBuilder(config);
-    const { invoice: invoiceData } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
+    const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
+    const ixBuilder = new IxBuilder(config, viesChecker);
+    const build = await ixBuilder.createInvoiceFromNormalizedOrderAsync(normalizedOrderResponse.normalized);
+
+    if (build.status === "deferred") {
+      // Update path: keep the existing invoice as-is; queue a pending row so
+      // the cron can decide later. We don't PUT until VIES gives a definitive
+      // answer or a human approves/rejects.
+      const nextRetryAt = new Date(Date.now() + 15 * 60_000).toISOString();
+      await appStorage.enqueuePendingReverseCharge({
+        shopify_domain: config.shopify_domain!,
+        order_id: String(normalizedOrderResponse.normalized.order.id),
+        vat_id: build.vatNumber,
+        country_code: build.countryCode,
+        normalized_json: JSON.stringify(normalizedOrderResponse.normalized),
+        webhook_topic: webhookTopic,
+        webhook_id: webhookId,
+        next_retry_at: nextRetryAt,
+      });
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Deferred: VIES retry queued", status: 202 });
+      return;
+    }
+    const { invoice: invoiceData } = build;
 
     const ixHeaders = {
       "x-account-name": config.ix_account_name!,

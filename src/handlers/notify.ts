@@ -1,39 +1,43 @@
-interface SendEmailParams {
+import { sendEmail, type SendEmailResult } from "../services/email";
+import type { Env } from "../env";
+
+interface SendDevModeEmailParams {
   recipients: string[];
   subject: string;
   body: string;
   fromEmail?: string;
   fromName?: string;
+  /** When provided, allows the sender to choose Resend over MailChannels. */
+  env?: Env;
 }
 
-export async function sendDevModeEmail(params: SendEmailParams): Promise<{ ok: boolean; status: number; detail?: string }> {
-  const valid = params.recipients.filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
-  if (valid.length === 0) return { ok: false, status: 400, detail: "No valid recipients" };
+/**
+ * Backward-compat wrapper around `sendEmail`. The pre-Phase-4 signature did not
+ * accept `env`, so when called without it we send via MailChannels directly
+ * (Resend needs an API key from env). All new code should pass `env`.
+ */
+export async function sendDevModeEmail(params: SendDevModeEmailParams): Promise<{ ok: boolean; status: number; detail?: string }> {
+  const html = `<pre style="font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap">${escapeHtml(params.body)}</pre>`;
+  const result = await sendEmail(
+    params.env ?? ({} as Env),
+    {
+      to: params.recipients,
+      subject: params.subject,
+      html,
+      text: params.body,
+      fromEmail: params.fromEmail,
+      fromName: params.fromName ?? "Rioko Dev Mode",
+    }
+  );
+  return toLegacyResult(result);
+}
 
-  const payload = {
-    personalizations: valid.map(email => ({ to: [{ email }] })),
-    from: {
-      email: params.fromEmail ?? "rioko-devmode@kapta.pt",
-      name: params.fromName ?? "Rioko Dev Mode",
-    },
-    subject: params.subject,
-    content: [
-      { type: "text/plain", value: params.body },
-      { type: "text/html", value: `<pre style="font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap">${escapeHtml(params.body)}</pre>` },
-    ],
+function toLegacyResult(r: SendEmailResult): { ok: boolean; status: number; detail?: string } {
+  return {
+    ok: r.ok,
+    status: r.status ?? (r.ok ? 200 : 500),
+    detail: r.detail,
   };
-
-  try {
-    const res = await fetch("https://api.mailchannels.net/tx/v1/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const detail = res.ok ? undefined : await res.text();
-    return { ok: res.ok, status: res.status, detail };
-  } catch (e) {
-    return { ok: false, status: 500, detail: String(e) };
-  }
 }
 
 function escapeHtml(s: string) {

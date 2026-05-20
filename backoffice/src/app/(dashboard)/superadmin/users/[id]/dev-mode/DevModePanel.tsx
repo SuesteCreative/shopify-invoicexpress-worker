@@ -109,6 +109,7 @@ export function DevModePanel({ target }: { target: Target }) {
             {!noShop && (
                 <>
                     <TaxOverrideCard targetUserId={target.id} />
+                    <PendingReverseChargeCard targetUserId={target.id} />
                     <NotifyEmailsCard emails={notifyEmails} input={emailInput} setInput={setEmailInput} onAdd={addEmail} onRemove={removeEmail} saving={savingEmails} />
                     <BackfillCard targetUserId={target.id} notifyEmails={notifyEmails} />
                     <ReemitCard targetUserId={target.id} notifyEmails={notifyEmails} />
@@ -239,6 +240,8 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
     const [rate, setRate] = useState<string>("");
     const [shippingRate, setShippingRate] = useState<string>("");
     const [oss, setOss] = useState(true);
+    const [b2bReverseCharge, setB2bReverseCharge] = useState(false);
+    const [b2bReason, setB2bReason] = useState<string>("M16");
     const [loaded, setLoaded] = useState(false);
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -250,6 +253,8 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                 setRate(d.force_tax_rate != null ? String(d.force_tax_rate) : "");
                 setShippingRate(d.force_shipping_tax_rate != null ? String(d.force_shipping_tax_rate) : "");
                 setOss(d.oss_enabled !== 0);
+                setB2bReverseCharge(d.b2b_reverse_charge === 1);
+                setB2bReason(d.ix_b2b_exemption_reason ?? "M16");
                 setLoaded(true);
             })
             .catch(console.error);
@@ -263,7 +268,14 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
             const res = await fetch("/api/admin/dev-mode/tax-override", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetUserId, force_tax_rate: parsed, force_shipping_tax_rate: parsedShipping, oss_enabled: oss }),
+                body: JSON.stringify({
+                    targetUserId,
+                    force_tax_rate: parsed,
+                    force_shipping_tax_rate: parsedShipping,
+                    oss_enabled: oss,
+                    b2b_reverse_charge: b2bReverseCharge,
+                    ix_b2b_exemption_reason: b2bReason || "M16",
+                }),
             });
             await res.json();
             setSavedAt(Date.now());
@@ -306,11 +318,139 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                     {savedAt && Date.now() - savedAt < 2000 ? "Guardado" : "Guardar"}
                 </button>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mt-2">
+                <label className="flex items-center gap-3 cursor-pointer pb-2 md:col-span-2">
+                    <input type="checkbox" checked={b2bReverseCharge} onChange={e => setB2bReverseCharge(e.target.checked)} disabled={!loaded} className="accent-cyan-500 w-4 h-4" />
+                    <span className="text-xs font-bold text-slate-300">
+                        B2B Reverse Charge (UE cross-border)
+                    </span>
+                </label>
+                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 md:col-span-2">
+                    Código de isenção B2B
+                    <select
+                        value={["M16", "M40"].includes(b2bReason) ? b2bReason : "custom"}
+                        onChange={e => {
+                            if (e.target.value === "custom") {
+                                setB2bReason("");
+                            } else {
+                                setB2bReason(e.target.value);
+                            }
+                        }}
+                        disabled={!loaded || !b2bReverseCharge}
+                        className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                        <option value="M16">M16 — Art. 14 RITI (bens UE B2B)</option>
+                        <option value="M40">M40 — Art. 6.º n.º 6 b) (serviços UE B2B)</option>
+                        <option value="custom">Outro (escrever)</option>
+                    </select>
+                    {!["M16", "M40"].includes(b2bReason) && (
+                        <input
+                            type="text"
+                            value={b2bReason}
+                            onChange={e => setB2bReason(e.target.value.toUpperCase().slice(0, 16))}
+                            placeholder="ex: M99"
+                            disabled={!loaded || !b2bReverseCharge}
+                            className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white mt-1.5 disabled:opacity-50"
+                        />
+                    )}
+                </label>
+            </div>
             <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
                 <strong className="text-slate-500">Force Tax Produtos:</strong> aplica taxa fixa a linhas com product_id (livros, etc). Vazio = usa Shopify.<br />
                 <strong className="text-slate-500">Force Tax Portes:</strong> aplica taxa fixa à linha de envio (sem product_id). Vazio = usa Shopify (default).<br />
-                <strong className="text-slate-500">OSS:</strong> informativo por agora. Rotação completa para small-seller requer rewrite do builder.
+                <strong className="text-slate-500">OSS:</strong> informativo por agora. Rotação completa para small-seller requer rewrite do builder.<br />
+                <strong className="text-slate-500">B2B Reverse Charge:</strong> com OSS activo + preços com IVA incluído (<code>vat_included</code>), encomendas cross-border UE com Company + NIF/VAT validado por VIES saem com IVA 0% + menção do Art. 196 da Directiva IVA. Sem confirmação VIES, a fatura fica pendente e é validada manualmente no painel de incidents.
             </p>
+        </Section>
+    );
+}
+
+type PendingRcRow = {
+    id: string;
+    order_id: string;
+    vat_id: string;
+    country_code: string;
+    attempts: number;
+    status: string;
+    next_retry_at: string;
+    last_error: string | null;
+    incident_id: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
+    const [rows, setRows] = useState<PendingRcRow[] | null>(null);
+    const [acting, setActing] = useState<string | null>(null);
+
+    const reload = () => {
+        fetch(`/api/admin/dev-mode/pending-reverse-charge?targetUserId=${targetUserId}`)
+            .then(r => r.json())
+            .then((d: any) => setRows(d.rows ?? []))
+            .catch(console.error);
+    };
+
+    useEffect(reload, [targetUserId]);
+
+    const decide = async (id: string, disposition: "approve" | "reject") => {
+        setActing(id);
+        try {
+            await fetch(`/api/admin/dev-mode/pending-reverse-charge/${id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ disposition }),
+            });
+            reload();
+        } catch (e) { console.error(e); }
+        finally { setActing(null); }
+    };
+
+    return (
+        <Section
+            icon={<AlertCircle className="w-5 h-5 text-amber-400" />}
+            title="VIES pendente — Reverse Charge"
+            desc="Ordens com NIF/VAT que o VIES não conseguiu confirmar. Validar manualmente em viesvalidation.com/pt e aprovar (reverse charge) ou rejeitar (factura B2C normal)."
+        >
+            {rows === null && <p className="text-xs text-slate-500">A carregar…</p>}
+            {rows && rows.length === 0 && (
+                <p className="text-xs text-slate-500">Sem ordens pendentes.</p>
+            )}
+            {rows && rows.length > 0 && (
+                <div className="space-y-3">
+                    {rows.map(r => {
+                        const vat = `${r.country_code}${r.vat_id}`;
+                        const viesUrl = `https://viesvalidation.com/pt/?country=${encodeURIComponent(r.country_code)}&vat=${encodeURIComponent(r.vat_id)}`;
+                        return (
+                            <div key={r.id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                <div className="text-xs space-y-1">
+                                    <p className="font-bold text-white">Order #{r.order_id}</p>
+                                    <p className="text-slate-400">VAT: <code className="text-cyan-300">{vat}</code> · tentativas {r.attempts}/3 · {r.incident_id ? "incident aberto" : "a tentar"}</p>
+                                    {r.last_error && <p className="text-slate-500">Último erro: {r.last_error}</p>}
+                                    <a href={viesUrl} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline text-[10px] font-black uppercase tracking-widest">
+                                        Validar no VIES ↗
+                                    </a>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => decide(r.id, "approve")}
+                                        disabled={acting === r.id}
+                                        className="px-3 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/30 disabled:opacity-50"
+                                    >
+                                        {acting === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Aprovar (reverse charge)"}
+                                    </button>
+                                    <button
+                                        onClick={() => decide(r.id, "reject")}
+                                        disabled={acting === r.id}
+                                        className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500/30 disabled:opacity-50"
+                                    >
+                                        Rejeitar (B2C normal)
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
         </Section>
     );
 }

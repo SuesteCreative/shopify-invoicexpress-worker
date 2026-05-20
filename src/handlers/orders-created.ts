@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
+import { makeViesChecker } from "../ix/vies";
 
 export async function handleOrderCreated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/created";
@@ -51,11 +52,42 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
 
   console.log(normalizedOrderResponse);
 
-  const ixBuilder = new IxBuilder(config);
+  const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
+  const ixBuilder = new IxBuilder(config, viesChecker);
 
-  const { invoice } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
+  const build = await ixBuilder.createInvoiceFromNormalizedOrderAsync(normalizedOrderResponse.normalized);
 
-  console.log(`[Rioko] Built follwoing invoice`);
+  if (build.status === "deferred") {
+    // VIES couldn't confirm in time. Queue for retry; do NOT create an invoice
+    // yet. The 15-min cron will pick this up.
+    const nextRetryAt = new Date(Date.now() + 15 * 60_000).toISOString();
+    await appStorage.enqueuePendingReverseCharge({
+      shopify_domain: config.shopify_domain!,
+      order_id: String(orderId),
+      vat_id: build.vatNumber,
+      country_code: build.countryCode,
+      normalized_json: JSON.stringify(normalizedOrderResponse.normalized),
+      webhook_topic: webhookTopic,
+      webhook_id: webhookId,
+      next_retry_at: nextRetryAt,
+    });
+    if (webhookId) {
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+    }
+    await appStorage.saveLog({
+      shopify_domain: config.shopify_domain,
+      topic: webhookTopic,
+      payload: JSON.stringify({ orderId, vat: `${build.countryCode}${build.vatNumber}` }),
+      response: "Deferred: VIES retry queued",
+      status: 202,
+    });
+    console.log(`[Rioko] Order ${orderId} deferred for VIES retry (vat=${build.countryCode}${build.vatNumber})`);
+    return;
+  }
+
+  const { invoice, reverseCharge } = build;
+
+  console.log(`[Rioko] Built follwoing invoice (reverseCharge=${reverseCharge})`);
   console.log(invoice);
 
   const ixCreateResponse = await IxApi.v2.documents.post({

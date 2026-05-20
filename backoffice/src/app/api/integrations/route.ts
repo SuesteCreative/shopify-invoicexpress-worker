@@ -88,9 +88,29 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name } = body;
+        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention } = body;
 
         const clean_shopify_domain = shopify_domain ? shopify_domain.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
+
+        // Retention: only persist a numeric value when the toggle is on AND the
+        // number is in IX's accepted range (0–99.99). Otherwise store NULL so
+        // the builder treats it as off.
+        const retentionEnabledBit = ix_retention_enabled ? 1 : 0;
+        let retentionValue: number | null = null;
+        if (retentionEnabledBit === 1 && ix_retention !== undefined && ix_retention !== null && ix_retention !== "") {
+            const parsed = typeof ix_retention === "number" ? ix_retention : parseFloat(String(ix_retention));
+            if (!Number.isFinite(parsed) || parsed < 0 || parsed > 99.99) {
+                return NextResponse.json({ error: "ix_retention must be a number between 0 and 99.99" }, { status: 400 });
+            }
+            retentionValue = parsed;
+        } else if (ix_retention !== undefined && ix_retention !== null && ix_retention !== "") {
+            // Toggle off but a value was sent — keep it so re-enabling restores
+            // the last picked rate. Still validate to avoid junk in the DB.
+            const parsed = typeof ix_retention === "number" ? ix_retention : parseFloat(String(ix_retention));
+            if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 99.99) {
+                retentionValue = parsed;
+            }
+        }
 
         // Check if integration exists
         const existing: any = await db
@@ -111,8 +131,8 @@ export async function POST(request: NextRequest) {
 
             await db
                 .prepare(`
-          UPDATE integrations 
-          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, updated_at = CURRENT_TIMESTAMP
+          UPDATE integrations
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 .bind(
@@ -131,6 +151,8 @@ export async function POST(request: NextRequest) {
                     ix_document_type || "invoice_receipt",
                     ix_payment_term !== undefined ? parseInt(String(ix_payment_term)) : 0,
                     ix_sequence_name || null,
+                    retentionEnabledBit,
+                    retentionValue,
                     targetUserId
                 )
                 .run();
@@ -138,8 +160,8 @@ export async function POST(request: NextRequest) {
             const id = crypto.randomUUID();
             await db
                 .prepare(`
-          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
                 .bind(
                     id,
@@ -158,7 +180,9 @@ export async function POST(request: NextRequest) {
                     webhooks_active ? 1 : 0,
                     ix_document_type || "invoice_receipt",
                     ix_payment_term !== undefined ? parseInt(String(ix_payment_term)) : 0,
-                    ix_sequence_name || null
+                    ix_sequence_name || null,
+                    retentionEnabledBit,
+                    retentionValue
                 )
                 .run();
         }

@@ -25,7 +25,12 @@
     "INVOICEXPRESS_AUTO_FINALIZE": "false",
     "NORMALIZE_SHOPIFY_ORDER_API_KEY": "2b752911-eb5a-4659-b353-f07a53a3680d",
     "ADMIN_API_KEY": "e3549eca4cb017439e609d674c2246da",
-    "BACKOFFICE_URL": "https://rioko.online"
+    "BACKOFFICE_URL": "https://rioko.online",
+    "DESTINATION_VIA_ADAPTER": "0",
+    "STRIPE_SOURCE_ENABLED": "1",
+    "RESEND_FROM_EMAIL": "noreply@rioko.online",
+    "KAPTA_DEV_EMAILS": "pedrotovarporto@gmail.com",
+    "INCIDENT_DIGEST_ENABLED": "0"
   },
   "kv_namespaces": [
     {
@@ -45,6 +50,10 @@
       {
         "binding": "SHOPIFY_ORDERS_QUEUE",
         "queue": "shopifyordersqueue"
+      },
+      {
+        "binding": "STRIPE_QUEUE",
+        "queue": "stripeeventsqueue"
       }
     ],
     "consumers": [
@@ -53,6 +62,13 @@
         "max_batch_size": 10,
         "dead_letter_queue": "my-queue-dlq",
         "max_retries": 25
+      },
+      {
+        "queue": "stripeeventsqueue",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "dead_letter_queue": "my-queue-dlq",
+        "max_retries": 10
       }
     ]
   },

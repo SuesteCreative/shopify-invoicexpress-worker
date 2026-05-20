@@ -26,13 +26,27 @@ export async function PUT(request: NextRequest) {
     if (!userId || !(await isAdmin(userId))) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const body = await request.json() as { targetUserId: string; force_tax_rate: number | null; force_shipping_tax_rate: number | null; oss_enabled: boolean };
+    const body = await request.json() as {
+        targetUserId: string;
+        force_tax_rate: number | null;
+        force_shipping_tax_rate: number | null;
+        oss_enabled: boolean;
+        b2b_reverse_charge?: boolean;
+        ix_b2b_exemption_reason?: string;
+    };
     const shop = await resolveShopForUser(body.targetUserId);
     if (!shop) return NextResponse.json({ error: "Target user has no shopify_domain" }, { status: 404 });
 
     const { ok, status, data } = await callWorkerJson("/admin/tax-override", {
         method: "PUT",
-        body: JSON.stringify({ shop, force_tax_rate: body.force_tax_rate, force_shipping_tax_rate: body.force_shipping_tax_rate, oss_enabled: body.oss_enabled }),
+        body: JSON.stringify({
+            shop,
+            force_tax_rate: body.force_tax_rate,
+            force_shipping_tax_rate: body.force_shipping_tax_rate,
+            oss_enabled: body.oss_enabled,
+            b2b_reverse_charge: !!body.b2b_reverse_charge,
+            ix_b2b_exemption_reason: body.ix_b2b_exemption_reason,
+        }),
     });
     return NextResponse.json(data, { status: ok ? 200 : status });
 }

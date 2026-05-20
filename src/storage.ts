@@ -46,8 +46,54 @@ export interface IRequestConfig {
   force_tax_rate: number | null;
   force_shipping_tax_rate: number | null;
   oss_enabled: number | null;
+  // 0 or 1. When 1, qualifying cross-border EU B2B orders bypass OSS VAT and
+  // are invoiced as reverse charge. Requires vat_included = 1 to avoid mismatch
+  // between amount paid and invoice total.
+  b2b_reverse_charge: number | null;
+  // PT exemption code stamped on reverse-charge invoices. Default M16.
+  ix_b2b_exemption_reason: string | null;
+  // 0 or 1. When 1, every issued invoice carries the `retention` field with
+  // ix_retention as the percentage. Stored separately from the value so the
+  // last picked rate survives toggling off.
+  ix_retention_enabled: number | null;
+  // PT IRS/IRC withholding percentage, 0–99.99. NULL when never set.
+  ix_retention: number | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface PendingReverseChargeRow {
+  id: string;
+  shopify_domain: string;
+  order_id: string;
+  vat_id: string;
+  country_code: string;
+  normalized_json: string;
+  webhook_topic: string;
+  webhook_id: string | null;
+  attempts: number;
+  status: "pending" | "approved" | "rejected" | "resolved";
+  next_retry_at: string;
+  last_error: string | null;
+  incident_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SourceKind = "shopify" | "stripe";
+export type DestinationKind = "invoicexpress" | "moloni";
+
+export interface ConnectionRow {
+  id: string;
+  user_id: string;
+  source_kind: SourceKind;
+  destination_kind: DestinationKind;
+  source_config_json: string | null;
+  destination_config_json: string | null;
+  behavior_json: string | null;
+  status: "draft" | "active" | "paused" | "error";
+  created_at: string;
+  updated_at: string;
 }
 
 export class AppStorage {
@@ -93,10 +139,12 @@ export class AppStorage {
     }
   }
 
-  async isInvoiceAlreadyProcessed(orderId: string) {
-    const key = `shopify_order:${orderId}`;
+  async isInvoiceAlreadyProcessed(orderId: string, sourceKind?: SourceKind) {
+    const newKey = `${sourceKind ?? "shopify"}_order:${orderId}`;
+    const legacyKey = `shopify_order:${orderId}`;
 
-    // 1. Primary Check: Durable D1 (SQL) for strict consistency
+    // 1. Primary Check: Durable D1 (SQL) for strict consistency. The D1 row is
+    //    keyed only by `id`, so source_kind is irrelevant here.
     try {
       const row: any = await this.db.prepare("SELECT invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
       if (row && row.invoice_id) {
@@ -106,9 +154,15 @@ export class AppStorage {
       console.error("[Rioko] Idempotency check failed in D1, falling back to KV:", e);
     }
 
-    // 2. Secondary Check: Fast KV (Eventually Consistent)
-    const row = await this.kv.get(key);
-    return !!row;
+    // 2. Secondary Check: Fast KV. Try new namespaced key first, fall back to
+    //    legacy "shopify_order:" key for rows written before Phase 3.
+    const fresh = await this.kv.get(newKey);
+    if (fresh) return true;
+    if (newKey !== legacyKey) {
+      const legacy = await this.kv.get(legacyKey);
+      if (legacy) return true;
+    }
+    return false;
   }
 
   async getInvoiceByOrderId(orderId: string): Promise<{ id: string; invoice_id: string } | null> {
@@ -124,18 +178,30 @@ export class AppStorage {
     }
   }
 
-  async saveProcessedInvoice(orderId: string, invoiceId: string) {
-    const key = `shopify_order:${orderId}`;
+  async saveProcessedInvoice(orderId: string, invoiceId: string, opts?: { sourceKind?: SourceKind; destinationKind?: DestinationKind }) {
+    const sourceKind = opts?.sourceKind ?? "shopify";
+    const destinationKind = opts?.destinationKind ?? "invoicexpress";
+    const key = `${sourceKind}_order:${orderId}`;
 
-    // 1. Record in D1 (Atomic/Strict)
+    // 1. Record in D1 (Atomic/Strict). source_kind/destination_kind columns
+    //    added in migration 0007 are nullable; we now populate them on new
+    //    writes. Legacy rows with NULL are read as ("shopify","invoicexpress").
     try {
-      await this.db.prepare("INSERT INTO processed_orders (id, invoice_id, shopify_domain, created_at) VALUES (?, ?, ?, ?)")
-        .bind(String(orderId), String(invoiceId), this.shopDomain, new Date().toISOString()).run();
+      await this.db.prepare(
+        "INSERT INTO processed_orders (id, invoice_id, shopify_domain, created_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(
+        String(orderId),
+        String(invoiceId),
+        this.shopDomain,
+        new Date().toISOString(),
+        sourceKind,
+        destinationKind,
+      ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to save processed invoice in D1:", e);
     }
 
-    // 2. Record in KV (Fast/Eventually Consistent)
+    // 2. Record in KV (Fast/Eventually Consistent). Key namespaced by source.
     try {
       await this.kv.put(key, String(invoiceId));
     } catch (e) {
@@ -143,15 +209,17 @@ export class AppStorage {
     }
   }
 
-  async deleteProcessedInvoice(orderId: string) {
-    const key = `shopify_order:${orderId}`;
+  async deleteProcessedInvoice(orderId: string, sourceKind?: SourceKind) {
+    const newKey = `${sourceKind ?? "shopify"}_order:${orderId}`;
+    const legacyKey = `shopify_order:${orderId}`;
     try {
       await this.db.prepare("DELETE FROM processed_orders WHERE id = ?").bind(String(orderId)).run();
     } catch (e) {
       console.warn("[Rioko] Failed to delete processed invoice in D1:", e);
     }
     try {
-      await this.kv.delete(key);
+      await this.kv.delete(newKey);
+      if (newKey !== legacyKey) await this.kv.delete(legacyKey);
     } catch (e) {
       console.warn("[Rioko] Failed to delete processed invoice in KV:", e);
     }
@@ -299,26 +367,184 @@ export class AppStorage {
     ).bind(JSON.stringify(emails), this.shopDomain).run();
   }
 
-  async getTaxOverride(): Promise<{ force_tax_rate: number | null; force_shipping_tax_rate: number | null; oss_enabled: number }> {
+  async getTaxOverride(): Promise<{
+    force_tax_rate: number | null;
+    force_shipping_tax_rate: number | null;
+    oss_enabled: number;
+    b2b_reverse_charge: number;
+    ix_b2b_exemption_reason: string;
+  }> {
     try {
       const row: any = await this.db.prepare(
-        "SELECT force_tax_rate, force_shipping_tax_rate, oss_enabled FROM integrations WHERE shopify_domain = ?"
+        "SELECT force_tax_rate, force_shipping_tax_rate, oss_enabled, b2b_reverse_charge, ix_b2b_exemption_reason FROM integrations WHERE shopify_domain = ?"
       ).bind(this.shopDomain).first();
       return {
         force_tax_rate: row?.force_tax_rate ?? null,
         force_shipping_tax_rate: row?.force_shipping_tax_rate ?? null,
         oss_enabled: row?.oss_enabled ?? 1,
+        b2b_reverse_charge: row?.b2b_reverse_charge ?? 0,
+        ix_b2b_exemption_reason: row?.ix_b2b_exemption_reason ?? "M16",
       };
     } catch (e) {
       console.error("[Rioko] Failed to get tax override:", e);
-      return { force_tax_rate: null, force_shipping_tax_rate: null, oss_enabled: 1 };
+      return {
+        force_tax_rate: null,
+        force_shipping_tax_rate: null,
+        oss_enabled: 1,
+        b2b_reverse_charge: 0,
+        ix_b2b_exemption_reason: "M16",
+      };
     }
   }
 
-  async setTaxOverride(force_tax_rate: number | null, force_shipping_tax_rate: number | null, oss_enabled: boolean) {
+  async setTaxOverride(
+    force_tax_rate: number | null,
+    force_shipping_tax_rate: number | null,
+    oss_enabled: boolean,
+    b2b_reverse_charge: boolean = false,
+    ix_b2b_exemption_reason: string = "M16",
+  ) {
     await this.db.prepare(
-      "UPDATE integrations SET force_tax_rate = ?, force_shipping_tax_rate = ?, oss_enabled = ? WHERE shopify_domain = ?"
-    ).bind(force_tax_rate, force_shipping_tax_rate, oss_enabled ? 1 : 0, this.shopDomain).run();
+      "UPDATE integrations SET force_tax_rate = ?, force_shipping_tax_rate = ?, oss_enabled = ?, b2b_reverse_charge = ?, ix_b2b_exemption_reason = ? WHERE shopify_domain = ?"
+    ).bind(
+      force_tax_rate,
+      force_shipping_tax_rate,
+      oss_enabled ? 1 : 0,
+      b2b_reverse_charge ? 1 : 0,
+      ix_b2b_exemption_reason || "M16",
+      this.shopDomain,
+    ).run();
+  }
+
+  async enqueuePendingReverseCharge(input: {
+    shopify_domain: string;
+    order_id: string;
+    vat_id: string;
+    country_code: string;
+    normalized_json: string;
+    webhook_topic: string;
+    webhook_id: string | null;
+    next_retry_at: string;
+    last_error?: string | null;
+  }): Promise<string> {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    try {
+      await this.db.prepare(
+        `INSERT INTO pending_reverse_charge
+          (id, shopify_domain, order_id, vat_id, country_code, normalized_json, webhook_topic, webhook_id, attempts, status, next_retry_at, last_error, incident_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, NULL, ?, ?)
+         ON CONFLICT(shopify_domain, order_id) DO UPDATE SET
+           vat_id = excluded.vat_id,
+           country_code = excluded.country_code,
+           normalized_json = excluded.normalized_json,
+           webhook_topic = excluded.webhook_topic,
+           webhook_id = excluded.webhook_id,
+           attempts = pending_reverse_charge.attempts + 1,
+           next_retry_at = excluded.next_retry_at,
+           last_error = excluded.last_error,
+           status = CASE WHEN pending_reverse_charge.status IN ('approved','rejected','resolved') THEN pending_reverse_charge.status ELSE 'pending' END,
+           updated_at = excluded.updated_at`
+      ).bind(
+        id,
+        input.shopify_domain,
+        String(input.order_id),
+        input.vat_id,
+        input.country_code,
+        input.normalized_json,
+        input.webhook_topic,
+        input.webhook_id,
+        input.next_retry_at,
+        input.last_error ?? null,
+        now,
+        now,
+      ).run();
+    } catch (e) {
+      console.error("[Rioko] enqueuePendingReverseCharge failed:", e);
+    }
+    return id;
+  }
+
+  async getPendingForRetry(limit = 50): Promise<PendingReverseChargeRow[]> {
+    const nowIso = new Date().toISOString();
+    try {
+      const result = await this.db.prepare(
+        "SELECT * FROM pending_reverse_charge WHERE status = 'pending' AND attempts < 3 AND next_retry_at <= ? ORDER BY next_retry_at ASC LIMIT ?"
+      ).bind(nowIso, limit).all();
+      return (result.results as unknown as PendingReverseChargeRow[]) ?? [];
+    } catch (e) {
+      console.error("[Rioko] getPendingForRetry failed:", e);
+      return [];
+    }
+  }
+
+  async getPendingNeedingIncident(limit = 50): Promise<PendingReverseChargeRow[]> {
+    try {
+      const result = await this.db.prepare(
+        "SELECT * FROM pending_reverse_charge WHERE status = 'pending' AND attempts >= 3 AND incident_id IS NULL LIMIT ?"
+      ).bind(limit).all();
+      return (result.results as unknown as PendingReverseChargeRow[]) ?? [];
+    } catch (e) {
+      console.error("[Rioko] getPendingNeedingIncident failed:", e);
+      return [];
+    }
+  }
+
+  async markPendingAttempt(id: string, attempts: number, nextRetryAt: string, lastError: string | null) {
+    const now = new Date().toISOString();
+    try {
+      await this.db.prepare(
+        "UPDATE pending_reverse_charge SET attempts = ?, next_retry_at = ?, last_error = ?, updated_at = ? WHERE id = ?"
+      ).bind(attempts, nextRetryAt, lastError, now, id).run();
+    } catch (e) {
+      console.error("[Rioko] markPendingAttempt failed:", e);
+    }
+  }
+
+  async attachPendingIncident(id: string, incidentBucketKey: string) {
+    const now = new Date().toISOString();
+    try {
+      await this.db.prepare(
+        "UPDATE pending_reverse_charge SET incident_id = ?, updated_at = ? WHERE id = ?"
+      ).bind(incidentBucketKey, now, id).run();
+    } catch (e) {
+      console.error("[Rioko] attachPendingIncident failed:", e);
+    }
+  }
+
+  async resolvePending(id: string, status: "approved" | "rejected" | "resolved") {
+    const now = new Date().toISOString();
+    try {
+      await this.db.prepare(
+        "UPDATE pending_reverse_charge SET status = ?, updated_at = ? WHERE id = ?"
+      ).bind(status, now, id).run();
+    } catch (e) {
+      console.error("[Rioko] resolvePending failed:", e);
+    }
+  }
+
+  async getPendingById(id: string): Promise<PendingReverseChargeRow | null> {
+    try {
+      const row = await this.db.prepare(
+        "SELECT * FROM pending_reverse_charge WHERE id = ?"
+      ).bind(id).first();
+      return (row as unknown as PendingReverseChargeRow) ?? null;
+    } catch (e) {
+      console.error("[Rioko] getPendingById failed:", e);
+      return null;
+    }
+  }
+
+  async getPendingByOrderId(shopDomain: string, orderId: string): Promise<PendingReverseChargeRow | null> {
+    try {
+      const row = await this.db.prepare(
+        "SELECT * FROM pending_reverse_charge WHERE shopify_domain = ? AND order_id = ?"
+      ).bind(shopDomain, String(orderId)).first();
+      return (row as unknown as PendingReverseChargeRow) ?? null;
+    } catch (e) {
+      console.error("[Rioko] getPendingByOrderId failed:", e);
+      return null;
+    }
   }
 
   async getReconciliationOverrides(orderIds: string[]): Promise<{
@@ -474,5 +700,72 @@ export class AppStorage {
     } catch (e) {
       console.warn("[Rioko] Failed to mark webhook as processed:", e);
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 2: connections lookup. Not yet wired into runtime handlers — Phase 3+
+  // will switch the pipeline to read from these before falling back to the
+  // legacy `integrations` row.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async loadConnectionsByUser(userId: string): Promise<ConnectionRow[]> {
+    const rows = await this.db.prepare(
+      "SELECT * FROM connections WHERE user_id = ? ORDER BY created_at ASC"
+    ).bind(userId).all();
+    return (rows.results as unknown as ConnectionRow[]) ?? [];
+  }
+
+  async getActiveConnection(
+    userId: string,
+    sourceKind: SourceKind,
+    destinationKind: DestinationKind
+  ): Promise<ConnectionRow | null> {
+    const row = await this.db.prepare(
+      "SELECT * FROM connections WHERE user_id = ? AND source_kind = ? AND destination_kind = ? AND status = 'active' LIMIT 1"
+    ).bind(userId, sourceKind, destinationKind).first();
+    return (row as unknown as ConnectionRow) ?? null;
+  }
+
+  async upsertConnection(input: {
+    id?: string;
+    user_id: string;
+    source_kind: SourceKind;
+    destination_kind: DestinationKind;
+    source_config_json?: string | null;
+    destination_config_json?: string | null;
+    behavior_json?: string | null;
+    status?: "draft" | "active" | "paused" | "error";
+  }): Promise<ConnectionRow> {
+    const id = input.id ?? crypto.randomUUID();
+    const now = new Date().toISOString();
+    const status = input.status ?? "draft";
+
+    await this.db.prepare(
+      `INSERT INTO connections
+        (id, user_id, source_kind, destination_kind, source_config_json, destination_config_json, behavior_json, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
+         source_config_json = excluded.source_config_json,
+         destination_config_json = excluded.destination_config_json,
+         behavior_json = excluded.behavior_json,
+         status = excluded.status,
+         updated_at = excluded.updated_at`
+    ).bind(
+      id,
+      input.user_id,
+      input.source_kind,
+      input.destination_kind,
+      input.source_config_json ?? null,
+      input.destination_config_json ?? null,
+      input.behavior_json ?? null,
+      status,
+      now,
+      now,
+    ).run();
+
+    const row = await this.db.prepare(
+      "SELECT * FROM connections WHERE user_id = ? AND source_kind = ? AND destination_kind = ?"
+    ).bind(input.user_id, input.source_kind, input.destination_kind).first();
+    return row as unknown as ConnectionRow;
   }
 }

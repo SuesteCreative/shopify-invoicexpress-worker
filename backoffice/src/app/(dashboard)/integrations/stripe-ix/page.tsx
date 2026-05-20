@@ -58,6 +58,8 @@ export default function StripeIXIntegration() {
     const [ixDocumentType, setIxDocumentType] = useState("invoice_receipt");
     const [ixPaymentTerm, setIxPaymentTerm] = useState(0);
     const [ixSequenceName, setIxSequenceName] = useState("");
+    const [ixRetentionEnabled, setIxRetentionEnabled] = useState(false);
+    const [ixRetention, setIxRetention] = useState<number>(16.5);
     const [ixAuthorized, setIxAuthorized] = useState(false);
     const [ixError, setIxError] = useState("");
 
@@ -123,6 +125,11 @@ export default function StripeIXIntegration() {
             if (integ.ix_document_type) setIxDocumentType(integ.ix_document_type);
             if (integ.ix_payment_term !== undefined) setIxPaymentTerm(parseInt(String(integ.ix_payment_term)));
             if (integ.ix_sequence_name) setIxSequenceName(integ.ix_sequence_name);
+            if (integ.ix_retention_enabled !== undefined) setIxRetentionEnabled(integ.ix_retention_enabled === 1);
+            if (integ.ix_retention !== undefined && integ.ix_retention !== null) {
+                const v = parseFloat(String(integ.ix_retention));
+                if (Number.isFinite(v)) setIxRetention(v);
+            }
             if (integ.ix_authorized !== undefined) setIxAuthorized(integ.ix_authorized === 1);
             if (integ.ix_error) setIxError(integ.ix_error);
             if (integ._viewer_role) setUserRole(integ._viewer_role);
@@ -260,7 +267,8 @@ export default function StripeIXIntegration() {
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
                     ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize,
-                    ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName
+                    ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName,
+                    ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
             if (!saveRes.ok) { alert("Erro ao guardar. Tenta novamente."); return; }
@@ -621,6 +629,42 @@ export default function StripeIXIntegration() {
                                                         <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">Emitir documentos imediatamente</p>
                                                     </div>
                                                     <button onClick={() => setAutoFinalize(!autoFinalize)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", autoFinalize ? "bg-accent-blue" : "bg-slate-800")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500", autoFinalize ? "left-7" : "left-1")} /></button>
+                                                </div>
+
+                                                <div className="md:col-span-2 glass p-6 rounded-2xl border-slate-800/50 space-y-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <div>
+                                                            <h3 className="font-bold text-sm">Retenção na Fonte</h3>
+                                                            <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">{ixRetentionEnabled ? `ON: Aplicar ${ixRetention.toFixed(2).replace('.', ',')}% IRS/IRC em todas as faturas` : "OFF: Sem retenção na fonte nas faturas emitidas"}</p>
+                                                        </div>
+                                                        <button onClick={() => setIxRetentionEnabled(!ixRetentionEnabled)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", ixRetentionEnabled ? "bg-rose-500" : "bg-slate-800")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500", ixRetentionEnabled ? "left-7" : "left-1")} /></button>
+                                                    </div>
+                                                    <AnimatePresence>
+                                                        {ixRetentionEnabled && (
+                                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-slate-800/50 space-y-4">
+                                                                <div className="flex items-center justify-between gap-4">
+                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">Percentagem (IRS/IRC)</h4><p className="text-[9px] text-slate-600 font-bold uppercase">Consultar o contabilista para a taxa correcta</p></div>
+                                                                    <div className="w-44 relative">
+                                                                        <select value={[0, 11.5, 16.5, 21.5, 25].includes(ixRetention) ? String(ixRetention) : "outro"} onChange={(e) => { if (e.target.value === "outro") { if ([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) setIxRetention(7.5); } else { setIxRetention(parseFloat(e.target.value)); } }} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-rose-500/20 outline-none appearance-none cursor-pointer pr-10">
+                                                                            <option value="0">0%</option>
+                                                                            <option value="11.5">11,5%</option>
+                                                                            <option value="16.5">16,5%</option>
+                                                                            <option value="21.5">21,5%</option>
+                                                                            <option value="25">25%</option>
+                                                                            <option value="outro">Outro…</option>
+                                                                        </select>
+                                                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40"><ChevronRight className="w-4 h-4 rotate-90 text-rose-500" /></div>
+                                                                    </div>
+                                                                </div>
+                                                                {!([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) && (
+                                                                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-slate-800/30">
+                                                                        <div className="flex-1"><h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">Valor personalizado</h4><p className="text-[9px] text-slate-600 font-bold uppercase">Entre 0 e 99,99 — duas casas decimais</p></div>
+                                                                        <div className="w-32"><input type="number" min={0} max={99.99} step={0.01} value={ixRetention} onChange={(e) => { const v = parseFloat(e.target.value); setIxRetention(Number.isFinite(v) ? Math.max(0, Math.min(99.99, v)) : 0); }} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-2 text-sm font-bold text-center focus:ring-2 focus:ring-rose-500/20 outline-none" /></div>
+                                                                    </div>
+                                                                )}
+                                                            </motion.div>
+                                                        )}
+                                                    </AnimatePresence>
                                                 </div>
 
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-slate-800/50 space-y-6">

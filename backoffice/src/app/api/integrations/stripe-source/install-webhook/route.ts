@@ -15,7 +15,15 @@ export const runtime = "edge";
  * If a `webhook_endpoint_id` is already stored, the call is a no-op.
  */
 
-const ENABLED_EVENTS = ["payment_intent.succeeded", "charge.succeeded", "charge.refunded"];
+const ENABLED_EVENTS = [
+    "payment_intent.succeeded",
+    "charge.succeeded",
+    "charge.refunded",
+    // Checkout Session events carry custom_fields + customer_details.tax_ids
+    // in the payload, removing the need for a Customer API expand when the
+    // buyer used Stripe Checkout.
+    "checkout.session.completed",
+];
 
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();

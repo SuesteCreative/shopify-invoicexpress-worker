@@ -16,6 +16,9 @@ export interface RunPipelineInput {
   topic: CanonicalTopic;
   webhookId: string | null;
   body: any;
+  // Optional parsed `connections.source_config_json`. The Stripe adapter uses
+  // it to read the restricted_key for Customer.tax_ids expansion.
+  sourceConfig?: Record<string, any>;
 }
 
 /**
@@ -69,7 +72,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const destAdapter = getDestinationAdapter(destination);
   const externalId = sourceAdapter.externalId(body);
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined);
-  const ctx = { apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config };
+  const ctx = { apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config, sourceConfig: input.sourceConfig };
   const logTopic = `${source}/${topic}`;
   const connectionLabel = `${source} → ${destination}`;
 
@@ -113,7 +116,7 @@ async function runPipelineCore(
   destAdapter: ReturnType<typeof getDestinationAdapter>,
   externalId: string,
   appStorage: AppStorage,
-  ctx: { apiKey: string; config: IRequestConfig },
+  ctx: { apiKey: string; config: IRequestConfig; sourceConfig?: Record<string, any> },
   logTopic: string,
 ): Promise<void> {
   const { env, config, source, destination, topic, webhookId, body } = input;

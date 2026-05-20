@@ -40,6 +40,10 @@ function stripeEventToCanonical(eventType: string): StripeCanonicalTopic | null 
   // Legacy/standalone Charge flow.
   if (eventType === "charge.succeeded") return "created";
   if (eventType === "charge.refunded") return "refund";
+  // Checkout Session: completed event lands when the buyer finishes Checkout.
+  // Its payload carries custom_fields + customer_details.tax_ids which we need
+  // for NIF extraction, so it's the preferred trigger when a Session exists.
+  if (eventType === "checkout.session.completed") return "created";
   // Stripe-issued Invoice flow (separate lifecycle).
   if (eventType === "invoice.created" || eventType === "invoice.finalized") return "created";
   if (eventType === "invoice.paid") return "paid";
@@ -781,9 +785,11 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
     console.log(`[Stripe] Queue processing: ${topic} event=${eventId} user=${userId}`);
 
     try {
-      // Stripe-source connection drives config + destination choice.
+      // Stripe-source connection drives config + destination choice. We also
+      // pull source_config_json so the adapter can use the restricted_key to
+      // expand Customer.tax_ids for B2B native VAT collection.
       const connRow: any = await env.DB.prepare(
-        `SELECT destination_kind, destination_config_json, behavior_json
+        `SELECT destination_kind, destination_config_json, behavior_json, source_config_json
          FROM connections WHERE user_id = ? AND source_kind = 'stripe' AND status = 'active' LIMIT 1`
       ).bind(userId).first();
 
@@ -791,6 +797,13 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         console.error(`[Stripe] No active connection for user ${userId}, acking`);
         message.ack();
         continue;
+      }
+
+      let sourceConfig: Record<string, any> | undefined;
+      try {
+        sourceConfig = connRow.source_config_json ? JSON.parse(connRow.source_config_json) : undefined;
+      } catch {
+        sourceConfig = undefined;
       }
 
       // Load legacy `integrations` row for now — Phase 5 will project the full
@@ -814,6 +827,7 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         topic,
         webhookId: eventId,
         body,
+        sourceConfig,
       });
 
       message.ack();

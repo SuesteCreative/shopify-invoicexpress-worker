@@ -7,6 +7,10 @@ export type DestinationKind = "invoicexpress" | "moloni";
 export interface AdapterCtx {
   apiKey: string;
   config: IRequestConfig;
+  // Parsed `connections.source_config_json` for the active connection. Lets the
+  // source adapter pull source-specific credentials (e.g. Stripe restricted_key
+  // to expand Customer.tax_ids) without re-querying the DB.
+  sourceConfig?: Record<string, any>;
 }
 
 export interface WebhookVerification {

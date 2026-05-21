@@ -63,9 +63,18 @@ export class IxBuilder {
       const unitNetExact = shopifyIncluded && rate > 0 ? grossUnit / factor : grossUnit;
       const targetLineGross = grossUnit * qty - grossLineDiscount;
       const targetLineNet = shopifyIncluded && rate > 0 ? targetLineGross / factor : targetLineGross;
+      // Ceil to 2dp so any sub-cent precision left over is absorbed by a
+      // positive `discount` percentage (IX rejects negative discounts).
       const unitNetSend = ceil2(unitNetExact);
       const lineSubtotalSend = unitNetSend * qty;
-      const discountAmount = round4(Math.max(0, lineSubtotalSend - targetLineNet));
+      // IX silently ignores `items[*].discount_amount` on POST. The only
+      // per-line discount it honours is `discount` (percentage). We solve
+      // for the percentage that makes `(unit_price * qty) * (1 - d/100)`
+      // equal the line's target net subtotal.
+      const rawPercent = lineSubtotalSend > 0
+        ? (1 - targetLineNet / lineSubtotalSend) * 100
+        : 0;
+      const discountPercent = forceZeroTax ? 0 : round4(Math.max(0, rawPercent));
       const item: IxInvoice["items"][number] = {
         quantity: qty,
         tax,
@@ -73,8 +82,8 @@ export class IxBuilder {
         name,
         ...(description ? { description } : {}),
       };
-      if (!forceZeroTax && discountAmount > 0) {
-        (item as any).discount_amount = discountAmount;
+      if (discountPercent > 0) {
+        (item as any).discount = discountPercent;
       }
       return item;
     };
@@ -113,15 +122,15 @@ export class IxBuilder {
 
   // Compute the expected gross total that IX should arrive at from the items
   // we're about to send. Mirrors IX's formula: per line
-  // `(unit_price * qty - discount_amount) * (1 + tax/100)`, rounded to 2dp.
+  // `(unit_price * qty) * (1 - discount/100) * (1 + tax/100)`, rounded to 2dp.
   computeIxExpectedTotal(items: IxInvoice["items"]): number {
     let total = 0;
     for (const it of items) {
       const tax = typeof it.tax === "number" ? it.tax : Number((it.tax as any)?.value ?? 0);
       const qty = Number(it.quantity);
       const unit = Number(it.unit_price);
-      const disc = Number((it as any).discount_amount ?? 0);
-      const lineNet = unit * qty - disc;
+      const discPct = Number((it as any).discount ?? 0);
+      const lineNet = unit * qty * (1 - discPct / 100);
       const lineGross = lineNet * (1 + tax / 100);
       total += lineGross;
     }
@@ -143,7 +152,7 @@ export class IxBuilder {
         quantity: it.quantity,
         tax: typeof it.tax === "number" ? it.tax : it.tax?.value,
         unit_price: it.unit_price,
-        discount_amount: it.discount_amount,
+        discount: it.discount,
       }));
       throw new Error(
         `Invoice total mismatch with Shopify: shopify=${shopifyTotal.toFixed(2)} expected=${expected.toFixed(2)} drift=${drift.toFixed(2)}. Lines=${JSON.stringify(breakdown)}`,

@@ -54,7 +54,9 @@ const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
 const fmt = (n: number) => n.toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
 const fmtDate = (s: string | null | undefined) => {
     if (!s) return "—";
-    try { return new Date(s).toLocaleDateString("pt-PT"); } catch { return s; }
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+    const d = m ? new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00Z`) : new Date(s);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-PT");
 };
 
 export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () => void }) {

@@ -378,6 +378,7 @@ app.post("/admin/finalize-drafts", async (c) => {
     reason?: string;
     triggered_by?: string;
     notify_emails?: string[];
+    date_strategy?: "today" | "closest_available";
   }>();
 
   if (!body.shop) return c.json({ error: "Missing required field: shop" }, 400);
@@ -393,6 +394,7 @@ app.post("/admin/finalize-drafts", async (c) => {
       reason: body.reason ?? null,
       triggered_by: body.triggered_by ?? null,
       notify_emails: body.notify_emails,
+      date_strategy: body.date_strategy,
     });
     return c.json(result);
   } catch (e) {

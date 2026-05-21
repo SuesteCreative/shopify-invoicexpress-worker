@@ -237,11 +237,10 @@ export class AppStorage {
     }
   }
 
-  async listProcessedInvoices(limit = 500): Promise<Array<{ id: string; invoice_id: string; created_at: string | null }>> {
+  async listProcessedInvoices(limit = 500, order: "asc" | "desc" = "desc"): Promise<Array<{ id: string; invoice_id: string; created_at: string | null }>> {
     try {
-      const result = await this.db.prepare(
-        "SELECT id, invoice_id, created_at FROM processed_orders WHERE shopify_domain = ? ORDER BY rowid DESC LIMIT ?"
-      ).bind(this.shopDomain, limit).all();
+      const sql = `SELECT id, invoice_id, created_at FROM processed_orders WHERE shopify_domain = ? ORDER BY rowid ${order === "asc" ? "ASC" : "DESC"} LIMIT ?`;
+      const result = await this.db.prepare(sql).bind(this.shopDomain, limit).all();
       return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null }));
     } catch (e) {
       console.error("[Rioko] Failed to list processed invoices:", e);

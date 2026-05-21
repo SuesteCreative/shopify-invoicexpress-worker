@@ -690,6 +690,7 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
     const [limit, setLimit] = useState("100");
     const [dryRun, setDryRun] = useState(true);
     const [reason, setReason] = useState("");
+    const [dateStrategy, setDateStrategy] = useState<"today" | "closest_available">("closest_available");
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<JobResult | null>(null);
 
@@ -699,7 +700,7 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
             const res = await fetch("/api/admin/dev-mode/finalize-drafts", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetUserId, limit: Number(limit), dry_run: dryRun, reason, notify_emails: notifyEmails }),
+                body: JSON.stringify({ targetUserId, limit: Number(limit), dry_run: dryRun, reason, notify_emails: notifyEmails, date_strategy: dateStrategy }),
             });
             setResult(await res.json());
         } catch (e: any) { setResult({ error: String(e) }); }
@@ -707,8 +708,26 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
     };
 
     return (
-        <Section icon={<FileCheck2 className="w-5 h-5 text-violet-400" />} title="Finalizar Rascunhos em Massa" desc="Itera processed_orders, identifica faturas em draft no IX e finaliza-as.">
+        <Section icon={<FileCheck2 className="w-5 h-5 text-violet-400" />} title="Finalizar Rascunhos em Massa" desc="Itera processed_orders (oldest→newest), identifica faturas em draft no IX, ajusta data conforme estratégia escolhida e finaliza.">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-3 flex flex-col gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Estratégia de data ao finalizar</span>
+                    <div className="flex gap-2">
+                        {([
+                            { id: "closest_available", label: "Mais próxima na série", desc: "Mantém data original se válida; caso contrário usa a última data finalizada" },
+                            { id: "today", label: "Hoje", desc: "Força todos os drafts para a data de hoje" },
+                        ] as const).map(opt => (
+                            <button key={opt.id} type="button" onClick={() => setDateStrategy(opt.id)}
+                                title={opt.desc}
+                                className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${dateStrategy === opt.id ? "bg-violet-500/20 text-violet-300 border-violet-500/40" : "bg-slate-900/50 text-slate-500 border-slate-800 hover:text-slate-300"}`}>
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Quando a data tem de ser ajustada, a observação da fatura recebe o sufixo <code className="text-slate-300">Fatura referente à encomenda #X de DD/MM/YYYY</code> (preserva o conteúdo existente).
+                    </p>
+                </div>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     Limite
                     <input type="number" value={limit} onChange={e => setLimit(e.target.value)} min={1} max={500}

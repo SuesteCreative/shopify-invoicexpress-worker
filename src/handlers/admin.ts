@@ -529,19 +529,42 @@ export async function issueCreditNoteByOrderNumber(
   return { job_id: jobId, status: "success", ...summary };
 }
 
+type DateStrategy = "today" | "closest_available";
+
+function parseIxDate(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return null;
+}
+
+function formatPtDate(isoYmd: string): string {
+  const [y, m, d] = isoYmd.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function todayUtcYmd(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export async function finalizeDrafts(
   env: Env,
   config: IRequestConfig,
-  options: { dry_run?: boolean; limit?: number; triggered_by?: string | null; reason?: string | null; notify_emails?: string[] }
+  options: { dry_run?: boolean; limit?: number; triggered_by?: string | null; reason?: string | null; notify_emails?: string[]; date_strategy?: DateStrategy }
 ) {
   const appStorage = new AppStorage(env, config.shopify_domain!);
   const limit = Math.min(options.limit ?? 100, 500);
   const dryRun = !!options.dry_run;
+  const strategy: DateStrategy = options.date_strategy ?? "closest_available";
   const jobId = crypto.randomUUID();
   await appStorage.startDevJob({
     id: jobId,
     type: dryRun ? "finalize_drafts_dry_run" : "finalize_drafts",
-    params: { limit, dry_run: dryRun },
+    params: { limit, dry_run: dryRun, date_strategy: strategy },
     triggered_by: options.triggered_by ?? null,
     reason: options.reason ?? null,
   });
@@ -551,9 +574,13 @@ export async function finalizeDrafts(
     "x-api-key": config.ix_api_key!,
     "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
   };
+  const ixDocType = config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
+  const today = todayUtcYmd();
 
-  const processed = await appStorage.listProcessedInvoices(limit);
-  const results: Array<{ order_id: string; invoice_id: string; status: "finalized" | "dry_run" | "skipped" | "error"; message: string }> = [];
+  const processed = await appStorage.listProcessedInvoices(limit, "asc");
+  const results: Array<{ order_id: string; invoice_id: string; status: "finalized" | "dry_run" | "skipped" | "error"; message: string; original_date?: string; target_date?: string }> = [];
+
+  let lastFinalizedDate: string | null = null;
 
   for (const row of processed) {
     try {
@@ -565,28 +592,122 @@ export async function finalizeDrafts(
         results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: `Fetch failed: ${JSON.stringify(docError)}` });
         continue;
       }
-      const state = (docData.data as any).status ?? (docData.data as any).state;
+      const doc: any = docData.data;
+      const state = doc.status ?? doc.state;
       if (state !== "draft") {
         results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Not draft (status=${state})` });
         continue;
       }
-      if (dryRun) {
-        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "dry_run", message: "Would finalize" });
+
+      const originalDate = parseIxDate(doc.date);
+      if (!originalDate) {
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: `Could not parse draft date '${doc.date}'` });
         continue;
       }
+
+      let targetDate: string;
+      if (strategy === "today") {
+        targetDate = today;
+      } else {
+        targetDate = lastFinalizedDate && lastFinalizedDate > originalDate ? lastFinalizedDate : originalDate;
+      }
+
+      const dateChanged = targetDate !== originalDate;
+      const orderNumberMatch = /Order #(\d+)/i.exec(String(doc.reference ?? ""));
+      const orderNumber = orderNumberMatch ? orderNumberMatch[1] : null;
+      const appendNote = dateChanged && orderNumber
+        ? `Fatura referente à encomenda #${orderNumber} de ${formatPtDate(originalDate)}`
+        : null;
+      const existingObs = typeof doc.observations === "string" ? doc.observations.trim() : "";
+      const newObservations = appendNote
+        ? (existingObs ? `${existingObs} | ${appendNote}` : appendNote).slice(0, 200)
+        : existingObs;
+
+      if (dryRun) {
+        results.push({
+          order_id: row.id,
+          invoice_id: row.invoice_id,
+          status: "dry_run",
+          message: dateChanged
+            ? `Would PUT date ${formatPtDate(originalDate)} → ${formatPtDate(targetDate)} and append: "${appendNote}", then finalize`
+            : `Would finalize as-is (${formatPtDate(originalDate)})`,
+          original_date: originalDate,
+          target_date: targetDate,
+        });
+        lastFinalizedDate = targetDate;
+        continue;
+      }
+
+      if (dateChanged) {
+        const items = Array.isArray(doc.items) ? doc.items.map((it: any) => ({
+          quantity: Number(it.quantity),
+          name: String(it.name ?? ""),
+          ...(it.description ? { description: String(it.description) } : {}),
+          unit_price: Number(it.unit_price),
+          tax: it.tax?.id
+            ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
+            : { name: String(it.tax?.name ?? ""), value: Number(it.tax?.value ?? 0) },
+          ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
+        })) : [];
+
+        const client = doc.client ? {
+          ...(doc.client.id ? { id: Number(doc.client.id) } : {}),
+          ...(doc.client.name ? { name: String(doc.client.name) } : {}),
+          ...(doc.client.email ? { email: String(doc.client.email) } : {}),
+          ...(doc.client.fiscal_id ? { fiscal_id: String(doc.client.fiscal_id) } : {}),
+          ...(doc.client.address ? { address: String(doc.client.address) } : {}),
+          ...(doc.client.postal_code ? { postal_code: String(doc.client.postal_code) } : {}),
+          ...(doc.client.country ? { country: String(doc.client.country) } : {}),
+          ...(doc.client.city ? { city: String(doc.client.city) } : {}),
+          ...(doc.client.phone ? { phone: String(doc.client.phone) } : {}),
+        } : { name: "" };
+
+        const putBody: any = {
+          type: ixDocType,
+          data: {
+            date: targetDate,
+            due_date: targetDate,
+            client,
+            items,
+            observations: newObservations,
+            ...(doc.reference ? { reference: String(doc.reference) } : {}),
+            ...(doc.tax_exemption ? { tax_exemption_reason: String(doc.tax_exemption) } : {}),
+          },
+        };
+
+        const { error: putError } = await IxApi.v2.documents.byId.put({
+          headers: ixHeaders,
+          path: { id: Number(row.invoice_id) },
+          body: putBody,
+        });
+        if (putError) {
+          results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: `PUT date failed: ${JSON.stringify(putError)}`, original_date: originalDate, target_date: targetDate });
+          continue;
+        }
+      }
+
       const { error } = await IxApi.v2.changeState.post({
         body: {
-          type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+          type: ixDocType,
           id: Number(row.invoice_id),
           state: "finalized",
-          actualizeDateBeforeChange: true,
         },
         headers: ixHeaders,
       });
       if (error) {
-        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: JSON.stringify(error) });
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: JSON.stringify(error), original_date: originalDate, target_date: targetDate });
       } else {
-        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "finalized", message: "OK" });
+        lastFinalizedDate = targetDate;
+        results.push({
+          order_id: row.id,
+          invoice_id: row.invoice_id,
+          status: "finalized",
+          message: dateChanged
+            ? `Finalized with date ${formatPtDate(targetDate)} (original ${formatPtDate(originalDate)})`
+            : `Finalized as-is (${formatPtDate(targetDate)})`,
+          original_date: originalDate,
+          target_date: targetDate,
+        });
       }
     } catch (e) {
       results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: String(e) });
@@ -600,6 +721,7 @@ export async function finalizeDrafts(
     errors: results.filter(r => r.status === "error").length,
     would_finalize: results.filter(r => r.status === "dry_run").length,
     dry_run: dryRun,
+    date_strategy: strategy,
   };
   const status: "success" | "partial" | "error" = summary.errors === 0
     ? "success"
@@ -610,7 +732,7 @@ export async function finalizeDrafts(
     await sendDevModeEmail({
       recipients: options.notify_emails,
       subject: `Rioko Dev Mode — Finalize drafts${dryRun ? " (dry-run)" : ""} for ${config.shopify_domain}`,
-      body: `Total: ${summary.total}\nFinalized: ${summary.finalized}\nSkipped: ${summary.skipped}\nErrors: ${summary.errors}${dryRun ? `\nWould finalize: ${summary.would_finalize}` : ""}\nJob ID: ${jobId}`,
+      body: `Total: ${summary.total}\nStrategy: ${strategy}\nFinalized: ${summary.finalized}\nSkipped: ${summary.skipped}\nErrors: ${summary.errors}${dryRun ? `\nWould finalize: ${summary.would_finalize}` : ""}\nJob ID: ${jobId}`,
     });
   }
 

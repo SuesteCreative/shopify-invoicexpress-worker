@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
         limit?: number;
         reason?: string;
         notify_emails?: string[];
+        date_strategy?: "today" | "closest_available";
     };
 
     const shop = await resolveShopForUser(body.targetUserId);
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest) {
             reason: body.reason,
             triggered_by,
             notify_emails: body.notify_emails,
+            date_strategy: body.date_strategy,
         }),
     });
     return NextResponse.json(data, { status: ok ? 200 : status });

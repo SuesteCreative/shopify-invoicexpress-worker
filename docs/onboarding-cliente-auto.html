@@ -299,7 +299,7 @@
   <tr><td>App URL</td><td>Link da empresa no Konnector (ex: <code>https://kapta-teste.konnector.pt/</code>)</td></tr>
   <tr><td>Embed app in Shopify admin</td><td><strong>DESLIGADO</strong></td></tr>
   <tr><td>Allowed redirection URL(s)</td><td><code>https://example.com/</code></td></tr>
-  <tr><td>Scopes (Admin API)</td><td><code>read_customers, read_discounts, read_order_edits, read_orders, read_products</code></td></tr>
+  <tr><td>Scopes (Admin API)</td><td><code>read_customers, read_discounts, read_order_edits, read_orders, read_all_orders, read_products</code></td></tr>
 </table>
 
 <div class="info-box"><strong>Nota:</strong> <code>read_webhooks</code> / <code>write_webhooks</code> <strong>já não existem como scopes válidos</strong>. A criação de webhooks via Admin API é autorizada pelo scope do tópico (ex: <code>orders/*</code> requer <code>read_orders</code>). Como Custom App, o acesso a Protected Customer Data é automático — não há formulário PCD a preencher.</div>
@@ -630,7 +630,7 @@
 </div>
 
 <script>
-  const SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_products";
+  const SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_all_orders,read_products";
   const API_VERSION = "2026-01";
   const WEBHOOKS = [
     { topic: "orders/create",   path: "/webhooks/shopify/orders-created" },

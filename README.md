@@ -58,7 +58,7 @@ Connect your Shopify store via Admin API credentials.
 | Field | Description |
 |---|---|
 | **Domínio** | Your `.myshopify.com` subdomain (e.g. `minha-loja.myshopify.com`) |
-| **Admin API Token** | Generated in Shopify Admin → Apps → Develop Apps → Custom App. Required scopes: `read_orders`, `read_products`, `read_customers` (recommended) |
+| **Admin API Token** | Generated in Shopify Admin → Apps → Develop Apps → Custom App. Required scopes: `read_orders`, `read_all_orders`, `read_products`, `read_customers` (recommended). Without `read_all_orders` the Admin API only returns the last 60 days of orders — needed for bulk re-issuing historical invoices and for the conciliação page to see older orders. |
 | **Versão da API** | Shopify API version (default: `2026-01`) |
 
 ### Passo 2: Criação de Webhooks
@@ -159,6 +159,7 @@ logs               -- Full diagnostic history of all incoming webhook events
 | Scope | Purpose | Required? |
 |---|---|---|
 | `read_orders` | Fetch order details and register webhooks | ✅ Yes |
+| `read_all_orders` | Access orders older than 60 days (required for bulk historical re-issue and conciliação of older orders) | ✅ Yes |
 | `read_products` | VAT rate detection | ✅ Yes |
 | `read_customers` | Sync customer data and NIFs | ✅ Yes |
 

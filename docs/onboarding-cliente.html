@@ -290,7 +290,7 @@
   <tr><td>App URL</td><td>Link da empresa no Konnector (ex: <code>https://kapta-teste.konnector.pt/</code>)</td></tr>
   <tr><td>Embed app in Shopify admin</td><td><strong>DESLIGADO</strong></td></tr>
   <tr><td>Allowed redirection URL(s)</td><td><code>https://example.com/</code></td></tr>
-  <tr><td>Scopes (Admin API)</td><td><code>read_customers, read_discounts, read_order_edits, read_orders, read_products</code></td></tr>
+  <tr><td>Scopes (Admin API)</td><td><code>read_customers, read_discounts, read_order_edits, read_orders, read_all_orders, read_products</code></td></tr>
 </table>
 
 <div class="warn-box"><strong>Nota:</strong> Os scopes <code>write_webhooks</code> / <code>read_webhooks</code> <strong>não são pedidos</strong> — webhooks serão criados manualmente no Passo 2 do integrador.</div>
@@ -582,7 +582,7 @@
 </div>
 
 <script>
-  const SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_products";
+  const SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_all_orders,read_products";
 
   function cleanShop(raw) {
     if (!raw) return "";

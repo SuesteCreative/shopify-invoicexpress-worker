@@ -260,6 +260,12 @@ export default function HelpPage() {
                         🔐 Nunca partilhes o Access Token publicamente. Quem tiver este token tem acesso total à API da tua loja.
                         Se acidentalmente o expuseres, revoga-o imediatamente em Shopify Admin → Apps → Develop Apps.
                     </WarningBox>
+
+                    <InfoBox>
+                        <strong>Encomendas com mais de 60 dias</strong> — Por defeito, a Admin API da Shopify só devolve encomendas dos últimos 60 dias.
+                        Para reemitir faturas antigas em <em>massa</em> ou ver encomendas históricas na <strong>Conciliação</strong>, o token tem de incluir o scope <code className="bg-slate-800 px-1 rounded">read_all_orders</code>.
+                        Se vires o erro <em>"Order #XXXX not found in Shopify"</em> para uma encomenda que existe na loja, pede à equipa Kapta para adicionar este scope e regenerar o token.
+                    </InfoBox>
                 </Section>
             </div>
 

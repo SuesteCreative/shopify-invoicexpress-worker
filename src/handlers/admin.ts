@@ -300,7 +300,7 @@ export async function reemitOrder(
   }
 
   if (!order) {
-    const summary = { error: `Order #${orderNumber} not found in Shopify` };
+    const summary = { error: `Order #${orderNumber} not found in Shopify. If the order exists in the store, the access token is likely missing the read_all_orders scope (Shopify's Admin API only returns the last 60 days of orders without it). Add read_all_orders to the Custom App configuration, regenerate the token, and retry.` };
     await appStorage.finishDevJob(jobId, "error", summary, []);
     return { job_id: jobId, status: "error", ...summary };
   }
@@ -344,7 +344,7 @@ async function lookupOrderAndInvoice(
   if (!res.ok) return { order: null, invoiceId: null, ixInvoice: null, error: `Shopify ${res.status}: ${await res.text()}` };
   const data = await res.json() as { orders: any[] };
   const order = data.orders?.[0];
-  if (!order) return { order: null, invoiceId: null, ixInvoice: null, error: `Order #${orderNumber} not found in Shopify` };
+  if (!order) return { order: null, invoiceId: null, ixInvoice: null, error: `Order #${orderNumber} not found in Shopify. If the order exists, the access token is likely missing the read_all_orders scope (Admin API hides orders older than 60 days without it).` };
 
   const invoiceRef = await appStorage.getInvoiceByOrderId(String(order.id));
   if (!invoiceRef) return { order, invoiceId: null, ixInvoice: null, error: `No invoice registered for order ${order.id}` };
@@ -380,6 +380,12 @@ export async function deleteDraftByOrderNumber(
     return { job_id: jobId, status: "error", error: lookup.error };
   }
   const state = (lookup.ixInvoice as any).status ?? (lookup.ixInvoice as any).state;
+  if (state === "deleted") {
+    await appStorage.deleteProcessedInvoice(String(lookup.order.id));
+    const summary = { invoice_id: lookup.invoiceId, order_id: lookup.order.id, order_number: orderNumber, message: `Invoice already deleted in InvoiceXpress — removed stale DB link so order can be re-emitted.` };
+    await appStorage.finishDevJob(jobId, "success", summary, [summary]);
+    return { job_id: jobId, status: "success", ...summary };
+  }
   if (state !== "draft") {
     const err = `Invoice ${lookup.invoiceId} is not draft (status=${state}). Use issue-credit-note for finalized invoices.`;
     await appStorage.finishDevJob(jobId, "error", { error: err }, []);

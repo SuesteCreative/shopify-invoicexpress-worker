@@ -17,6 +17,8 @@ import {
   Layers,
   Workflow,
   Sparkle,
+  Menu,
+  X,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
@@ -338,6 +340,8 @@ export default function Landing() {
 // Nav
 // ─────────────────────────────────────────────────────────────
 function Nav() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <div className="relative z-50 px-4 pt-6 md:pt-8">
       <motion.nav
@@ -405,6 +409,20 @@ function Nav() {
           >
             Entrar
           </Link>
+          {/* Hamburger — mobile only */}
+          <button
+            className="flex h-9 w-9 items-center justify-center rounded-full md:hidden"
+            style={{ background: "rgba(255,255,255,0.06)", color: FG }}
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
+            aria-expanded={menuOpen}
+          >
+            {menuOpen ? (
+              <X className="h-4 w-4" strokeWidth={1.6} />
+            ) : (
+              <Menu className="h-4 w-4" strokeWidth={1.6} />
+            )}
+          </button>
           <Link
             href="/sign-up"
             className="group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-[13px] font-medium transition-all duration-500 active:scale-[0.98]"
@@ -429,6 +447,54 @@ function Nav() {
           </Link>
         </div>
       </motion.nav>
+
+      {/* Mobile dropdown menu */}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.22, ease: EASE }}
+            className="mx-auto mt-2 w-full max-w-[1280px] overflow-hidden rounded-2xl md:hidden"
+            style={{
+              background: "rgba(20,24,31,0.96)",
+              border: `1px solid ${HAIRLINE}`,
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+            }}
+          >
+            <nav className="flex flex-col gap-1 p-3">
+              {[
+                { href: "#integracoes", label: "Integrações" },
+                { href: "#como-funciona", label: "Como funciona" },
+                { href: "#preco", label: "Preço" },
+                { href: "#fiscal", label: "Conformidade" },
+              ].map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-xl px-4 py-3 text-[15px] transition-opacity hover:opacity-80"
+                  style={{ color: FG_60 }}
+                >
+                  {link.label}
+                </a>
+              ))}
+              <div className="mt-1 border-t pt-3" style={{ borderColor: HAIRLINE }}>
+                <Link
+                  href="/sign-in"
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-xl px-4 py-3 text-[15px]"
+                  style={{ color: FG }}
+                >
+                  Entrar
+                </Link>
+              </div>
+            </nav>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -582,7 +648,7 @@ function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div>
       <div
-        className="font-mono text-[22px] tabular-nums"
+        className="font-mono text-[16px] tabular-nums sm:text-[22px]"
         style={{ color: FG, letterSpacing: "-0.01em" }}
       >
         {value}
@@ -739,12 +805,12 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
               transition: { duration: 0.12, ease: "easeOut" },
             }}
             transition={{ duration: 0.5, ease: EASE }}
-            className="flex items-center justify-between gap-3 p-4"
+            className="flex items-center justify-between gap-2 p-3 sm:gap-3 sm:p-4"
           >
             <FlowSlotIdentity label={label} slot={slot} />
-            <div className="text-right">
+            <div className="shrink-0 text-right">
               <div
-                className="font-mono text-[11px] tabular-nums"
+                className="max-w-[100px] truncate font-mono text-[11px] tabular-nums sm:max-w-none"
                 style={{ color: INK_60 }}
               >
                 {slot.sub}
@@ -794,8 +860,8 @@ function FlowSlotIdentity({
   slot: FlowSlot;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <BrandLogo slot={slot} width={104} height={40} logoH={22} hPad={16} />
+    <div className="flex min-w-0 items-center gap-2">
+      <BrandLogo slot={slot} width={72} height={32} logoH={18} hPad={10} />
       <div className="min-w-0">
         <div
           className="font-mono text-[10px] uppercase tracking-[0.18em]"
@@ -885,15 +951,15 @@ function EngineCard({ destIdx }: { destIdx: number }) {
       }}
     >
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-full"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
             style={{ background: "rgba(255,255,255,0.14)" }}
           >
             <Workflow className="h-4 w-4" strokeWidth={1.5} />
           </div>
-          <div>
-            <div className="text-[13px] font-medium">
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-medium">
               Rioko 2.0 · Hub de Integrações
             </div>
             <div
@@ -905,7 +971,7 @@ function EngineCard({ destIdx }: { destIdx: number }) {
           </div>
         </div>
         <div
-          className="font-mono text-[10px] tabular-nums"
+          className="shrink-0 font-mono text-[10px] tabular-nums"
           style={{ color: "rgba(255,255,255,0.85)" }}
         >
           347 ms
@@ -1060,7 +1126,7 @@ function IntegrationGroup({
 }) {
   return (
     <div className="mt-12">
-      <div className="mb-6 flex items-baseline justify-between gap-4">
+      <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
         <h3 className="text-[14px] font-medium" style={{ color: FG }}>
           {kind}
         </h3>
@@ -1981,7 +2047,7 @@ function Footer() {
       style={{ borderColor: RULE }}
     >
       <div className="mx-auto flex w-full max-w-[1280px] flex-col items-center gap-6 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
           <Image
             src="/images/rioko2-logo.svg"
             alt="Rioko 2.0"

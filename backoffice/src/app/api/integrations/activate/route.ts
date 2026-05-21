@@ -30,9 +30,16 @@ export async function POST(request: NextRequest) {
         const { shopify_domain, shopify_token, shopify_api_version } = integration;
         const apiVersion = shopify_api_version || "2026-01";
 
-        // Register Webhooks in Shopify
+        // Register Webhooks in Shopify. Order matters here only for clarity —
+        // `orders/create` creates the IX draft, `orders/paid` finalises it
+        // (when auto_finalize is on), `orders/updated` re-syncs edits, and
+        // `refunds/create` issues credit notes. Skipping orders/create leaves
+        // the integration silently broken: orders/paid throws on finalize
+        // because the draft doesn't exist.
         const webhooks = [
+            { topic: "orders/create", address: `${RIOKO_CONFIG.workerUrl}/webhooks/shopify/orders-created` },
             { topic: "orders/paid", address: `${RIOKO_CONFIG.workerUrl}/webhooks/shopify/orders-paid` },
+            { topic: "orders/updated", address: `${RIOKO_CONFIG.workerUrl}/webhooks/shopify/orders-updated` },
             { topic: "refunds/create", address: `${RIOKO_CONFIG.workerUrl}/webhooks/shopify/refunds-create` }
         ];
 

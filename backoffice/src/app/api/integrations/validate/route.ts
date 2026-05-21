@@ -71,9 +71,11 @@ export async function POST(request: NextRequest) {
                             const hookData = await hookRes.json() as any;
                             const RiokoUrl = RIOKO_CONFIG.workerUrl;
                             const activeHooks = hookData.webhooks || [];
-                            const hasOrderHook = activeHooks.some((h: any) => h.topic === "orders/paid" && h.address.startsWith(RiokoUrl));
+                            const hasOrderCreateHook = activeHooks.some((h: any) => h.topic === "orders/create" && h.address.startsWith(RiokoUrl));
+                            const hasOrderPaidHook = activeHooks.some((h: any) => h.topic === "orders/paid" && h.address.startsWith(RiokoUrl));
+                            const hasOrderUpdatedHook = activeHooks.some((h: any) => h.topic === "orders/updated" && h.address.startsWith(RiokoUrl));
                             const hasRefundHook = activeHooks.some((h: any) => h.topic === "refunds/create" && h.address.startsWith(RiokoUrl));
-                            webhooksDetected = hasOrderHook && hasRefundHook;
+                            webhooksDetected = hasOrderCreateHook && hasOrderPaidHook && hasOrderUpdatedHook && hasRefundHook;
 
                             // Webhook Logic: Only reset if NOT forced
                             const updateWebhooksBit = (webhooksDetected || config.webhooks_forced_at) ? 1 : 0;

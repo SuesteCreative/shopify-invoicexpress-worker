@@ -35,6 +35,74 @@ export class IxBuilder {
     );
   }
 
+  buildInvoiceItemsFromRaw(rawOrder: any, opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {
+    const forceTaxProducts = this.config.force_tax_rate;
+    const forceTaxShipping = this.config.force_shipping_tax_rate;
+    const forceZeroTax = opts?.forceZeroTax === true;
+    const shopifyIncluded = rawOrder?.taxes_included === true;
+    const ixIncluded = this.config.vat_included === 1;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const convert = (gross: number, rate: number) => {
+      if (shopifyIncluded === ixIncluded) return gross;
+      if (shopifyIncluded && !ixIncluded) return gross / (1 + rate / 100);
+      return gross * (1 + rate / 100);
+    };
+
+    const items: IxInvoice["items"] = [];
+
+    const lineItems = Array.isArray(rawOrder?.line_items) ? rawOrder.line_items : [];
+    for (const li of lineItems) {
+      const quantity = Number(li?.quantity ?? 0);
+      if (!quantity) continue;
+      const rate = Number(li?.tax_lines?.[0]?.rate ?? 0) * 100;
+      const grossUnit = Number(li?.price ?? 0);
+      const allocations = Array.isArray(li?.discount_allocations) ? li.discount_allocations : [];
+      const grossDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
+
+      const tax = forceZeroTax ? 0 : (forceTaxProducts != null ? forceTaxProducts : rate);
+      const unit_price = round2(convert(grossUnit, rate));
+      const discount_amount = grossDiscount > 0 ? round2(convert(grossDiscount, rate)) : 0;
+
+      const variantTitle = li?.variant_title ? ` / ${li.variant_title}` : "";
+      const name = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
+      const description = li?.sku ? `SKU: ${li.sku}`.slice(0, 200) : undefined;
+
+      items.push({
+        quantity,
+        tax,
+        unit_price,
+        name,
+        ...(description ? { description } : {}),
+        ...(!forceZeroTax && discount_amount > 0 ? { discount_amount } : {}),
+      });
+    }
+
+    const shippingLines = Array.isArray(rawOrder?.shipping_lines) ? rawOrder.shipping_lines : [];
+    for (const sl of shippingLines) {
+      const grossUnit = Number(sl?.price ?? 0);
+      if (grossUnit <= 0) continue;
+      const rate = Number(sl?.tax_lines?.[0]?.rate ?? 0) * 100;
+      const allocations = Array.isArray(sl?.discount_allocations) ? sl.discount_allocations : [];
+      const grossDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
+
+      const tax = forceZeroTax ? 0 : (forceTaxShipping != null ? forceTaxShipping : rate);
+      const unit_price = round2(convert(grossUnit, rate));
+      const discount_amount = grossDiscount > 0 ? round2(convert(grossDiscount, rate)) : 0;
+
+      const name = `Portes de envio${sl?.title ? ` — ${sl.title}` : ""}`.slice(0, 200);
+      items.push({
+        quantity: 1,
+        tax,
+        unit_price,
+        name,
+        ...(!forceZeroTax && discount_amount > 0 ? { discount_amount } : {}),
+      });
+    }
+
+    return items;
+  }
+
   buildInvoiceItems(normalizedItems: Normalized["order"]["items"], opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {
     const forceTaxProducts = this.config.force_tax_rate;
     const forceTaxShipping = this.config.force_shipping_tax_rate;
@@ -100,7 +168,9 @@ export class IxBuilder {
 
   createInvoiceFromNormalizedOrder(normalized: Normalized) {
     const client = this.buildInvoiceClient(normalized);
-    const items = this.buildInvoiceItems(normalized.order.items);
+    const items = normalized.raw_order
+      ? this.buildInvoiceItemsFromRaw(normalized.raw_order)
+      : this.buildInvoiceItems(normalized.order.items);
     const requestTaxExemptionReason = this.shouldRequestTaxExemptionReason(items);
 
     const invoice: IxInvoice = {

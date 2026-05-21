@@ -43,7 +43,11 @@ export class Shopify {
       }),
     ]);
     if (!normalized) return null;
-    if (rawOrder) enrichWithDiscountAllocations(normalized, rawOrder);
+    if (rawOrder) {
+      enrichWithDiscountAllocations(normalized, rawOrder);
+      normalized.raw_order = rawOrder;
+      if (normalized.normalized) normalized.normalized.raw_order = rawOrder;
+    }
     return normalized;
   }
 

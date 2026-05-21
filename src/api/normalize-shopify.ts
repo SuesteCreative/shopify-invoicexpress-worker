@@ -2,6 +2,7 @@ export interface Root {
   shop: string
   order_id: string
   normalized: Normalized
+  raw_order?: any
 }
 
 export interface Normalized {
@@ -10,6 +11,7 @@ export interface Normalized {
   exchanges: any[]
   credits: Credit[]
   debits: any[]
+  raw_order?: any
 }
 
 export interface Order {

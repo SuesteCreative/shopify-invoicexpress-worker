@@ -657,7 +657,13 @@ export async function finalizeDrafts(
       if (strategy === "today") {
         targetDate = today;
       } else {
-        targetDate = lastFinalizedDate && lastFinalizedDate > originalDate ? lastFinalizedDate : originalDate;
+        // closest_available: prefer the draft's own date, but IX enforces
+        // `finalize date >= max(last_finalized_in_series, today)`. We track
+        // the running last-finalized within the loop AND clamp to today so
+        // the first draft of a fresh run never fails IX's series check.
+        targetDate = originalDate;
+        if (lastFinalizedDate && lastFinalizedDate > targetDate) targetDate = lastFinalizedDate;
+        if (today > targetDate) targetDate = today;
       }
 
       const dateChanged = targetDate !== originalDate;

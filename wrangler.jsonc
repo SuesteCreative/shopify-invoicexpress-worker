@@ -74,5 +74,8 @@
   },
   "triggers": {
     "crons": ["0 8 * * *"]
+  },
+  "limits": {
+    "cpu_ms": 60000
   }
 }

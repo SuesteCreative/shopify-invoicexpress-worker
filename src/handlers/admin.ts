@@ -551,6 +551,33 @@ function todayUtcYmd(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Reads the most recent finalized invoice date in the IX account's series.
+// IX rejects `changeState → finalized` when the document's date is earlier
+// than the series' latest finalized date, so we use this as the baseline for
+// the `closest_available` strategy. Hits the IX legacy JSON endpoint directly
+// since the v2 SDK proxy doesn't expose a list endpoint.
+async function fetchSeriesLastFinalizedDate(
+  config: IRequestConfig,
+  docKind: "invoice" | "invoice_receipt",
+): Promise<string | null> {
+  try {
+    const account = config.ix_account_name;
+    const apiKey = config.ix_api_key;
+    if (!account || !apiKey) return null;
+    const path = docKind === "invoice_receipt" ? "invoice_receipts.json" : "invoices.json";
+    const url = `https://${account}.app.invoicexpress.com/${path}?api_key=${apiKey}&status%5B%5D=settled&status%5B%5D=final&order_by=date_desc&per_page=1`;
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    const list = data?.invoices ?? data?.invoice_receipts ?? [];
+    if (!Array.isArray(list) || list.length === 0) return null;
+    return parseIxDate(list[0]?.date ?? null);
+  } catch (e) {
+    console.warn("[Rioko] fetchSeriesLastFinalizedDate failed:", e);
+    return null;
+  }
+}
+
 export async function finalizeDrafts(
   env: Env,
   config: IRequestConfig,
@@ -628,7 +655,13 @@ export async function finalizeDrafts(
   }
   const results: Array<{ order_id: string; invoice_id: string; status: "finalized" | "dry_run" | "skipped" | "error"; message: string; original_date?: string; target_date?: string }> = [];
 
-  let lastFinalizedDate: string | null = null;
+  // Pre-fetch the series' last finalized date so closest_available has a real
+  // baseline and we don't fall into the "first row uses original → IX rejects
+  // every subsequent row" trap that bit SoulKrave's bulk finalize.
+  const seriesLastFinalizedDate = strategy === "closest_available"
+    ? await fetchSeriesLastFinalizedDate(config, ixDocType)
+    : null;
+  let lastFinalizedDate: string | null = seriesLastFinalizedDate;
 
   for (const row of processed) {
     try {
@@ -657,13 +690,14 @@ export async function finalizeDrafts(
       if (strategy === "today") {
         targetDate = today;
       } else {
-        // closest_available: prefer the draft's own date, but IX enforces
-        // `finalize date >= max(last_finalized_in_series, today)`. We track
-        // the running last-finalized within the loop AND clamp to today so
-        // the first draft of a fresh run never fails IX's series check.
+        // closest_available: prefer the draft's own date. Only bump when the
+        // IX series already has a finalized invoice with a more recent date
+        // (running last-finalized within the loop OR the series's pre-fetched
+        // baseline). NEVER clamp to today silently — if user wants today they
+        // pick `today` strategy. If IX still rejects (rare race), the per-row
+        // error is reported and the loop continues without advancing.
         targetDate = originalDate;
         if (lastFinalizedDate && lastFinalizedDate > targetDate) targetDate = lastFinalizedDate;
-        if (today > targetDate) targetDate = today;
       }
 
       const dateChanged = targetDate !== originalDate;

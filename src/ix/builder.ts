@@ -55,13 +55,18 @@ export class IxBuilder {
         : (forceTax != null
           ? forceTax
           : (item.tax.unit_amount === 0 ? 0 : item.tax.value));
+      const allocation = !forceZeroTax && typeof item.discount_allocation_amount === "number" && item.discount_allocation_amount > 0
+        ? Math.round(item.discount_allocation_amount * 100) / 100
+        : 0;
       return {
         quantity: item.quantity,
         tax,
         unit_price: item.unit_price,
-        discount: item?.discount?.percent ?? undefined,
         name,
         ...(description ? { description } : {}),
+        ...(allocation > 0
+          ? { discount_amount: allocation }
+          : (item?.discount?.percent ? { discount: item.discount.percent } : {})),
       };
     });
   }

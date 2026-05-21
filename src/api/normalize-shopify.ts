@@ -114,6 +114,7 @@ export interface Item {
   subtotal_calculated: number
   tax: Tax
   discount: Discount
+  discount_allocation_amount?: number
   title: string
   variant_title: string | null
   sku: string

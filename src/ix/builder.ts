@@ -40,13 +40,15 @@ export class IxBuilder {
     const forceTaxShipping = this.config.force_shipping_tax_rate;
     const forceZeroTax = opts?.forceZeroTax === true;
     const shopifyIncluded = rawOrder?.taxes_included === true;
-    const ixIncluded = this.config.vat_included === 1;
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
-    const convert = (gross: number, rate: number) => {
-      if (shopifyIncluded === ixIncluded) return gross;
-      if (shopifyIncluded && !ixIncluded) return gross / (1 + rate / 100);
-      return gross * (1 + rate / 100);
+    // InvoiceXpress always treats `unit_price` and `discount_amount` as
+    // VAT-exclusive and computes VAT on top. Shopify reports prices in the
+    // mode set by the store's taxes_included flag — convert to ex-VAT here
+    // whenever needed so IX recomputes a gross that matches Shopify.
+    const toExVat = (gross: number, rate: number) => {
+      if (!shopifyIncluded || rate <= 0) return gross;
+      return gross / (1 + rate / 100);
     };
 
     const items: IxInvoice["items"] = [];
@@ -61,8 +63,8 @@ export class IxBuilder {
       const grossDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
 
       const tax = forceZeroTax ? 0 : (forceTaxProducts != null ? forceTaxProducts : rate);
-      const unit_price = round2(convert(grossUnit, rate));
-      const discount_amount = grossDiscount > 0 ? round2(convert(grossDiscount, rate)) : 0;
+      const unit_price = round2(toExVat(grossUnit, rate));
+      const discount_amount = grossDiscount > 0 ? round2(toExVat(grossDiscount, rate)) : 0;
 
       const variantTitle = li?.variant_title ? ` / ${li.variant_title}` : "";
       const name = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
@@ -87,8 +89,8 @@ export class IxBuilder {
       const grossDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
 
       const tax = forceZeroTax ? 0 : (forceTaxShipping != null ? forceTaxShipping : rate);
-      const unit_price = round2(convert(grossUnit, rate));
-      const discount_amount = grossDiscount > 0 ? round2(convert(grossDiscount, rate)) : 0;
+      const unit_price = round2(toExVat(grossUnit, rate));
+      const discount_amount = grossDiscount > 0 ? round2(toExVat(grossDiscount, rate)) : 0;
 
       const name = `Portes de envio${sl?.title ? ` — ${sl.title}` : ""}`.slice(0, 200);
       items.push({

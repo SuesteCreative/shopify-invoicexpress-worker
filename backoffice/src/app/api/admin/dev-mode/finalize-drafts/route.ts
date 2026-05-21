@@ -18,6 +18,10 @@ export async function POST(request: NextRequest) {
         reason?: string;
         notify_emails?: string[];
         date_strategy?: "today" | "closest_available";
+        from_order_number?: number | null;
+        to_order_number?: number | null;
+        from_date?: string | null;
+        to_date?: string | null;
     };
 
     const shop = await resolveShopForUser(body.targetUserId);
@@ -36,6 +40,10 @@ export async function POST(request: NextRequest) {
             triggered_by,
             notify_emails: body.notify_emails,
             date_strategy: body.date_strategy,
+            from_order_number: body.from_order_number,
+            to_order_number: body.to_order_number,
+            from_date: body.from_date,
+            to_date: body.to_date,
         }),
     });
     return NextResponse.json(data, { status: ok ? 200 : status });

@@ -554,17 +554,33 @@ function todayUtcYmd(): string {
 export async function finalizeDrafts(
   env: Env,
   config: IRequestConfig,
-  options: { dry_run?: boolean; limit?: number; triggered_by?: string | null; reason?: string | null; notify_emails?: string[]; date_strategy?: DateStrategy }
+  options: {
+    dry_run?: boolean;
+    limit?: number;
+    triggered_by?: string | null;
+    reason?: string | null;
+    notify_emails?: string[];
+    date_strategy?: DateStrategy;
+    from_order_number?: number | null;
+    to_order_number?: number | null;
+    from_date?: string | null;
+    to_date?: string | null;
+  }
 ) {
   const appStorage = new AppStorage(env, config.shopify_domain!);
   const limit = Math.min(options.limit ?? 100, 500);
   const dryRun = !!options.dry_run;
   const strategy: DateStrategy = options.date_strategy ?? "closest_available";
+  const fromOrder = options.from_order_number ?? null;
+  const toOrder = options.to_order_number ?? null;
+  const fromDate = options.from_date ?? null;
+  const toDate = options.to_date ?? null;
+  const filterActive = fromOrder != null || toOrder != null || fromDate != null || toDate != null;
   const jobId = crypto.randomUUID();
   await appStorage.startDevJob({
     id: jobId,
     type: dryRun ? "finalize_drafts_dry_run" : "finalize_drafts",
-    params: { limit, dry_run: dryRun, date_strategy: strategy },
+    params: { limit, dry_run: dryRun, date_strategy: strategy, from_order_number: fromOrder, to_order_number: toOrder, from_date: fromDate, to_date: toDate },
     triggered_by: options.triggered_by ?? null,
     reason: options.reason ?? null,
   });
@@ -577,7 +593,39 @@ export async function finalizeDrafts(
   const ixDocType = config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
   const today = todayUtcYmd();
 
-  const processed = await appStorage.listProcessedInvoices(limit, "asc");
+  let processed = await appStorage.listProcessedInvoices(limit, "asc");
+
+  // Optional filter by Shopify order_number range or processed_at date range.
+  // Resolve order_number + processed_at via one batched Shopify orders.json
+  // request and trim `processed` before the heavy IX loop below.
+  if (filterActive && processed.length > 0) {
+    try {
+      const ids = processed.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
+      const raw = await fetchOrdersByIds(config, ids);
+      const meta = new Map<string, { order_number: number; processed_at: string | null }>();
+      for (const o of raw) {
+        if (o?.id != null) {
+          meta.set(String(o.id), {
+            order_number: Number(o.order_number),
+            processed_at: o.processed_at ?? o.created_at ?? null,
+          });
+        }
+      }
+      processed = processed.filter((r) => {
+        const m = meta.get(r.id);
+        if (!m) return false;
+        if (fromOrder != null && m.order_number < fromOrder) return false;
+        if (toOrder != null && m.order_number > toOrder) return false;
+        if (fromDate != null && m.processed_at && m.processed_at < fromDate) return false;
+        if (toDate != null && m.processed_at && m.processed_at > toDate) return false;
+        return true;
+      });
+    } catch (e) {
+      console.error("[Rioko] finalizeDrafts filter lookup failed:", e);
+      await appStorage.finishDevJob(jobId, "error", { error: `Shopify lookup for filter failed: ${String(e)}` }, []);
+      return { job_id: jobId, total: 0, finalized: 0, skipped: 0, errors: 1, would_finalize: 0, dry_run: dryRun, date_strategy: strategy, results: [], error: String(e) };
+    }
+  }
   const results: Array<{ order_id: string; invoice_id: string; status: "finalized" | "dry_run" | "skipped" | "error"; message: string; original_date?: string; target_date?: string }> = [];
 
   let lastFinalizedDate: string | null = null;

@@ -691,16 +691,32 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
     const [dryRun, setDryRun] = useState(true);
     const [reason, setReason] = useState("");
     const [dateStrategy, setDateStrategy] = useState<"today" | "closest_available">("closest_available");
+    const [filterMode, setFilterMode] = useState<"all" | "order_range" | "date_range">("all");
+    const [fromOrder, setFromOrder] = useState("");
+    const [toOrder, setToOrder] = useState("");
+    const [fromDate, setFromDate] = useState("");
+    const [toDate, setToDate] = useState("");
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<JobResult | null>(null);
 
     const run = async () => {
         setLoading(true); setResult(null);
         try {
+            const payload: Record<string, unknown> = {
+                targetUserId, limit: Number(limit), dry_run: dryRun, reason,
+                notify_emails: notifyEmails, date_strategy: dateStrategy,
+            };
+            if (filterMode === "order_range") {
+                if (fromOrder) payload.from_order_number = Number(fromOrder);
+                if (toOrder) payload.to_order_number = Number(toOrder);
+            } else if (filterMode === "date_range") {
+                if (fromDate) payload.from_date = new Date(fromDate + "T00:00:00Z").toISOString();
+                if (toDate) payload.to_date = new Date(toDate + "T23:59:59Z").toISOString();
+            }
             const res = await fetch("/api/admin/dev-mode/finalize-drafts", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetUserId, limit: Number(limit), dry_run: dryRun, reason, notify_emails: notifyEmails, date_strategy: dateStrategy }),
+                body: JSON.stringify(payload),
             });
             setResult(await res.json());
         } catch (e: any) { setResult({ error: String(e) }); }
@@ -727,6 +743,41 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
                     <p className="text-[10px] text-slate-500 leading-relaxed">
                         Quando a data tem de ser ajustada, a observação da fatura recebe o sufixo <code className="text-slate-300">Fatura referente à encomenda #X de DD/MM/YYYY</code> (preserva o conteúdo existente).
                     </p>
+                </div>
+                <div className="md:col-span-3 flex flex-col gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Filtro (para evitar timeout em loops grandes)</span>
+                    <div className="flex gap-2">
+                        {([
+                            { id: "all", label: "Todos" },
+                            { id: "order_range", label: "Range de orders" },
+                            { id: "date_range", label: "Range de datas" },
+                        ] as const).map(opt => (
+                            <button key={opt.id} type="button" onClick={() => setFilterMode(opt.id)}
+                                className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${filterMode === opt.id ? "bg-violet-500/20 text-violet-300 border-violet-500/40" : "bg-slate-900/50 text-slate-500 border-slate-800 hover:text-slate-300"}`}>
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                    {filterMode === "order_range" && (
+                        <div className="grid grid-cols-2 gap-3 mt-1">
+                            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                De # <input type="number" value={fromOrder} onChange={e => setFromOrder(e.target.value)} placeholder="1260" className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                            </label>
+                            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Até # <input type="number" value={toOrder} onChange={e => setToOrder(e.target.value)} placeholder="1280" className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                            </label>
+                        </div>
+                    )}
+                    {filterMode === "date_range" && (
+                        <div className="grid grid-cols-2 gap-3 mt-1">
+                            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                De <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                            </label>
+                            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Até <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                            </label>
+                        </div>
+                    )}
                 </div>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     Limite

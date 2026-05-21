@@ -40,15 +40,43 @@ export class IxBuilder {
     const forceTaxShipping = this.config.force_shipping_tax_rate;
     const forceZeroTax = opts?.forceZeroTax === true;
     const shopifyIncluded = rawOrder?.taxes_included === true;
-    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const round4 = (n: number) => Math.round(n * 10000) / 10000;
+    const ceil2 = (n: number) => Math.ceil(n * 100) / 100;
 
-    // InvoiceXpress always treats `unit_price` and `discount_amount` as
-    // VAT-exclusive and computes VAT on top. Shopify reports prices in the
-    // mode set by the store's taxes_included flag — convert to ex-VAT here
-    // whenever needed so IX recomputes a gross that matches Shopify.
-    const toExVat = (gross: number, rate: number) => {
-      if (!shopifyIncluded || rate <= 0) return gross;
-      return gross / (1 + rate / 100);
+    // IX always treats `unit_price` and `discount_amount` as VAT-exclusive and
+    // recomputes the gross by adding tax. It also clamps `unit_price` storage
+    // to 2 decimals while preserving full precision on `discount_amount`. We
+    // ceil `unit_price` to 2dp (so any rounding loss can be absorbed by a
+    // small `discount_amount`) and emit a high-precision `discount_amount` so
+    // IX's line subtotal lands exactly on Shopify's per-line target.
+    const buildLine = (
+      grossUnit: number,
+      qty: number,
+      grossLineDiscount: number,
+      rate: number,
+      tax: number,
+      name: string,
+      description?: string,
+    ): IxInvoice["items"][number] | null => {
+      if (qty <= 0 || grossUnit <= 0) return null;
+      const factor = rate > 0 ? 1 + rate / 100 : 1;
+      const unitNetExact = shopifyIncluded && rate > 0 ? grossUnit / factor : grossUnit;
+      const targetLineGross = grossUnit * qty - grossLineDiscount;
+      const targetLineNet = shopifyIncluded && rate > 0 ? targetLineGross / factor : targetLineGross;
+      const unitNetSend = ceil2(unitNetExact);
+      const lineSubtotalSend = unitNetSend * qty;
+      const discountAmount = round4(Math.max(0, lineSubtotalSend - targetLineNet));
+      const item: IxInvoice["items"][number] = {
+        quantity: qty,
+        tax,
+        unit_price: unitNetSend,
+        name,
+        ...(description ? { description } : {}),
+      };
+      if (!forceZeroTax && discountAmount > 0) {
+        (item as any).discount_amount = discountAmount;
+      }
+      return item;
     };
 
     const items: IxInvoice["items"] = [];
@@ -56,53 +84,71 @@ export class IxBuilder {
     const lineItems = Array.isArray(rawOrder?.line_items) ? rawOrder.line_items : [];
     for (const li of lineItems) {
       const quantity = Number(li?.quantity ?? 0);
-      if (!quantity) continue;
       const rate = Number(li?.tax_lines?.[0]?.rate ?? 0) * 100;
       const grossUnit = Number(li?.price ?? 0);
       const allocations = Array.isArray(li?.discount_allocations) ? li.discount_allocations : [];
-      const grossDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
-
+      const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
       const tax = forceZeroTax ? 0 : (forceTaxProducts != null ? forceTaxProducts : rate);
-      const unit_price = round2(toExVat(grossUnit, rate));
-      const discount_amount = grossDiscount > 0 ? round2(toExVat(grossDiscount, rate)) : 0;
-
       const variantTitle = li?.variant_title ? ` / ${li.variant_title}` : "";
       const name = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
       const description = li?.sku ? `SKU: ${li.sku}`.slice(0, 200) : undefined;
-
-      items.push({
-        quantity,
-        tax,
-        unit_price,
-        name,
-        ...(description ? { description } : {}),
-        ...(!forceZeroTax && discount_amount > 0 ? { discount_amount } : {}),
-      });
+      const item = buildLine(grossUnit, quantity, grossLineDiscount, rate, tax, name, description);
+      if (item) items.push(item);
     }
 
     const shippingLines = Array.isArray(rawOrder?.shipping_lines) ? rawOrder.shipping_lines : [];
     for (const sl of shippingLines) {
-      const grossUnit = Number(sl?.price ?? 0);
-      if (grossUnit <= 0) continue;
       const rate = Number(sl?.tax_lines?.[0]?.rate ?? 0) * 100;
+      const grossUnit = Number(sl?.price ?? 0);
       const allocations = Array.isArray(sl?.discount_allocations) ? sl.discount_allocations : [];
-      const grossDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
-
+      const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
       const tax = forceZeroTax ? 0 : (forceTaxShipping != null ? forceTaxShipping : rate);
-      const unit_price = round2(toExVat(grossUnit, rate));
-      const discount_amount = grossDiscount > 0 ? round2(toExVat(grossDiscount, rate)) : 0;
-
       const name = `Portes de envio${sl?.title ? ` — ${sl.title}` : ""}`.slice(0, 200);
-      items.push({
-        quantity: 1,
-        tax,
-        unit_price,
-        name,
-        ...(!forceZeroTax && discount_amount > 0 ? { discount_amount } : {}),
-      });
+      const item = buildLine(grossUnit, 1, grossLineDiscount, rate, tax, name);
+      if (item) items.push(item);
     }
 
     return items;
+  }
+
+  // Compute the expected gross total that IX should arrive at from the items
+  // we're about to send. Mirrors IX's formula: per line
+  // `(unit_price * qty - discount_amount) * (1 + tax/100)`, rounded to 2dp.
+  computeIxExpectedTotal(items: IxInvoice["items"]): number {
+    let total = 0;
+    for (const it of items) {
+      const tax = typeof it.tax === "number" ? it.tax : Number((it.tax as any)?.value ?? 0);
+      const qty = Number(it.quantity);
+      const unit = Number(it.unit_price);
+      const disc = Number((it as any).discount_amount ?? 0);
+      const lineNet = unit * qty - disc;
+      const lineGross = lineNet * (1 + tax / 100);
+      total += lineGross;
+    }
+    return Math.round(total * 100) / 100;
+  }
+
+  // Throws if our planned IX total drifts from Shopify total_price by more
+  // than one cent. Caller catches and aborts the IX call rather than ship a
+  // wrongly-totalled invoice.
+  reconcileOrThrow(rawOrder: any, items: IxInvoice["items"]): void {
+    if (!rawOrder) return;
+    const shopifyTotal = Number(rawOrder?.total_price);
+    if (!Number.isFinite(shopifyTotal) || shopifyTotal <= 0) return;
+    const expected = this.computeIxExpectedTotal(items);
+    const drift = Math.abs(expected - shopifyTotal);
+    if (drift > 0.01) {
+      const breakdown = items.map((it: any) => ({
+        name: it.name,
+        quantity: it.quantity,
+        tax: typeof it.tax === "number" ? it.tax : it.tax?.value,
+        unit_price: it.unit_price,
+        discount_amount: it.discount_amount,
+      }));
+      throw new Error(
+        `Invoice total mismatch with Shopify: shopify=${shopifyTotal.toFixed(2)} expected=${expected.toFixed(2)} drift=${drift.toFixed(2)}. Lines=${JSON.stringify(breakdown)}`,
+      );
+    }
   }
 
   buildInvoiceItems(normalizedItems: Normalized["order"]["items"], opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {
@@ -170,10 +216,13 @@ export class IxBuilder {
 
   createInvoiceFromNormalizedOrder(normalized: Normalized) {
     const client = this.buildInvoiceClient(normalized);
-    const items = normalized.raw_order
+    const usingRawPath = !!normalized.raw_order;
+    const items = usingRawPath
       ? this.buildInvoiceItemsFromRaw(normalized.raw_order)
       : this.buildInvoiceItems(normalized.order.items);
     const requestTaxExemptionReason = this.shouldRequestTaxExemptionReason(items);
+
+    if (usingRawPath) this.reconcileOrThrow(normalized.raw_order, items);
 
     const invoice: IxInvoice = {
       client,
@@ -190,13 +239,16 @@ export class IxBuilder {
         && this.config.ix_retention > 0
         ? { retention: this.config.ix_retention.toFixed(2) }
         : {},
-      ...normalized.order?.global_discount
+      // global_discount intentionally omitted on the raw path — per-line
+      // discount_amount fully encodes every Shopify discount shape and IX's
+      // own global_discount has no targeting (would double-discount shipping).
+      ...(!usingRawPath && normalized.order?.global_discount
         ? {
           global_discount: {
             value: normalized.order.global_discount.percent,
             value_type: "percentage"
           }
-        } : {}
+        } : {})
     }
 
     return { invoice, requestTaxExemptionReason };

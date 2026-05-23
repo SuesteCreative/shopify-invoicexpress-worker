@@ -8,6 +8,7 @@ import { isAdmin, isHiperadmin, getRole } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
+import { IntegrationSetupModal } from "@/components/IntegrationSetupModal";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { NavLinks } from "@/components/NavLinks";
 
@@ -80,9 +81,4 @@ export default async function DashboardLayout({
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto relative z-10 px-6 py-10 md:px-12 md:py-16">
-                {children}
-            </main>
-        </div>
-    );
-}
+            <main className="flex-1 overflow-y-auto relative z-10 px-6 py-10 md:px-12 md:py-16">

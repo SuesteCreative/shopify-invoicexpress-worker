@@ -3,6 +3,7 @@ import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
 import { getSourceAdapter, getDestinationAdapter } from "../adapters/registry";
 import { checkSubscriptionGate } from "../services/subscription-gate";
+import { isIntegrationPaused } from "../services/pause-gate";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 
@@ -75,6 +76,10 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const ctx = { apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config, sourceConfig: input.sourceConfig };
   const logTopic = `${source}/${topic}`;
   const connectionLabel = `${source} → ${destination}`;
+
+  // 1a. Pause switch — merchant-controlled kill switch, runs before the
+  // subscription gate so paused integrations short-circuit even for paying users.
+  if (await isIntegrationPaused(env, config, logTopic, externalId)) return;
 
   // 1. Subscription gate (applies to every destination/source)
   const gate = await checkSubscriptionGate(env, config);

@@ -57,6 +57,8 @@ export default function ShopifyIXIntegration() {
     const [ixAuthorized, setIxAuthorized] = useState(false);
     const [shopifyError, setShopifyError] = useState("");
     const [ixError, setIxError] = useState("");
+    const [isPaused, setIsPaused] = useState(false);
+    const [togglingPaused, setTogglingPaused] = useState(false);
 
     // allComplete: all 3 integrations are validated
     // webhooksActive can be "unknown" when token lacks read_webhooks, so we also
@@ -126,6 +128,7 @@ export default function ShopifyIXIntegration() {
                     if (Number.isFinite(v)) setIxRetention(v);
                 }
                 if (data.webhooks_active !== undefined) setWebhooksActive(data.webhooks_active === 1);
+                if (data.is_paused !== undefined) setIsPaused(data.is_paused === 1);
                 if (data.shopify_error) setShopifyError(data.shopify_error);
                 if (data.ix_error) setIxError(data.ix_error);
                 if (data._viewer_role) setUserRole(data._viewer_role);
@@ -338,6 +341,31 @@ export default function ShopifyIXIntegration() {
         }
     };
 
+    // --- Pause / resume the live connection -------------------------------
+    // Optimistically flips the local toggle; reverts on API failure so the UI
+    // never lies about server state. Worker reads `is_paused` on each event.
+    const handleTogglePaused = async (next: boolean) => {
+        const previous = isPaused;
+        setIsPaused(next);
+        setTogglingPaused(true);
+        try {
+            const res = await fetch("/api/integrations/toggle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paused: next }),
+            });
+            if (!res.ok) {
+                setIsPaused(previous);
+                alert("Erro ao alterar estado. Tenta novamente.");
+            }
+        } catch (e: any) {
+            setIsPaused(previous);
+            alert(`Erro de rede: ${e.message}`);
+        } finally {
+            setTogglingPaused(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center">
@@ -494,6 +522,66 @@ export default function ShopifyIXIntegration() {
                     </div>
                 </div>
             </div>
+
+            {allComplete && (
+                <div className={cn(
+                    "glass rounded-[2rem] border p-6 flex items-center justify-between gap-6 transition-colors duration-500",
+                    isPaused ? "border-amber-500/30 bg-amber-500/[0.03]" : "border-emerald-500/25 bg-emerald-500/[0.02]"
+                )}>
+                    <div className="flex items-center gap-5 min-w-0">
+                        <div className={cn(
+                            "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border",
+                            isPaused
+                                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                        )}>
+                            <Zap className={cn("w-5 h-5", isPaused ? "opacity-50" : "")} />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-base font-bold tracking-tight">
+                                    {isPaused ? "Integração em pausa" : "Integração ativa"}
+                                </h3>
+                                <span className={cn(
+                                    "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                                    isPaused ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                             : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                )}>
+                                    {isPaused ? "Pausada" : "Ativa"}
+                                </span>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1 leading-relaxed max-w-xl">
+                                {isPaused
+                                    ? "Os webhooks da Shopify continuam a chegar, mas o Rioko não emite faturas até reactivares a ligação."
+                                    : "O Rioko está a processar encomendas em tempo real e a emitir faturas no InvoiceXpress."}
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => handleTogglePaused(!isPaused)}
+                        disabled={togglingPaused}
+                        aria-pressed={!isPaused}
+                        aria-label={isPaused ? "Reactivar integração" : "Pausar integração"}
+                        className={cn(
+                            "relative shrink-0 inline-flex h-8 w-14 items-center rounded-full transition-colors duration-300",
+                            "focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+                            isPaused
+                                ? "bg-slate-800 border border-slate-700 focus-visible:ring-amber-500/50"
+                                : "bg-emerald-500 focus-visible:ring-emerald-400/50",
+                            togglingPaused && "opacity-60 cursor-wait"
+                        )}
+                    >
+                        <span
+                            className={cn(
+                                "inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform duration-300",
+                                isPaused ? "translate-x-1" : "translate-x-7"
+                            )}
+                        />
+                    </button>
+                </div>
+            )}
 
             <SubscriptionCard onSuccess={stripeSuccess} />
 

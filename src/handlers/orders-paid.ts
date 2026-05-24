@@ -5,6 +5,7 @@ import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { awaitInvoiceVisibility } from "../utils";
 import { checkSubscriptionGate } from "../services/subscription-gate";
+import { isIntegrationPaused } from "../services/pause-gate";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -13,6 +14,10 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
   const orderId = order.id;
   console.log(`[Rioko] Order received: ${orderId}`);
   console.log(order);
+
+  // Pause switch — must come before the subscription gate so a paused
+  // user with an active subscription still short-circuits silently.
+  if (await isIntegrationPaused(env, config, webhookTopic, orderId)) return;
 
   // Subscription gate: block IX emission if user's Kapta subscription inactive (admins exempt)
   const gate = await checkSubscriptionGate(env, config);

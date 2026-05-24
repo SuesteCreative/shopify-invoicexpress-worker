@@ -5,6 +5,7 @@ import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
+import { isIntegrationPaused } from "../services/pause-gate";
 
 export async function handleOrderCreated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/created";
@@ -13,6 +14,9 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
   const orderId = order.id;
   console.log(`[Rioko] Order received: ${orderId}`);
   console.log(order);
+
+  // Pause switch: merchant turned the integration off — log and exit.
+  if (await isIntegrationPaused(env, config, webhookTopic, orderId)) return;
 
   // Check if order was already processed.
   const alreadyExists = await appStorage.isInvoiceAlreadyProcessed(orderId);

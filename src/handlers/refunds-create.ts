@@ -5,6 +5,7 @@ import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder, type IxCreditNote } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
+import { isIntegrationPaused } from "../services/pause-gate";
 
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
@@ -19,6 +20,9 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
   }
 
   console.log(`[Rioko] Refund received for order: ${orderId}, refund id: ${refund.id}`);
+
+  // Pause switch — silently skip credit-note creation when paused.
+  if (await isIntegrationPaused(env, config, webhookTopic, orderId)) return;
 
   try {
     // Normalize order using the order_id

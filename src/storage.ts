@@ -58,6 +58,11 @@ export interface IRequestConfig {
   ix_retention_enabled: number | null;
   // PT IRS/IRC withholding percentage, 0–99.99. NULL when never set.
   ix_retention: number | null;
+  // 0 or 1. When 1, every webhook handler short-circuits before reaching
+  // the destination — no IX/Moloni documents are generated. Independent of
+  // shopify_authorized / webhooks_active so the user can pause without
+  // tearing down the integration.
+  is_paused: number | null;
   created_at: string | null;
   updated_at: string | null;
 }

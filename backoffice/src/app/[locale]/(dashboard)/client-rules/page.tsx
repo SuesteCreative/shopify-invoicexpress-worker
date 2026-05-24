@@ -33,20 +33,20 @@ const Toggle = ({ value, onChange, label, description, warn }: {
     description: string;
     warn?: string;
 }) => (
-    <div className="flex items-start justify-between gap-4 py-3 border-b border-slate-800/40 last:border-0">
+    <div className="flex items-start justify-between gap-4 py-3 border-b border-hairline last:border-0">
         <div className="flex-1">
-            <p className="text-sm font-bold text-slate-200">{label}</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">{description}</p>
+            <p className="text-sm font-bold text-fg">{label}</p>
+            <p className="text-[11px] text-fg-40 mt-0.5">{description}</p>
             {warn && value && (
-                <p className="text-[10px] text-amber-400 mt-1 flex items-center gap-1">
+                <p className="text-[10px] text-soon mt-1 flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" />{warn}
                 </p>
             )}
         </div>
         <button onClick={() => onChange(!value)} className="shrink-0 mt-0.5">
             {value
-                ? <ToggleRight className="w-8 h-8 text-emerald-400" />
-                : <ToggleLeft className="w-8 h-8 text-slate-600" />
+                ? <ToggleRight className="w-8 h-8 text-accent-hot" />
+                : <ToggleLeft className="w-8 h-8 text-fg-40" />
             }
         </button>
     </div>
@@ -100,7 +100,7 @@ export default function ClientRulesPage() {
 
     if (loading) return (
         <div className="min-h-[60vh] flex items-center justify-center">
-            <Loader2 className="w-12 h-12 text-violet-500 animate-spin opacity-50" />
+            <Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" />
         </div>
     );
 
@@ -109,29 +109,29 @@ export default function ClientRulesPage() {
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3">
-                        <Settings2 className="w-8 h-8 text-violet-500" />
-                        <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-white via-white to-slate-500 bg-clip-text text-transparent">
+                        <Settings2 className="w-8 h-8 text-accent" />
+                        <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                             Regras
                         </h1>
                     </div>
-                    <p className="text-slate-400 font-semibold tracking-wide">
+                    <p className="text-fg-60 font-semibold tracking-wide">
                         Configurações e overrides activos. Exclusivo Hiperadmin.
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-4">
                     <div className="relative group">
-                        <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-violet-500 transition-colors" />
+                        <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-accent transition-colors" />
                         <input
                             type="text" placeholder="Nome, email ou domínio..."
                             value={search} onChange={e => setSearch(e.target.value)}
-                            className="bg-slate-900/50 border border-slate-800/60 rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500/40 w-full lg:w-80 transition-all"
+                            className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.40)] w-full lg:w-80 transition-all"
                         />
                     </div>
                     <button
                         onClick={() => setSortOrder((p: string) => p === "desc" ? "asc" : "desc")}
-                        className="bg-slate-900/50 border border-slate-800/60 rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-slate-800/80 transition-all active:scale-95"
+                        className="bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-surface-2/80 transition-all active:scale-95"
                     >
-                        <ArrowUpDown className="w-4 h-4 text-violet-500" />
+                        <ArrowUpDown className="w-4 h-4 text-accent" />
                         {sortOrder === "desc" ? "Z-A" : "A-Z"}
                     </button>
                 </div>
@@ -146,40 +146,40 @@ export default function ClientRulesPage() {
                             initial={{ opacity: 0, scale: 0.98 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.98 }}
-                            className="glass rounded-[2rem] p-8 border-slate-800/40 hover:border-slate-700/60 transition-all"
+                            className="glass rounded-[2rem] p-8 border-hairline hover:border-rule transition-all"
                         >
                             {/* Client header */}
-                            <div className="flex items-start justify-between mb-6 pb-6 border-b border-slate-800/40">
+                            <div className="flex items-start justify-between mb-6 pb-6 border-b border-hairline">
                                 <div>
                                     <h2 className="text-xl font-bold">{client.name}</h2>
-                                    <p className="text-slate-500 text-sm">{client.email}</p>
+                                    <p className="text-fg-40 text-sm">{client.email}</p>
                                     <div className="flex items-center gap-4 mt-4 flex-wrap">
                                         {client.shopify_domain && (
-                                            <span className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                                                <Store className="w-3 h-3 text-emerald-500" />
+                                            <span className="flex items-center gap-1.5 text-[10px] text-fg-40 font-bold uppercase tracking-widest">
+                                                <Store className="w-3 h-3 text-accent-hot" />
                                                 {client.shopify_domain}
                                             </span>
                                         )}
                                         {client.ix_account_name && (
-                                            <span className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                                                <FileText className="w-3 h-3 text-blue-400" />
+                                            <span className="flex items-center gap-1.5 text-[10px] text-fg-40 font-bold uppercase tracking-widest">
+                                                <FileText className="w-3 h-3 text-accent" />
                                                 {client.ix_account_name}
                                             </span>
                                         )}
                                     </div>
                                 </div>
                                 <div className="flex flex-col items-end gap-2 text-right">
-                                    <div className="text-[10px] font-black text-slate-600 uppercase tracking-widest bg-slate-900/50 px-3 py-1 rounded-lg border border-slate-800/50">
+                                    <div className="text-[10px] font-black text-fg-40 uppercase tracking-widest bg-surface-2/50 px-3 py-1 rounded-lg border border-hairline">
                                         Isenção: {client.ix_exemption_reason || "M01"}
                                     </div>
                                     <div className="flex gap-2">
                                         {client.shopify_authorized === 1 && (
                                             <div className="flex flex-col items-end">
-                                                <div className="px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-400 uppercase tracking-tighter flex items-center gap-1">
+                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
                                                     <Check className="w-2.5 h-2.5" /> Shopify Force
                                                 </div>
                                                 {client.shopify_forced_at && (
-                                                    <span className="text-[7px] text-slate-600 font-bold mt-0.5 uppercase tracking-tighter">
+                                                    <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
                                                         Ativado: {new Date(client.shopify_forced_at).toLocaleString("pt-PT")}
                                                     </span>
                                                 )}
@@ -187,11 +187,11 @@ export default function ClientRulesPage() {
                                         )}
                                         {client.webhooks_active === 1 && (
                                             <div className="flex flex-col items-end">
-                                                <div className="px-2 py-1 rounded-md bg-violet-500/10 border border-violet-500/20 text-[9px] font-black text-violet-400 uppercase tracking-tighter flex items-center gap-1">
+                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
                                                     <Webhook className="w-2.5 h-2.5" /> Webhook Force
                                                 </div>
                                                 {client.webhooks_forced_at && (
-                                                    <span className="text-[7px] text-slate-600 font-bold mt-0.5 uppercase tracking-tighter">
+                                                    <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
                                                         Ativado: {new Date(client.webhooks_forced_at).toLocaleString("pt-PT")}
                                                     </span>
                                                 )}
@@ -199,11 +199,11 @@ export default function ClientRulesPage() {
                                         )}
                                         {client.ix_authorized === 1 && (
                                             <div className="flex flex-col items-end">
-                                                <div className="px-2 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-[9px] font-black text-blue-400 uppercase tracking-tighter flex items-center gap-1">
+                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
                                                     <Check className="w-2.5 h-2.5" /> IX Force
                                                 </div>
                                                 {client.ix_forced_at && (
-                                                    <span className="text-[7px] text-slate-600 font-bold mt-0.5 uppercase tracking-tighter">
+                                                    <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
                                                         Ativado: {new Date(client.ix_forced_at).toLocaleString("pt-PT")}
                                                     </span>
                                                 )}
@@ -244,7 +244,7 @@ export default function ClientRulesPage() {
                             </div>
 
                             {saving && saving.startsWith(client.id) && (
-                                <div className="mt-4 flex items-center gap-2 text-[10px] text-slate-500 font-bold">
+                                <div className="mt-4 flex items-center gap-2 text-[10px] text-fg-40 font-bold">
                                     <Loader2 className="w-3 h-3 animate-spin" /> A guardar...
                                 </div>
                             )}
@@ -253,7 +253,7 @@ export default function ClientRulesPage() {
                 </AnimatePresence>
 
                 {clients.length === 0 && (
-                    <div className="text-center py-20 text-slate-600 font-bold text-sm">
+                    <div className="text-center py-20 text-fg-40 font-bold text-sm">
                         Nenhum cliente com integração configurada.
                     </div>
                 )}

@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Plus, Store, CheckCircle2, Zap, ArrowRight, TrendingUp, Package, AlertCircle } from "lucide-react";
+import { Activity, ShieldCheck, ClipboardList, Settings2, BookOpen, Plus, Store, CheckCircle2, Zap, ArrowRight, TrendingUp, Package, AlertCircle, ExternalLink, FileText, ScrollText, Inbox } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
@@ -24,6 +24,8 @@ export default function WelcomeDashboard() {
   const [loading, setLoading] = useState(true);
   const [integrationStatus, setIntegrationStatus] = useState<any>(null);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
+  const [recentInvoices, setRecentInvoices] = useState<any[] | null>(null);
+  const [recentLogs, setRecentLogs] = useState<any[] | null>(null);
 
   useEffect(() => {
     fetch("/api/integrations")
@@ -37,12 +39,43 @@ export default function WelcomeDashboard() {
             shopifyAuthorized: data.shopify_authorized === 1,
             ixAuthorized: data.ix_authorized === 1,
             webhooksActive: data.webhooks_active === 1,
+            isPaused: data.is_paused === 1,
             isAllComplete: data.shopify_authorized === 1 && data.ix_authorized === 1 && data.webhooks_active === 1
           });
         }
       })
       .finally(() => setLoading(false));
+
+    // Recent activity feeds — fire in parallel, don't block welcome render
+    fetch("/api/dashboard/recent-invoices")
+      .then(r => r.ok ? r.json() : { invoices: [] })
+      .then((d: any) => setRecentInvoices(d.invoices || []))
+      .catch(() => setRecentInvoices([]));
+    fetch("/api/dashboard/recent-logs")
+      .then(r => r.ok ? r.json() : { logs: [] })
+      .then((d: any) => setRecentLogs(d.logs || []))
+      .catch(() => setRecentLogs([]));
   }, []);
+
+  // Map a log row's HTTP-style status code to a UI tone.
+  const logTone = (status: number): "ok" | "warn" | "err" | "info" => {
+    if (status >= 500) return "err";
+    if (status === 402 || status === 401) return "warn";
+    if (status >= 400) return "warn";
+    if (status >= 200 && status < 300) return "ok";
+    return "info";
+  };
+
+  const fmtRelative = (iso: string | null) => {
+    if (!iso) return "";
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return "";
+    const diff = Math.max(0, Date.now() - then) / 1000;
+    if (diff < 60) return "agora";
+    if (diff < 3600) return `há ${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `há ${Math.floor(diff / 3600)} h`;
+    return `há ${Math.floor(diff / 86400)} d`;
+  };
 
   if (loading) {
     return (
@@ -87,34 +120,118 @@ export default function WelcomeDashboard() {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-8">
-        {/* Quick Stats Placeholder */}
+        {/* Activity feeds */}
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="glass p-8 rounded-[2.5rem] border-slate-800/40 flex flex-col justify-between group overflow-hidden relative">
-            <div className="absolute -top-4 -right-4 bg-emerald-500/10 w-32 h-32 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-all duration-700" />
-            <div className="flex items-center justify-between relative z-10">
-              <div className="p-3 bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
-                <TrendingUp className="w-6 h-6 text-emerald-400" />
+          {/* Documentos Emitidos — latest 5 invoices */}
+          <div className="glass p-6 rounded-[2.5rem] border-slate-800/40 flex flex-col overflow-hidden relative min-h-[280px]">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                  <FileText className="w-4 h-4 text-emerald-400" />
+                </div>
+                <h3 className="text-[11px] font-black text-slate-300 uppercase tracking-[0.18em]">Documentos Emitidos</h3>
               </div>
-              <span className="text-[10px] font-black text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded-lg uppercase tracking-wider">Brevemente</span>
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Últimos 5</span>
             </div>
-            <div className="space-y-1 relative z-10">
-              <p className="text-4xl font-black tracking-tighter text-slate-300 opacity-20">---</p>
-              <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Documentos Emitidos</p>
-            </div>
+
+            {recentInvoices === null ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-slate-700 border-t-emerald-400 rounded-full animate-spin" />
+              </div>
+            ) : recentInvoices.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-4">
+                <Inbox className="w-8 h-8 text-slate-700" />
+                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Sem documentos</p>
+                <p className="text-[10px] text-slate-600 max-w-[200px]">Aparecem aqui assim que o Rioko emitir a primeira fatura.</p>
+              </div>
+            ) : (
+              <ul className="space-y-1.5 -mx-2">
+                {recentInvoices.map((inv) => (
+                  <li key={inv.order_id}>
+                    {inv.ix_url ? (
+                      <a
+                        href={inv.ix_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl hover:bg-white/5 transition-all group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-1 h-1 rounded-full bg-emerald-400 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-200 truncate">#{inv.order_id}</p>
+                            <p className="text-[10px] text-slate-500 font-mono">IX {inv.invoice_id}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] text-slate-500 font-mono">{fmtRelative(inv.created_at)}</span>
+                          <ExternalLink className="w-3 h-3 text-slate-600 group-hover:text-emerald-400 transition-colors" />
+                        </div>
+                      </a>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-200 truncate">#{inv.order_id}</p>
+                            <p className="text-[10px] text-slate-500 font-mono">IX {inv.invoice_id}</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono">{fmtRelative(inv.created_at)}</span>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          <div className="glass p-8 rounded-[2.5rem] border-slate-800/40 flex flex-col justify-between group overflow-hidden relative">
-            <div className="absolute -top-4 -right-4 bg-sky-500/10 w-32 h-32 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-all duration-700" />
-            <div className="flex items-center justify-between relative z-10">
-              <div className="p-3 bg-sky-500/10 rounded-2xl border border-sky-500/20">
-                <Package className="w-6 h-6 text-sky-400" />
+          {/* Logs — latest 10 entries */}
+          <div className="glass p-6 rounded-[2.5rem] border-slate-800/40 flex flex-col overflow-hidden relative min-h-[280px]">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-sky-500/10 rounded-xl border border-sky-500/20">
+                  <ScrollText className="w-4 h-4 text-sky-400" />
+                </div>
+                <h3 className="text-[11px] font-black text-slate-300 uppercase tracking-[0.18em]">Logs</h3>
               </div>
-              <span className="text-[10px] font-black text-sky-400 bg-sky-400/10 px-2 py-1 rounded-lg uppercase tracking-wider">Brevemente</span>
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Últimos 10</span>
             </div>
-            <div className="space-y-1 relative z-10">
-              <p className="text-4xl font-black tracking-tighter text-slate-300 opacity-20">---</p>
-              <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Encomendas Pendentes</p>
-            </div>
+
+            {recentLogs === null ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-slate-700 border-t-sky-400 rounded-full animate-spin" />
+              </div>
+            ) : recentLogs.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-4">
+                <Inbox className="w-8 h-8 text-slate-700" />
+                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Sem logs</p>
+                <p className="text-[10px] text-slate-600 max-w-[200px]">Quando chegarem webhooks, os eventos aparecem aqui.</p>
+              </div>
+            ) : (
+              <ul className="space-y-1 -mx-2 max-h-[420px] overflow-y-auto scrollbar-hide">
+                {recentLogs.map((log) => {
+                  const tone = logTone(log.status);
+                  const dot = tone === "ok" ? "bg-emerald-400"
+                          : tone === "warn" ? "bg-amber-400"
+                          : tone === "err" ? "bg-rose-500"
+                          : "bg-slate-500";
+                  return (
+                    <li key={log.id} className="px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn("w-1 h-1 rounded-full shrink-0", dot)} />
+                          <span className="text-[10px] font-mono text-slate-400 truncate">{log.topic}</span>
+                        </div>
+                        <span className="text-[9px] font-mono text-slate-600 shrink-0">{fmtRelative(log.created_at)}</span>
+                      </div>
+                      {log.message && (
+                        <p className="text-[10px] text-slate-500 truncate pl-3 mt-0.5" title={log.message}>{log.message}</p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </div>
 

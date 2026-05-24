@@ -81,4 +81,12 @@ export default async function DashboardLayout({
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto relative z-10 px-6 py-10 md:px-12 md:py-16">
+            <main className="flex-1 overflow-y-auto relative z-10 px-6 py-10 md:px-12 md:py-16">
+                {children}
+            </main>
+
+            {/* Floating modal: shown for users with incomplete integration */}
+            <IntegrationSetupModal />
+        </div>
+    );
+}

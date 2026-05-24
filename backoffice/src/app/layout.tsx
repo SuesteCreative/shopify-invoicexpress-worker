@@ -1,19 +1,10 @@
 import type { Metadata } from "next";
-import { Outfit } from "next/font/google";
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
-import { ClerkProvider, UserButton, SignOutButton } from "@clerk/nextjs";
+import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
-import Image from "next/image";
-import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { sansDisplay, monoFont } from "./fonts";
 import InactivityLogout from "@/components/InactivityLogout";
-
-const outfit = Outfit({
-  subsets: ["latin"],
-  weight: ["300", "400", "600", "700"],
-  variable: "--font-outfit",
-});
 
 export const metadata: Metadata = {
   title: "Rioko 2.0 | Developed by Kapta",
@@ -27,15 +18,19 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="pt">
-        <body className={`${outfit.className} antialiased bg-slate-950 text-white min-h-screen overflow-x-hidden`}>
+      <html lang="pt" className={`${sansDisplay.variable} ${monoFont.variable}`}>
+        <body
+          className="antialiased min-h-screen overflow-x-hidden"
+          style={{
+            backgroundColor: "var(--background)",
+            color: "var(--foreground)",
+            fontFamily: "var(--font-sans-display), system-ui, sans-serif",
+          }}
+        >
           <InactivityLogout />
-          {/* Dashboard Mesh Background */}
-          <div className="glow-mesh" aria-hidden="true" />
+          <div className="brand-ambient" aria-hidden="true" />
 
-          {/* Root Content Shell */}
           <div className="relative min-h-screen flex flex-col md:flex-row">
-            {/* Main Content Area */}
             <main className="flex-1 overflow-y-auto">
               {children}
             </main>

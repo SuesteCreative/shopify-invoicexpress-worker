@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Calendar, Mail } from "lucide-react";
 
-const DISMISSED_KEY = "rioko_setup_modal_dismissed";
+const DISMISSED_KEY_PREFIX = "rioko_setup_modal_dismissed:";
 
 // ─── Brand tokens (docs/brand-guideline.md) ────────────────────────────────
 const SURFACE   = "#0E1116";
@@ -21,17 +21,20 @@ const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
 export function IntegrationSetupModal() {
   const [visible, setVisible] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem(DISMISSED_KEY)) return;
-    } catch {
-      return; // localStorage unavailable (SSR guard)
-    }
-
     fetch("/api/integrations")
       .then((res) => res.json())
       .then((data: any) => {
+        const uid: string | null = data._user_id || null;
+        setUserId(uid);
+
+        // Per-user dismissal — prevents impersonation / multi-tenant leakage
+        try {
+          if (uid && localStorage.getItem(DISMISSED_KEY_PREFIX + uid)) return;
+        } catch { return; }
+
         const isRegistered = !!data._registration_completed;
         // Complete only when Shopify, InvoiceXpress, and webhooks are all live
         const isComplete =
@@ -50,7 +53,7 @@ export function IntegrationSetupModal() {
 
   const dismiss = () => {
     try {
-      localStorage.setItem(DISMISSED_KEY, "true");
+      if (userId) localStorage.setItem(DISMISSED_KEY_PREFIX + userId, "true");
     } catch { /* ignore */ }
     setVisible(false);
   };

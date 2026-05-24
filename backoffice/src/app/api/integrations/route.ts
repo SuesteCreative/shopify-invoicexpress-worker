@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             ...(integration || {}),
+            _user_id: targetUserId,
             _user_name: userRecord?.name || null,
             _user_role: userRecord?.role || "user",
             _registration_completed: !!userRecord?.registration_completed,

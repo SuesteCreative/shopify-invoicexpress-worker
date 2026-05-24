@@ -1,0 +1,294 @@
+{
+  "metadata": {
+    "siteTitle": "Rioko 2.0 | Developed by Kapta",
+    "siteDescription": "Hub de integrações de faturação para Shopify, Stripe e mais.",
+    "privacyTitle": "Política de Privacidade | Rioko",
+    "termsTitle": "Termos de Serviço | Rioko"
+  },
+  "common": {
+    "back": "← Voltar",
+    "loading": "A carregar…"
+  },
+  "notFound": {
+    "title": "404 - Não Encontrado",
+    "body": "A página que procuras não existe ou foi movida.",
+    "cta": "Voltar ao Início"
+  },
+  "lang": {
+    "pt": "PT",
+    "en": "EN",
+    "switchTo": "Mudar idioma"
+  },
+  "landing": {
+    "nav": {
+      "hubChip": "Hub de Integrações",
+      "integrations": "Integrações",
+      "how": "Como funciona",
+      "pricing": "Preço",
+      "compliance": "Conformidade",
+      "signIn": "Entrar",
+      "start": "Começar",
+      "openMenu": "Abrir menu",
+      "closeMenu": "Fechar menu"
+    },
+    "hero": {
+      "chip": "Hub de Integrações",
+      "h1": "Uma <g>fatura</g>.<br></br>Para cada <g>encomenda</g>.<br></br>De cada <g>plataforma</g>.",
+      "body": "Rioko é o motor que conecta a sua loja, o seu gateway de pagamento e o seu programa de faturação. Webhook entra, <h>fatura sai</h> — em menos de um segundo, com NIF detectado, IVA calculado e isenção fiscal aplicada conforme o código M01–M99.",
+      "ctaCreate": "Criar conta grátis",
+      "ctaSee": "Ver integrações disponíveis",
+      "stat1Value": "< 1s",
+      "stat1Label": "webhook → fatura",
+      "stat2Value": "1 : 1",
+      "stat2Label": "encomenda : fatura",
+      "stat3Value": "M01–M99",
+      "stat3Label": "isenções suportadas"
+    },
+    "showcase": {
+      "flowOrigin": "Origem",
+      "flowDest": "Destino",
+      "emitted": "emitida",
+      "live": "fluxo real · ao vivo",
+      "timeAgo": "ontem · 14h27",
+      "engineTitle": "Rioko 2.0 · Hub de Integrações",
+      "engineSub": "motor fiscal · edge runtime",
+      "tagline": "1 encomenda · 1 fatura · sem erros"
+    },
+    "matrix": {
+      "eyebrow": "O hub",
+      "title": "Cada plataforma fala com a <g>Rioko</g>.<br></br>A Rioko fala com <g>cada</g> programa de faturação.",
+      "sub": "Em vez de manter sete integrações ponto-a-ponto, mantém uma. Adicionamos pagamentos e programas de faturação ao motor à medida que o ecossistema cresce.",
+      "groupPayments": "Pagamentos",
+      "subtitlePayments": "entrada · pedidos pagos chegam por webhook",
+      "groupInvoicing": "Faturação",
+      "subtitleInvoicing": "saída · documentos emitidos ao gateway certo",
+      "missingTitle": "Falta uma integração que precisa?",
+      "missingSub": "priorizamos por procura real",
+      "missingCta": "Pedir nova integração"
+    },
+    "status": {
+      "live": "Ativo",
+      "soon": "Em breve",
+      "planned": "Em estudo"
+    },
+    "integrations": {
+      "shopify": { "note": "Encomendas pagas → fatura em < 1s" },
+      "stripe": { "note": "Assinaturas, charges e refunds via webhook" },
+      "eupago": { "note": "Multibanco, MB WAY e referências" },
+      "easypay": { "note": "Captura imediata e diferida" },
+      "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
+      "invoicexpress": { "note": "Faturas, recibos, notas de crédito" },
+      "moloni": { "note": "Sincronização total de documentos" },
+      "vendus": { "note": "POS + faturação certificada" }
+    },
+    "flowSlots": {
+      "shopify": { "sub": "encomenda paga · #1042" },
+      "stripe": { "sub": "charge succeeded · ch_3R9" },
+      "easypay": { "sub": "capture · pmt_5921" },
+      "eupago": { "sub": "MB WAY confirmado · #2847" },
+      "ifthenpay": { "sub": "MB referência · #883" },
+      "invoicexpress": { "sub": "FT 2026/A/847 · finalizada" },
+      "moloni": { "sub": "FT 2026/A/523 · finalizada" },
+      "vendus": { "sub": "FT 2026/A/319 · finalizada" }
+    },
+    "how": {
+      "eyebrow": "O fluxo",
+      "title": "Três passos. <g>Uma vez.</g>",
+      "sub": "Configurar a Rioko demora menos do que abrir uma fatura à mão. Depois disso, nunca mais.",
+      "stepLabel": "Passo",
+      "step1": {
+        "title": "Conecta a loja e o programa",
+        "body": "Cola o domínio Shopify e a sua chave da InvoiceXpress. O assistente de 4 passos detecta scopes, regista webhooks e valida credenciais em tempo real.",
+        "code1": "POST  /api/integrations/activate",
+        "code2": "{ \"shopify_domain\": \"minha-loja.myshopify.com\",",
+        "code3": "  \"ix_account\":     \"minha-empresa\" }",
+        "code4": "200 OK · webhooks registados"
+      },
+      "step2": {
+        "title": "Define as regras fiscais",
+        "body": "IVA incluído ou separado? Razão de isenção por defeito? Série de faturação específica? Tudo no mesmo painel — sem código, sem ficheiros .env.",
+        "pill1": "IVA incluído",
+        "pill2": "M99 · Não sujeito",
+        "pill3": "Série WEB",
+        "pill4": "Auto-finalizar"
+      },
+      "step3": {
+        "title": "Esquece. A Rioko fatura.",
+        "body": "Cada encomenda paga gera uma fatura no programa correto, com o NIF do cliente, taxa de IVA certa e texto legal AT incluído. Reembolsos viram nota de crédito. Automático.",
+        "tick1": "1 encomenda = 1 fatura (idempotência D1 + KV)",
+        "tick2": "Reembolsos → nota de crédito automática",
+        "tick3": "Logs auditáveis por evento",
+        "tagD1": "atómico",
+        "tagKV": "rápido",
+        "tagHMAC": "verificado"
+      }
+    },
+    "fiscal": {
+      "eyebrow": "Confiança",
+      "title": "Feito para fiscalidade portuguesa.<br></br><muted><g>Não</g> traduzido dela.</muted>",
+      "sub": "A Rioko nasceu em Lisboa, num escritório fiscal. Não é uma SaaS americana com pacote PT — é o contrário.",
+      "item1Title": "Conformidade AT",
+      "item1Body": "Texto legal de todas as razões de isenção (M01–M99) injectado em observações da fatura.",
+      "item2Title": "NIF inteligente",
+      "item2Body": "Detecção de NIF em note_attributes, notas de encomenda e morada de faturação, com validação algorítmica PT.",
+      "item3Title": "Idempotência dupla",
+      "item3Body": "Tabela atómica em D1 + cache KV. Webhooks duplicados, retries de gateway, race conditions — tudo neutralizado.",
+      "item4Title": "Encriptação em repouso",
+      "item4Body": "Chaves de API Shopify e InvoiceXpress encriptadas antes de qualquer escrita."
+    },
+    "pricing": {
+      "eyebrow": "Preço",
+      "title": "Simples. <g>Por integração.</g>",
+      "sub": "Paga apenas pelas integrações que ligar. Sem fees por documento emitido, sem limites por volume. Cancela quando quiser.",
+      "recommended": "Recomendado",
+      "notice": "Preços sem IVA · faturação emitida em InvoiceXpress",
+      "monthly": {
+        "name": "Standard",
+        "cadence": "mensal",
+        "period": "/mês · por integração",
+        "tagline": "Pague mês a mês. Cancele quando quiser.",
+        "cta": "Começar grátis",
+        "b1": "Uma integração à escolha do catálogo",
+        "b2": "Faturação automática em < 1s",
+        "b3": "NIF · IVA · M01–M99",
+        "b4": "Idempotência D1 + KV",
+        "b5": "Suporte por email"
+      },
+      "yearly": {
+        "name": "Standard",
+        "cadence": "anual",
+        "period": "/ano · por integração",
+        "tagline": "Dois meses oferta. O motor, todo o ano.",
+        "savings": "Poupa 15 €/ano",
+        "cta": "Começar grátis",
+        "b1": "Tudo no plano mensal",
+        "b2": "2 meses grátis (75 € vs 90 €)",
+        "b3": "Prioridade no roadmap de integrações",
+        "b4": "Suporte por email · resposta < 24h"
+      },
+      "custom": {
+        "name": "Personalizada",
+        "cadence": "à medida",
+        "priceLabel": "Sob",
+        "period": "consulta",
+        "tagline": "Integração à medida: ERP, marketplace, fluxos específicos. Avalia-se caso a caso.",
+        "cta": "Pedir orçamento",
+        "b1": "Integração desenhada à medida",
+        "b2": "Múltiplas lojas / múltiplos NIFs",
+        "b3": "SLA dedicado",
+        "b4": "Onboarding técnico em videochamada"
+      }
+    },
+    "cta": {
+      "eyebrow": "Pronto?",
+      "title": "Liga a primeira loja em <g>quatro</g> minutos.",
+      "body": "Sem cartão. Sem instalação. Sem extensões no checkout. Configure uma vez, fature para sempre.",
+      "start": "Começar grátis",
+      "signIn": "Já tenho conta"
+    },
+    "footer": {
+      "rights": "© {year} · todos os direitos reservados",
+      "privacy": "Privacidade",
+      "terms": "Termos",
+      "developedBy": "Developed by"
+    }
+  },
+  "privacy": {
+    "back": "← Voltar",
+    "title": "Política de Privacidade",
+    "lastUpdate": "Última atualização: 18 de maio de 2026",
+    "s1": {
+      "title": "1. Quem somos",
+      "body": "A Rioko é um serviço operado pela <b>Kapta</b>, com sede em Portugal, que automatiza a faturação de lojas Shopify através do InvoiceXpress. Para questões de privacidade, contacta-nos em <mail>pedro@kapta.pt</mail>."
+    },
+    "s2": {
+      "title": "2. Dados que recolhemos",
+      "body": "<ul><li><b>Conta</b>: nome, email e identificador único (via Clerk autenticação).</li><li><b>Credenciais de integração</b>: token Shopify, chave API InvoiceXpress, webhook secrets — usados apenas para emitir documentos fiscais em teu nome.</li><li><b>Dados de encomendas</b>: ID, cliente, NIF, valores, produtos — processados em tempo real para criar a fatura ou nota de crédito.</li><li><b>Logs técnicos</b>: timestamps, IDs de pedido, respostas das APIs externas, para auditoria e diagnóstico.</li></ul>"
+    },
+    "s3": {
+      "title": "3. Para que usamos",
+      "body": "Os dados são usados exclusivamente para:<ul><li>Criar Faturas-Recibo e Notas de Crédito no InvoiceXpress automaticamente.</li><li>Garantir conformidade fiscal (regras AT, isenções IVA M01–M99, NIF).</li><li>Apresentar o histórico no dashboard.</li><li>Suporte técnico quando o solicitas.</li></ul><p>Não vendemos nem partilhamos os teus dados com terceiros para fins de marketing.</p>"
+    },
+    "s4": {
+      "title": "4. Subprocessadores",
+      "body": "Para operar o serviço, recorremos a:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — EU/global.</li><li><b>Clerk</b> (autenticação) — EU/US.</li><li><b>Shopify</b> (origem das encomendas) — conforme a configuração da tua loja.</li><li><b>InvoiceXpress</b> (emissor fiscal) — Portugal.</li><li><b>Vercel</b> (logging suplementar) — EU/US.</li></ul>"
+    },
+    "s5": {
+      "title": "5. Retenção",
+      "body": "Mantemos os teus dados enquanto a tua conta estiver activa. Eliminada a conta, os dados pessoais são removidos da nossa base de dados em até 30 dias. Logs anonimizados podem ser retidos até 12 meses para diagnóstico e prevenção de fraude."
+    },
+    "s6": {
+      "title": "6. Os teus direitos (RGPD)",
+      "body": "Tens direito a:<ul><li>Aceder aos teus dados pessoais.</li><li>Corrigir dados imprecisos.</li><li>Solicitar eliminação (\"direito ao esquecimento\").</li><li>Portabilidade dos dados.</li><li>Retirar consentimento a qualquer momento.</li><li>Apresentar queixa à <b>CNPD</b> (Comissão Nacional de Proteção de Dados).</li></ul><p>Para exercer qualquer direito, envia email para <mail>pedro@kapta.pt</mail>.</p>"
+    },
+    "s7": {
+      "title": "7. Segurança",
+      "body": "Todos os tokens e chaves API são armazenados encriptados. As comunicações entre Rioko e serviços externos (Shopify, InvoiceXpress, Clerk) usam exclusivamente HTTPS/TLS. Webhooks Shopify são verificados com HMAC-SHA256 antes de qualquer processamento."
+    },
+    "s8": {
+      "title": "8. Cookies",
+      "body": "Usamos apenas cookies essenciais à autenticação (Clerk session). Não usamos cookies de marketing nem tracking de terceiros."
+    },
+    "s9": {
+      "title": "9. Alterações",
+      "body": "Esta política pode ser actualizada. Alterações materiais serão comunicadas por email aos utilizadores registados pelo menos 14 dias antes de entrarem em vigor."
+    },
+    "s10": {
+      "title": "10. Contacto",
+      "body": "Kapta — <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+    }
+  },
+  "terms": {
+    "back": "← Voltar",
+    "title": "Termos de Serviço",
+    "lastUpdate": "Última atualização: 18 de maio de 2026",
+    "s1": {
+      "title": "1. Aceitação",
+      "body": "Ao registar-te ou utilizar a Rioko, aceitas estes termos. Se não concordas, não uses o serviço."
+    },
+    "s2": {
+      "title": "2. O serviço",
+      "body": "A Rioko é uma ponte automática entre <b>Shopify</b> e <b>InvoiceXpress</b>. Ao receber webhooks de encomendas pagas ou reembolsos da tua loja Shopify, a Rioko emite no teu nome Faturas-Recibo, Faturas e Notas de Crédito na tua conta InvoiceXpress, com NIF, isenções IVA e identificação fiscal correctas."
+    },
+    "s3": {
+      "title": "3. Conta e credenciais",
+      "body": "<ul><li>Garantes que os dados de registo são verdadeiros e actualizados.</li><li>És responsável por manter as credenciais Shopify, InvoiceXpress e Rioko em segurança.</li><li>És responsável por toda a actividade na tua conta.</li></ul>"
+    },
+    "s4": {
+      "title": "4. Responsabilidade fiscal",
+      "body": "A Rioko é uma <b>ferramenta técnica</b>. A responsabilidade final pelo cumprimento das obrigações fiscais portuguesas (emissão correcta, AT, IVA, declarações) é <b>tua</b>. Recomendamos que valides periodicamente os documentos emitidos no InvoiceXpress e consultes o teu contabilista."
+    },
+    "s5": {
+      "title": "5. Utilização aceitável",
+      "body": "Não podes:<ul><li>Usar a Rioko para emitir documentos fraudulentos ou para terceiros sem autorização.</li><li>Tentar contornar limites técnicos ou de segurança do serviço.</li><li>Fazer engenharia reversa, copiar ou revender o serviço.</li><li>Usar a Rioko de forma que prejudique a operação dos serviços externos (Shopify, InvoiceXpress).</li></ul>"
+    },
+    "s6": {
+      "title": "6. Preço e pagamento",
+      "body": "Caso a tua subscrição seja paga, os termos de preço, ciclo de faturação e cancelamento estão indicados na página de planos ou no contrato assinado. Os pagamentos não são reembolsáveis salvo indicação legal em contrário."
+    },
+    "s7": {
+      "title": "7. Disponibilidade",
+      "body": "Esforçamo-nos por manter o serviço disponível 24/7, mas não garantimos uptime absoluto. Pequenas janelas de manutenção podem ocorrer. Falhas em sistemas externos (Shopify, InvoiceXpress, Cloudflare, Clerk) podem afectar temporariamente a Rioko."
+    },
+    "s8": {
+      "title": "8. Limitação de responsabilidade",
+      "body": "Na máxima extensão permitida por lei, a Rioko (Kapta) não responde por:<ul><li>Perdas indirectas, lucros cessantes ou danos consequenciais.</li><li>Erros fiscais resultantes de configuração incorrecta pela tua parte (NIF, IVA, isenções, séries).</li><li>Indisponibilidade ou erro de serviços de terceiros (Shopify, InvoiceXpress, etc.).</li></ul><p>A responsabilidade agregada da Rioko, em qualquer caso, está limitada ao valor pago pelo cliente nos 3 meses anteriores ao evento.</p>"
+    },
+    "s9": {
+      "title": "9. Suspensão e cancelamento",
+      "body": "Podemos suspender ou cancelar contas que violem estes termos. Podes cancelar a tua conta a qualquer momento eliminando-a através do dashboard ou por email a <mail>pedro@kapta.pt</mail>."
+    },
+    "s10": {
+      "title": "10. Alterações aos termos",
+      "body": "Podemos actualizar estes termos. Mudanças materiais são comunicadas por email com 14 dias de antecedência. Uso continuado após a entrada em vigor implica aceitação."
+    },
+    "s11": {
+      "title": "11. Lei aplicável e jurisdição",
+      "body": "Estes termos regem-se pela lei portuguesa. Qualquer disputa fica sujeita ao foro do Tribunal Judicial da Comarca de Lisboa, com renúncia expressa a outro."
+    },
+    "s12": {
+      "title": "12. Contacto",
+      "body": "Kapta — <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+    }
+  }
+}

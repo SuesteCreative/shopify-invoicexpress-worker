@@ -1,15 +1,23 @@
 import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { setRequestLocale } from "next-intl/server";
+import { redirect } from "@/i18n/navigation";
 import Landing from "@/components/landing/Landing";
-import { sansDisplay, monoFont } from "./fonts";
+import { sansDisplay, monoFont } from "../fonts";
 
 export const runtime = "edge";
 
-export default async function LandingPage() {
+export default async function LandingPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+
   const { userId } = await auth();
 
   if (userId) {
-    redirect("/dashboard");
+    redirect({ href: "/dashboard", locale });
   }
 
   return (

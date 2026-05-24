@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { useEffect, useState, memo } from "react";
+import { useTranslations } from "next-intl";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -20,6 +21,7 @@ import {
   Menu,
   X,
 } from "lucide-react";
+import { LangToggle } from "./LangToggle";
 
 // ─────────────────────────────────────────────────────────────
 // Design tokens
@@ -33,11 +35,8 @@ const RULE = "rgba(255,255,255,0.08)";
 const HAIRLINE = "rgba(255,255,255,0.06)";
 const ACCENT = "#028DC4";
 const ACCENT_HOT = "#5EEAD4";
-const SOON = "#F59E0B";
 
-// Off-white "paper" surfaces (host platform logos transparently)
 const PAPER = "#EAEAE4";
-const PAPER_HOVER = "#F3F3ED";
 const PAPER_RULE = "rgba(0,0,0,0.06)";
 const INK = "#14181F";
 const INK_60 = "rgba(20,24,31,0.62)";
@@ -55,7 +54,7 @@ const GLASS = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────
-// Integration registry
+// Integration registry — notes resolved via i18n
 // ─────────────────────────────────────────────────────────────
 type Status = "live" | "soon" | "planned";
 
@@ -65,87 +64,20 @@ type Integration = {
   kind: "pagamentos" | "faturação";
   status: Status;
   logoSrc?: string;
-  logoW?: number;
-  logoH?: number;
   mark?: string;
   brand?: string;
-  note: string;
 };
 
 const INTEGRATIONS: Integration[] = [
-  {
-    id: "shopify",
-    name: "Shopify",
-    kind: "pagamentos",
-    status: "live",
-    logoSrc: "/images/shopify-logo.webp",
-    logoW: 28,
-    logoH: 28,
-    note: "Encomendas pagas → fatura em < 1s",
-  },
-  {
-    id: "stripe",
-    name: "Stripe",
-    kind: "pagamentos",
-    status: "live",
-    logoSrc: "/images/stripe-logo.svg",
-    note: "Assinaturas, charges e refunds via webhook",
-  },
-  {
-    id: "eupago",
-    name: "EuPago",
-    kind: "pagamentos",
-    status: "soon",
-    logoSrc: "/images/eupago-logo.svg",
-    note: "Multibanco, MB WAY e referências",
-  },
-  {
-    id: "easypay",
-    name: "Easypay",
-    kind: "pagamentos",
-    status: "soon",
-    logoSrc: "/images/easypay-logo.svg",
-    note: "Captura imediata e diferida",
-  },
-  {
-    id: "ifthenpay",
-    name: "Ifthenpay",
-    kind: "pagamentos",
-    status: "planned",
-    logoSrc: "/images/ifthenpay-logo.svg",
-    note: "MB WAY, Multibanco, Payshop",
-  },
-  {
-    id: "invoicexpress",
-    name: "InvoiceXpress",
-    kind: "faturação",
-    status: "live",
-    logoSrc: "/images/invoicexpress-logo.svg",
-    note: "Faturas, recibos, notas de crédito",
-  },
-  {
-    id: "moloni",
-    name: "Moloni",
-    kind: "faturação",
-    status: "planned",
-    logoSrc: "/images/moloni-logo.svg",
-    note: "Sincronização total de documentos",
-  },
-  {
-    id: "vendus",
-    name: "Vendus",
-    kind: "faturação",
-    status: "planned",
-    logoSrc: "/images/vendus-logo.svg",
-    note: "POS + faturação certificada",
-  },
+  { id: "shopify", name: "Shopify", kind: "pagamentos", status: "live", logoSrc: "/images/shopify-logo.webp" },
+  { id: "stripe", name: "Stripe", kind: "pagamentos", status: "live", logoSrc: "/images/stripe-logo.svg" },
+  { id: "eupago", name: "EuPago", kind: "pagamentos", status: "soon", logoSrc: "/images/eupago-logo.svg" },
+  { id: "easypay", name: "Easypay", kind: "pagamentos", status: "soon", logoSrc: "/images/easypay-logo.svg" },
+  { id: "ifthenpay", name: "Ifthenpay", kind: "pagamentos", status: "planned", logoSrc: "/images/ifthenpay-logo.svg" },
+  { id: "invoicexpress", name: "InvoiceXpress", kind: "faturação", status: "live", logoSrc: "/images/invoicexpress-logo.svg" },
+  { id: "moloni", name: "Moloni", kind: "faturação", status: "planned", logoSrc: "/images/moloni-logo.svg" },
+  { id: "vendus", name: "Vendus", kind: "faturação", status: "planned", logoSrc: "/images/vendus-logo.svg" },
 ];
-
-const STATUS_LABEL: Record<Status, string> = {
-  live: "Ativo",
-  soon: "Em breve",
-  planned: "Em estudo",
-};
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -189,74 +121,44 @@ function Gradient({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Shared rich-text component map for t.rich() calls
+const RICH_ELEMENTS = {
+  g: (chunks: React.ReactNode) => <Gradient>{chunks}</Gradient>,
+  h: (chunks: React.ReactNode) => (
+    <span style={{ color: ACCENT_HOT }}>{chunks}</span>
+  ),
+  br: () => <br />,
+  muted: (chunks: React.ReactNode) => (
+    <span style={{ color: FG_60 }}>{chunks}</span>
+  ),
+} as const;
+
 // ─────────────────────────────────────────────────────────────
-// Flow rotation registries
+// Flow slot registries — sub strings via i18n
 // ─────────────────────────────────────────────────────────────
 type FlowSlot = {
   id: string;
   title: string;
-  sub: string;
   logoSrc: string | null;
   mark?: string;
   brand?: string;
 };
 
 const ORIGIN_SLOTS: FlowSlot[] = [
-  {
-    id: "shopify",
-    title: "Shopify",
-    sub: "encomenda paga · #1042",
-    logoSrc: "/images/shopify-logo.webp",
-  },
-  {
-    id: "stripe",
-    title: "Stripe",
-    sub: "charge succeeded · ch_3R9",
-    logoSrc: "/images/stripe-logo.svg",
-  },
-  {
-    id: "easypay",
-    title: "Easypay",
-    sub: "capture · pmt_5921",
-    logoSrc: "/images/easypay-logo.svg",
-  },
-  {
-    id: "eupago",
-    title: "EuPago",
-    sub: "MB WAY confirmado · #2847",
-    logoSrc: "/images/eupago-logo.svg",
-  },
-  {
-    id: "ifthenpay",
-    title: "Ifthenpay",
-    sub: "MB referência · #883",
-    logoSrc: "/images/ifthenpay-logo.svg",
-  },
+  { id: "shopify", title: "Shopify", logoSrc: "/images/shopify-logo.webp" },
+  { id: "stripe", title: "Stripe", logoSrc: "/images/stripe-logo.svg" },
+  { id: "easypay", title: "Easypay", logoSrc: "/images/easypay-logo.svg" },
+  { id: "eupago", title: "EuPago", logoSrc: "/images/eupago-logo.svg" },
+  { id: "ifthenpay", title: "Ifthenpay", logoSrc: "/images/ifthenpay-logo.svg" },
 ];
 
 const DESTINATION_SLOTS: FlowSlot[] = [
-  {
-    id: "invoicexpress",
-    title: "InvoiceXpress",
-    sub: "FT 2026/A/847 · finalizada",
-    logoSrc: "/images/invoicexpress-logo.svg",
-  },
-  {
-    id: "moloni",
-    title: "Moloni",
-    sub: "FT 2026/A/523 · finalizada",
-    logoSrc: "/images/moloni-logo.svg",
-  },
-  {
-    id: "vendus",
-    title: "Vendus",
-    sub: "FT 2026/A/319 · finalizada",
-    logoSrc: "/images/vendus-logo.svg",
-  },
+  { id: "invoicexpress", title: "InvoiceXpress", logoSrc: "/images/invoicexpress-logo.svg" },
+  { id: "moloni", title: "Moloni", logoSrc: "/images/moloni-logo.svg" },
+  { id: "vendus", title: "Vendus", logoSrc: "/images/vendus-logo.svg" },
 ];
 
 const ROTATION_MS = 3200;
-
 const PIPELINE_STEPS = ["NIF", "IVA", "Cliente", "M99"] as const;
 
 // ─────────────────────────────────────────────────────────────
@@ -290,7 +192,6 @@ export default function Landing() {
         "--accent": ACCENT,
       } as React.CSSProperties}
     >
-      {/* Inline keyframes — flow connector data movement */}
       <style>{`
         @keyframes rk-flow-down {
           from { background-position-y: 0px; }
@@ -340,6 +241,7 @@ export default function Landing() {
 // Nav
 // ─────────────────────────────────────────────────────────────
 function Nav() {
+  const t = useTranslations("landing.nav");
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -366,55 +268,41 @@ function Nav() {
             className="hidden font-mono text-[10px] uppercase tracking-[0.18em] sm:inline-block"
             style={{ color: FG_40 }}
           >
-            Hub de Integrações
+            {t("hubChip")}
           </span>
         </div>
 
         <div className="hidden items-center gap-7 md:flex">
-          <a
-            href="#integracoes"
-            className="text-[13px] transition-colors hover:opacity-100"
-            style={{ color: FG_60 }}
-          >
-            Integrações
+          <a href="#integracoes" className="text-[13px] transition-colors hover:opacity-100" style={{ color: FG_60 }}>
+            {t("integrations")}
           </a>
-          <a
-            href="#como-funciona"
-            className="text-[13px] transition-colors"
-            style={{ color: FG_60 }}
-          >
-            Como funciona
+          <a href="#como-funciona" className="text-[13px] transition-colors" style={{ color: FG_60 }}>
+            {t("how")}
           </a>
-          <a
-            href="#preco"
-            className="text-[13px] transition-colors"
-            style={{ color: FG_60 }}
-          >
-            Preço
+          <a href="#preco" className="text-[13px] transition-colors" style={{ color: FG_60 }}>
+            {t("pricing")}
           </a>
-          <a
-            href="#fiscal"
-            className="text-[13px] transition-colors"
-            style={{ color: FG_60 }}
-          >
-            Conformidade
+          <a href="#fiscal" className="text-[13px] transition-colors" style={{ color: FG_60 }}>
+            {t("compliance")}
           </a>
         </div>
 
         <div className="flex items-center gap-2">
+          <div className="hidden sm:inline-flex">
+            <LangToggle variant="dark" />
+          </div>
           <Link
             href="/sign-in"
             className="hidden px-4 py-2 text-[13px] sm:inline-block"
             style={{ color: FG }}
           >
-            Entrar
+            {t("signIn")}
           </Link>
-          {/* Hamburger — mobile only */}
           <button
             className="flex h-9 w-9 items-center justify-center rounded-full md:hidden"
             style={{ background: "rgba(255,255,255,0.06)", color: FG }}
             onClick={() => setMenuOpen((v) => !v)}
-            aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
+            aria-label={menuOpen ? t("closeMenu") : t("openMenu")}
             aria-expanded={menuOpen}
           >
             {menuOpen ? (
@@ -434,7 +322,7 @@ function Nav() {
               transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
             }}
           >
-            Começar
+            {t("start")}
             <span
               className="flex h-7 w-7 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
               style={{
@@ -448,7 +336,6 @@ function Nav() {
         </div>
       </motion.nav>
 
-      {/* Mobile dropdown menu */}
       <AnimatePresence>
         {menuOpen && (
           <motion.div
@@ -466,10 +353,10 @@ function Nav() {
           >
             <nav className="flex flex-col gap-1 p-3">
               {[
-                { href: "#integracoes", label: "Integrações" },
-                { href: "#como-funciona", label: "Como funciona" },
-                { href: "#preco", label: "Preço" },
-                { href: "#fiscal", label: "Conformidade" },
+                { href: "#integracoes", label: t("integrations") },
+                { href: "#como-funciona", label: t("how") },
+                { href: "#preco", label: t("pricing") },
+                { href: "#fiscal", label: t("compliance") },
               ].map((link) => (
                 <a
                   key={link.href}
@@ -488,8 +375,11 @@ function Nav() {
                   className="block rounded-xl px-4 py-3 text-[15px]"
                   style={{ color: FG }}
                 >
-                  Entrar
+                  {t("signIn")}
                 </Link>
+                <div className="px-4 py-3">
+                  <LangToggle variant="dark" />
+                </div>
               </div>
             </nav>
           </motion.div>
@@ -503,6 +393,8 @@ function Nav() {
 // Hero
 // ─────────────────────────────────────────────────────────────
 function Hero() {
+  const t = useTranslations("landing.hero");
+
   return (
     <section className="relative px-4 pt-14 md:pt-24">
       <div className="mx-auto grid w-full max-w-[1280px] grid-cols-1 gap-12 md:grid-cols-12 md:gap-10">
@@ -522,7 +414,7 @@ function Hero() {
               className="font-mono text-[10px] uppercase tracking-[0.22em]"
               style={{ color: FG_60 }}
             >
-              Hub de Integrações
+              {t("chip")}
             </span>
           </motion.div>
 
@@ -540,9 +432,7 @@ function Hero() {
               textWrap: "balance" as const,
             }}
           >
-            Uma <Gradient>fatura</Gradient>.<br />
-            Para cada <Gradient>encomenda</Gradient>.<br />
-            De cada <Gradient>plataforma</Gradient>.
+            {t.rich("h1", RICH_ELEMENTS)}
           </motion.h1>
 
           <motion.p
@@ -552,11 +442,7 @@ function Hero() {
             className="mt-7 max-w-[52ch] text-[16px] leading-[1.55]"
             style={{ color: FG_60 }}
           >
-            Rioko é o motor que conecta a sua loja, o seu gateway de pagamento
-            e o seu programa de faturação. Webhook entra,{" "}
-            <span style={{ color: ACCENT_HOT }}>fatura sai</span> — em menos
-            de um segundo, com NIF detectado, IVA calculado e isenção fiscal
-            aplicada conforme o código M01–M99.
+            {t.rich("body", RICH_ELEMENTS)}
           </motion.p>
 
           <motion.div
@@ -576,7 +462,7 @@ function Hero() {
                   "0 1px 0 rgba(0,0,0,0.08) inset, 0 14px 30px -16px rgba(0,0,0,0.6)",
               }}
             >
-              Criar conta grátis
+              {t("ctaCreate")}
               <span
                 className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                 style={{
@@ -597,7 +483,7 @@ function Hero() {
                 className="border-b transition-[border-color]"
                 style={{ borderColor: "rgba(255,255,255,0.16)" }}
               >
-                Ver integrações disponíveis
+                {t("ctaSee")}
               </span>
               <ArrowRight
                 className="h-3.5 w-3.5 transition-transform duration-500 group-hover:translate-x-1"
@@ -613,9 +499,9 @@ function Hero() {
             className="mt-14 grid max-w-[560px] grid-cols-3 gap-6 border-t pt-6"
             style={{ borderColor: RULE }}
           >
-            <Stat value="< 1s" label="webhook → fatura" />
-            <Stat value="1 : 1" label="encomenda : fatura" />
-            <Stat value="M01–M99" label="isenções suportadas" />
+            <Stat value={t("stat1Value")} label={t("stat1Label")} />
+            <Stat value={t("stat2Value")} label={t("stat2Label")} />
+            <Stat value={t("stat3Value")} label={t("stat3Label")} />
           </motion.div>
         </div>
 
@@ -664,10 +550,10 @@ function Stat({ value, label }: { value: string; label: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Hero showcase — owns rotation state so engine pills can pulse
-// in sync with destination card swaps.
+// Hero showcase
 // ─────────────────────────────────────────────────────────────
 function HeroShowcase() {
+  const t = useTranslations("landing.showcase");
   const [originIdx, setOriginIdx] = useState(0);
   const [destIdx, setDestIdx] = useState(0);
 
@@ -710,7 +596,7 @@ function HeroShowcase() {
           }}
         >
           <RotatingFlowCard
-            label="Origem"
+            label={t("flowOrigin")}
             slots={ORIGIN_SLOTS}
             idx={originIdx}
           />
@@ -722,7 +608,7 @@ function HeroShowcase() {
           <FlowConnector animated />
 
           <RotatingFlowCard
-            label="Destino"
+            label={t("flowDest")}
             slots={DESTINATION_SLOTS}
             idx={destIdx}
             tone="success"
@@ -733,17 +619,16 @@ function HeroShowcase() {
             style={{ borderColor: HAIRLINE, color: FG_40 }}
           >
             <span className="font-mono uppercase tracking-[0.16em]">
-              fluxo real · ao vivo
+              {t("live")}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="h-3 w-3" strokeWidth={1.5} />
-              ontem · 14h27
+              {t("timeAgo")}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Tagline pill — straight, centered, below the carousel */}
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
@@ -759,7 +644,7 @@ function HeroShowcase() {
           }}
         >
           <span className="font-mono text-[10px] uppercase tracking-[0.22em]">
-            1 encomenda · 1 fatura · sem erros
+            {t("tagline")}
           </span>
         </div>
       </motion.div>
@@ -768,7 +653,7 @@ function HeroShowcase() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Rotating flow card — controlled, paper surface
+// Rotating flow card
 // ─────────────────────────────────────────────────────────────
 const RotatingFlowCard = memo(function RotatingFlowCard({
   label,
@@ -781,6 +666,8 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
   idx: number;
   tone?: "success";
 }) {
+  const tShowcase = useTranslations("landing.showcase");
+  const tSlots = useTranslations("landing.flowSlots");
   const slot = slots[idx];
 
   return (
@@ -813,7 +700,7 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
                 className="max-w-[100px] truncate font-mono text-[11px] tabular-nums sm:max-w-none"
                 style={{ color: INK_60 }}
               >
-                {slot.sub}
+                {tSlots(`${slot.id}.sub`)}
               </div>
               {tone === "success" && (
                 <div
@@ -825,7 +712,7 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
                 >
                   <Check className="h-2.5 w-2.5" strokeWidth={2.4} />
                   <span className="font-mono text-[9px] uppercase tracking-[0.2em]">
-                    emitida
+                    {tShowcase("emitted")}
                   </span>
                 </div>
               )}
@@ -834,7 +721,6 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
         </AnimatePresence>
       </div>
 
-      {/* Progress dots */}
       <div className="mt-2 flex items-center justify-center gap-1.5">
         {slots.map((s, i) => (
           <span
@@ -880,10 +766,6 @@ function FlowSlotIdentity({
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// BrandLogo — transparent container hosting the platform mark.
-// The card BG behind the logo is what provides contrast.
-// ─────────────────────────────────────────────────────────────
 function BrandLogo({
   slot,
   width,
@@ -891,12 +773,13 @@ function BrandLogo({
   logoH,
   hPad = 12,
 }: {
-  slot: { logoSrc: string | null; mark?: string; brand?: string; title: string };
+  slot: { logoSrc: string | null; mark?: string; brand?: string; title?: string; name?: string };
   width: number;
   height: number;
   logoH: number;
   hPad?: number;
 }) {
+  const alt = slot.title ?? slot.name ?? "";
   if (slot.logoSrc) {
     const logoW = Math.max(0, width - hPad * 2);
     return (
@@ -906,7 +789,7 @@ function BrandLogo({
       >
         <Image
           src={slot.logoSrc}
-          alt={slot.title}
+          alt={alt}
           width={logoW}
           height={logoH}
           className="object-contain"
@@ -934,9 +817,10 @@ function BrandLogo({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Engine card — pulses pipeline pills on destination rotation
+// Engine card
 // ─────────────────────────────────────────────────────────────
 function EngineCard({ destIdx }: { destIdx: number }) {
+  const t = useTranslations("landing.showcase");
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -960,13 +844,13 @@ function EngineCard({ destIdx }: { destIdx: number }) {
           </div>
           <div className="min-w-0">
             <div className="truncate text-[13px] font-medium">
-              Rioko 2.0 · Hub de Integrações
+              {t("engineTitle")}
             </div>
             <div
               className="font-mono text-[10px] uppercase tracking-[0.18em]"
               style={{ color: "rgba(255,255,255,0.72)" }}
             >
-              motor fiscal · edge runtime
+              {t("engineSub")}
             </div>
           </div>
         </div>
@@ -978,7 +862,6 @@ function EngineCard({ destIdx }: { destIdx: number }) {
         </div>
       </div>
 
-      {/* Pipeline pills — re-key on destIdx to re-trigger stagger pulse */}
       <div className="mt-4 grid grid-cols-4 gap-2">
         {PIPELINE_STEPS.map((step, i) => (
           <motion.div
@@ -1034,9 +917,10 @@ function FlowConnector({ animated = false }: { animated?: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Integration matrix — cards now paper-on-dark
+// Integration matrix
 // ─────────────────────────────────────────────────────────────
 function IntegrationMatrix() {
+  const t = useTranslations("landing.matrix");
   const pagamentos = INTEGRATIONS.filter((i) => i.kind === "pagamentos");
   const faturação = INTEGRATIONS.filter((i) => i.kind === "faturação");
 
@@ -1044,36 +928,28 @@ function IntegrationMatrix() {
     <section id="integracoes" className="relative px-4 pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
-          eyebrow="O hub"
-          title={
-            <>
-              Cada plataforma fala com a <Gradient>Rioko</Gradient>.
-              <br />A Rioko fala com <Gradient>cada</Gradient> programa de
-              faturação.
-            </>
-          }
-          sub="Em vez de manter sete integrações ponto-a-ponto, mantém uma. Adicionamos pagamentos e programas de faturação ao motor à medida que o ecossistema cresce."
+          eyebrow={t("eyebrow")}
+          title={t.rich("title", RICH_ELEMENTS)}
+          sub={t("sub")}
         />
 
         <IntegrationGroup
-          kind="Pagamentos"
-          subtitle="entrada · pedidos pagos chegam por webhook"
+          kind={t("groupPayments")}
+          subtitle={t("subtitlePayments")}
           items={pagamentos}
         />
 
         <div className="my-14 h-px w-full" style={{ background: RULE }} />
 
         <IntegrationGroup
-          kind="Faturação"
-          subtitle="saída · documentos emitidos ao gateway certo"
+          kind={t("groupInvoicing")}
+          subtitle={t("subtitleInvoicing")}
           items={faturação}
         />
 
         <div
           className="mt-16 flex flex-wrap items-center justify-between gap-4 rounded-2xl px-5 py-4"
-          style={{
-            ...GLASS,
-          }}
+          style={{ ...GLASS }}
         >
           <div className="flex items-center gap-3">
             <Layers
@@ -1083,13 +959,13 @@ function IntegrationMatrix() {
             />
             <div>
               <div className="text-[13px]" style={{ color: FG }}>
-                Falta uma integração que precisa?
+                {t("missingTitle")}
               </div>
               <div
                 className="font-mono text-[10px] uppercase tracking-[0.18em]"
                 style={{ color: FG_40 }}
               >
-                priorizamos por procura real
+                {t("missingSub")}
               </div>
             </div>
           </div>
@@ -1102,7 +978,7 @@ function IntegrationMatrix() {
               className="border-b"
               style={{ borderColor: "rgba(255,255,255,0.16)" }}
             >
-              Pedir nova integração
+              {t("missingCta")}
             </span>
             <ArrowUpRight
               className="h-3.5 w-3.5 transition-transform duration-500 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
@@ -1157,6 +1033,7 @@ function IntegrationGroup({
 }
 
 function IntegrationCard({ item }: { item: Integration }) {
+  const tInt = useTranslations("landing.integrations");
   const isLive = item.status === "live";
   return (
     <motion.div
@@ -1182,7 +1059,6 @@ function IntegrationCard({ item }: { item: Integration }) {
           transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
         }}
       >
-        {/* Hover ring */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 rounded-[1.25rem] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
@@ -1191,13 +1067,10 @@ function IntegrationCard({ item }: { item: Integration }) {
             transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
           }}
         />
-        {/* Hover glow */}
         <div
           aria-hidden
           className="pointer-events-none absolute -inset-px rounded-[1.25rem] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-          style={{
-            boxShadow: "0 18px 50px -20px rgba(2,141,196,0.35)",
-          }}
+          style={{ boxShadow: "0 18px 50px -20px rgba(2,141,196,0.35)" }}
         />
 
         <div className="relative flex items-start justify-between gap-3">
@@ -1227,7 +1100,7 @@ function IntegrationCard({ item }: { item: Integration }) {
             className="mt-1 text-[13px] leading-[1.45]"
             style={{ color: INK_60 }}
           >
-            {item.note}
+            {tInt(`${item.id}.note`)}
           </div>
         </div>
 
@@ -1247,6 +1120,7 @@ function IntegrationCard({ item }: { item: Integration }) {
 }
 
 function StatusBadge({ status }: { status: Status }) {
+  const t = useTranslations("landing.status");
   const styles: Record<Status, React.CSSProperties> = {
     live: { background: "rgba(2,141,196,0.12)", color: "#0369A1" },
     soon: { background: "rgba(154,106,31,0.14)", color: "#7C4A0F" },
@@ -1263,7 +1137,7 @@ function StatusBadge({ status }: { status: Status }) {
           style={{ background: "#0369A1" }}
         />
       )}
-      {STATUS_LABEL[status]}
+      {t(status)}
     </span>
   );
 }
@@ -1272,36 +1146,42 @@ function StatusBadge({ status }: { status: Status }) {
 // How it works
 // ─────────────────────────────────────────────────────────────
 function HowItWorks() {
-  const steps = [
+  const t = useTranslations("landing.how");
+
+  const steps: StepData[] = [
     {
       n: "01",
       icon: Plug,
-      title: "Conecta a loja e o programa",
-      body: "Cola o domínio Shopify e a sua chave da InvoiceXpress. O assistente de 4 passos detecta scopes, regista webhooks e valida credenciais em tempo real.",
+      title: t("step1.title"),
+      body: t("step1.body"),
       code: [
-        "POST  /api/integrations/activate",
-        '{ "shopify_domain": "minha-loja.myshopify.com",',
-        '  "ix_account":     "minha-empresa" }',
-        "200 OK · webhooks registados",
+        t("step1.code1"),
+        t("step1.code2"),
+        t("step1.code3"),
+        t("step1.code4"),
       ],
     },
     {
       n: "02",
       icon: ScrollText,
-      title: "Define as regras fiscais",
-      body: "IVA incluído ou separado? Razão de isenção por defeito? Série de faturação específica? Tudo no mesmo painel — sem código, sem ficheiros .env.",
-      pills: ["IVA incluído", "M99 · Não sujeito", "Série WEB", "Auto-finalizar"],
+      title: t("step2.title"),
+      body: t("step2.body"),
+      pills: [
+        t("step2.pill1"),
+        t("step2.pill2"),
+        t("step2.pill3"),
+        t("step2.pill4"),
+      ],
     },
     {
       n: "03",
       icon: FileText,
-      title: "Esquece. A Rioko fatura.",
-      body: "Cada encomenda paga gera uma fatura no programa correto, com o NIF do cliente, taxa de IVA certa e texto legal AT incluído. Reembolsos viram nota de crédito. Automático.",
-      ticks: [
-        "1 encomenda = 1 fatura (idempotência D1 + KV)",
-        "Reembolsos → nota de crédito automática",
-        "Logs auditáveis por evento",
-      ],
+      title: t("step3.title"),
+      body: t("step3.body"),
+      ticks: [t("step3.tick1"), t("step3.tick2"), t("step3.tick3")],
+      tagD1: t("step3.tagD1"),
+      tagKV: t("step3.tagKV"),
+      tagHMAC: t("step3.tagHMAC"),
     },
   ];
 
@@ -1309,18 +1189,14 @@ function HowItWorks() {
     <section id="como-funciona" className="relative px-4 pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
-          eyebrow="O fluxo"
-          title={
-            <>
-              Três passos. <Gradient>Uma vez.</Gradient>
-            </>
-          }
-          sub="Configurar a Rioko demora menos do que abrir uma fatura à mão. Depois disso, nunca mais."
+          eyebrow={t("eyebrow")}
+          title={t.rich("title", RICH_ELEMENTS)}
+          sub={t("sub")}
         />
 
         <div className="mt-16 space-y-20">
           {steps.map((s, i) => (
-            <Step key={s.n} step={s} flip={i % 2 === 1} />
+            <Step key={s.n} step={s} flip={i % 2 === 1} stepLabel={t("stepLabel")} />
           ))}
         </div>
       </div>
@@ -1336,9 +1212,20 @@ type StepData = {
   code?: string[];
   pills?: string[];
   ticks?: string[];
+  tagD1?: string;
+  tagKV?: string;
+  tagHMAC?: string;
 };
 
-function Step({ step, flip }: { step: StepData; flip: boolean }) {
+function Step({
+  step,
+  flip,
+  stepLabel,
+}: {
+  step: StepData;
+  flip: boolean;
+  stepLabel: string;
+}) {
   const Icon = step.icon;
   return (
     <motion.div
@@ -1354,7 +1241,7 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
             className="font-mono text-[11px] uppercase tracking-[0.24em]"
             style={{ color: FG_40 }}
           >
-            Passo {step.n}
+            {stepLabel} {step.n}
           </span>
           <span className="h-px flex-1" style={{ background: RULE }} />
         </div>
@@ -1403,10 +1290,7 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
         >
           <div
             className="overflow-hidden rounded-[calc(1.75rem-0.375rem)] p-6"
-            style={{
-              ...GLASS,
-              background: "rgba(20,24,31,0.7)",
-            }}
+            style={{ ...GLASS, background: "rgba(20,24,31,0.7)" }}
           >
             <div className="flex items-center justify-between">
               <div
@@ -1438,18 +1322,9 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: "rgba(255,255,255,0.18)" }}
-                    />
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: "rgba(255,255,255,0.18)" }}
-                    />
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: "rgba(255,255,255,0.18)" }}
-                    />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "rgba(255,255,255,0.18)" }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "rgba(255,255,255,0.18)" }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "rgba(255,255,255,0.18)" }} />
                   </div>
                   <span
                     className="font-mono text-[10px] uppercase tracking-[0.18em]"
@@ -1510,9 +1385,13 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
                 className="mt-6 grid grid-cols-3 gap-2 border-t pt-4"
                 style={{ borderColor: HAIRLINE }}
               >
-                {["D1", "KV", "HMAC"].map((tag, i) => (
+                {[
+                  { key: "D1", label: step.tagD1 },
+                  { key: "KV", label: step.tagKV },
+                  { key: "HMAC", label: step.tagHMAC },
+                ].map((tag, i) => (
                   <div
-                    key={tag}
+                    key={tag.key}
                     className="rounded-lg px-2 py-3 text-center"
                     style={{
                       background:
@@ -1529,17 +1408,13 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
                       className="font-mono text-[11px]"
                       style={{ color: i === 0 ? ACCENT_HOT : FG }}
                     >
-                      {tag}
+                      {tag.key}
                     </div>
                     <div
                       className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em]"
                       style={{ color: FG_40 }}
                     >
-                      {i === 0
-                        ? "atómico"
-                        : i === 1
-                        ? "rápido"
-                        : "verificado"}
+                      {tag.label}
                     </div>
                   </div>
                 ))}
@@ -1556,44 +1431,21 @@ function Step({ step, flip }: { step: StepData; flip: boolean }) {
 // Fiscal trust
 // ─────────────────────────────────────────────────────────────
 function FiscalTrust() {
+  const t = useTranslations("landing.fiscal");
   const items = [
-    {
-      icon: ShieldCheck,
-      title: "Conformidade AT",
-      body: "Texto legal de todas as razões de isenção (M01–M99) injectado em observações da fatura.",
-    },
-    {
-      icon: ScrollText,
-      title: "NIF inteligente",
-      body: "Detecção de NIF em note_attributes, notas de encomenda e morada de faturação, com validação algorítmica PT.",
-    },
-    {
-      icon: Workflow,
-      title: "Idempotência dupla",
-      body: "Tabela atómica em D1 + cache KV. Webhooks duplicados, retries de gateway, race conditions — tudo neutralizado.",
-    },
-    {
-      icon: Layers,
-      title: "Encriptação em repouso",
-      body: "Chaves de API Shopify e InvoiceXpress encriptadas antes de qualquer escrita.",
-    },
+    { icon: ShieldCheck, title: t("item1Title"), body: t("item1Body") },
+    { icon: ScrollText, title: t("item2Title"), body: t("item2Body") },
+    { icon: Workflow, title: t("item3Title"), body: t("item3Body") },
+    { icon: Layers, title: t("item4Title"), body: t("item4Body") },
   ];
 
   return (
     <section id="fiscal" className="relative px-4 pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
-          eyebrow="Confiança"
-          title={
-            <>
-              Feito para fiscalidade portuguesa.
-              <br />
-              <span style={{ color: FG_60 }}>
-                <Gradient>Não</Gradient> traduzido dela.
-              </span>
-            </>
-          }
-          sub="A Rioko nasceu em Lisboa, num escritório fiscal. Não é uma SaaS americana com pacote PT — é o contrário."
+          eyebrow={t("eyebrow")}
+          title={t.rich("title", RICH_ELEMENTS)}
+          sub={t("sub")}
         />
 
         <div
@@ -1638,63 +1490,60 @@ function FiscalTrust() {
 // Pricing
 // ─────────────────────────────────────────────────────────────
 function Pricing() {
-  const tiers = [
+  const t = useTranslations("landing.pricing");
+
+  const tiers: Tier[] = [
     {
       id: "monthly",
-      name: "Standard",
-      cadence: "mensal",
+      name: t("monthly.name"),
+      cadence: t("monthly.cadence"),
       price: "7,50",
       currency: "€",
-      period: "/mês · por integração",
-      tagline: "Pague mês a mês. Cancele quando quiser.",
+      period: t("monthly.period"),
+      tagline: t("monthly.tagline"),
       bullets: [
-        "Uma integração à escolha do catálogo",
-        "Faturação automática em < 1s",
-        "NIF · IVA · M01–M99",
-        "Idempotência D1 + KV",
-        "Suporte por email",
+        t("monthly.b1"),
+        t("monthly.b2"),
+        t("monthly.b3"),
+        t("monthly.b4"),
+        t("monthly.b5"),
       ],
-      cta: { label: "Começar grátis", href: "/sign-up", external: false },
+      cta: { label: t("monthly.cta"), href: "/sign-up", external: false },
       highlight: false,
     },
     {
       id: "yearly",
-      name: "Standard",
-      cadence: "anual",
+      name: t("yearly.name"),
+      cadence: t("yearly.cadence"),
       price: "75",
       currency: "€",
-      period: "/ano · por integração",
-      tagline: "Dois meses oferta. O motor, todo o ano.",
-      savings: "Poupa 15 €/ano",
+      period: t("yearly.period"),
+      tagline: t("yearly.tagline"),
+      savings: t("yearly.savings"),
       bullets: [
-        "Tudo no plano mensal",
-        "2 meses grátis (75 € vs 90 €)",
-        "Prioridade no roadmap de integrações",
-        "Suporte por email · resposta < 24h",
+        t("yearly.b1"),
+        t("yearly.b2"),
+        t("yearly.b3"),
+        t("yearly.b4"),
       ],
-      cta: { label: "Começar grátis", href: "/sign-up", external: false },
+      cta: { label: t("yearly.cta"), href: "/sign-up", external: false },
       highlight: true,
     },
     {
       id: "custom",
-      name: "Personalizada",
-      cadence: "à medida",
-      price: "Sob",
+      name: t("custom.name"),
+      cadence: t("custom.cadence"),
+      price: t("custom.priceLabel"),
       currency: "",
-      period: "consulta",
-      tagline:
-        "Integração à medida: ERP, marketplace, fluxos específicos. Avalia-se caso a caso.",
+      period: t("custom.period"),
+      tagline: t("custom.tagline"),
       bullets: [
-        "Integração desenhada à medida",
-        "Múltiplas lojas / múltiplos NIFs",
-        "SLA dedicado",
-        "Onboarding técnico em videochamada",
+        t("custom.b1"),
+        t("custom.b2"),
+        t("custom.b3"),
+        t("custom.b4"),
       ],
-      cta: {
-        label: "Pedir orçamento",
-        href: "https://kapta.pt/",
-        external: true,
-      },
+      cta: { label: t("custom.cta"), href: "https://kapta.pt/", external: true },
       highlight: false,
     },
   ];
@@ -1703,18 +1552,14 @@ function Pricing() {
     <section id="preco" className="relative px-4 pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
-          eyebrow="Preço"
-          title={
-            <>
-              Simples. <Gradient>Por integração.</Gradient>
-            </>
-          }
-          sub="Paga apenas pelas integrações que ligar. Sem fees por documento emitido, sem limites por volume. Cancela quando quiser."
+          eyebrow={t("eyebrow")}
+          title={t.rich("title", RICH_ELEMENTS)}
+          sub={t("sub")}
         />
 
         <div className="mt-14 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {tiers.map((t) => (
-            <PricingCard key={t.id} tier={t} />
+          {tiers.map((tier) => (
+            <PricingCard key={tier.id} tier={tier} recommendedLabel={t("recommended")} />
           ))}
         </div>
 
@@ -1722,7 +1567,7 @@ function Pricing() {
           className="mt-8 text-center font-mono text-[11px] uppercase tracking-[0.2em]"
           style={{ color: FG_40 }}
         >
-          Preços sem IVA · faturação emitida em InvoiceXpress
+          {t("notice")}
         </p>
       </div>
     </section>
@@ -1743,7 +1588,13 @@ type Tier = {
   highlight: boolean;
 };
 
-function PricingCard({ tier }: { tier: Tier }) {
+function PricingCard({
+  tier,
+  recommendedLabel,
+}: {
+  tier: Tier;
+  recommendedLabel: string;
+}) {
   const isHighlight = tier.highlight;
 
   return (
@@ -1764,7 +1615,7 @@ function PricingCard({ tier }: { tier: Tier }) {
             boxShadow: "0 10px 24px -10px rgba(2,141,196,0.6)",
           }}
         >
-          Recomendado
+          {recommendedLabel}
         </div>
       )}
 
@@ -1818,10 +1669,7 @@ function PricingCard({ tier }: { tier: Tier }) {
               {tier.currency}
             </span>
           )}
-          <span
-            className="ml-1 text-[12px]"
-            style={{ color: FG_60 }}
-          >
+          <span className="ml-1 text-[12px]" style={{ color: FG_60 }}>
             {tier.period}
           </span>
         </div>
@@ -1931,6 +1779,7 @@ function PricingCard({ tier }: { tier: Tier }) {
 // Final CTA
 // ─────────────────────────────────────────────────────────────
 function FinalCTA() {
+  const t = useTranslations("landing.cta");
   return (
     <section className="relative px-4 pt-32 pb-24 md:pt-44 md:pb-32">
       <div className="mx-auto w-full max-w-[1280px]">
@@ -1963,7 +1812,7 @@ function FinalCTA() {
                   className="font-mono text-[10px] uppercase tracking-[0.22em]"
                   style={{ color: "rgba(240,240,240,0.55)" }}
                 >
-                  Pronto?
+                  {t("eyebrow")}
                 </span>
                 <h2
                   className="mt-4 tracking-[-0.025em]"
@@ -1975,8 +1824,7 @@ function FinalCTA() {
                     fontWeight: 500,
                   }}
                 >
-                  Liga a primeira loja em <Gradient>quatro</Gradient>{" "}
-                  minutos.
+                  {t.rich("title", RICH_ELEMENTS)}
                 </h2>
               </div>
               <div className="md:col-span-5">
@@ -1984,8 +1832,7 @@ function FinalCTA() {
                   className="mb-7 max-w-[40ch] text-[15px] leading-[1.55]"
                   style={{ color: "rgba(240,240,240,0.7)" }}
                 >
-                  Sem cartão. Sem instalação. Sem extensões no checkout.
-                  Configure uma vez, fature para sempre.
+                  {t("body")}
                 </p>
                 <div className="flex flex-wrap items-center gap-3">
                   <Link
@@ -2000,7 +1847,7 @@ function FinalCTA() {
                         "0 1px 0 rgba(255,255,255,0.18) inset, 0 14px 30px -10px rgba(2,141,196,0.55)",
                     }}
                   >
-                    Começar grátis
+                    {t("start")}
                     <span
                       className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                       style={{
@@ -2009,10 +1856,7 @@ function FinalCTA() {
                           "cubic-bezier(0.32,0.72,0,1)",
                       }}
                     >
-                      <ArrowUpRight
-                        className="h-4 w-4"
-                        strokeWidth={1.6}
-                      />
+                      <ArrowUpRight className="h-4 w-4" strokeWidth={1.6} />
                     </span>
                   </Link>
                   <Link
@@ -2024,7 +1868,7 @@ function FinalCTA() {
                       className="border-b"
                       style={{ borderColor: "rgba(240,240,240,0.25)" }}
                     >
-                      Já tenho conta
+                      {t("signIn")}
                     </span>
                   </Link>
                 </div>
@@ -2041,6 +1885,7 @@ function FinalCTA() {
 // Footer
 // ─────────────────────────────────────────────────────────────
 function Footer() {
+  const t = useTranslations("landing.footer");
   return (
     <footer
       className="relative border-t px-4 pb-12 pt-12"
@@ -2058,7 +1903,7 @@ function Footer() {
             className="font-mono text-[10px] uppercase tracking-[0.2em]"
             style={{ color: FG_40 }}
           >
-            © {new Date().getFullYear()} · todos os direitos reservados
+            {t("rights", { year: new Date().getFullYear() })}
           </span>
         </div>
 
@@ -2068,14 +1913,10 @@ function Footer() {
             className="text-[12px]"
             style={{ color: FG_60 }}
           >
-            Privacidade
+            {t("privacy")}
           </Link>
-          <Link
-            href="/terms"
-            className="text-[12px]"
-            style={{ color: FG_60 }}
-          >
-            Termos
+          <Link href="/terms" className="text-[12px]" style={{ color: FG_60 }}>
+            {t("terms")}
           </Link>
         </div>
 
@@ -2084,7 +1925,7 @@ function Footer() {
             className="font-mono text-[10px] uppercase tracking-[0.22em]"
             style={{ color: FG_40 }}
           >
-            Developed by
+            {t("developedBy")}
           </div>
           <a
             href="https://kapta.pt"
@@ -2162,3 +2003,6 @@ function SectionHead({
     </div>
   );
 }
+
+// Mono helper kept for potential future use
+export { Mono };

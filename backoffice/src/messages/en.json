@@ -1,0 +1,294 @@
+{
+  "metadata": {
+    "siteTitle": "Rioko 2.0 | Developed by Kapta",
+    "siteDescription": "Invoicing integrations hub for Shopify, Stripe and more.",
+    "privacyTitle": "Privacy Policy | Rioko",
+    "termsTitle": "Terms of Service | Rioko"
+  },
+  "common": {
+    "back": "← Back",
+    "loading": "Loading…"
+  },
+  "notFound": {
+    "title": "404 - Not Found",
+    "body": "The page you're looking for doesn't exist or has been moved.",
+    "cta": "Back to home"
+  },
+  "lang": {
+    "pt": "PT",
+    "en": "EN",
+    "switchTo": "Switch language"
+  },
+  "landing": {
+    "nav": {
+      "hubChip": "Integrations Hub",
+      "integrations": "Integrations",
+      "how": "How it works",
+      "pricing": "Pricing",
+      "compliance": "Compliance",
+      "signIn": "Sign in",
+      "start": "Start",
+      "openMenu": "Open menu",
+      "closeMenu": "Close menu"
+    },
+    "hero": {
+      "chip": "Integrations Hub",
+      "h1": "One <g>invoice</g>.<br></br>For every <g>order</g>.<br></br>From every <g>platform</g>.",
+      "body": "Rioko is the engine that connects your store, your payment gateway and your invoicing software. Webhook in, <h>invoice out</h> — in under a second, with VAT ID detected, VAT calculated and tax exemption applied per code M01–M99.",
+      "ctaCreate": "Create free account",
+      "ctaSee": "See available integrations",
+      "stat1Value": "< 1s",
+      "stat1Label": "webhook → invoice",
+      "stat2Value": "1 : 1",
+      "stat2Label": "order : invoice",
+      "stat3Value": "M01–M99",
+      "stat3Label": "exemptions supported"
+    },
+    "showcase": {
+      "flowOrigin": "Origin",
+      "flowDest": "Destination",
+      "emitted": "emitted",
+      "live": "live · real flow",
+      "timeAgo": "yesterday · 2:27 PM",
+      "engineTitle": "Rioko 2.0 · Integrations Hub",
+      "engineSub": "fiscal engine · edge runtime",
+      "tagline": "1 order · 1 invoice · zero errors"
+    },
+    "matrix": {
+      "eyebrow": "The hub",
+      "title": "Every platform talks to <g>Rioko</g>.<br></br>Rioko talks to <g>every</g> invoicing program.",
+      "sub": "Instead of maintaining seven point-to-point integrations, you maintain one. We add new payment and invoicing platforms to the engine as the ecosystem grows.",
+      "groupPayments": "Payments",
+      "subtitlePayments": "input · paid orders arrive via webhook",
+      "groupInvoicing": "Invoicing",
+      "subtitleInvoicing": "output · documents issued to the right gateway",
+      "missingTitle": "Missing an integration you need?",
+      "missingSub": "we prioritize by real demand",
+      "missingCta": "Request new integration"
+    },
+    "status": {
+      "live": "Live",
+      "soon": "Soon",
+      "planned": "Planned"
+    },
+    "integrations": {
+      "shopify": { "note": "Paid orders → invoice in < 1s" },
+      "stripe": { "note": "Subscriptions, charges and refunds via webhook" },
+      "eupago": { "note": "Multibanco, MB WAY and references" },
+      "easypay": { "note": "Immediate and deferred capture" },
+      "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
+      "invoicexpress": { "note": "Invoices, receipts, credit notes" },
+      "moloni": { "note": "Full document synchronization" },
+      "vendus": { "note": "POS + certified invoicing" }
+    },
+    "flowSlots": {
+      "shopify": { "sub": "order paid · #1042" },
+      "stripe": { "sub": "charge succeeded · ch_3R9" },
+      "easypay": { "sub": "capture · pmt_5921" },
+      "eupago": { "sub": "MB WAY confirmed · #2847" },
+      "ifthenpay": { "sub": "MB reference · #883" },
+      "invoicexpress": { "sub": "INV 2026/A/847 · finalized" },
+      "moloni": { "sub": "INV 2026/A/523 · finalized" },
+      "vendus": { "sub": "INV 2026/A/319 · finalized" }
+    },
+    "how": {
+      "eyebrow": "The flow",
+      "title": "Three steps. <g>Once.</g>",
+      "sub": "Setting up Rioko takes less than issuing one invoice by hand. After that, never again.",
+      "stepLabel": "Step",
+      "step1": {
+        "title": "Connect your store and program",
+        "body": "Paste your Shopify domain and your InvoiceXpress API key. The 4-step wizard detects scopes, registers webhooks and validates credentials in real time.",
+        "code1": "POST  /api/integrations/activate",
+        "code2": "{ \"shopify_domain\": \"my-store.myshopify.com\",",
+        "code3": "  \"ix_account\":     \"my-company\" }",
+        "code4": "200 OK · webhooks registered"
+      },
+      "step2": {
+        "title": "Set your tax rules",
+        "body": "VAT included or separate? Default exemption reason? Specific invoice series? All in one panel — no code, no .env files.",
+        "pill1": "VAT included",
+        "pill2": "M99 · Not subject",
+        "pill3": "WEB series",
+        "pill4": "Auto-finalize"
+      },
+      "step3": {
+        "title": "Forget it. Rioko invoices.",
+        "body": "Every paid order creates an invoice in the right program, with the customer's VAT ID, correct VAT rate and AT legal text included. Refunds become credit notes. Automatic.",
+        "tick1": "1 order = 1 invoice (D1 + KV idempotency)",
+        "tick2": "Refunds → credit note, automatic",
+        "tick3": "Auditable per-event logs",
+        "tagD1": "atomic",
+        "tagKV": "fast",
+        "tagHMAC": "verified"
+      }
+    },
+    "fiscal": {
+      "eyebrow": "Trust",
+      "title": "Built for Portuguese tax rules.<br></br><muted><g>Not</g> translated from them.</muted>",
+      "sub": "Rioko was born in Lisbon, inside a tax office. It is not an American SaaS with a PT pack — it's the other way around.",
+      "item1Title": "AT compliance",
+      "item1Body": "Legal text for every exemption reason (M01–M99) injected into invoice notes.",
+      "item2Title": "Smart VAT ID",
+      "item2Body": "VAT ID detection across note_attributes, order notes and billing address, with PT algorithmic validation.",
+      "item3Title": "Double idempotency",
+      "item3Body": "Atomic table in D1 + KV cache. Duplicate webhooks, gateway retries, race conditions — all neutralized.",
+      "item4Title": "Encryption at rest",
+      "item4Body": "Shopify and InvoiceXpress API keys are encrypted before any write."
+    },
+    "pricing": {
+      "eyebrow": "Pricing",
+      "title": "Simple. <g>Per integration.</g>",
+      "sub": "Pay only for the integrations you connect. No fees per document, no volume caps. Cancel anytime.",
+      "recommended": "Recommended",
+      "notice": "Prices exclude VAT · billing issued via InvoiceXpress",
+      "monthly": {
+        "name": "Standard",
+        "cadence": "monthly",
+        "period": "/month · per integration",
+        "tagline": "Pay month-to-month. Cancel anytime.",
+        "cta": "Start free",
+        "b1": "One integration from the catalog",
+        "b2": "Automatic invoicing in < 1s",
+        "b3": "VAT ID · VAT · M01–M99",
+        "b4": "D1 + KV idempotency",
+        "b5": "Email support"
+      },
+      "yearly": {
+        "name": "Standard",
+        "cadence": "annual",
+        "period": "/year · per integration",
+        "tagline": "Two months free. The engine, all year.",
+        "savings": "Save €15/year",
+        "cta": "Start free",
+        "b1": "Everything in monthly",
+        "b2": "2 months free (€75 vs €90)",
+        "b3": "Integration roadmap priority",
+        "b4": "Email support · response < 24h"
+      },
+      "custom": {
+        "name": "Custom",
+        "cadence": "tailored",
+        "priceLabel": "On",
+        "period": "request",
+        "tagline": "Tailored integration: ERP, marketplace, specific flows. Reviewed case by case.",
+        "cta": "Request a quote",
+        "b1": "Custom-built integration",
+        "b2": "Multiple stores / multiple VAT IDs",
+        "b3": "Dedicated SLA",
+        "b4": "Technical onboarding video call"
+      }
+    },
+    "cta": {
+      "eyebrow": "Ready?",
+      "title": "Connect your first store in <g>four</g> minutes.",
+      "body": "No card. No install. No checkout extensions. Set it up once, invoice forever.",
+      "start": "Start free",
+      "signIn": "I already have an account"
+    },
+    "footer": {
+      "rights": "© {year} · all rights reserved",
+      "privacy": "Privacy",
+      "terms": "Terms",
+      "developedBy": "Developed by"
+    }
+  },
+  "privacy": {
+    "back": "← Back",
+    "title": "Privacy Policy",
+    "lastUpdate": "Last updated: May 18, 2026",
+    "s1": {
+      "title": "1. Who we are",
+      "body": "Rioko is a service operated by <b>Kapta</b>, based in Portugal, which automates invoicing for Shopify stores through InvoiceXpress. For privacy matters, contact us at <mail>pedro@kapta.pt</mail>."
+    },
+    "s2": {
+      "title": "2. Data we collect",
+      "body": "<ul><li><b>Account</b>: name, email and unique identifier (via Clerk authentication).</li><li><b>Integration credentials</b>: Shopify token, InvoiceXpress API key, webhook secrets — used only to issue tax documents on your behalf.</li><li><b>Order data</b>: ID, customer, VAT ID, amounts, products — processed in real time to create the invoice or credit note.</li><li><b>Technical logs</b>: timestamps, request IDs, responses from external APIs, for auditing and diagnostics.</li></ul>"
+    },
+    "s3": {
+      "title": "3. What we use it for",
+      "body": "Data is used exclusively to:<ul><li>Automatically create Invoice-Receipts and Credit Notes in InvoiceXpress.</li><li>Ensure tax compliance (AT rules, VAT exemptions M01–M99, VAT ID).</li><li>Display history in the dashboard.</li><li>Provide technical support when you request it.</li></ul><p>We do not sell or share your data with third parties for marketing purposes.</p>"
+    },
+    "s4": {
+      "title": "4. Subprocessors",
+      "body": "To operate the service, we rely on:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — EU/global.</li><li><b>Clerk</b> (authentication) — EU/US.</li><li><b>Shopify</b> (order source) — per your store configuration.</li><li><b>InvoiceXpress</b> (tax issuer) — Portugal.</li><li><b>Vercel</b> (supplementary logging) — EU/US.</li></ul>"
+    },
+    "s5": {
+      "title": "5. Retention",
+      "body": "We keep your data while your account is active. Once the account is deleted, personal data is removed from our database within 30 days. Anonymized logs may be retained for up to 12 months for diagnostics and fraud prevention."
+    },
+    "s6": {
+      "title": "6. Your rights (GDPR)",
+      "body": "You have the right to:<ul><li>Access your personal data.</li><li>Correct inaccurate data.</li><li>Request deletion (\"right to be forgotten\").</li><li>Data portability.</li><li>Withdraw consent at any time.</li><li>File a complaint with <b>CNPD</b> (Portuguese Data Protection Authority).</li></ul><p>To exercise any right, email <mail>pedro@kapta.pt</mail>.</p>"
+    },
+    "s7": {
+      "title": "7. Security",
+      "body": "All tokens and API keys are stored encrypted. Communications between Rioko and external services (Shopify, InvoiceXpress, Clerk) use HTTPS/TLS exclusively. Shopify webhooks are verified with HMAC-SHA256 before any processing."
+    },
+    "s8": {
+      "title": "8. Cookies",
+      "body": "We only use cookies essential to authentication (Clerk session). No marketing cookies or third-party tracking."
+    },
+    "s9": {
+      "title": "9. Changes",
+      "body": "This policy may be updated. Material changes will be communicated by email to registered users at least 14 days before taking effect."
+    },
+    "s10": {
+      "title": "10. Contact",
+      "body": "Kapta — <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+    }
+  },
+  "terms": {
+    "back": "← Back",
+    "title": "Terms of Service",
+    "lastUpdate": "Last updated: May 18, 2026",
+    "s1": {
+      "title": "1. Acceptance",
+      "body": "By registering or using Rioko, you accept these terms. If you do not agree, do not use the service."
+    },
+    "s2": {
+      "title": "2. The service",
+      "body": "Rioko is an automatic bridge between <b>Shopify</b> and <b>InvoiceXpress</b>. Upon receiving webhooks for paid orders or refunds from your Shopify store, Rioko issues, on your behalf, Invoice-Receipts, Invoices and Credit Notes in your InvoiceXpress account, with correct VAT ID, VAT exemptions and tax identification."
+    },
+    "s3": {
+      "title": "3. Account and credentials",
+      "body": "<ul><li>You guarantee that registration data is truthful and up to date.</li><li>You are responsible for keeping Shopify, InvoiceXpress and Rioko credentials secure.</li><li>You are responsible for all activity in your account.</li></ul>"
+    },
+    "s4": {
+      "title": "4. Tax responsibility",
+      "body": "Rioko is a <b>technical tool</b>. Final responsibility for compliance with Portuguese tax obligations (correct issuance, AT, VAT, declarations) is <b>yours</b>. We recommend that you periodically validate the documents issued in InvoiceXpress and consult your accountant."
+    },
+    "s5": {
+      "title": "5. Acceptable use",
+      "body": "You may not:<ul><li>Use Rioko to issue fraudulent documents or on behalf of third parties without authorization.</li><li>Attempt to circumvent technical or security limits of the service.</li><li>Reverse engineer, copy or resell the service.</li><li>Use Rioko in a way that harms the operation of external services (Shopify, InvoiceXpress).</li></ul>"
+    },
+    "s6": {
+      "title": "6. Pricing and payment",
+      "body": "If your subscription is paid, pricing, billing cycle and cancellation terms are stated on the plans page or signed contract. Payments are non-refundable unless legally required otherwise."
+    },
+    "s7": {
+      "title": "7. Availability",
+      "body": "We strive to keep the service available 24/7, but absolute uptime is not guaranteed. Small maintenance windows may occur. Outages in external systems (Shopify, InvoiceXpress, Cloudflare, Clerk) may temporarily affect Rioko."
+    },
+    "s8": {
+      "title": "8. Limitation of liability",
+      "body": "To the maximum extent permitted by law, Rioko (Kapta) is not liable for:<ul><li>Indirect losses, lost profits or consequential damages.</li><li>Tax errors resulting from incorrect configuration on your part (VAT ID, VAT, exemptions, series).</li><li>Unavailability or errors in third-party services (Shopify, InvoiceXpress, etc.).</li></ul><p>Rioko's aggregate liability, in any case, is limited to the amount paid by the customer in the 3 months prior to the event.</p>"
+    },
+    "s9": {
+      "title": "9. Suspension and cancellation",
+      "body": "We may suspend or cancel accounts that violate these terms. You may cancel your account at any time by deleting it via the dashboard or by emailing <mail>pedro@kapta.pt</mail>."
+    },
+    "s10": {
+      "title": "10. Changes to terms",
+      "body": "We may update these terms. Material changes are communicated by email with 14 days' notice. Continued use after the effective date implies acceptance."
+    },
+    "s11": {
+      "title": "11. Governing law and jurisdiction",
+      "body": "These terms are governed by Portuguese law. Any dispute is subject to the jurisdiction of the Lisbon District Court, expressly waiving any other."
+    },
+    "s12": {
+      "title": "12. Contact",
+      "body": "Kapta — <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+    }
+  }
+}

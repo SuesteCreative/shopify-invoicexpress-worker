@@ -44,11 +44,11 @@ export type Row = {
 };
 
 const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
-    exact: { label: "Match exato", cls: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" },
-    approved: { label: "Aprovado", cls: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" },
-    heuristic: { label: "Heurístico", cls: "bg-amber-500/10 text-amber-300 border-amber-500/30" },
-    not_needed: { label: "Não necessária", cls: "bg-slate-500/10 text-slate-300 border-slate-500/30" },
-    none: { label: "Sem fatura", cls: "bg-red-500/10 text-red-300 border-red-500/30" },
+    exact: { label: "Match exato", cls: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]" },
+    approved: { label: "Aprovado", cls: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]" },
+    heuristic: { label: "Heurístico", cls: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.30)]" },
+    not_needed: { label: "Não necessária", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
+    none: { label: "Sem fatura", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
 };
 
 const fmt = (n: number) => n.toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
@@ -120,25 +120,25 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
     };
 
     return (
-        <article className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 md:gap-6 items-stretch rounded-2xl border border-slate-800/60 bg-slate-900/30 p-4 md:p-5 hover:border-slate-700 transition-all">
+        <article className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 md:gap-6 items-stretch rounded-2xl border border-hairline bg-surface-2/30 p-4 md:p-5 hover:border-rule transition-all">
             {/* Shopify side */}
             <div className="flex flex-col gap-2 min-w-0">
                 <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 px-2 py-0.5 rounded bg-slate-800 border border-slate-700/50 flex items-center gap-1">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">
                         <ShoppingBag className="w-3 h-3" /> Shopify
                     </span>
-                    <span className="text-xs font-bold text-emerald-300">Pago · {fmt(row.order.total)}</span>
+                    <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
                 </div>
                 <div className="flex flex-wrap items-baseline gap-2">
                     <a href={row.order.permalink} target="_blank" rel="noopener noreferrer"
-                        className="text-lg font-black text-white hover:text-emerald-300 transition-colors inline-flex items-center gap-1">
+                        className="text-lg font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
                         {row.order.name} <ExternalLink className="w-3 h-3 opacity-50" />
                     </a>
-                    <span className="text-[10px] font-bold text-slate-500">{fmtDate(row.order.paid_at)}</span>
+                    <span className="text-[10px] font-bold text-fg-40">{fmtDate(row.order.paid_at)}</span>
                 </div>
-                <p className="text-xs font-medium text-slate-400 truncate">
+                <p className="text-xs font-medium text-fg-60 truncate">
                     {row.order.customer_name ?? "—"}
-                    {row.order.email && <span className="text-slate-600"> · {row.order.email}</span>}
+                    {row.order.email && <span className="text-fg-40"> · {row.order.email}</span>}
                 </p>
             </div>
 
@@ -149,7 +149,7 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                     {row.match.type === "heuristic" && ` ${row.match.confidence}%`}
                 </span>
                 {row.match.reason && (
-                    <span className="text-[10px] text-slate-500 font-medium text-center max-w-[140px] truncate" title={row.match.reason}>
+                    <span className="text-[10px] text-fg-40 font-medium text-center max-w-[140px] truncate" title={row.match.reason}>
                         {row.match.reason}
                     </span>
                 )}
@@ -160,11 +160,11 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                 {row.invoice ? (
                     <>
                         <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 px-2 py-0.5 rounded bg-slate-800 border border-slate-700/50 flex items-center gap-1">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">
                                 <FileText className="w-3 h-3" /> InvoiceXpress
                             </span>
                             {row.invoice.status && (
-                                <span className={`text-[10px] font-bold ${row.invoice.status === "draft" ? "text-amber-300" : "text-emerald-300"}`}>
+                                <span className={`text-[10px] font-bold ${row.invoice.status === "draft" ? "text-soon" : "text-accent-hot"}`}>
                                     {row.invoice.status}
                                 </span>
                             )}
@@ -172,31 +172,31 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                         <div className="flex flex-wrap items-baseline gap-2">
                             {row.invoice.permalink ? (
                                 <a href={row.invoice.permalink} target="_blank" rel="noopener noreferrer"
-                                    className="text-base font-black text-white hover:text-emerald-300 transition-colors inline-flex items-center gap-1">
+                                    className="text-base font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
                                     {row.invoice.reference ?? `Fatura ${row.invoice.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
                                 </a>
                             ) : (
-                                <span className="text-base font-black text-white">
+                                <span className="text-base font-black text-fg">
                                     {row.invoice.reference ?? `Fatura ${row.invoice.id}`}
                                 </span>
                             )}
                             {row.invoice.total != null && (
-                                <span className="text-[11px] font-bold text-slate-400">{fmt(row.invoice.total)}</span>
+                                <span className="text-[11px] font-bold text-fg-60">{fmt(row.invoice.total)}</span>
                             )}
                             {row.invoice.date && (
-                                <span className="text-[10px] font-bold text-slate-500">{fmtDate(row.invoice.date)}</span>
+                                <span className="text-[10px] font-bold text-fg-40">{fmtDate(row.invoice.date)}</span>
                             )}
                         </div>
                         <div className="flex flex-wrap gap-2 mt-1">
                             {row.invoice.pdf_url && (
                                 <a href={row.invoice.pdf_url} target="_blank" rel="noopener noreferrer"
-                                    className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white px-2.5 py-1 rounded-lg border border-slate-800 hover:border-slate-700 inline-flex items-center gap-1">
+                                    className="text-[10px] font-black uppercase tracking-widest text-fg-60 hover:text-fg px-2.5 py-1 rounded-lg border border-hairline hover:border-rule inline-flex items-center gap-1">
                                     PDF <ExternalLink className="w-3 h-3" />
                                 </a>
                             )}
                             {row.match.type === "approved" && (
                                 <button onClick={revertApprove} disabled={acting}
-                                    className="text-[10px] font-black uppercase tracking-widest text-amber-400 hover:text-amber-300 px-2.5 py-1 rounded-lg border border-amber-500/20 hover:border-amber-500/40 inline-flex items-center gap-1 disabled:opacity-50">
+                                    className="text-[10px] font-black uppercase tracking-widest text-soon hover:text-soon/85 px-2.5 py-1 rounded-lg border border-[rgba(245,158,11,0.20)] hover:border-[rgba(245,158,11,0.40)] inline-flex items-center gap-1 disabled:opacity-50">
                                     {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Reverter aprovação
                                 </button>
                             )}
@@ -204,29 +204,29 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                     </>
                 ) : row.match.type === "not_needed" ? (
                     <>
-                        <p className="text-sm font-bold text-slate-400">Fatura não necessária</p>
-                        {row.match.reason && <p className="text-xs text-slate-500">{row.match.reason}</p>}
+                        <p className="text-sm font-bold text-fg-60">Fatura não necessária</p>
+                        {row.match.reason && <p className="text-xs text-fg-40">{row.match.reason}</p>}
                         <button onClick={clearDecision} disabled={acting}
-                            className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white px-2.5 py-1 rounded-lg border border-slate-800 hover:border-slate-700 inline-flex items-center gap-1 mt-2 w-fit disabled:opacity-50">
+                            className="text-[10px] font-black uppercase tracking-widest text-fg-60 hover:text-fg px-2.5 py-1 rounded-lg border border-hairline hover:border-rule inline-flex items-center gap-1 mt-2 w-fit disabled:opacity-50">
                             {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Reverter
                         </button>
                     </>
                 ) : (
                     <>
-                        <p className="text-sm font-bold text-red-300 flex items-center gap-2">
+                        <p className="text-sm font-bold text-destructive flex items-center gap-2">
                             <AlertCircle className="w-4 h-4" /> Sem fatura emitida
                         </p>
                         {row.candidates.length > 0 && (
                             <div className="space-y-2 mt-1">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Candidatos heurísticos:</p>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-fg-40">Candidatos heurísticos:</p>
                                 {row.candidates.map(c => (
-                                    <div key={c.id} className="flex items-center justify-between gap-2 bg-slate-950/60 border border-slate-800 rounded-lg p-2">
+                                    <div key={c.id} className="flex items-center justify-between gap-2 bg-surface border border-hairline rounded-lg p-2">
                                         <div className="min-w-0">
-                                            <p className="text-xs font-bold text-white truncate">{c.reference ?? `Fatura ${c.id}`} <span className="text-[10px] text-amber-300">· {c.confidence}%</span></p>
-                                            <p className="text-[10px] text-slate-500 truncate">{c.client_name} · {fmt(c.total)} · {fmtDate(c.date)}</p>
+                                            <p className="text-xs font-bold text-fg truncate">{c.reference ?? `Fatura ${c.id}`} <span className="text-[10px] text-soon">· {c.confidence}%</span></p>
+                                            <p className="text-[10px] text-fg-40 truncate">{c.client_name} · {fmt(c.total)} · {fmtDate(c.date)}</p>
                                         </div>
                                         <button onClick={() => approve(c.id)} disabled={acting}
-                                            className="text-[10px] font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-500/30 inline-flex items-center gap-1 disabled:opacity-50">
+                                            className="text-[10px] font-black uppercase tracking-widest bg-[rgba(94,234,212,0.18)] text-accent-hot border border-[rgba(94,234,212,0.30)] px-2.5 py-1 rounded-lg hover:bg-[rgba(94,234,212,0.25)] inline-flex items-center gap-1 disabled:opacity-50">
                                             {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} Aprovar
                                         </button>
                                     </div>
@@ -235,11 +235,11 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                         )}
                         <div className="flex flex-wrap gap-2 mt-2">
                             <button onClick={issueInvoice} disabled={acting}
-                                className="text-[10px] font-black uppercase tracking-widest bg-white text-black px-3 py-1.5 rounded-lg hover:bg-emerald-500 hover:text-white inline-flex items-center gap-1 disabled:opacity-50">
+                                className="text-[10px] font-black uppercase tracking-widest bg-fg text-surface px-3 py-1.5 rounded-lg hover:bg-accent-hot inline-flex items-center gap-1 disabled:opacity-50">
                                 {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FilePlus2 className="w-3 h-3" />} Emitir fatura
                             </button>
                             <button onClick={markNotNeeded} disabled={acting}
-                                className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700 inline-flex items-center gap-1 disabled:opacity-50">
+                                className="text-[10px] font-black uppercase tracking-widest text-fg-60 hover:text-fg px-3 py-1.5 rounded-lg border border-hairline hover:border-rule inline-flex items-center gap-1 disabled:opacity-50">
                                 {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <MinusCircle className="w-3 h-3" />} Marcar não necessária
                             </button>
                         </div>

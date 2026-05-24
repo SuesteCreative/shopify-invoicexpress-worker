@@ -70,12 +70,12 @@ export function ReconciliationView({ shop }: { shop: string }) {
         <div className="max-w-7xl mx-auto px-4 md:px-8 py-10 space-y-8">
             <header className="flex flex-col gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                        <ScrollText className="w-6 h-6 text-emerald-400" />
+                    <div className="w-12 h-12 rounded-2xl bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.20)] flex items-center justify-center">
+                        <ScrollText className="w-6 h-6 text-accent-hot" />
                     </div>
                     <div>
-                        <h1 className="text-3xl md:text-4xl font-black tracking-tight">Conciliação Shopify ↔ InvoiceXpress</h1>
-                        <p className="text-slate-400 text-sm">{shop}</p>
+                        <h1 className="text-3xl md:text-4xl font-medium tracking-tight">Conciliação Shopify ↔ InvoiceXpress</h1>
+                        <p className="text-fg-60 text-sm">{shop}</p>
                     </div>
                 </div>
             </header>
@@ -83,7 +83,7 @@ export function ReconciliationView({ shop }: { shop: string }) {
             <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end">
                 <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
                 <button onClick={load} disabled={loading}
-                    className="bg-white text-black px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-500 hover:text-white transition-all disabled:opacity-50">
+                    className="bg-fg text-surface px-6 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent-hot transition-all disabled:opacity-50">
                     {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
                     Atualizar
                 </button>
@@ -96,15 +96,15 @@ export function ReconciliationView({ shop }: { shop: string }) {
                         finally { setExporting(false); }
                     }}
                     disabled={loading || exporting || !data || filtered.length === 0}
-                    className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-500/20 transition-all disabled:opacity-50">
+                    className="bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.30)] text-accent-hot px-6 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(94,234,212,0.18)] transition-all disabled:opacity-50">
                     {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
                     Excel
                 </button>
                 <div className="relative flex-1">
-                    <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                    <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2" />
                     <input placeholder="Pesquisar #order, cliente, email, ref. fatura..."
                         value={search} onChange={e => setSearch(e.target.value)}
-                        className="w-full bg-slate-900/50 border border-slate-800 rounded-xl py-2.5 pl-11 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                        className="w-full bg-surface-2 border border-hairline rounded-xl py-2.5 pl-11 pr-4 text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-[rgba(2,141,196,0.20)]" />
                 </div>
             </div>
 
@@ -124,17 +124,17 @@ export function ReconciliationView({ shop }: { shop: string }) {
             )}
 
             {error && (
-                <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-300">{error}</div>
+                <div className="rounded-2xl border border-[rgba(244,63,94,0.30)] bg-[rgba(244,63,94,0.05)] p-5 text-sm text-destructive">{error}</div>
             )}
 
             {loading && !data && (
                 <div className="flex items-center justify-center py-20">
-                    <Loader2 className="w-8 h-8 text-emerald-400 animate-spin opacity-60" />
+                    <Loader2 className="w-8 h-8 text-accent animate-spin opacity-60" />
                 </div>
             )}
 
             {data && filtered.length === 0 && (
-                <p className="text-center text-slate-500 italic py-20">Sem resultados neste filtro.</p>
+                <p className="text-center text-fg-40 italic py-20">Sem resultados neste filtro.</p>
             )}
 
             <div className="space-y-3">

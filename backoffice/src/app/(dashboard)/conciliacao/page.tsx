@@ -20,8 +20,8 @@ export default async function ConciliacaoPage() {
     if (!shop) {
         return (
             <div className="max-w-3xl mx-auto px-6 py-20 text-center">
-                <h1 className="text-3xl font-black mb-4">Conciliação</h1>
-                <p className="text-slate-400">
+                <h1 className="text-3xl font-medium mb-4">Conciliação</h1>
+                <p className="text-fg-60">
                     Ainda não tens uma integração Shopify ligada. Liga a tua loja primeiro para começares a conciliar faturas.
                 </p>
             </div>

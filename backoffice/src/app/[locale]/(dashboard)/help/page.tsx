@@ -143,42 +143,73 @@ function ContactBox({ subject = "Rioko - Suporte" }: { subject?: string }) {
 
 type Platform = "shopify" | "stripe" | "invoicexpress" | "moloni";
 
-const PLATFORMS: { id: Platform; label: string; sub: string; icon: React.ComponentType<any>; accent: "emerald" | "violet" | "sky" | "amber" }[] = [
-    { id: "shopify", label: "Shopify", sub: "Fonte de encomendas", icon: Store, accent: "emerald" },
-    { id: "stripe", label: "Stripe", sub: "Fonte de pagamentos", icon: CreditCard, accent: "violet" },
-    { id: "invoicexpress", label: "InvoiceXpress", sub: "Faturação", icon: FileText, accent: "sky" },
-    { id: "moloni", label: "Moloni", sub: "Faturação", icon: ClipboardList, accent: "amber" },
+type Accent = "emerald" | "violet" | "sky" | "amber";
+
+const PLATFORMS: { id: Platform; label: string; sub: string; icon: React.ComponentType<any>; accent: Accent; group: "payment" | "invoicing" }[] = [
+    { id: "shopify", label: "Shopify", sub: "Fonte de encomendas", icon: Store, accent: "emerald", group: "payment" },
+    { id: "stripe", label: "Stripe", sub: "Fonte de pagamentos", icon: CreditCard, accent: "violet", group: "payment" },
+    { id: "invoicexpress", label: "InvoiceXpress", sub: "Software de faturação", icon: FileText, accent: "sky", group: "invoicing" },
+    { id: "moloni", label: "Moloni", sub: "Software de faturação", icon: ClipboardList, accent: "amber", group: "invoicing" },
 ];
 
-function PlatformTabs({ tab, onChange }: { tab: Platform; onChange: (p: Platform) => void }) {
+const ACCENT_CLASSES: Record<Accent, string> = {
+    emerald: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
+    violet: "text-violet-400 border-violet-500/40 bg-violet-500/10",
+    sky: "text-sky-400 border-sky-500/40 bg-sky-500/10",
+    amber: "text-amber-400 border-amber-500/40 bg-amber-500/10",
+};
+
+function PlatformTabButton({ p, active, onClick }: { p: typeof PLATFORMS[number]; active: boolean; onClick: () => void }) {
+    const Icon = p.icon;
     return (
-        <div className="glass rounded-[2rem] p-3 border-slate-800/40">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                {PLATFORMS.map(p => {
-                    const Icon = p.icon;
-                    const active = tab === p.id;
-                    const accentText = {
-                        emerald: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
-                        violet: "text-violet-400 border-violet-500/40 bg-violet-500/10",
-                        sky: "text-sky-400 border-sky-500/40 bg-sky-500/10",
-                        amber: "text-amber-400 border-amber-500/40 bg-amber-500/10",
-                    }[p.accent];
-                    return (
-                        <button
-                            key={p.id}
-                            onClick={() => onChange(p.id)}
-                            className={`relative flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all text-left group ${active ? accentText : "border-slate-800/60 bg-slate-900/40 text-slate-400 hover:border-slate-700 hover:text-white"}`}
-                        >
-                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-white/5" : "bg-slate-900"}`}>
-                                <Icon className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0">
-                                <div className="text-sm font-black tracking-tight">{p.label}</div>
-                                <div className={`text-[9px] uppercase tracking-widest font-bold ${active ? "opacity-80" : "text-slate-600"}`}>{p.sub}</div>
-                            </div>
-                        </button>
-                    );
-                })}
+        <button
+            onClick={onClick}
+            className={`relative flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all text-left group ${active ? ACCENT_CLASSES[p.accent] : "border-slate-800/60 bg-slate-900/40 text-slate-400 hover:border-slate-700 hover:text-white"}`}
+        >
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-white/5" : "bg-slate-900"}`}>
+                <Icon className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+                <div className="text-sm font-black tracking-tight">{p.label}</div>
+                <div className={`text-[9px] uppercase tracking-widest font-bold ${active ? "opacity-80" : "text-slate-600"}`}>{p.sub}</div>
+            </div>
+        </button>
+    );
+}
+
+function GroupHeader({ label, gradientFrom, gradientVia }: { label: string; gradientFrom: string; gradientVia: string }) {
+    return (
+        <div className="flex items-center gap-3 px-1">
+            <div className={`h-px flex-1 bg-gradient-to-r ${gradientFrom} ${gradientVia} to-transparent`} />
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.25em] whitespace-nowrap">{label}</span>
+            <div className="h-px flex-1" />
+        </div>
+    );
+}
+
+function PlatformTabs({ tab, onChange }: { tab: Platform; onChange: (p: Platform) => void }) {
+    const payment = PLATFORMS.filter(p => p.group === "payment");
+    const invoicing = PLATFORMS.filter(p => p.group === "invoicing");
+    return (
+        <div className="glass rounded-[2rem] p-5 border-slate-800/40 space-y-5">
+            <div className="space-y-3">
+                <GroupHeader label="Plataforma de Pagamento" gradientFrom="from-emerald-500/30" gradientVia="via-violet-500/30" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {payment.map(p => (
+                        <PlatformTabButton key={p.id} p={p} active={tab === p.id} onClick={() => onChange(p.id)} />
+                    ))}
+                </div>
+            </div>
+
+            <div className="border-t border-slate-800/50" />
+
+            <div className="space-y-3">
+                <GroupHeader label="Software de Faturação" gradientFrom="from-sky-500/30" gradientVia="via-amber-500/30" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {invoicing.map(p => (
+                        <PlatformTabButton key={p.id} p={p} active={tab === p.id} onClick={() => onChange(p.id)} />
+                    ))}
+                </div>
             </div>
         </div>
     );

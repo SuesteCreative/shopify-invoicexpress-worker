@@ -36,7 +36,6 @@ export default function IntegrationsPage() {
         fetch("/api/integrations")
             .then(res => res.json())
             .then((data: any) => {
-                // Simple logic: if shopify and ix are set up, mark as active
                 if (data.shopify_domain && data.ix_account_name) {
                     setActiveIntegration({
                         id: "shopify-ix",
@@ -54,47 +53,49 @@ export default function IntegrationsPage() {
     return (
         <div className="max-w-6xl mx-auto space-y-16 animate-in fade-in duration-1000 slide-in-from-bottom-4">
             <div className="space-y-4 text-center md:text-left">
-                <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-white via-white/80 to-slate-500 bg-clip-text text-transparent">
+                <h1 className="text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                     Integrações
                 </h1>
-                <p className="text-slate-400 font-semibold tracking-wide">
+                <p className="text-fg-60 font-medium tracking-wide">
                     Escolha as plataformas que deseja conectar ao seu motor Rioko.
                 </p>
             </div>
 
             {activeIntegration && (
                 <section className="space-y-6">
-                    <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-2">Integrações Ativas</h2>
-                    <div className="glass rounded-[2.5rem] p-8 border-slate-800/40 relative overflow-hidden group">
+                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">Integrações Ativas</h2>
+                    <div className="glass rounded-[2.5rem] p-8 relative overflow-hidden group">
                         <div className="absolute top-0 right-0 p-8 opacity-5">
-                            <CheckCircle2 className="w-32 h-32 text-emerald-400" />
+                            <CheckCircle2 className="w-32 h-32 text-accent-hot" />
                         </div>
                         <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
                             <div className="flex items-center gap-8">
                                 <div className="flex -space-x-4">
-                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-xl ring-4 ring-slate-950 shadow-2xl p-3">
+                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
                                         <Image src="/images/shopify-logo.webp" alt="Shopify" width={36} height={36} className="object-contain" />
                                     </div>
-                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-xl ring-4 ring-slate-950 shadow-2xl p-3">
+                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
                                         <Image src="/images/invoicexpress_logo2.png" alt="InvoiceXpress" width={36} height={36} className="object-contain" />
                                     </div>
                                 </div>
                                 <div className="space-y-1">
-                                    <h3 className="text-2xl font-black tracking-tight">Shopify + InvoiceXpress</h3>
+                                    <h3 className="text-2xl font-medium tracking-tight">Shopify + InvoiceXpress</h3>
                                     <div className="flex items-center gap-3">
                                         <span className={cn(
-                                            "px-2 px-1 rounded-md text-[9px] font-black uppercase tracking-widest border",
-                                            activeIntegration.status === "authorized" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                                            "px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border",
+                                            activeIntegration.status === "authorized"
+                                                ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
+                                                : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
                                         )}>
                                             {activeIntegration.status === "authorized" ? "Autorizado" : "Configuração Pendente"}
                                         </span>
-                                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Sincronização em tempo real</span>
+                                        <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Sincronização em tempo real</span>
                                     </div>
                                 </div>
                             </div>
                             <Link
                                 href="/integrations/shopify-ix"
-                                className="px-8 py-4 rounded-2xl bg-white text-black font-black text-xs uppercase tracking-widest hover:bg-emerald-400 hover:text-white transition-all transform active:scale-95 flex items-center gap-3 shadow-xl shadow-white/5"
+                                className="px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
                             >
                                 Gerir Definições <ArrowRight className="w-4 h-4" />
                             </Link>
@@ -106,7 +107,7 @@ export default function IntegrationsPage() {
             <div className="grid lg:grid-cols-2 gap-12">
                 {/* Payment Platforms */}
                 <div className="space-y-6">
-                    <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-2">Plataforma de Pagamento / E-commerce</h2>
+                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">Plataforma de Pagamento / E-commerce</h2>
                     <div className="grid gap-3">
                         {PAYMENT_PLATFORMS.map((p) => {
                             const Icon = p.icon;
@@ -116,26 +117,26 @@ export default function IntegrationsPage() {
                                     onClick={() => p.active && setSelectedPayment(p.id)}
                                     className={cn(
                                         "glass p-6 rounded-[2rem] border transition-all flex items-center justify-between group",
-                                        !p.active ? "opacity-40 grayscale cursor-not-allowed border-slate-800/20" :
-                                            selectedPayment === p.id ? "border-emerald-500/40 bg-emerald-500/[0.03] shadow-[0_0_30px_rgba(16,185,129,0.1)]" : "border-slate-800/40 hover:border-slate-700/60"
+                                        !p.active ? "opacity-40 grayscale cursor-not-allowed border-hairline" :
+                                            selectedPayment === p.id ? "border-[rgba(2,141,196,0.40)] bg-[rgba(2,141,196,0.04)]" : "border-hairline hover:border-rule"
                                     )}
                                 >
                                     <div className="flex items-center gap-5">
                                         <div className={cn(
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
-                                            selectedPayment === p.id ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-900/50 text-slate-500 group-hover:text-slate-300"
+                                            selectedPayment === p.id ? "bg-[rgba(2,141,196,0.18)] text-accent" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
                                         )}>
                                             {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className="object-contain" /> : <Icon className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
-                                            <p className="font-bold text-lg">{p.name}</p>
-                                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
+                                            <p className="font-medium text-lg text-fg">{p.name}</p>
+                                            <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
                                                 {!p.active ? "Brevemente" : "Disponível"}
                                             </p>
                                         </div>
                                     </div>
-                                    {!p.active && <Lock className="w-4 h-4 text-slate-700" />}
-                                    {selectedPayment === p.id && <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+                                    {!p.active && <Lock className="w-4 h-4 text-fg-40" />}
+                                    {selectedPayment === p.id && <div className="w-2 h-2 rounded-full bg-accent-hot animate-pulse" />}
                                 </button>
                             );
                         })}
@@ -144,7 +145,7 @@ export default function IntegrationsPage() {
 
                 {/* Invoicing Platforms */}
                 <div className="space-y-6">
-                    <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-2">Plataforma de Faturação</h2>
+                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">Plataforma de Faturação</h2>
                     <div className="grid gap-3">
                         {INVOICING_PLATFORMS.map((p) => {
                             const Icon = p.icon;
@@ -154,26 +155,26 @@ export default function IntegrationsPage() {
                                     onClick={() => p.active && setSelectedInvoicing(p.id)}
                                     className={cn(
                                         "glass p-6 rounded-[2rem] border transition-all flex items-center justify-between group",
-                                        !p.active ? "opacity-40 grayscale cursor-not-allowed border-slate-800/20" :
-                                            selectedInvoicing === p.id ? "border-sky-500/40 bg-sky-500/[0.03] shadow-[0_0_30px_rgba(56,189,248,0.1)]" : "border-slate-800/40 hover:border-slate-700/60"
+                                        !p.active ? "opacity-40 grayscale cursor-not-allowed border-hairline" :
+                                            selectedInvoicing === p.id ? "border-[rgba(2,141,196,0.40)] bg-[rgba(2,141,196,0.04)]" : "border-hairline hover:border-rule"
                                     )}
                                 >
                                     <div className="flex items-center gap-5">
                                         <div className={cn(
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
-                                            selectedInvoicing === p.id ? "bg-sky-500/20 text-sky-400" : "bg-slate-900/50 text-slate-500 group-hover:text-slate-300"
+                                            selectedInvoicing === p.id ? "bg-[rgba(2,141,196,0.18)] text-accent" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
                                         )}>
                                             {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className="object-contain" /> : <Icon className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
-                                            <p className="font-bold text-lg">{p.name}</p>
-                                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
+                                            <p className="font-medium text-lg text-fg">{p.name}</p>
+                                            <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
                                                 {!p.active ? "Brevemente" : "Disponível"}
                                             </p>
                                         </div>
                                     </div>
-                                    {!p.active && <Lock className="w-4 h-4 text-slate-700" />}
-                                    {selectedInvoicing === p.id && <div className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />}
+                                    {!p.active && <Lock className="w-4 h-4 text-fg-40" />}
+                                    {selectedInvoicing === p.id && <div className="w-2 h-2 rounded-full bg-accent-hot animate-pulse" />}
                                 </button>
                             );
                         })}
@@ -187,33 +188,45 @@ export default function IntegrationsPage() {
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 className="pt-8"
                             >
-                                <div className={cn(
-                                    "p-10 rounded-[2.5rem] border flex flex-col items-center gap-8 text-center",
-                                    canConnect ? "bg-emerald-500/[0.02] border-emerald-500/20" : "bg-slate-900/30 border-slate-800/50"
-                                )}>
+                                <div
+                                    className={cn(
+                                        "p-10 rounded-[2.5rem] flex flex-col items-center gap-8 text-center",
+                                        canConnect ? "text-white" : "bg-surface-2 border border-hairline"
+                                    )}
+                                    style={
+                                        canConnect
+                                            ? {
+                                                  background:
+                                                      "linear-gradient(135deg, #028DC4 0%, #0369A1 100%)",
+                                                  boxShadow:
+                                                      "inset 0 1px 0 rgba(255,255,255,0.15), 0 0 40px -10px rgba(2,141,196,0.55), 0 12px 30px -16px rgba(0,0,0,0.6)",
+                                              }
+                                            : undefined
+                                    }
+                                >
                                     <div className="flex -space-x-4">
-                                        <div className="w-20 h-20 rounded-[1.8rem] bg-white text-black flex items-center justify-center ring-8 ring-slate-950">
+                                        <div className="w-20 h-20 rounded-[1.8rem] bg-white text-surface flex items-center justify-center ring-8 ring-surface">
                                             {selectedPayment === "shopify" ? <Store className="w-10 h-10" /> : <CreditCard className="w-10 h-10" />}
                                         </div>
-                                        <div className="w-20 h-20 rounded-[1.8rem] bg-slate-900 text-white flex items-center justify-center ring-8 ring-slate-950 border border-white/10">
+                                        <div className="w-20 h-20 rounded-[1.8rem] bg-surface-2 text-fg flex items-center justify-center ring-8 ring-surface border border-hairline">
                                             <ClipboardList className="w-10 h-10" />
                                         </div>
                                     </div>
                                     <div className="space-y-2">
-                                        <h3 className="text-2xl font-black">Pronto para Conectar?</h3>
-                                        <p className="text-slate-400 text-sm max-w-xs mx-auto">
+                                        <h3 className="text-2xl font-medium">Pronto para Conectar?</h3>
+                                        <p className={cn("text-sm max-w-xs mx-auto", canConnect ? "text-white/80" : "text-fg-60")}>
                                             Inicie o guia de configuração de 4 passos para automatizar a sua faturação.
                                         </p>
                                     </div>
                                     {canConnect ? (
                                         <Link
                                             href={configuratorHref}
-                                            className="w-full py-5 rounded-3xl bg-emerald-500 text-white font-black text-sm uppercase tracking-widest hover:bg-emerald-400 transition-all transform active:scale-95 shadow-xl shadow-emerald-500/10"
+                                            className="w-full py-5 rounded-3xl bg-white text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95"
                                         >
                                             Configurar Agora
                                         </Link>
                                     ) : (
-                                        <button disabled className="w-full py-5 rounded-3xl bg-slate-800 text-slate-500 font-black text-sm uppercase tracking-widest cursor-not-allowed opacity-50">
+                                        <button disabled className="w-full py-5 rounded-3xl bg-surface-2 text-fg-40 font-mono text-sm uppercase tracking-[0.18em] cursor-not-allowed opacity-50 border border-hairline">
                                             Combinação Indisponível
                                         </button>
                                     )}

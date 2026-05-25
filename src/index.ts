@@ -816,6 +816,16 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         sourceConfig = undefined;
       }
 
+      // Destination credentials (Moloni OAuth, Vendus API key, etc.) live here.
+      // IX still reads from `legacy.integrations` so destination_config_json may
+      // be NULL for IX-only connections.
+      let destinationConfig: Record<string, any> | undefined;
+      try {
+        destinationConfig = connRow.destination_config_json ? JSON.parse(connRow.destination_config_json) : undefined;
+      } catch {
+        destinationConfig = undefined;
+      }
+
       // Load legacy `integrations` row for now — Phase 5 will project the full
       // config out of `connections.destination_config_json`. For Phase 3 we
       // reuse the existing per-user IX credentials so behavior stays identical.
@@ -838,6 +848,7 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         webhookId: eventId,
         body,
         sourceConfig,
+        destinationConfig,
       });
 
       message.ack();

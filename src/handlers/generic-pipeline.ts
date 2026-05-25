@@ -20,6 +20,9 @@ export interface RunPipelineInput {
   // Optional parsed `connections.source_config_json`. The Stripe adapter uses
   // it to read the restricted_key for Customer.tax_ids expansion.
   sourceConfig?: Record<string, any>;
+  // Optional parsed `connections.destination_config_json`. Moloni/Vendus pull
+  // their credentials from here. IX still reads from `config` (legacy row).
+  destinationConfig?: Record<string, any>;
 }
 
 /**
@@ -30,17 +33,26 @@ function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severi
   const msg = String(err?.message ?? err ?? "").toLowerCase();
 
   // Destination rejected the document outright (most common: invalid NIF, invalid client)
-  if (msg.includes("invoicexpress create failed") || msg.includes("invoicexpress credit create failed") || msg.includes("moloni") && msg.includes("fail")) {
+  const isDestCreateError =
+    msg.includes("invoicexpress create failed")
+    || msg.includes("invoicexpress credit create failed")
+    || (msg.includes("moloni") && msg.includes("fail"))
+    || (msg.includes("vendus") && msg.includes("fail"));
+  if (isDestCreateError) {
     if (msg.includes("fiscal") || msg.includes("nif")) {
       return { kind: "nif_invalid", severity: "error" };
     }
-    if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("autenticação")) {
+    if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("autenticação") || msg.includes("auth")) {
       return { kind: "auth_failure_destination", severity: "critical" };
     }
     return { kind: "destination_reject", severity: "error" };
   }
 
-  if (msg.includes("invoicexpress finalize failed") || msg.includes("moloni") && msg.includes("finalize")) {
+  if (
+    msg.includes("invoicexpress finalize failed")
+    || (msg.includes("moloni") && msg.includes("finalize"))
+    || (msg.includes("vendus") && msg.includes("finalize"))
+  ) {
     return { kind: "destination_reject", severity: "error" };
   }
 
@@ -73,7 +85,12 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const destAdapter = getDestinationAdapter(destination);
   const externalId = sourceAdapter.externalId(body);
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined);
-  const ctx = { apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config, sourceConfig: input.sourceConfig };
+  const ctx = {
+    apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
+    config,
+    sourceConfig: input.sourceConfig,
+    destinationConfig: input.destinationConfig,
+  };
   const logTopic = `${source}/${topic}`;
   const connectionLabel = `${source} → ${destination}`;
 
@@ -121,7 +138,7 @@ async function runPipelineCore(
   destAdapter: ReturnType<typeof getDestinationAdapter>,
   externalId: string,
   appStorage: AppStorage,
-  ctx: { apiKey: string; config: IRequestConfig; sourceConfig?: Record<string, any> },
+  ctx: { apiKey: string; config: IRequestConfig; sourceConfig?: Record<string, any>; destinationConfig?: Record<string, any> },
   logTopic: string,
 ): Promise<void> {
   const { env, config, source, destination, topic, webhookId, body } = input;

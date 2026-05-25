@@ -86,7 +86,7 @@ export interface PendingReverseChargeRow {
 }
 
 export type SourceKind = "shopify" | "stripe";
-export type DestinationKind = "invoicexpress" | "moloni";
+export type DestinationKind = "invoicexpress" | "moloni" | "vendus";
 
 export interface ConnectionRow {
   id: string;

@@ -2,7 +2,7 @@ import type { Normalized } from "../api/normalize-shopify";
 import type { IRequestConfig } from "../storage";
 
 export type SourceKind = "shopify" | "stripe";
-export type DestinationKind = "invoicexpress" | "moloni";
+export type DestinationKind = "invoicexpress" | "moloni" | "vendus";
 
 export interface AdapterCtx {
   apiKey: string;
@@ -11,6 +11,11 @@ export interface AdapterCtx {
   // source adapter pull source-specific credentials (e.g. Stripe restricted_key
   // to expand Customer.tax_ids) without re-querying the DB.
   sourceConfig?: Record<string, any>;
+  // Parsed `connections.destination_config_json`. Holds destination-specific
+  // credentials and settings (Moloni OAuth, Vendus API key, etc.). Behavior
+  // toggles (auto_finalize, ix_send_email, ix_exemption_reason fallback) still
+  // live in `config` (legacy `integrations` row) until Phase 5 projects them.
+  destinationConfig?: Record<string, any>;
 }
 
 export interface WebhookVerification {

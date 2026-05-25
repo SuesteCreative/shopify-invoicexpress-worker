@@ -3,9 +3,11 @@ export const WEBHOOK_TOPICS_BY_SOURCE = {
     stripe: ["charge.succeeded", "charge.refunded", "invoice.paid"] as string[],
 };
 
+import { RIOKO_VERSION, RIOKO_STABLE_BUILD } from "./version";
+
 export const RIOKO_CONFIG = {
-    version: "4.1.8",
-    stableBuild: true,
+    version: RIOKO_VERSION,
+    stableBuild: RIOKO_STABLE_BUILD,
     environment: "Production",
     workerUrl: "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev",
     // Back-compat: default export remains Shopify topics for existing callers

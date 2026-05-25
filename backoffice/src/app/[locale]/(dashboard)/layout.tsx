@@ -76,7 +76,18 @@ export default async function DashboardLayout({
                     </div>
 
                     <div className="pt-6 border-t border-hairline w-full text-center md:text-left space-y-1">
-                        <div className="font-mono text-[10px] text-fg-40 whitespace-nowrap tracking-[0.18em]">© 2026 Kapta. Todos os direitos reservados.</div>
+                        <div className="font-mono text-[10px] text-fg-40 tracking-[0.18em] leading-snug">
+                            © {new Date().getFullYear()}{" "}
+                            <a
+                                href="https://kapta.pt/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-fg-60 hover:text-accent transition-colors"
+                            >
+                                Kapta
+                            </a>
+                            . Todos os direitos<br className="md:inline" /> reservados.
+                        </div>
                         <div className="font-mono text-[9px] text-fg-40 tracking-[0.22em] uppercase">v{RIOKO_CONFIG.version} {RIOKO_CONFIG.stableBuild ? "Stable Build" : "Preview Build"}</div>
                     </div>
                 </div>

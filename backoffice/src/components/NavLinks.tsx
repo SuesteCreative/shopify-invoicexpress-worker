@@ -19,9 +19,9 @@ interface ActiveIntegration {
 }
 
 const ACTIVE_BRAND =
-    "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.25)]";
+    "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.45)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]";
 const ACTIVE_DANGER =
-    "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.25)]";
+    "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.45)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]";
 const INACTIVE = "text-fg-60 hover:text-fg hover:bg-white/5";
 
 export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boolean; isHiperadmin?: boolean }) {

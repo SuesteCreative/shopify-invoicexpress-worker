@@ -177,7 +177,7 @@ function PlatformTabButton({ p, active, onClick }: { p: ReturnType<typeof usePla
             </div>
             <div className="min-w-0">
                 <div className="text-sm font-black tracking-tight">{p.label}</div>
-                <div className={`text-[9px] uppercase tracking-widest font-bold ${active ? "opacity-80" : "text-fg-40"}`}>{p.sub}</div>
+                <div className={`text-[10px] uppercase tracking-widest font-bold ${active ? "opacity-80" : "text-fg-40"}`}>{p.sub}</div>
             </div>
         </button>
     );
@@ -229,7 +229,7 @@ function ShopifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
     const t = useTranslations("help");
     return (
         <div className="space-y-6">
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="shopify-domain" icon={<Store className="w-5 h-5" />} title={t("shopifyDomainTitle")} step={t("credentialTotal3")} accent="emerald">
                     <HtmlInfoBox html={t("shopifyDomainInfo")} />
                     <Steps accent="emerald" items={[
@@ -243,7 +243,7 @@ function ShopifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="shopify-token" icon={<Key className="w-5 h-5" />} title={t("shopifyTokenTitle")} step={t("credentialTotal3b")} accent="emerald">
                     <HtmlInfoBox html={t("shopifyTokenInfo")} />
                     <ContactBox subject="Rioko - Access Token Shopify" />
@@ -252,7 +252,7 @@ function ShopifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="shopify-webhook" icon={<Webhook className="w-5 h-5" />} title={t("shopifyWebhookTitle")} step={t("credentialTotal3c")} accent="emerald">
                     <HtmlInfoBox html={t("shopifyWebhookInfo")} />
                     <Steps accent="emerald" items={[
@@ -266,7 +266,7 @@ function ShopifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="shopify-api-version" icon={<Globe className="w-5 h-5" />} title={t("shopifyApiVersionTitle")} step={t("advancedOptional")} accent="emerald">
                     <HtmlInfoBox html={t("shopifyApiVersionInfo")} />
                 </Section>
@@ -279,7 +279,7 @@ function StripeGuide({ onZoom }: { onZoom: (src: string) => void }) {
     const t = useTranslations("help");
     return (
         <div className="space-y-6">
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="stripe-account-id" icon={<CreditCard className="w-5 h-5" />} title={t("stripeAccountIdTitle")} step={t("credentialTotal3")} accent="violet">
                     <HtmlInfoBox html={t("stripeAccountIdInfo")} />
                     <Steps accent="violet" items={[
@@ -291,7 +291,7 @@ function StripeGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="stripe-restricted-key" icon={<Key className="w-5 h-5" />} title={t("stripeRestrictedTitle")} step={t("credentialTotal3b")} accent="violet">
                     <HtmlInfoBox html={t("stripeRestrictedInfo")} />
                     <Steps accent="violet" items={[
@@ -306,7 +306,7 @@ function StripeGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="stripe-webhook" icon={<Webhook className="w-5 h-5" />} title={t("stripeWebhookTitle")} step={t("credentialTotal3c")} accent="violet">
                     <HtmlInfoBox html={t("stripeWebhookInfo")} />
                     <Steps accent="violet" items={[
@@ -327,7 +327,7 @@ function InvoiceXpressGuide({ onZoom }: { onZoom: (src: string) => void }) {
     const t = useTranslations("help");
     return (
         <div className="space-y-6">
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="ix-account" icon={<FileText className="w-5 h-5" />} title={t("ixAccountTitle")} step={t("credentialTotal2a")} accent="sky">
                     <HtmlInfoBox html={t("ixAccountInfo")} />
                     <Steps accent="sky" items={[
@@ -342,7 +342,7 @@ function InvoiceXpressGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="ix-api-key" icon={<Key className="w-5 h-5" />} title={t("ixApiKeyTitle")} step={t("credentialTotal2b")} accent="sky">
                     <HtmlInfoBox html={t("ixApiKeyInfo")} />
                     <Steps accent="sky" items={[
@@ -354,7 +354,7 @@ function InvoiceXpressGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="ix-environment" icon={<Globe className="w-5 h-5" />} title={t("ixEnvTitle")} accent="sky">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="bg-[rgba(94,234,212,0.05)] border border-[rgba(94,234,212,0.20)] rounded-2xl p-5">
@@ -369,14 +369,14 @@ function InvoiceXpressGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="ix-doc-type" icon={<FileText className="w-5 h-5" />} title={t("ixDocTypeTitle")} accent="sky">
                     <HtmlInfoBox html={t("ixDocTypeInfo")} />
                     <HtmlWarningBox html={t("ixDocTypeWarn")} />
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="ix-sequence" icon={<Settings2 className="w-5 h-5" />} title={t("ixSequenceTitle")} accent="sky">
                     <HtmlInfoBox html={t("ixSequenceInfo")} />
                     <Steps accent="sky" items={[
@@ -394,7 +394,7 @@ function MoloniGuide({ onZoom }: { onZoom: (src: string) => void }) {
     const t = useTranslations("help");
     return (
         <div className="space-y-6">
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="moloni-dev-account" icon={<Key className="w-5 h-5" />} title={t("moloniDevTitle")} step={t("credentialTotal3")} accent="amber">
                     <HtmlInfoBox html={t("moloniDevInfo")} />
                     <Steps accent="amber" items={[
@@ -405,7 +405,7 @@ function MoloniGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="moloni-app" icon={<Settings2 className="w-5 h-5" />} title={t("moloniAppTitle")} step={t("credentialTotal3b")} accent="amber">
                     <HtmlInfoBox html={t("moloniAppInfo")} />
                     <Steps accent="amber" items={[
@@ -420,7 +420,7 @@ function MoloniGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="moloni-credentials" icon={<Globe className="w-5 h-5" />} title={t("moloniCredsTitle")} step={t("credentialTotal3c")} accent="amber">
                     <HtmlInfoBox html={t("moloniCredsInfo")} />
                     <Steps accent="amber" items={[
@@ -432,7 +432,7 @@ function MoloniGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 </Section>
             </div>
 
-            <div className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="moloni-document-types" icon={<FileText className="w-5 h-5" />} title={t("moloniDocTypesTitle")} accent="amber">
                     <HtmlInfoBox html={t("moloniDocTypesInfo")} />
                     <HtmlWarningBox html={t("moloniDocTypesWarn")} />
@@ -584,11 +584,11 @@ function HelpFooter() {
                     href="https://calendly.com/pedro-kapta/apoio-kapta"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="bg-accent text-white px-10 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent/85 transition-all transform active:scale-95 shadow-xl flex items-center gap-3"
+                    className="bg-accent text-white px-6 sm:px-10 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent/85 transition-all transform active:scale-95 shadow-xl flex items-center gap-3"
                 >
                     <Calendar className="w-4 h-4" /> {t("scheduleMeeting")}
                 </a>
-                <a href="mailto:pedro@kapta.pt" className="bg-white text-black px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95 shadow-xl">
+                <a href="mailto:pedro@kapta.pt" className="bg-white text-black px-6 sm:px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95 shadow-xl">
                     {t("footerContact")}
                 </a>
                 <button
@@ -617,7 +617,7 @@ export default function HelpPage() {
             </Link>
 
             {/* Page Header */}
-            <div className="glass rounded-[2rem] p-10 border-hairline">
+            <div className="glass rounded-[2rem] p-6 sm:p-10 border-hairline">
                 <div className="flex items-center gap-4 mb-4">
                     <div className="w-14 h-14 rounded-2xl bg-surface-2 border border-hairline flex items-center justify-center">
                         <BookOpen className="w-7 h-7 text-soon" />

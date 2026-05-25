@@ -72,14 +72,23 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
         if (disabled) {
             return (
                 <div
-                    className="flex items-center gap-3 px-4 py-3 rounded-2xl font-medium text-sm text-fg-40 opacity-50 cursor-not-allowed border border-transparent group relative"
+                    className="px-4 py-3 rounded-2xl text-fg-40 cursor-not-allowed border border-transparent group relative"
                     title={tooltip}
                 >
-                    <Icon className="w-4 h-4 text-fg-40" />
-                    {label}
-                    <div className="absolute left-full ml-2 px-2 py-1 bg-surface-2 text-fg text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none border border-hairline">
-                        {tooltip}
+                    <div className="flex items-center gap-3 font-medium text-sm opacity-50">
+                        <Icon className="w-4 h-4 text-fg-40" />
+                        {label}
                     </div>
+                    {tooltip && (
+                        <div className="pl-7 mt-1 text-[10px] text-fg-40 leading-snug md:hidden">
+                            {tooltip}
+                        </div>
+                    )}
+                    {tooltip && (
+                        <div className="hidden md:block absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-surface-2 text-fg text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none border border-hairline">
+                            {tooltip}
+                        </div>
+                    )}
                 </div>
             );
         }
@@ -145,7 +154,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                                 </div>
                                 {integration.label}
                                 {!isRegistered && (
-                                    <div className="absolute left-full ml-2 px-2 py-1 bg-surface-2 text-fg text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none border border-hairline">
+                                    <div className="hidden md:block absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-surface-2 text-fg text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none border border-hairline">
                                         {t("tooltipNeedRegister")}
                                     </div>
                                 )}

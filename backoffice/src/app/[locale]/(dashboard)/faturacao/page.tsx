@@ -154,7 +154,7 @@ export default function FaturacaoPage() {
             </div>
 
             {/* Subscription summary card */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-8">
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8">
                 <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
                     <div className="flex items-center gap-6">
                         <div className="w-16 h-16 rounded-2xl bg-[rgba(2,141,196,0.15)] ring-1 ring-[rgba(2,141,196,0.30)] flex items-center justify-center">
@@ -163,7 +163,7 @@ export default function FaturacaoPage() {
                         <div className="space-y-2">
                             <div className="flex items-center gap-3 flex-wrap">
                                 <span className={cn(
-                                    "px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border",
+                                    "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border",
                                     uiState === "active" ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]" :
                                     uiState === "trialing_earlybird" ? "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]" :
                                     uiState === "trialing" ? "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.20)]" :
@@ -178,7 +178,7 @@ export default function FaturacaoPage() {
                                     </span>
                                 )}
                                 {s?.cancel_at_period_end === 1 && (
-                                    <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]">
+                                    <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]">
                                         {t("cancels", { date: s.current_period_end ? new Date(s.current_period_end).toLocaleDateString("pt-PT") : "" })}
                                     </span>
                                 )}
@@ -218,7 +218,7 @@ export default function FaturacaoPage() {
                 </div>
 
                 {events.length === 0 ? (
-                    <div className="glass rounded-[2rem] p-16 text-center">
+                    <div className="glass rounded-[2rem] p-8 sm:p-16 text-center">
                         <Receipt className="w-12 h-12 text-fg-40 mx-auto mb-4" />
                         <p className="text-fg-40 font-medium text-sm">{t("emptyHistory")}</p>
                     </div>
@@ -251,7 +251,7 @@ export default function FaturacaoPage() {
                                                         {isRefund ? t("viewCreditNote") : t("viewInvoice")}
                                                         <ExternalLink className="w-3 h-3" />
                                                         {e.ix_match_method === "heuristic" && (
-                                                            <span className="font-mono text-[9px] text-soon uppercase tracking-[0.22em]" title={t("heuristicTooltip", { score: e.ix_match_score ?? "" })}>~</span>
+                                                            <span className="font-mono text-[10px] text-soon uppercase tracking-[0.22em]" title={t("heuristicTooltip", { score: e.ix_match_score ?? "" })}>~</span>
                                                         )}
                                                     </a>
                                                 ) : (

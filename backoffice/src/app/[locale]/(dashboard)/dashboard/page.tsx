@@ -85,7 +85,7 @@ export default function WelcomeDashboard() {
 
   if (isRegistered === false) {
     return (
-      <div className="py-12">
+      <div className="py-6 sm:py-12">
         <RegistrationForm
           onComplete={() => setIsRegistered(true)}
           initialEmail={clerkUser?.primaryEmailAddress?.emailAddress}
@@ -129,7 +129,7 @@ export default function WelcomeDashboard() {
                 </div>
                 <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">{t("recentDocs")}</h3>
               </div>
-              <span className="font-mono text-[9px] text-fg-40 uppercase tracking-[0.22em]">{t("last5")}</span>
+              <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("last5")}</span>
             </div>
 
             {recentInvoices === null ? (
@@ -192,7 +192,7 @@ export default function WelcomeDashboard() {
                 </div>
                 <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">{t("logs")}</h3>
               </div>
-              <span className="font-mono text-[9px] text-fg-40 uppercase tracking-[0.22em]">{t("last10")}</span>
+              <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("last10")}</span>
             </div>
 
             {recentLogs === null ? (
@@ -220,7 +220,7 @@ export default function WelcomeDashboard() {
                           <span className={cn("w-1 h-1 rounded-full shrink-0", dot)} />
                           <span className="text-[10px] font-mono text-fg-60 truncate">{log.topic}</span>
                         </div>
-                        <span className="text-[9px] font-mono text-fg-40 shrink-0">{fmtRelative(log.created_at)}</span>
+                        <span className="text-[10px] font-mono text-fg-40 shrink-0">{fmtRelative(log.created_at)}</span>
                       </div>
                       {log.message && (
                         <p className="text-[10px] text-fg-40 truncate pl-3 mt-0.5" title={log.message}>{log.message}</p>
@@ -234,7 +234,7 @@ export default function WelcomeDashboard() {
         </div>
 
         {/* Status Area */}
-        <div className="glass p-8 rounded-[2.5rem] space-y-8 flex flex-col justify-between">
+        <div className="glass p-5 sm:p-8 rounded-[2.5rem] space-y-8 flex flex-col justify-between">
           <div className="space-y-4">
             <h3 className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em] flex items-center gap-2">
               <Activity className="w-3 h-3" /> {t("systemStatus")}
@@ -270,9 +270,9 @@ export default function WelcomeDashboard() {
           <div className="grid gap-6">
             <Link
               href="/integrations/shopify-ix"
-              className="glass p-8 rounded-[2.5rem] hover:border-[rgba(94,234,212,0.30)] transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
+              className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-[rgba(94,234,212,0.30)] transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
             >
-              <div className="absolute top-0 right-0 p-8 opacity-0 group-hover:opacity-5 transition-all">
+              <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-0 group-hover:opacity-5 transition-all">
                 <Settings2 className="w-32 h-32 text-accent-hot" />
               </div>
               <div className="flex items-center gap-8 relative z-10 w-full md:w-auto">
@@ -283,7 +283,7 @@ export default function WelcomeDashboard() {
                   <h3 className="text-2xl font-medium tracking-tight group-hover:text-accent-hot transition-colors">Shopify + InvoiceXpress</h3>
                   <div className="flex items-center gap-3">
                     <span className={cn(
-                      "px-2 py-0.5 rounded-lg font-mono text-[9px] font-medium uppercase tracking-[0.22em] border",
+                      "px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border",
                       integrationStatus.isAllComplete
                         ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
                         : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
@@ -305,7 +305,7 @@ export default function WelcomeDashboard() {
             </Link>
           </div>
         ) : (
-          <div className="glass p-12 rounded-[3rem] border-dashed flex flex-col items-center gap-6 text-center">
+          <div className="glass p-6 sm:p-12 rounded-[3rem] border-dashed flex flex-col items-center gap-6 text-center">
             <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center text-fg-40 border border-hairline">
               <Plus className="w-8 h-8" />
             </div>
@@ -317,7 +317,7 @@ export default function WelcomeDashboard() {
             </div>
             <Link
               href="/integrations"
-              className="px-8 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+              className="px-5 sm:px-8 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
             >
               {t("explorePlatforms")}
             </Link>

@@ -57,8 +57,8 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="glass p-12 rounded-[3.5rem] relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
+            <div className="glass p-6 sm:p-12 rounded-[3.5rem] relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-6 sm:p-12 opacity-5 pointer-events-none">
                     <ShieldCheck className="w-64 h-64 text-accent" />
                 </div>
 

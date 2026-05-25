@@ -12,11 +12,13 @@ export default async function Page({
     return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-6 bg-slate-950 p-4">
             <LangToggle variant="dark" />
-            <SignIn
-                path={`/${locale}/sign-in`}
-                signUpUrl={`/${locale}/sign-up`}
-                forceRedirectUrl={`/${locale}/dashboard`}
-            />
+            <div className="w-full max-w-[440px]">
+                <SignIn
+                    path={`/${locale}/sign-in`}
+                    signUpUrl={`/${locale}/sign-up`}
+                    forceRedirectUrl={`/${locale}/dashboard`}
+                />
+            </div>
         </div>
     );
 }

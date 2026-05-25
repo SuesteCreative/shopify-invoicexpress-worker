@@ -177,11 +177,11 @@ export default function ClientRulesPage() {
                                     <div className="flex flex-wrap gap-2">
                                         {client.shopify_authorized === 1 && (
                                             <div className="flex flex-col items-end">
-                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
+                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[10px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
                                                     <Check className="w-2.5 h-2.5" /> {t("shopifyForce")}
                                                 </div>
                                                 {client.shopify_forced_at && (
-                                                    <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
+                                                    <span className="text-[10px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
                                                         {t("activatedAt", { date: new Date(client.shopify_forced_at).toLocaleString("pt-PT") })}
                                                     </span>
                                                 )}
@@ -189,11 +189,11 @@ export default function ClientRulesPage() {
                                         )}
                                         {client.webhooks_active === 1 && (
                                             <div className="flex flex-col items-end">
-                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
+                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[10px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
                                                     <Webhook className="w-2.5 h-2.5" /> {t("webhookForce")}
                                                 </div>
                                                 {client.webhooks_forced_at && (
-                                                    <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
+                                                    <span className="text-[10px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
                                                         {t("activatedAt", { date: new Date(client.webhooks_forced_at).toLocaleString("pt-PT") })}
                                                     </span>
                                                 )}
@@ -201,11 +201,11 @@ export default function ClientRulesPage() {
                                         )}
                                         {client.ix_authorized === 1 && (
                                             <div className="flex flex-col items-end">
-                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
+                                                <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[10px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
                                                     <Check className="w-2.5 h-2.5" /> {t("ixForce")}
                                                 </div>
                                                 {client.ix_forced_at && (
-                                                    <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
+                                                    <span className="text-[10px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
                                                         {t("activatedAt", { date: new Date(client.ix_forced_at).toLocaleString("pt-PT") })}
                                                     </span>
                                                 )}
@@ -255,7 +255,7 @@ export default function ClientRulesPage() {
                 </AnimatePresence>
 
                 {clients.length === 0 && (
-                    <div className="text-center py-20 text-fg-40 font-bold text-sm">
+                    <div className="text-center py-10 sm:py-20 text-fg-40 font-bold text-sm">
                         {t("emptyList")}
                     </div>
                 )}

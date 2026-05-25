@@ -41,7 +41,7 @@ export default function InvoicesPage() {
     return (
         <div className="min-h-screen bg-surface text-fg">
             {/* Header */}
-            <header className="sticky top-0 z-30 bg-surface/80 backdrop-blur-xl border-b border-hairline px-6 py-6 lg:px-12">
+            <header className="md:sticky md:top-0 z-30 bg-surface/80 backdrop-blur-xl border-b border-hairline px-4 py-4 sm:px-6 sm:py-6 lg:px-12">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6">
                     <div>
                         <div className="flex items-center gap-3 mb-1">
@@ -71,7 +71,7 @@ export default function InvoicesPage() {
                 </div>
             </header>
 
-            <main className="max-w-7xl mx-auto px-6 py-12 lg:px-12">
+            <main className="max-w-7xl mx-auto px-6 py-6 sm:py-12 lg:px-12">
                 {loading ? (
                     <div className="flex flex-col items-center justify-center py-32 space-y-4">
                         <div className="relative">
@@ -146,15 +146,15 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
 
                     <div className="space-y-1.5 text-left">
                         <div className="flex items-center gap-2">
-                            <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-fg-40">{typeLabel}</span>
+                            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{typeLabel}</span>
                             {isFinalized ? (
                                 <div className="flex items-center gap-1.5 bg-[rgba(94,234,212,0.10)] px-2 py-0.5 rounded-full border border-[rgba(94,234,212,0.20)]">
                                     <div className="w-1 h-1 rounded-full bg-accent-hot animate-pulse" />
-                                    <span className="font-mono text-[8px] uppercase tracking-[0.22em] text-accent-hot">{t("issued")}</span>
+                                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-accent-hot">{t("issued")}</span>
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-1.5 bg-[rgba(245,158,11,0.10)] px-2 py-0.5 rounded-full border border-[rgba(245,158,11,0.20)]">
-                                    <span className="font-mono text-[8px] uppercase tracking-[0.22em] text-soon">{invoice.status}</span>
+                                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-soon">{invoice.status}</span>
                                 </div>
                             )}
                         </div>
@@ -199,7 +199,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                 animate={{ height: expanded ? "auto" : 0 }}
                 className="overflow-hidden bg-surface-2/50 border-t border-hairline"
             >
-                <div className="p-8 grid lg:grid-cols-2 gap-8">
+                <div className="p-5 sm:p-8 grid lg:grid-cols-2 gap-8">
                     <div className="space-y-6">
                         <div className="flex items-center gap-3">
                             <Zap className="w-4 h-4 text-accent" />
@@ -214,12 +214,12 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                                         <div className="space-y-1">
                                             <p className="text-[11px] font-medium text-fg flex items-center gap-2">
                                                 {log.topic === "orders/paid" ? t("shopifyPayment") : (log.topic === "refunds/create" ? t("refundRequested") : log.topic)}
-                                                <span className="font-mono text-[9px] text-fg-40">#{log.status}</span>
+                                                <span className="font-mono text-[10px] text-fg-40">#{log.status}</span>
                                             </p>
                                             <p className="text-[10px] text-fg-60 leading-relaxed font-medium">
                                                 {log.topic === "orders/paid" ? t("ixInvoiceGenerated", { value: log.response || t("ixPendingValue") }) : (log.topic === "refunds/create" ? t("creditNoteProcessing") : t("operationSuccess"))}
                                             </p>
-                                            <p className="font-mono text-[8px] text-fg-40 uppercase tracking-[0.22em]">{new Date(log.created_at).toLocaleString()}</p>
+                                            <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{new Date(log.created_at).toLocaleString()}</p>
                                         </div>
                                     </div>
                                 ))
@@ -229,7 +229,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                         </div>
                     </div>
 
-                    <div className="p-8 rounded-[2rem] border border-hairline flex flex-col justify-center items-center text-center space-y-6 relative overflow-hidden group/pdf">
+                    <div className="p-5 sm:p-8 rounded-[2rem] border border-hairline flex flex-col justify-center items-center text-center space-y-6 relative overflow-hidden group/pdf">
                         <div className="absolute inset-0 bg-[rgba(2,141,196,0.05)] opacity-0 group-hover/pdf:opacity-100 transition-opacity" />
                         <div className="bg-surface-2 p-6 rounded-3xl border border-hairline relative z-10">
                             <FileText className="w-12 h-12 text-accent" />

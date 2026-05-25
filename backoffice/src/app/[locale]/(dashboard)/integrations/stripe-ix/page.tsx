@@ -325,7 +325,7 @@ export default function StripeIXIntegration() {
                 <Link href="/integrations" className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2">
                     <ArrowLeft className="w-3 h-3" /> {t("backToIntegrations")}
                 </Link>
-                <div className="glass rounded-[2.5rem] p-12 border-[rgba(245,158,11,0.20)] bg-[rgba(245,158,11,0.04)] flex flex-col items-center text-center gap-6">
+                <div className="glass rounded-[2.5rem] p-6 sm:p-12 border-[rgba(245,158,11,0.20)] bg-[rgba(245,158,11,0.04)] flex flex-col items-center text-center gap-6">
                     <div className="w-20 h-20 rounded-2xl bg-[rgba(245,158,11,0.10)] ring-1 ring-[rgba(245,158,11,0.20)] flex items-center justify-center">
                         <Lock className="w-10 h-10 text-soon" />
                     </div>
@@ -398,7 +398,7 @@ export default function StripeIXIntegration() {
                                     <div className="bg-[rgba(245,158,11,0.10)] p-2 rounded-xl ring-1 ring-[rgba(245,158,11,0.20)]"><Info className="w-5 h-5" /></div>
                                     <div className="flex flex-col text-left">
                                         <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">{t("diagnostic")}</p>
-                                        <p className="text-[9px] font-bold text-soon/60 uppercase mt-1">{t("diagnosticSub")}</p>
+                                        <p className="text-[10px] font-bold text-soon/60 uppercase mt-1">{t("diagnosticSub")}</p>
                                     </div>
                                 </div>
                                 {isOpen && <button onClick={() => setOpenDiagnostic(null)} className="p-1 hover:bg-white/5 rounded-lg text-fg-40 transition-colors"><X className="w-4 h-4" /></button>}
@@ -412,7 +412,7 @@ export default function StripeIXIntegration() {
                                         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
                                         {showConfirm ? t("areYouSure") : t("forceAuth")}
                                     </button>
-                                    {showConfirm && <button onClick={() => setShowConfirm(false)} className="w-full text-[9px] font-bold text-fg-40 uppercase tracking-widest hover:text-fg transition-colors py-1">{t("cancelAction")}</button>}
+                                    {showConfirm && <button onClick={() => setShowConfirm(false)} className="w-full text-[10px] font-bold text-fg-40 uppercase tracking-widest hover:text-fg transition-colors py-1">{t("cancelAction")}</button>}
                                 </div>
                             )}
                             <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-surface-2 rotate-45 border-r-2 border-b-2 border-[rgba(245,158,11,0.10)]" />
@@ -503,7 +503,7 @@ export default function StripeIXIntegration() {
                         <motion.div key={s.id} initial={false} animate={{ scale: isActive ? 1.01 : 1, opacity: isLocked ? 0.35 : 1, y: isActive ? -4 : 0 }}
                             className={cn("glass rounded-[2rem] overflow-visible relative group transition-all duration-700", isActive && "border-accent/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_30px_rgba(2,141,196,0.10)]", isComplete && s.isAuthorized && "border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.04)]", isComplete && !s.isAuthorized && "border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.04)]", isLocked && "grayscale scale-[0.98] !overflow-hidden")}
                         >
-                            <div className="p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
+                            <div className="p-6 sm:p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
                                 <div className={cn("w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner p-1", isActive ? "bg-accent/20 text-accent ring-1 ring-accent/30" : isComplete ? (s.isAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot ring-1 ring-[rgba(94,234,212,0.30)]" : "bg-[rgba(245,158,11,0.10)] text-soon ring-1 ring-[rgba(245,158,11,0.30)]") : "bg-surface-2/50 text-fg-40 ring-1 ring-hairline")}>
                                     {isComplete ? (s.isAuthorized ? <Check className="w-10 h-10 stroke-[3]" /> : <Circle className="w-10 h-10 stroke-[4] text-soon" />) : (isLocked ? <Lock className="w-8 h-8 opacity-30" /> : <StepIcon className="w-10 h-10 stroke-[1.5]" />)}
                                 </div>
@@ -522,7 +522,7 @@ export default function StripeIXIntegration() {
 
                             <motion.div animate={{ height: isActive ? "auto" : 0 }} className="overflow-hidden bg-surface/40 border-t border-hairline">
                                 {isActive && (
-                                    <div className="p-10 pt-8 animate-in zoom-in-95 duration-700">
+                                    <div className="p-6 sm:p-10 pt-8 animate-in zoom-in-95 duration-700">
                                         {s.kind === "stripe" && (
                                             <div className="grid md:grid-cols-2 gap-8">
                                                 <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl px-6 py-4">
@@ -541,14 +541,14 @@ export default function StripeIXIntegration() {
                                                 <div className="space-y-3">
                                                     <div className="flex items-center justify-between ml-1">
                                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent" />{t("stripeAccountIdLabel")}</label>
-                                                        <a href="/help#stripe-account-id" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("whereFind")}</a>
+                                                        <a href="/help#stripe-account-id" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("whereFind")}</a>
                                                     </div>
                                                     <input type="text" value={stripeAccountId} onChange={(e) => setStripeAccountId(e.target.value)} placeholder={t("stripeAccountIdPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                                                 </div>
                                                 <div className="space-y-3">
                                                     <div className="flex items-center justify-between ml-1">
                                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent" />{t("restrictedKeyLabel")}</label>
-                                                        <a href="/help#stripe-restricted-key" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("whatIs")}</a>
+                                                        <a href="/help#stripe-restricted-key" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("whatIs")}</a>
                                                     </div>
                                                     <input type="password" value={restrictedKey} onChange={(e) => setRestrictedKey(e.target.value)} placeholder={t("restrictedKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                                                     <p className="text-[10px] text-fg-40 font-medium mt-2 ml-1 uppercase tracking-wider" dangerouslySetInnerHTML={{ __html: t("scopesNote").replace(/<code>/g, '<code class="text-accent">') }} />
@@ -646,7 +646,7 @@ export default function StripeIXIntegration() {
                                                         {ixRetentionEnabled && (
                                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-hairline space-y-4">
                                                                 <div className="flex items-center justify-between gap-4">
-                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionPercent")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("retentionPercentDesc")}</p></div>
+                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionPercent")}</h4><p className="text-[10px] text-fg-40 font-bold uppercase">{t("retentionPercentDesc")}</p></div>
                                                                     <div className="w-44 relative">
                                                                         <select value={[0, 11.5, 16.5, 21.5, 25].includes(ixRetention) ? String(ixRetention) : "outro"} onChange={(e) => { if (e.target.value === "outro") { if ([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) setIxRetention(7.5); } else { setIxRetention(parseFloat(e.target.value)); } }} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] outline-none appearance-none cursor-pointer pr-10">
                                                                             <option value="0">0%</option>
@@ -661,7 +661,7 @@ export default function StripeIXIntegration() {
                                                                 </div>
                                                                 {!([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) && (
                                                                     <div className="flex items-center justify-between gap-4 pt-2 border-t border-hairline">
-                                                                        <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionCustom")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("retentionCustomDesc")}</p></div>
+                                                                        <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionCustom")}</h4><p className="text-[10px] text-fg-40 font-bold uppercase">{t("retentionCustomDesc")}</p></div>
                                                                         <div className="w-32"><input type="number" min={0} max={99.99} step={0.01} value={ixRetention} onChange={(e) => { const v = parseFloat(e.target.value); setIxRetention(Number.isFinite(v) ? Math.max(0, Math.min(99.99, v)) : 0); }} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold text-center focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] outline-none" /></div>
                                                                     </div>
                                                                 )}
@@ -693,7 +693,7 @@ export default function StripeIXIntegration() {
                                                     </AnimatePresence>
                                                 </div>
 
-                                                <div className="md:col-span-2 glass p-8 rounded-[2rem] border-hairline space-y-4">
+                                                <div className="md:col-span-2 glass p-5 sm:p-8 rounded-[2rem] border-hairline space-y-4">
                                                     <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3></div>
                                                     <select value={exemptionReason} onChange={(e) => setExemptionReason(e.target.value)} className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all cursor-pointer text-fg">
                                                         {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
@@ -750,7 +750,7 @@ export default function StripeIXIntegration() {
 
                 {allComplete && (
                     <motion.div initial={{ opacity: 0, y: 20, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6, ease: "easeOut" }} className="rounded-[2.5rem] p-1 shadow-2xl bg-[rgba(94,234,212,0.10)]">
-                        <div className="bg-surface rounded-[2.3rem] p-10 flex flex-col gap-8 border border-white/5">
+                        <div className="bg-surface rounded-[2.3rem] p-6 sm:p-10 flex flex-col gap-8 border border-white/5">
                             <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                                 <div className="flex items-center gap-8">
                                     <div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-[rgba(94,234,212,0.18)] ring-2 ring-accent-hot ring-offset-4 ring-offset-surface"><ShieldCheck className="w-10 h-10 text-accent-hot" /></div>

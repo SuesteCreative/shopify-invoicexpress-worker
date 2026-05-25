@@ -126,7 +126,7 @@ export function DevModePanel({ target }: { target: Target }) {
 
 function Section({ icon, title, desc, children }: { icon: React.ReactNode; title: string; desc?: string; children: React.ReactNode }) {
     return (
-        <section className="glass rounded-[2rem] p-8 border-hairline space-y-6">
+        <section className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
             <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-surface-2 border border-hairline flex items-center justify-center shrink-0">
                     {icon}
@@ -855,7 +855,7 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
             </div>
 
             {entries.length === 0 ? (
-                <p className="text-fg-40 text-xs font-medium italic text-center py-8">{t("noEntries")}</p>
+                <p className="text-fg-40 text-xs font-medium italic text-center py-5 sm:py-8">{t("noEntries")}</p>
             ) : (
                 <div className="space-y-2 max-h-[500px] overflow-y-auto">
                     {entries.map((e, i) => {
@@ -876,7 +876,7 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
                                             </p>
                                         </div>
                                     </div>
-                                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${ok ? "bg-[rgba(94,234,212,0.10)] text-accent-hot" : "bg-[rgba(245,158,11,0.10)] text-soon"}`}>
+                                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${ok ? "bg-[rgba(94,234,212,0.10)] text-accent-hot" : "bg-[rgba(245,158,11,0.10)] text-soon"}`}>
                                         {e.status ?? e.state ?? "-"}
                                     </span>
                                 </button>

@@ -430,7 +430,7 @@ export default function ShopifyIXIntegration() {
                                     <div className="bg-[rgba(245,158,11,0.10)] p-2 rounded-xl ring-1 ring-[rgba(245,158,11,0.20)]"><Info className="w-5 h-5" /></div>
                                     <div className="flex flex-col text-left">
                                         <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">{t("diagnostic")}</p>
-                                        <p className="text-[9px] font-bold text-soon/60 uppercase mt-1">{t("diagnosticSub")}</p>
+                                        <p className="text-[10px] font-bold text-soon/60 uppercase mt-1">{t("diagnosticSub")}</p>
                                     </div>
                                 </div>
                                 {isOpen && <button onClick={() => setOpenDiagnostic(null)} className="p-1 hover:bg-white/5 rounded-lg text-fg-40 transition-colors"><X className="w-4 h-4" /></button>}
@@ -444,7 +444,7 @@ export default function ShopifyIXIntegration() {
                                         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
                                         {showConfirm ? t("areYouSure") : t("forceAuth")}
                                     </button>
-                                    {showConfirm && <button onClick={() => setShowConfirm(false)} className="w-full text-[9px] font-bold text-fg-40 uppercase tracking-widest hover:text-fg transition-colors py-1">{t("cancelAction")}</button>}
+                                    {showConfirm && <button onClick={() => setShowConfirm(false)} className="w-full text-[10px] font-bold text-fg-40 uppercase tracking-widest hover:text-fg transition-colors py-1">{t("cancelAction")}</button>}
                                 </div>
                             )}
                             <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-surface-2 rotate-45 border-r-2 border-b-2 border-[rgba(245,158,11,0.10)]" />
@@ -545,7 +545,7 @@ export default function ShopifyIXIntegration() {
                                     {isPaused ? t("integrationPaused") : t("integrationActive")}
                                 </h3>
                                 <span className={cn(
-                                    "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                                    "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border",
                                     isPaused ? "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]"
                                              : "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]"
                                 )}>
@@ -595,7 +595,7 @@ export default function ShopifyIXIntegration() {
                         <motion.div key={s.id} initial={false} animate={{ scale: isActive ? 1.01 : 1, opacity: isLocked ? 0.35 : 1, y: isActive ? -4 : 0 }}
                             className={cn("glass rounded-[2rem] overflow-visible relative group transition-all duration-700", isActive && "border-accent/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_30px_rgba(2,141,196,0.10)]", isComplete && s.isAuthorized && "border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.04)]", isComplete && !s.isAuthorized && "border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.04)]", isLocked && "grayscale scale-[0.98] !overflow-hidden")}
                         >
-                            <div className="p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
+                            <div className="p-6 sm:p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
                                 <div className={cn("w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner p-1", isActive ? "bg-accent/20 text-accent ring-1 ring-accent/30" : isComplete ? (s.isAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot ring-1 ring-[rgba(94,234,212,0.30)]" : "bg-[rgba(245,158,11,0.10)] text-soon ring-1 ring-[rgba(245,158,11,0.30)]") : "bg-surface-2/50 text-fg-40 ring-1 ring-hairline")}>
                                     {isComplete ? (s.isAuthorized ? <Check className="w-10 h-10 stroke-[3]" /> : <Circle className="w-10 h-10 stroke-[4] text-soon" />) : (isLocked ? <Lock className="w-8 h-8 opacity-30" /> : <StepIcon className="w-10 h-10 stroke-[1.5]" />)}
                                 </div>
@@ -617,7 +617,7 @@ export default function ShopifyIXIntegration() {
                                         <div className="flex items-center gap-4 ml-auto">
                                             {step > 1 && <button onClick={() => setStep(step - 1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>}
                                             {!s.isConfig && (
-                                                <button onClick={s.action} disabled={saving || activating || s.isDisabled} className={cn("px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed", s.isWebhookStep && webhookStatus === "error" ? "bg-destructive text-white hover:bg-destructive/85" : "bg-white text-black hover:bg-accent hover:text-fg")}>
+                                                <button onClick={s.action} disabled={saving || activating || s.isDisabled} className={cn("px-5 sm:px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed", s.isWebhookStep && webhookStatus === "error" ? "bg-destructive text-white hover:bg-destructive/85" : "bg-white text-black hover:bg-accent hover:text-fg")}>
                                                     {(saving || activating) ? <Loader2 className="w-4 h-4 animate-spin" /> : s.actionLabel}
                                                     {!(saving || activating) && <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />}
                                                 </button>
@@ -629,19 +629,19 @@ export default function ShopifyIXIntegration() {
                             </div>
                             <motion.div animate={{ height: isActive ? "auto" : 0 }} className="overflow-hidden bg-surface/40 border-t border-hairline">
                                 {isActive && (
-                                    <div className="p-10 pt-8 grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-700">
+                                    <div className="p-6 sm:p-10 pt-8 grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-700">
                                         {s.isConfig ? (
                                             <>
                                                 <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                                                     <div>
-                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("vatIncluded")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("vatIncluded")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
                                                         <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{vatIncluded ? t("vatIncludedOn") : t("vatIncludedOff")}</p>
                                                     </div>
                                                     <button onClick={() => setVatIncluded(!vatIncluded)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", vatIncluded ? "bg-accent-hot shadow-[0_0_15px_rgba(16,185,129,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", vatIncluded ? "left-7" : "left-1")} /></button>
                                                 </div>
                                                 <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                                                     <div>
-                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("autoFinalize")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("autoFinalize")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
                                                         <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                                                     </div>
                                                     <button onClick={() => setAutoFinalize(!autoFinalize)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", autoFinalize ? "bg-accent shadow-[0_0_15px_rgba(56,189,248,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} /></button>
@@ -649,7 +649,7 @@ export default function ShopifyIXIntegration() {
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-6">
                                                     <div className="flex items-center justify-between">
                                                         <div>
-                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("retention")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("retention")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
                                                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{ixRetentionEnabled ? t("retentionOn", { value: ixRetention.toFixed(2).replace('.', ',') }) : t("retentionOff")}</p>
                                                         </div>
                                                         <button onClick={() => setIxRetentionEnabled(!ixRetentionEnabled)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", ixRetentionEnabled ? "bg-destructive" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", ixRetentionEnabled ? "left-7" : "left-1")} /></button>
@@ -658,7 +658,7 @@ export default function ShopifyIXIntegration() {
                                                         {ixRetentionEnabled && (
                                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-hairline space-y-4">
                                                                 <div className="flex items-center justify-between gap-4">
-                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionPercent")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("retentionPercentDesc")}</p></div>
+                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionPercent")}</h4><p className="text-[10px] text-fg-40 font-bold uppercase">{t("retentionPercentDesc")}</p></div>
                                                                     <div className="w-44 relative">
                                                                         <select value={[0, 11.5, 16.5, 21.5, 25].includes(ixRetention) ? String(ixRetention) : "outro"} onChange={(e) => { if (e.target.value === "outro") { if ([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) setIxRetention(7.5); } else { setIxRetention(parseFloat(e.target.value)); } }} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] outline-none appearance-none cursor-pointer pr-10">
                                                                             <option value="0">0%</option>
@@ -673,7 +673,7 @@ export default function ShopifyIXIntegration() {
                                                                 </div>
                                                                 {!([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) && (
                                                                     <div className="flex items-center justify-between gap-4 pt-2 border-t border-hairline">
-                                                                        <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionCustom")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("retentionCustomDesc")}</p></div>
+                                                                        <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionCustom")}</h4><p className="text-[10px] text-fg-40 font-bold uppercase">{t("retentionCustomDesc")}</p></div>
                                                                         <div className="w-32 relative">
                                                                             <input type="number" min={0} max={99.99} step={0.01} value={ixRetention} onChange={(e) => { const v = parseFloat(e.target.value); setIxRetention(Number.isFinite(v) ? Math.max(0, Math.min(99.99, v)) : 0); }} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold text-center focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] outline-none" />
                                                                         </div>
@@ -686,7 +686,7 @@ export default function ShopifyIXIntegration() {
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-6">
                                                     <div className="flex items-center justify-between">
                                                         <div>
-                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("docType")}</h3><a href="/help#ix-doc-type" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("docType")}</h3><a href="/help#ix-doc-type" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
                                                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider leading-relaxed">{ixDocumentType === "invoice_receipt" ? t("docTypeReceipt") : t("docTypeInvoice")}</p>
                                                         </div>
                                                         <div className="flex bg-surface-2/80 p-1 rounded-xl border border-hairline">
@@ -698,7 +698,7 @@ export default function ShopifyIXIntegration() {
                                                         {ixDocumentType === "invoice" && (
                                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-hairline">
                                                                 <div className="flex items-center justify-between gap-4">
-                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("paymentTerm")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("paymentTermDesc")}</p></div>
+                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("paymentTerm")}</h4><p className="text-[10px] text-fg-40 font-bold uppercase">{t("paymentTermDesc")}</p></div>
                                                                     <div className="w-32 relative"><input type="number" value={ixPaymentTerm} onChange={(e) => setIxPaymentTerm(parseInt(e.target.value) || 0)} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold text-center focus:ring-2 focus:ring-accent/20 outline-none" /></div>
                                                                 </div>
                                                             </motion.div>
@@ -708,12 +708,12 @@ export default function ShopifyIXIntegration() {
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline">
                                                     <div className="flex items-center justify-start gap-4 ml-1 mb-4">
                                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent" />{t("sequence")}</label>
-                                                        <a href="/help#ix-sequence" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a>
+                                                        <a href="/help#ix-sequence" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a>
                                                     </div>
                                                     <input type="text" value={ixSequenceName} onChange={(e) => setIxSequenceName(e.target.value)} placeholder={t("sequencePlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                                                 </div>
-                                                <div className="md:col-span-2 glass p-8 rounded-[2rem] border-hairline space-y-4">
-                                                    <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                <div className="md:col-span-2 glass p-5 sm:p-8 rounded-[2rem] border-hairline space-y-4">
+                                                    <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3><a href="/help" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
                                                     <p className="text-[10px] text-fg-40 font-medium uppercase tracking-wider leading-relaxed">{t("exemptionDesc")}</p>
                                                     <div className="relative pt-2">
                                                         <select value={exemptionReason} onChange={(e) => setExemptionReason(e.target.value)} className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all appearance-none cursor-pointer pr-12 text-fg">
@@ -729,7 +729,7 @@ export default function ShopifyIXIntegration() {
                                                 <div key={i} className="space-y-3">
                                                     <div className="flex items-center justify-between ml-1">
                                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent" />{f.label}</label>
-                                                        {f.helpAnchor && (<a href={`/help#${f.helpAnchor}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors group/help"><BookOpen className="w-3 h-3 group-hover/help:scale-110 transition-transform" />{f.helpLabel || t("helpWhereFind")}</a>)}
+                                                        {f.helpAnchor && (<a href={`/help#${f.helpAnchor}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors group/help"><BookOpen className="w-3 h-3 group-hover/help:scale-110 transition-transform" />{f.helpLabel || t("helpWhereFind")}</a>)}
                                                     </div>
                                                     <input type={f.type} value={f.value} onChange={(e) => f.setter(e.target.value)} placeholder={f.placeholder} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                                                 </div>
@@ -747,7 +747,7 @@ export default function ShopifyIXIntegration() {
 
                 {allComplete && (
                     <motion.div initial={{ opacity: 0, y: 20, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6, ease: "easeOut" }} className="rounded-[2.5rem] p-1 shadow-2xl bg-[rgba(94,234,212,0.10)]">
-                        <div className="bg-surface rounded-[2.3rem] p-10 flex flex-col gap-8 border border-white/5">
+                        <div className="bg-surface rounded-[2.3rem] p-6 sm:p-10 flex flex-col gap-8 border border-white/5">
                             <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                                 <div className="flex items-center gap-8"><div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-[rgba(94,234,212,0.18)] ring-2 ring-accent-hot ring-offset-4 ring-offset-surface"><ShieldCheck className="w-10 h-10 text-accent-hot" /></div><div className="space-y-1"><h3 className="text-2xl font-black tracking-tight">{t("integrationDoneTitle")}</h3><p className="text-fg-40 font-bold uppercase tracking-widest text-[10px]">{t("integrationDoneSub")}</p></div></div>
                                 <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]">{t("onlineRealtime")}</div>

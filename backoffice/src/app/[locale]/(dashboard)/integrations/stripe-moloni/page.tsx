@@ -122,14 +122,14 @@ export default function StripeMoloniIntegration() {
 
     if (loading) {
         return (
-            <div className="max-w-3xl mx-auto py-20 flex items-center justify-center">
+            <div className="max-w-3xl mx-auto py-10 sm:py-20 flex items-center justify-center">
                 <Loader2 className="w-6 h-6 animate-spin text-fg-60" />
             </div>
         );
     }
 
     return (
-        <div className="max-w-3xl mx-auto py-12 space-y-10">
+        <div className="max-w-3xl mx-auto py-6 sm:py-12 space-y-10">
             <div>
                 <Link href="/integrations" className="inline-flex items-center gap-2 text-sm text-fg-60 hover:text-fg transition-colors">
                     <ArrowLeft className="w-4 h-4" /> {tCommon("title")}

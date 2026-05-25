@@ -228,10 +228,10 @@ export default function SuperadminPage() {
                                                 {user.company_name && (
                                                     <p className="text-[10px] text-fg-40 font-bold uppercase truncate max-w-[150px]">{user.company_name}</p>
                                                 )}
-                                                <p className="text-[9px] text-fg-40 font-medium truncate max-w-[150px]">{user.fiscal_address}</p>
+                                                <p className="text-[10px] text-fg-40 font-medium truncate max-w-[150px]">{user.fiscal_address}</p>
                                             </div>
                                         ) : (
-                                            <span className="text-[9px] font-black text-soon/50 uppercase tracking-widest italic">{t("registrationPending")}</span>
+                                            <span className="text-[10px] font-black text-soon/50 uppercase tracking-widest italic">{t("registrationPending")}</span>
                                         )}
                                     </div>
 
@@ -245,7 +245,7 @@ export default function SuperadminPage() {
                                                     const err = i === 0 ? user.shopify_error : user.ix_error;
                                                     return (
                                                         <div key={label} className="flex flex-col items-center group/tip relative">
-                                                            <span className="text-[8px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
+                                                            <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
                                                             {ok ? <div className="text-accent-hot text-[10px] font-bold">● OK</div>
                                                                 : <div className="text-soon text-[10px] font-bold flex items-center gap-1">
                                                                     ● {(i === 0 ? user.shopify_domain : true) ? "ERR" : "OFF"}
@@ -317,7 +317,7 @@ export default function SuperadminPage() {
 
             <div className="pt-10 flex justify-center">
                 <button onClick={() => handleImpersonate(null)}
-                    className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-[0.2em] transition-all py-4 px-8 border border-hairline rounded-2xl hover:bg-white/5">
+                    className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-[0.2em] transition-all py-4 px-5 sm:px-8 border border-hairline rounded-2xl hover:bg-white/5">
                     <LogOut className="w-4 h-4" />
                     {t("clearImpersonation")}
                 </button>

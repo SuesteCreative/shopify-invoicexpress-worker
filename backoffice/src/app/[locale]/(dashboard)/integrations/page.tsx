@@ -74,8 +74,8 @@ export default function IntegrationsPage() {
             {activeIntegration && (
                 <section className="space-y-6">
                     <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">{t("activeSection")}</h2>
-                    <div className="glass rounded-[2.5rem] p-8 relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-8 opacity-5">
+                    <div className="glass rounded-[2.5rem] p-5 sm:p-8 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-5">
                             <CheckCircle2 className="w-32 h-32 text-accent-hot" />
                         </div>
                         <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
@@ -92,7 +92,7 @@ export default function IntegrationsPage() {
                                     <h3 className="text-2xl font-medium tracking-tight">{t("shopifyPlusIx")}</h3>
                                     <div className="flex items-center gap-3">
                                         <span className={cn(
-                                            "px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border",
+                                            "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border",
                                             activeIntegration.status === "authorized"
                                                 ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
                                                 : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
@@ -105,7 +105,7 @@ export default function IntegrationsPage() {
                             </div>
                             <Link
                                 href="/integrations/shopify-ix"
-                                className="px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+                                className="px-5 sm:px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
                             >
                                 {t("manageSettings")} <ArrowRight className="w-4 h-4" />
                             </Link>
@@ -200,7 +200,7 @@ export default function IntegrationsPage() {
                             >
                                 <div
                                     className={cn(
-                                        "p-10 rounded-[2.5rem] flex flex-col items-center gap-8 text-center",
+                                        "p-6 sm:p-10 rounded-[2.5rem] flex flex-col items-center gap-8 text-center",
                                         canConnect ? "text-white" : "bg-surface-2 border border-hairline"
                                     )}
                                     style={

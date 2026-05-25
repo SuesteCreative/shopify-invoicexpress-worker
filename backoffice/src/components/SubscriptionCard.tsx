@@ -79,7 +79,7 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
 
     if (loading) {
         return (
-            <div className="glass rounded-[2rem] p-8 flex items-center justify-center min-h-[180px]">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 flex items-center justify-center min-h-[180px]">
                 <Loader2 className="w-6 h-6 text-accent animate-spin" />
             </div>
         );
@@ -157,7 +157,7 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
         <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={cn("glass rounded-[2rem] border-2 p-8 relative overflow-hidden", config.ring)}
+            className={cn("glass rounded-[2rem] border-2 p-5 sm:p-8 relative overflow-hidden", config.ring)}
         >
             {onSuccess && (
                 <motion.div initial={{ y: -40 }} animate={{ y: 0 }} className="absolute top-0 left-0 right-0 bg-[rgba(94,234,212,0.18)] text-accent-hot text-center py-2 font-mono text-xs uppercase tracking-[0.22em]">
@@ -262,7 +262,7 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
                             disabled={acting}
                             onClick={startCheckout}
                             className={cn(
-                                "px-8 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] transition-all transform active:scale-95 flex items-center justify-center gap-3 w-full lg:w-auto lg:min-w-[260px] lg:shrink-0",
+                                "px-5 sm:px-8 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] transition-all transform active:scale-95 flex items-center justify-center gap-3 w-full lg:w-auto lg:min-w-[260px] lg:shrink-0",
                                 state === "blocked"
                                     ? "bg-destructive text-white hover:bg-destructive/85"
                                     : state === "trialing_earlybird"

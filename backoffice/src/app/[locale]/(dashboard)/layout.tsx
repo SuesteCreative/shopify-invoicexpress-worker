@@ -2,15 +2,17 @@ import { UserButton, SignOutButton } from "@clerk/nextjs";
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import Image from "next/image";
-import Link from "next/link";
-import { LogOut, Activity, ShieldCheck } from "lucide-react";
-import { isAdmin, isHiperadmin, getRole } from "@/lib/admin";
+import { Link } from "@/i18n/navigation";
+import { getTranslations } from "next-intl/server";
+import { LogOut } from "lucide-react";
+import { isAdmin, getRole } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { IntegrationSetupModal } from "@/components/IntegrationSetupModal";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { NavLinks } from "@/components/NavLinks";
+import { LangToggle } from "@/components/landing/LangToggle";
 
 export default async function DashboardLayout({
     children,
@@ -18,16 +20,16 @@ export default async function DashboardLayout({
     children: React.ReactNode;
 }) {
     const { userId } = await auth();
-    const isSuperAdmin = await isAdmin(userId);
+    await isAdmin(userId);
 
-    // Determine the viewer's role (account for impersonation)
-    // When impersonating, sidebar shows the IMPERSONATED user's permissions, not the real admin's.
     const cookieStore = await cookies();
     const impersonationId = cookieStore.get("rioko_impersonate_id")?.value;
     const viewerUserId = impersonationId || userId;
     const viewerRole = await getRole(viewerUserId);
     const canAccessAdmin = viewerRole === "superadmin" || viewerRole === "hiperadmin";
     const userIsHiperadmin = viewerRole === "hiperadmin";
+
+    const t = await getTranslations("dashboardLayout");
 
     return (
         <div className="flex flex-col md:flex-row h-screen overflow-hidden">
@@ -48,7 +50,7 @@ export default async function DashboardLayout({
                     </div>
 
                     <div className="mt-4 flex flex-col items-start gap-1">
-                        <div className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Developed by</div>
+                        <div className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("developedBy")}</div>
                         <a href="https://kapta.pt" target="_blank" rel="noopener noreferrer" className="transition-all hover:scale-105 active:scale-95">
                             <Image src="/images/logo-kapta-white.webp" alt="Kapta Logo" width={70} height={18} className="opacity-40 grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500" />
                         </a>
@@ -58,17 +60,22 @@ export default async function DashboardLayout({
                 <NavLinks canAccessAdmin={canAccessAdmin} isHiperadmin={userIsHiperadmin} />
 
                 <div className="mt-auto space-y-4 w-full pt-8">
+                    <div className="flex items-center justify-center">
+                        <LangToggle variant="dark" />
+                    </div>
+
                     <div className="px-4 py-3 rounded-2xl bg-surface-2 border border-hairline flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <UserButton afterSignOutUrl="/" />
                             <div className="flex flex-col">
-                                <span className="font-mono text-[10px] text-fg uppercase tracking-[0.18em]">Conta</span>
-                                <span className="font-mono text-[9px] text-fg-40 uppercase truncate max-w-[100px]">Ligado</span>
+                                <span className="font-mono text-[10px] text-fg uppercase tracking-[0.18em]">{t("account")}</span>
+                                <span className="font-mono text-[9px] text-fg-40 uppercase truncate max-w-[100px]">{t("connected")}</span>
                             </div>
                         </div>
                         <SignOutButton>
                             <button
                                 className="p-2 rounded-lg text-fg-40 transition-all cursor-pointer hover:bg-[rgba(244,63,94,0.10)] hover:text-destructive"
+                                aria-label={t("signOut")}
                             >
                                 <LogOut className="w-4 h-4" />
                             </button>
@@ -86,9 +93,9 @@ export default async function DashboardLayout({
                             >
                                 Kapta
                             </a>
-                            . Todos os direitos<br className="md:inline" /> reservados.
+                            . {t("rights")}
                         </div>
-                        <div className="font-mono text-[9px] text-fg-40 tracking-[0.22em] uppercase">v{RIOKO_CONFIG.version} {RIOKO_CONFIG.stableBuild ? "Stable Build" : "Preview Build"}</div>
+                        <div className="font-mono text-[9px] text-fg-40 tracking-[0.22em] uppercase">v{RIOKO_CONFIG.version} {RIOKO_CONFIG.stableBuild ? t("stableBuild") : t("previewBuild")}</div>
                     </div>
                 </div>
             </aside>

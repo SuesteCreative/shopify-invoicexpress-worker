@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { Activity, ShieldCheck, Settings2, BookOpen, Zap, ScrollText, Receipt } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -25,6 +25,7 @@ const ACTIVE_DANGER =
 const INACTIVE = "text-fg-60 hover:text-fg hover:bg-white/5";
 
 export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boolean; isHiperadmin?: boolean }) {
+    const t = useTranslations("nav");
     const pathname = usePathname();
     const [activeIntegrations, setActiveIntegrations] = useState<ActiveIntegration[]>([]);
     const [isRegistered, setIsRegistered] = useState<boolean>(true);
@@ -96,32 +97,32 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
         <div className="flex-1 w-full flex flex-col gap-10">
             {/* Primary Menu */}
             <div className="space-y-2">
-                <span className="px-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Menu Principal</span>
+                <span className="px-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("main")}</span>
                 <div className="space-y-1">
-                    <LinkItem href="/dashboard" icon={Activity} label="Dashboard" />
+                    <LinkItem href="/dashboard" icon={Activity} label={t("dashboard")} />
                     <LinkItem
                         href="/integrations"
                         icon={Zap}
-                        label="Integrações"
+                        label={t("integrations")}
                         disabled={!isRegistered}
-                        tooltip="Faça o registo no dashboard primeiro"
+                        tooltip={t("tooltipNeedRegister")}
                     />
                     <LinkItem
                         href="/conciliacao"
                         icon={ScrollText}
-                        label="Conciliação"
+                        label={t("conciliacao")}
                         disabled={!isRegistered}
-                        tooltip="Faça o registo no dashboard primeiro"
+                        tooltip={t("tooltipNeedRegister")}
                     />
-                    <LinkItem href="/faturacao" icon={Receipt} label="Faturação" />
-                    <LinkItem href="/help" icon={BookOpen} label="Geral & Ajuda" />
+                    <LinkItem href="/faturacao" icon={Receipt} label={t("faturacao")} />
+                    <LinkItem href="/help" icon={BookOpen} label={t("help")} />
                 </div>
             </div>
 
             {/* Quick Links — Active Integrations */}
             {activeIntegrations.length > 0 && (
                 <div className="space-y-2">
-                    <span className="px-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Links Rápidos</span>
+                    <span className="px-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("quick")}</span>
                     <div className="space-y-1">
                         {activeIntegrations.map((integration) => (
                             <Link
@@ -140,7 +141,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                                 {integration.label}
                                 {!isRegistered && (
                                     <div className="absolute left-full ml-2 px-2 py-1 bg-surface-2 text-fg text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none border border-hairline">
-                                        Faça o registo no dashboard primeiro
+                                        {t("tooltipNeedRegister")}
                                     </div>
                                 )}
                             </Link>
@@ -152,13 +153,13 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
             {/* Admin Section */}
             {(canAccessAdmin || isHiperadmin) && (
                 <div className="space-y-2">
-                    <span className="px-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Administração</span>
+                    <span className="px-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("admin")}</span>
                     <div className="space-y-1">
                         {canAccessAdmin && (
                             <LinkItem
                                 href="/superadmin"
                                 icon={ShieldCheck}
-                                label="Superadmin"
+                                label={t("superadmin")}
                                 activeClass={ACTIVE_DANGER}
                             />
                         )}
@@ -166,7 +167,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                             <LinkItem
                                 href="/client-rules"
                                 icon={Settings2}
-                                label="Regras de Clientes"
+                                label={t("clientRules")}
                                 activeClass={ACTIVE_DANGER}
                             />
                         )}

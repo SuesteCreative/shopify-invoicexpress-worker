@@ -1,6 +1,7 @@
 import * as React from "react";
 import { setRequestLocale, getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
+import { LangToggle } from "@/components/landing/LangToggle";
 
 export const runtime = "edge";
 
@@ -55,12 +56,15 @@ export default async function TermsPage({
     return (
         <div className="min-h-screen bg-slate-950 text-slate-200">
             <div className="mx-auto max-w-3xl px-6 py-16">
-                <Link
-                    href="/"
-                    className="text-sm text-slate-400 hover:text-slate-200 transition"
-                >
-                    {t("back")}
-                </Link>
+                <div className="flex items-center justify-between gap-4">
+                    <Link
+                        href="/"
+                        className="text-sm text-slate-400 hover:text-slate-200 transition"
+                    >
+                        {t("back")}
+                    </Link>
+                    <LangToggle variant="dark" />
+                </div>
 
                 <h1 className="mt-8 text-4xl font-black text-white">
                     {t("title")}

@@ -4,7 +4,8 @@ export const runtime = "edge";
 
 import { useState, useEffect } from "react";
 import { Activity, ClipboardList, Settings2, BookOpen, Plus, Store, Zap, ArrowRight, ExternalLink, FileText, ScrollText, Inbox } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { useUser } from "@clerk/nextjs";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -16,6 +17,7 @@ function cn(...inputs: ClassValue[]) {
 import { RegistrationForm } from "@/components/RegistrationForm";
 
 export default function WelcomeDashboard() {
+  const t = useTranslations("dashboardHome");
   const { user: clerkUser } = useUser();
   const [dbUserName, setDbUserName] = useState("");
   const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
@@ -67,10 +69,10 @@ export default function WelcomeDashboard() {
     const then = new Date(iso).getTime();
     if (Number.isNaN(then)) return "";
     const diff = Math.max(0, Date.now() - then) / 1000;
-    if (diff < 60) return "agora";
-    if (diff < 3600) return `há ${Math.floor(diff / 60)} min`;
-    if (diff < 86400) return `há ${Math.floor(diff / 3600)} h`;
-    return `há ${Math.floor(diff / 86400)} d`;
+    if (diff < 60) return t("now");
+    if (diff < 3600) return t("minAgo", { n: Math.floor(diff / 60) });
+    if (diff < 86400) return t("hourAgo", { n: Math.floor(diff / 3600) });
+    return t("dayAgo", { n: Math.floor(diff / 86400) });
   };
 
   if (loading) {
@@ -99,10 +101,10 @@ export default function WelcomeDashboard() {
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="space-y-2">
           <h1 className="text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
-            {firstName ? `Bem-vindo, ${firstName}` : "Bem-vindo"}
+            {firstName ? t("welcomeNamed", { name: firstName }) : t("welcome")}
           </h1>
           <p className="text-fg-60 font-medium tracking-wide flex items-center gap-2">
-            Rioko 2.0 Engine <span className="w-1 h-1 rounded-full bg-fg-40" /> A sua central de automação e-commerce.
+            {t("subtitle1")} <span className="w-1 h-1 rounded-full bg-fg-40" /> {t("subtitle2")}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -110,7 +112,7 @@ export default function WelcomeDashboard() {
             href="/integrations"
             className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
           >
-            Nova Integração <Plus className="w-4 h-4" />
+            {t("newIntegration")} <Plus className="w-4 h-4" />
           </Link>
         </div>
       </div>
@@ -118,16 +120,16 @@ export default function WelcomeDashboard() {
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Activity feeds */}
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Documentos Emitidos */}
+          {/* Issued documents */}
           <div className="glass p-6 rounded-[2.5rem] flex flex-col overflow-hidden relative min-h-[280px]">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-[rgba(94,234,212,0.10)] rounded-xl border border-[rgba(94,234,212,0.20)]">
                   <FileText className="w-4 h-4 text-accent-hot" />
                 </div>
-                <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">Documentos Emitidos</h3>
+                <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">{t("recentDocs")}</h3>
               </div>
-              <span className="font-mono text-[9px] text-fg-40 uppercase tracking-[0.22em]">Últimos 5</span>
+              <span className="font-mono text-[9px] text-fg-40 uppercase tracking-[0.22em]">{t("last5")}</span>
             </div>
 
             {recentInvoices === null ? (
@@ -137,8 +139,8 @@ export default function WelcomeDashboard() {
             ) : recentInvoices.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-4">
                 <Inbox className="w-8 h-8 text-fg-40" />
-                <p className="font-mono text-xs text-fg-60 uppercase tracking-[0.22em]">Sem documentos</p>
-                <p className="text-[10px] text-fg-40 max-w-[200px]">Aparecem aqui assim que o Rioko emitir a primeira fatura.</p>
+                <p className="font-mono text-xs text-fg-60 uppercase tracking-[0.22em]">{t("noDocs")}</p>
+                <p className="text-[10px] text-fg-40 max-w-[200px]">{t("noDocsBody")}</p>
               </div>
             ) : (
               <ul className="space-y-1.5 -mx-2">
@@ -188,9 +190,9 @@ export default function WelcomeDashboard() {
                 <div className="p-2 bg-[rgba(2,141,196,0.10)] rounded-xl border border-[rgba(2,141,196,0.20)]">
                   <ScrollText className="w-4 h-4 text-accent" />
                 </div>
-                <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">Logs</h3>
+                <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">{t("logs")}</h3>
               </div>
-              <span className="font-mono text-[9px] text-fg-40 uppercase tracking-[0.22em]">Últimos 10</span>
+              <span className="font-mono text-[9px] text-fg-40 uppercase tracking-[0.22em]">{t("last10")}</span>
             </div>
 
             {recentLogs === null ? (
@@ -200,8 +202,8 @@ export default function WelcomeDashboard() {
             ) : recentLogs.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-4">
                 <Inbox className="w-8 h-8 text-fg-40" />
-                <p className="font-mono text-xs text-fg-60 uppercase tracking-[0.22em]">Sem logs</p>
-                <p className="text-[10px] text-fg-40 max-w-[200px]">Quando chegarem webhooks, os eventos aparecem aqui.</p>
+                <p className="font-mono text-xs text-fg-60 uppercase tracking-[0.22em]">{t("noLogs")}</p>
+                <p className="text-[10px] text-fg-40 max-w-[200px]">{t("noLogsBody")}</p>
               </div>
             ) : (
               <ul className="space-y-1 -mx-2 max-h-[420px] overflow-y-auto scrollbar-hide">
@@ -235,25 +237,25 @@ export default function WelcomeDashboard() {
         <div className="glass p-8 rounded-[2.5rem] space-y-8 flex flex-col justify-between">
           <div className="space-y-4">
             <h3 className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em] flex items-center gap-2">
-              <Activity className="w-3 h-3" /> Estado do Sistema
+              <Activity className="w-3 h-3" /> {t("systemStatus")}
             </h3>
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-accent-hot animate-pulse" />
-              <span className="text-sm font-medium text-fg">Rioko Engine Online</span>
+              <span className="text-sm font-medium text-fg">{t("engineOnline")}</span>
             </div>
           </div>
 
           <div className="pt-8 border-t border-hairline space-y-4">
-            <p className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em]">Recursos e Ajuda</p>
+            <p className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em]">{t("resources")}</p>
             <div className="grid gap-2">
               <Link href="/help" className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all group">
                 <BookOpen className="w-4 h-4 text-fg-60" />
-                <span className="text-xs font-medium text-fg-60 group-hover:text-fg transition-colors">Centro de Ajuda</span>
+                <span className="text-xs font-medium text-fg-60 group-hover:text-fg transition-colors">{t("helpCenter")}</span>
                 <ArrowRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 transition-all translate-x-[-10px] group-hover:translate-x-0 text-fg-60" />
               </Link>
               <a href="mailto:pedro@kapta.pt" className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all group">
                 <Zap className="w-4 h-4 text-fg-60" />
-                <span className="text-xs font-medium text-fg-60 group-hover:text-fg transition-colors">Equipa de Suporte</span>
+                <span className="text-xs font-medium text-fg-60 group-hover:text-fg transition-colors">{t("supportTeam")}</span>
                 <ArrowRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 transition-all translate-x-[-10px] group-hover:translate-x-0 text-fg-60" />
               </a>
             </div>
@@ -262,7 +264,7 @@ export default function WelcomeDashboard() {
       </div>
 
       <div className="space-y-6">
-        <h2 className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em] ml-2">As Suas Integrações</h2>
+        <h2 className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em] ml-2">{t("yourIntegrations")}</h2>
 
         {integrationStatus ? (
           <div className="grid gap-6">
@@ -286,9 +288,9 @@ export default function WelcomeDashboard() {
                         ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
                         : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
                     )}>
-                      {integrationStatus.isAllComplete ? "Ativa e Autorizada" : "Configuração Pendente"}
+                      {integrationStatus.isAllComplete ? t("activeAuthorized") : t("configPending")}
                     </span>
-                    <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] hidden sm:inline">Desde 2026-03-02</span>
+                    <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] hidden sm:inline">{t("since", { date: "2026-03-02" })}</span>
                   </div>
                 </div>
               </div>
@@ -308,16 +310,16 @@ export default function WelcomeDashboard() {
               <Plus className="w-8 h-8" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-xl font-medium">Nenhuma integração configurada</h3>
+              <h3 className="text-xl font-medium">{t("emptyTitle")}</h3>
               <p className="text-fg-60 text-sm max-w-xs mx-auto">
-                Comece por conectar a sua loja Shopify a um sistema de faturação.
+                {t("emptyBody")}
               </p>
             </div>
             <Link
               href="/integrations"
               className="px-8 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
             >
-              Explorar Plataformas
+              {t("explorePlatforms")}
             </Link>
           </div>
         )}

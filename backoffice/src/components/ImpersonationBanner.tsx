@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { UserCog, LogOut, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export function ImpersonationBanner() {
+    const t = useTranslations("impersonationBanner");
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [acting, setActing] = useState(false);
@@ -50,7 +52,7 @@ export function ImpersonationBanner() {
                     </div>
                     <div className="flex flex-col">
                         <div className="flex items-center gap-2">
-                            <span className="font-mono text-[10px] text-white/70 uppercase tracking-[0.22em] leading-none">A Impersonar Utilizador:</span>
+                            <span className="font-mono text-[10px] text-white/70 uppercase tracking-[0.22em] leading-none">{t("label")}</span>
                             <span className="text-sm font-medium text-white leading-none">{data.user.name}</span>
                         </div>
                         <span className="text-[11px] font-medium text-white/80">{data.user.email}</span>
@@ -63,7 +65,7 @@ export function ImpersonationBanner() {
                     className="bg-white text-[#7C4A0F] px-5 py-2 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-surface hover:text-white transition-all shadow-lg active:scale-95 flex items-center gap-2 disabled:opacity-50"
                 >
                     {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
-                    Parar de Impersonar
+                    {t("stop")}
                 </button>
             </motion.div>
         </AnimatePresence>

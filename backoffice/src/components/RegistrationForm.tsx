@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { ShieldCheck, ArrowRight, User, Building2, MapPin, Phone, Globe, Mail, CheckCircle2 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -16,6 +17,7 @@ interface RegistrationFormProps {
 }
 
 export function RegistrationForm({ onComplete, initialEmail, initialName }: RegistrationFormProps) {
+    const t = useTranslations("registrationForm");
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         nif: "",
@@ -29,9 +31,6 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
     });
 
     const isCompany = (nif: string) => {
-        // Simple logic for PT NIFs:
-        // Companies/Entities usually start with 5, 6, 8, 9
-        // Individuals usually start with 1, 2, 3
         if (!nif || nif.length < 1) return false;
         const firstDigit = nif[0];
         return ["5", "6", "8", "9"].includes(firstDigit);
@@ -65,25 +64,25 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
 
                 <div className="space-y-2 mb-10 text-center relative z-10">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(2,141,196,0.10)] border border-[rgba(2,141,196,0.20)] text-accent font-mono text-[10px] uppercase tracking-[0.22em] mb-4">
-                        <ShieldCheck className="w-3 h-3" /> Registo Obrigatório
+                        <ShieldCheck className="w-3 h-3" /> {t("chip")}
                     </div>
-                    <h2 className="text-4xl font-medium tracking-tight text-fg mb-4">Finalize o seu perfil</h2>
+                    <h2 className="text-4xl font-medium tracking-tight text-fg mb-4">{t("title")}</h2>
                     <p className="text-fg-60 text-lg max-w-xl mx-auto">
-                        Para desbloquear as integrações e começar a faturar, precisamos dos seus dados fiscais.
+                        {t("subtitle")}
                     </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
                     {/* NIF */}
                     <div className="space-y-2 md:col-span-2">
-                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">NIF (Número de Identificação Fiscal)</label>
+                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("nifLabel")}</label>
                         <div className="relative group">
                             <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
                             <input
                                 required
                                 type="text"
                                 maxLength={9}
-                                placeholder="Ex: 512345678"
+                                placeholder={t("nifPlaceholder")}
                                 className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
                                 value={formData.nif}
                                 onChange={(e) => setFormData({ ...formData, nif: e.target.value })}
@@ -94,7 +93,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     {/* Conditional Name/Company Name */}
                     <div className="space-y-2 md:col-span-2">
                         <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">
-                            {isCompany(formData.nif) ? "Nome da Empresa / Pessoa Coletiva" : "Nome Completo"}
+                            {isCompany(formData.nif) ? t("companyNameLabel") : t("personNameLabel")}
                         </label>
                         <div className="relative group">
                             {isCompany(formData.nif) ? (
@@ -105,7 +104,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                             <input
                                 required
                                 type="text"
-                                placeholder={isCompany(formData.nif) ? "Ex: Minha Empresa Lda." : "Ex: João Silva"}
+                                placeholder={isCompany(formData.nif) ? t("companyNamePlaceholder") : t("personNamePlaceholder")}
                                 className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
                                 value={isCompany(formData.nif) ? formData.company_name : formData.name}
                                 onChange={(e) => {
@@ -121,13 +120,13 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
 
                     {/* Fiscal Address */}
                     <div className="space-y-2 md:col-span-2">
-                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">Morada Fiscal</label>
+                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("addressLabel")}</label>
                         <div className="relative group">
                             <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
                             <input
                                 required
                                 type="text"
-                                placeholder="Rua, Número, Código Postal, Localidade"
+                                placeholder={t("addressPlaceholder")}
                                 className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
                                 value={formData.fiscal_address}
                                 onChange={(e) => setFormData({ ...formData, fiscal_address: e.target.value })}
@@ -137,7 +136,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
 
                     {/* Email */}
                     <div className="space-y-2">
-                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">Email de Contacto</label>
+                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("emailLabel")}</label>
                         <div className="relative group">
                             <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
                             <input
@@ -152,7 +151,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
 
                     {/* Phone */}
                     <div className="space-y-2">
-                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">Telemóvel (Opcional)</label>
+                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("phoneLabel")}</label>
                         <div className="relative group">
                             <Phone className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
                             <input
@@ -166,12 +165,12 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
 
                     {/* Website */}
                     <div className="space-y-2 md:col-span-2">
-                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">Website (Opcional)</label>
+                        <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("websiteLabel")}</label>
                         <div className="relative group">
                             <Globe className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
                             <input
                                 type="url"
-                                placeholder="https://exemplo.com"
+                                placeholder={t("websitePlaceholder")}
                                 className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
                                 value={formData.website}
                                 onChange={(e) => setFormData({ ...formData, website: e.target.value })}
@@ -195,7 +194,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                                 </div>
                             </div>
                             <span className="text-sm font-medium text-fg-60 group-hover:text-fg transition-colors">
-                                Concordo com a política de privacidade e tratamento de dados.
+                                {t("privacyAccept")}
                             </span>
                         </label>
                     </div>
@@ -204,9 +203,11 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     <button
                         disabled={loading}
                         type="submit"
-                        className="md:col-span-2 mt-4 bg-fg text-surface font-mono uppercase tracking-[0.18em] py-5 rounded-3xl hover:bg-accent-hot transition-all transform active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+                        className={cn(
+                            "md:col-span-2 mt-4 bg-fg text-surface font-mono uppercase tracking-[0.18em] py-5 rounded-3xl hover:bg-accent-hot transition-all transform active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+                        )}
                     >
-                        {loading ? "A guardar..." : "Concluir Registo e Desbloquear"} <ArrowRight className="w-5 h-5" />
+                        {loading ? t("saving") : t("submit")} <ArrowRight className="w-5 h-5" />
                     </button>
                 </form>
             </div>

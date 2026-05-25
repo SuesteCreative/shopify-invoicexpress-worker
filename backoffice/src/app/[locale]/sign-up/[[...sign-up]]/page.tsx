@@ -1,4 +1,5 @@
 import { SignUp } from "@clerk/nextjs";
+import { LangToggle } from "@/components/landing/LangToggle";
 
 export const runtime = "edge";
 
@@ -9,7 +10,8 @@ export default async function Page({
 }) {
     const { locale } = await params;
     return (
-        <div className="flex items-center justify-center min-h-screen bg-slate-950">
+        <div className="flex flex-col items-center justify-center min-h-screen gap-6 bg-slate-950 p-4">
+            <LangToggle variant="dark" />
             <SignUp
                 path={`/${locale}/sign-up`}
                 signInUrl={`/${locale}/sign-in`}

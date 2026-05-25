@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslations } from "next-intl";
 import { X, Calendar, Mail } from "lucide-react";
 
 const DISMISSED_KEY_PREFIX = "rioko_setup_modal_dismissed:";
 
-// ─── Brand tokens (docs/brand-guideline.md) ────────────────────────────────
 const SURFACE   = "#0E1116";
 const HAIRLINE  = "rgba(255,255,255,0.06)";
 const RULE      = "rgba(255,255,255,0.08)";
@@ -16,10 +16,10 @@ const FG_40     = "rgba(240,240,240,0.40)";
 const ACCENT    = "#028DC4";
 const ACCENT_HOT = "#5EEAD4";
 
-// Single canonical easing — [0.32, 0.72, 0, 1]
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
 export function IntegrationSetupModal() {
+  const t = useTranslations("integrationSetupModal");
   const [visible, setVisible] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -30,13 +30,11 @@ export function IntegrationSetupModal() {
         const uid: string | null = data._user_id || null;
         setUserId(uid);
 
-        // Per-user dismissal — prevents impersonation / multi-tenant leakage
         try {
           if (uid && localStorage.getItem(DISMISSED_KEY_PREFIX + uid)) return;
         } catch { return; }
 
         const isRegistered = !!data._registration_completed;
-        // Complete only when Shopify, InvoiceXpress, and webhooks are all live
         const isComplete =
           data.shopify_authorized === 1 &&
           data.ix_authorized === 1 &&
@@ -68,7 +66,6 @@ export function IntegrationSetupModal() {
           transition={{ duration: 0.5, ease: EASE, delay: 1.2 }}
           className="fixed bottom-6 right-6 z-50 w-full max-w-[310px]"
         >
-          {/* Double-bezel shell (Doppelrand) — gives the card visual weight */}
           <div
             className="rounded-[1.625rem] p-px"
             style={{ background: "rgba(255,255,255,0.05)" }}
@@ -86,27 +83,21 @@ export function IntegrationSetupModal() {
                 ].join(", "),
               }}
             >
-              {/* Close button */}
               <button
                 onClick={dismiss}
-                aria-label="Fechar"
+                aria-label={t("close")}
                 className="absolute top-3.5 right-3.5 w-6 h-6 rounded-lg flex items-center justify-center cursor-pointer"
                 style={{
                   color: FG_40,
                   transition: `color 500ms cubic-bezier(${EASE.join(",")})`,
                 }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.color = FG)
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.color = FG_40)
-                }
+                onMouseEnter={(e) => (e.currentTarget.style.color = FG)}
+                onMouseLeave={(e) => (e.currentTarget.style.color = FG_40)}
               >
                 <X strokeWidth={1.5} className="w-3.5 h-3.5" />
               </button>
 
               <div className="p-5 space-y-4">
-                {/* Eyebrow pill */}
                 <span
                   className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] font-mono text-[10px] uppercase tracking-[0.22em]"
                   style={{
@@ -115,37 +106,31 @@ export function IntegrationSetupModal() {
                     color: FG_40,
                   }}
                 >
-                  {/* Live-style mint dot */}
                   <span
                     className="h-1 w-1 rounded-full shrink-0"
                     style={{ background: ACCENT_HOT }}
                   />
-                  Configuração Pendente
+                  {t("pending")}
                 </span>
 
-                {/* Title + body */}
                 <div className="space-y-1.5 pr-5">
                   <h3
                     className="text-[15px] font-medium leading-snug"
                     style={{ color: FG, letterSpacing: "-0.015em" }}
                   >
-                    Precisa de ajuda com a integração?
+                    {t("title")}
                   </h3>
                   <p
                     className="text-[13px] leading-relaxed"
                     style={{ color: FG_60 }}
                   >
-                    A sua integração ainda não está completa. A nossa equipa
-                    pode ajudá-lo a concluir o processo em minutos.
+                    {t("body")}
                   </p>
                 </div>
 
-                {/* Hairline divider */}
                 <div style={{ height: "1px", background: HAIRLINE }} />
 
-                {/* CTA buttons — pill style with trailing icon circle */}
                 <div className="space-y-2">
-                  {/* Primary: Schedule meeting */}
                   <a
                     href="https://calendly.com/pedro-kapta/apoio-kapta"
                     target="_blank"
@@ -162,7 +147,7 @@ export function IntegrationSetupModal() {
                     }}
                   >
                     <span className="font-mono text-[11px] uppercase tracking-[0.18em]">
-                      Agendar Reunião
+                      {t("schedule")}
                     </span>
                     <span
                       className="h-7 w-7 rounded-full flex items-center justify-center transition-transform duration-500 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
@@ -172,7 +157,6 @@ export function IntegrationSetupModal() {
                     </span>
                   </a>
 
-                  {/* Secondary: Email */}
                   <a
                     href="mailto:pedro@kapta.pt"
                     className="group flex items-center justify-between w-full rounded-full py-2.5 pl-5 pr-1.5 active:scale-[0.98]"
@@ -184,7 +168,7 @@ export function IntegrationSetupModal() {
                     }}
                   >
                     <span className="font-mono text-[11px] uppercase tracking-[0.18em]">
-                      Enviar Email
+                      {t("email")}
                     </span>
                     <span
                       className="h-7 w-7 rounded-full flex items-center justify-center transition-transform duration-500 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
@@ -195,7 +179,6 @@ export function IntegrationSetupModal() {
                   </a>
                 </div>
 
-                {/* Soft dismiss link */}
                 <button
                   onClick={dismiss}
                   className="w-full text-center font-mono text-[10px] uppercase tracking-[0.18em] cursor-pointer"
@@ -203,14 +186,10 @@ export function IntegrationSetupModal() {
                     color: FG_40,
                     transition: `color 500ms cubic-bezier(${EASE.join(",")})`,
                   }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.color = FG_60)
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.color = FG_40)
-                  }
+                  onMouseEnter={(e) => (e.currentTarget.style.color = FG_60)}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = FG_40)}
                 >
-                  Não mostrar novamente
+                  {t("dontShowAgain")}
                 </button>
               </div>
             </div>

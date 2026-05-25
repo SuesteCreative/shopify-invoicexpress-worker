@@ -1,0 +1,137 @@
+---
+title: "Séries de Faturação: O Que São e Como Comunicar à AT"
+slug: "series-faturacao-o-que-sao-como-comunicar"
+description: "O que é uma série de faturação, porque é obrigatório separá-las por tipo de documento, e como comunicá-las à Autoridade Tributária para obter ATCUD."
+date: "2026-05-25"
+author: "Equipa Rioko"
+tags: ["Séries", "ATCUD", "Autoridade Tributária", "Faturação Certificada"]
+category: "Guias Fiscais"
+readingMinutes: 7
+source: "https://invoicexpress.com/blog/series-de-faturacao-o-que-sao-e-como-comunicar/"
+---
+
+Se emites faturas em Portugal — seja num software certificado, seja diretamente a partir de uma loja Shopify ou de pagamentos Stripe — vais cruzar-te inevitavelmente com o conceito de **série de faturação**. Apesar de parecer um detalhe técnico, é a série que **garante a integridade legal** de toda a tua faturação e que permite à AT identificar inequivocamente cada documento que emites.
+
+Este artigo explica o que é uma série, porque tens de separá-las, e como comunicá-las à Autoridade Tributária para obter o código de validação **ATCUD**.
+
+## O que é uma série de faturação
+
+Uma **série** é uma sequência numérica contínua, identificada por um nome, à qual pertencem documentos do **mesmo tipo** emitidos pelo **mesmo software certificado**. Cada documento dentro da série recebe um número sequencial único e imutável.
+
+A combinação `tipo de documento + nome da série + número sequencial` identifica de forma única qualquer documento fiscal em Portugal. Por exemplo:
+
+```
+FT 2026A/00042
+```
+
+Lê-se: **fatura (FT)**, da **série 2026A**, número **42** dessa série.
+
+Esta identificação aparece:
+
+- No documento impresso (canto superior ou junto ao QR Code).
+- Dentro do **QR Code** obrigatório.
+- No **ATCUD** (`código-da-série-AT`-`número`).
+- No ficheiro **SAF-T (PT)** enviado mensalmente à AT.
+
+## Porque tens de separar séries
+
+A lei portuguesa **não permite** misturar tipos de documento na mesma série. Cada **tipo** (FT, FR, FS, NC, ND, GT...) tem de ter a sua própria sequência numérica. Além disso, é boa prática separar por:
+
+- **Ano fiscal** — para que a numeração reinicie em janeiro e o fecho do exercício fique mais limpo.
+- **Canal de venda** — uma série para Shopify, outra para Stripe, outra para vendas presenciais no Vendus, por exemplo.
+- **Estabelecimento** — se tens várias lojas físicas, podes ter séries separadas por loja.
+
+A regra de ouro: **dentro de uma série não há lacunas nem repetições**. Se emites o número 42, o próximo tem de ser o 43 — não podes saltar para o 50, nem reutilizar o 42 mais tarde.
+
+## Estrutura típica de uma série
+
+O nome da série é livre, mas tem de respeitar:
+
+- Apenas **letras maiúsculas, dígitos e alguns separadores** (geralmente nada de espaços nem caracteres especiais).
+- Comprimento razoável (a maioria dos softwares aceita até 35 caracteres, mas mantém curto).
+- **Coincidência exata** entre o nome no software e o nome comunicado à AT — se há diferença, mesmo de uma letra, a AT rejeita o SAF-T.
+
+Convenções comuns:
+
+| Padrão | Exemplo | Uso |
+|---|---|---|
+| `<ANO><TIPO>` | `2026FT`, `2026FR` | Mais usado em e-commerce |
+| `<TIPO><ANO>` | `FT2026`, `FR2026` | Equivalente, gosto pessoal |
+| `<CANAL><ANO>` | `SHOP26`, `STRIPE26` | Quando há vários canais |
+| `<TIPO>` simples | `FT`, `FR` | Série contínua plurianual |
+
+## ATCUD: a peça que falta
+
+Desde **1 de janeiro de 2023**, por força da **Portaria n.º 195/2020**, cada documento fiscal certificado tem de conter o **ATCUD** — Código Único de Documento. O ATCUD é formado por:
+
+```
+ATCUD: <código-validação-AT>-<número-sequencial>
+```
+
+Exemplo: `CSDF7T5H-00042`.
+
+O **código de validação** (`CSDF7T5H`) é atribuído pela AT **à série, não ao documento**, e tem **8 caracteres alfanuméricos**. Obténs este código comunicando a série antes de emitires o primeiro documento. Se ainda não criaste o subutilizador AT para comunicação, consulta primeiro [ATCUD: Como criar utilizador na Autoridade Tributária](/blog/atcud-criar-utilizador-autoridade-tributaria).
+
+## Como comunicar uma série à AT
+
+O processo é centralizado no **Portal das Finanças**:
+
+1. **Iniciar sessão** com o NIF da empresa (ou com o subutilizador dedicado, recomendado).
+2. **Todos os Serviços → Faturas e Outros Documentos Fiscais → Comunicar Séries Documentais**.
+3. Clicar em **Registar Série**.
+4. Preencher:
+   - **Tipo de documento** (FT, FS, FR, NC, ND, GT, GR...)
+   - **Identificador da série** (ex: `2026FR`) — tem de coincidir com o que está no software.
+   - **Numeração sequencial inicial** (normalmente `1`).
+   - **Data de início prevista**.
+   - **Meio de processamento**: `Programa informático de faturação`.
+   - **Número de certificação do software** (cada software tem o seu).
+5. Submeter. A AT devolve o **código de validação** de 8 caracteres.
+6. Voltar ao software e colar o código no campo ATCUD da série correspondente.
+
+> A comunicação pode ser feita **manualmente** (formulário no Portal) ou **por webservice** (o próprio software comunica a série). InvoiceXpress, Moloni e Vendus suportam comunicação automática — basta autorizar o subutilizador AT correspondente.
+
+## Tipos de documento e quando usar cada um
+
+Em e-commerce português, os mais frequentes são:
+
+| Código | Designação | Quando emitir |
+|---|---|---|
+| **FT** | Fatura | Venda com NIF do cliente (B2B ou B2C que pediu fatura) |
+| **FS** | Fatura Simplificada | Venda B2C sem NIF até €1.000 |
+| **FR** | Fatura-Recibo | Venda já paga no ato — típico em pagamentos Shopify/Stripe |
+| **NC** | Nota de Crédito | Anulação ou devolução parcial/total |
+| **ND** | Nota de Débito | Acréscimo a uma fatura anterior |
+| **GT** | Guia de Transporte | Mercadoria em circulação |
+
+Cada um destes tem de ter a **sua própria série**. Não podes emitir uma NC dentro da série de FT.
+
+## Série anual vs série contínua
+
+A AT não impõe nem proíbe nenhuma das abordagens — mas a prática contabilística divide opiniões:
+
+- **Série anual** (`2025FR`, `2026FR`, ...): a numeração reinicia em 1 todos os anos. Requer comunicar uma série nova em janeiro de cada ano. Mais limpo para auditorias e para o fecho de SAF-T anual.
+- **Série contínua** (`FR` sem ano): comunicas uma vez, nunca mais mexes. Os números crescem indefinidamente. Mais simples, mas menos legível com o passar do tempo.
+
+A escolha mais comum em e-commerce é **série anual**, porque o volume é elevado e há vantagem em poder ler o exercício no próprio nome.
+
+## Erros frequentes
+
+- **Nome desalinhado** entre software e AT. Causa rejeição imediata do SAF-T. Confirma com cópia-colar.
+- **Numeração inicial errada** quando migras de outro sistema. Se já emitiste 50 faturas em 2026 noutro software, a nova série tem de começar em 51 (ou criar uma série de migração separada).
+- **Esquecer-se de comunicar antes de emitir**. Se emites uma fatura numa série não comunicada, esse documento sai sem ATCUD válido — não é certificado.
+- **Misturar tipos de documento**. Não podes ter FT e FR na mesma série; tem de ser comunicação separada.
+
+## Guias específicos por software
+
+Cada plataforma certificada tem o seu próprio fluxo para criar séries internamente. Consulta o guia do teu software:
+
+- [Como criar uma série de faturação no Moloni](/blog/como-criar-serie-faturacao-moloni)
+- [Como criar uma série de faturação no Vendus](/blog/como-criar-serie-faturacao-vendus)
+- Para InvoiceXpress, segue o painel: **Configurações → Preferências da conta → Séries de faturação / ATCUD → Criar nova série**.
+
+## Como o Rioko ajuda
+
+Quando ligas a tua loja **Shopify** ou conta **Stripe** ao Rioko, o painel lê automaticamente todas as séries ativas no teu InvoiceXpress, Moloni ou Vendus via API. Escolhes a série a usar por defeito e o Rioko **valida que o ATCUD está configurado** antes de emitir qualquer documento — bloqueando a emissão se a série não estiver certificada. Na viragem de ano fiscal, recebes um aviso para configurar a nova série anual, evitando que faturas de janeiro saiam ainda numerada na série do ano anterior.
+
+[Configurar séries no Rioko →](/integrations)

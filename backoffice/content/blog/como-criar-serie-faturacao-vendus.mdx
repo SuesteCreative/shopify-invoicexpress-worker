@@ -1,0 +1,112 @@
+---
+title: "Como Criar uma Série de Faturação no Vendus"
+slug: "como-criar-serie-faturacao-vendus"
+description: "Guia passo a passo para criar uma série de faturação no Vendus, comunicá-la à Autoridade Tributária e obter o código de validação ATCUD."
+date: "2026-05-25"
+author: "Equipa Rioko"
+tags: ["Vendus", "Séries", "ATCUD", "Faturação Certificada"]
+category: "Guias Técnicos"
+readingMinutes: 6
+source: "https://www.vendus.pt/blog/serie-faturacao/"
+---
+
+O **Vendus** é o software de faturação certificado mais usado em pontos de venda físicos em Portugal, mas funciona igualmente bem para vendas online quando integrado via API. Configurar uma série de faturação no Vendus é simples — desde que respeites a ordem dos passos: **criar localmente**, **comunicar à AT**, **colar o ATCUD**.
+
+Este guia mostra cada etapa em detalhe.
+
+## Antes de começar
+
+Para comunicar uma série à AT precisas das credenciais de subutilizador no Portal das Finanças com a operação `WSE - Comunicação de Séries de Documentos de Faturação`. Se ainda não tens, segue primeiro o guia [ATCUD: Como criar utilizador na Autoridade Tributária](/blog/atcud-criar-utilizador-autoridade-tributaria).
+
+Também é útil teres clara a teoria de séries: lê [Séries de faturação: o que são e como comunicar à AT](/blog/series-faturacao-o-que-sao-como-comunicar) se nunca configuraste uma antes.
+
+## Passo 1 — Aceder à gestão de séries no Vendus
+
+1. Inicia sessão em [www.vendus.pt](https://www.vendus.pt).
+2. Vai a **Definições** (engrenagem no topo direito ou menu lateral).
+3. Submenu **Faturação → Séries**.
+4. A página apresenta as séries existentes. Em contas novas, costuma haver uma série predefinida `A` para cada tipo de documento.
+
+Clica em **Nova Série**.
+
+> Nota: o Vendus cria automaticamente séries no início de cada ano civil para os tipos de documento que já usaste no ano anterior. Só precisas de criar manualmente se quiseres uma série adicional (canal extra, estabelecimento novo) ou se mudaste de software a meio do ano.
+
+## Passo 2 — Preencher os dados da série
+
+O formulário pede:
+
+| Campo | Descrição | Exemplo |
+|---|---|---|
+| **Nome** | Identificador único da série. Letras e números, sem espaços. | `2026FR` |
+| **Tipo de documento** | FT, FS, FR, NC, ND, GT... | `Fatura-Recibo (FR)` |
+| **Numeração inicial** | Onde começa a contagem. Normalmente `1`. | `1` |
+| **Estabelecimento** | Apenas se tiveres mais que um registado no Vendus | `Principal` |
+| **Ativa** | Marca para começar a usar | ✓ |
+
+Algumas contas mostram ainda:
+
+- **Predefinida**: marca se queres que esta seja a série usada por defeito ao emitir documentos deste tipo.
+- **Descrição interna**: texto livre só para tua referência (não aparece no documento).
+
+Grava. A série fica criada no Vendus mas **ainda não está certificada** — não tem código ATCUD.
+
+## Passo 3 — Comunicar a série à AT
+
+O Vendus suporta dois fluxos.
+
+### Fluxo automático (recomendado)
+
+Se já tens as credenciais do subutilizador AT configuradas no Vendus:
+
+1. Vai a **Definições → Empresa → Comunicação AT** (ou **Webservice AT**, conforme versão).
+2. Confirma que tens preenchidos o **Subutilizador (`NIF/N`)** e a **senha** AT.
+3. Volta a **Definições → Faturação → Séries** e abre a série recém-criada.
+4. Clica em **Comunicar à AT** (botão dentro da página da série).
+5. O Vendus envia o pedido por webservice. Em segundos o campo **Código de validação ATCUD** fica preenchido automaticamente.
+
+### Fluxo manual
+
+Se preferires comunicar no Portal das Finanças:
+
+1. Acede a `Portal das Finanças → Todos os Serviços → Faturas e Outros Documentos Fiscais → Comunicar Séries Documentais → Registar Série`.
+2. Preenche:
+   - **Tipo de documento**: o mesmo definido no Vendus.
+   - **Identificador da série**: tem de ser **exatamente igual** ao Nome no Vendus (`2026FR`).
+   - **Numeração sequencial inicial**: igual.
+   - **Meio de processamento**: `Programa informático de faturação`.
+   - **Número de certificação**: `2230` (número atual do Cegid Vendus junto da AT — confirma sempre no painel Vendus em *Sobre* ou no rodapé de qualquer documento já emitido caso haja alteração).
+
+3. Submete. A AT devolve o código de validação de 8 caracteres.
+4. Volta ao Vendus, edita a série e cola o código no campo **ATCUD**.
+5. Grava.
+
+## Passo 4 — Verificar emissão certificada
+
+Antes de pôr a série em produção, emite **um documento de teste** para confirmar que tudo está alinhado:
+
+- O número do documento aparece no formato `<TIPO> <SÉRIE>/<NÚMERO>` (ex: `FR 2026FR/1`).
+- O **QR Code** está presente no PDF.
+- A linha **ATCUD: `CSDF7T5H-1`** aparece no documento, com o código de validação correto.
+- O rodapé do PDF identifica o **Vendus** como software certificado, com o respetivo número.
+
+Se algum destes itens falhar, **não uses a série em produção** — investiga e corrige antes.
+
+## Boas práticas para Vendus
+
+- **Uma série por tipo de documento por ano**. `2026FT`, `2026FR`, `2026NC`. Mais fácil de auditar.
+- **Não apagues séries antigas**. Mesmo no fim do ano, a série de 2025 fica como histórico permanente — não a apagas, só deixas de a usar.
+- **Cuidado com séries por estabelecimento**. Se tens loja física + loja online, podes ter `2026FRONLINE` e `2026FRLOJA` para separar. Cada uma tem o seu ATCUD próprio.
+- **Não alteres o nome depois da primeira emissão**. O Vendus bloqueia, mas mesmo que não bloqueasse, perderias a coincidência com o que foi comunicado à AT.
+
+## Erros frequentes
+
+- **`Série não comunicada à AT`** ao tentar emitir: significa que o campo ATCUD está vazio. Comunica primeiro.
+- **`Identificador da série já existe`** ao comunicar à AT: alguém já comunicou esse nome com este NIF. Escolhe outro nome.
+- **`Numeração inicial inválida`**: estás a tentar começar abaixo do número já comunicado. Sobe a numeração inicial ou comunica uma série diferente.
+- **Documentos sem QR Code**: a versão do software pode estar desatualizada, ou a série não está marcada como ativa. Verifica `Definições → Empresa → Configuração SAF-T`.
+
+## Como o Rioko ajuda
+
+Depois de criares a série Vendus com ATCUD válido, abre o Rioko, vai à página de integração relevante (**Stripe + Vendus** ou **Shopify + Vendus**) e copia o **Series ID** Vendus para o painel Rioko. O Series ID encontra-se na URL da página da série dentro do Vendus (`/series/edit/<id>`) ou via API. O Rioko valida no momento da configuração que a série tem ATCUD presente e bloqueia a integração caso esteja em falta — para que nenhuma encomenda Shopify ou pagamento Stripe gere um documento não certificado.
+
+[Configurar integração Stripe + Vendus →](/integrations/stripe-vendus)

@@ -1,0 +1,111 @@
+---
+title: "Como Criar uma Série de Faturação no Moloni"
+slug: "como-criar-serie-faturacao-moloni"
+description: "Guia passo a passo para criar e comunicar uma série de faturação no Moloni — Conjuntos de Documentos, prefixo, numeração e ATCUD."
+date: "2026-05-25"
+author: "Equipa Rioko"
+tags: ["Moloni", "Séries", "ATCUD", "Faturação Certificada"]
+category: "Guias Técnicos"
+readingMinutes: 6
+source: "https://www.moloni.pt/suporte/como-criar-uma-serie"
+---
+
+O **Moloni** é um dos softwares certificados de faturação mais usados em Portugal. A organização interna de séries no Moloni faz-se através de **Conjuntos de Documentos** — uma noção que confunde quem vem de outros sistemas, mas que na prática mapeia 1-para-1 com o conceito de **série** que comunicas à AT.
+
+Este guia mostra como criar uma série no Moloni, comunicá-la à Autoridade Tributária e configurá-la corretamente para emissão certificada com ATCUD.
+
+## O que são Conjuntos de Documentos no Moloni
+
+No Moloni, um **Conjunto de Documentos** corresponde àquilo que a lei portuguesa chama de **série**. Cada conjunto agrupa documentos do mesmo **tipo** (Fatura, Fatura-Recibo, Nota de Crédito...) com uma **numeração sequencial própria** e um **identificador único**.
+
+Em contas novas, o Moloni cria automaticamente conjuntos por defeito (`A`) para cada tipo de documento. Funciona, mas para uma loja online ou negócio com volume mínimo recomenda-se criar conjuntos personalizados que reflitam o ano fiscal e/ou o canal de venda.
+
+> Antes de criares um conjunto, confirma que tens o **subutilizador AT** preparado para comunicar séries. Vê [ATCUD: Como criar utilizador na Autoridade Tributária](/blog/atcud-criar-utilizador-autoridade-tributaria).
+
+## Passo 1 — Aceder à criação de conjuntos
+
+1. Inicia sessão no [Moloni](https://www.moloni.pt).
+2. No menu superior vai a **Definições**.
+3. Submenu **Documentos → Conjuntos de Documentos**.
+4. A página lista os conjuntos existentes. Clica em **Adicionar** (botão superior direito) para criar um conjunto novo.
+
+## Passo 2 — Configurar o novo conjunto
+
+O formulário pede os seguintes campos:
+
+| Campo | O que colocar | Exemplo |
+|---|---|---|
+| **Nome** | Identificador único, letras maiúsculas e dígitos. Sem espaços nem caracteres especiais. | `2026FR` |
+| **Tipo de documento** | Escolhe na dropdown o tipo a que o conjunto se aplica | `Fatura-Recibo` |
+| **Numeração inicial** | Normalmente `1`. Se migras de outro software, ajusta para o número seguinte. | `1` |
+| **Ano** | Ano fiscal em que a série arranca | `2026` |
+| **Ativo** | Marca para ativar | ✓ |
+
+Algumas contas têm ainda:
+
+- **Prefixo de documento** — texto que aparece antes do número (geralmente o próprio nome do conjunto).
+- **Estabelecimento** — só se tiveres mais do que um estabelecimento configurado.
+- **Predefinido para este tipo** — marca se queres que este conjunto seja a escolha por defeito ao criar um novo documento desse tipo.
+
+> Importante: o **Nome** que aqui colocas vai ter de coincidir **exatamente** com o identificador da série que vais comunicar à AT. Diferenças de maiúsculas/minúsculas, espaços ou caracteres adicionais fazem com que a AT rejeite o SAF-T mais tarde.
+
+## Passo 3 — Comunicar a série à AT
+
+A partir daqui tens duas vias.
+
+### Via A — Comunicação automática pelo Moloni (recomendado)
+
+O Moloni tem integração direta com o Portal das Finanças. Para usares:
+
+1. Em **Definições → Comunicação AT** (ou **Definições → Configurações da Empresa → Webservice AT**), preenche o **subutilizador AT** e a senha (o `NIF/N` que criaste no Portal das Finanças).
+2. Em **Definições → Documentos → Conjuntos de Documentos**, escolhe o conjunto recém-criado e clica em **Comunicar Série à AT**.
+3. O Moloni envia o pedido por webservice. Em segundos recebes o **código de validação ATCUD** (8 caracteres alfanuméricos) preenchido automaticamente no conjunto.
+
+### Via B — Comunicação manual no Portal das Finanças
+
+Se preferires fazer no Portal das Finanças diretamente:
+
+1. Acede a `Portal das Finanças → Todos os Serviços → Faturas e Outros Documentos Fiscais → Comunicar Séries Documentais → Registar Série`.
+2. Preenche:
+   - **Tipo de documento**: o mesmo do conjunto Moloni.
+   - **Identificador da série**: igual ao **Nome** do conjunto (`2026FR`).
+   - **Numeração sequencial inicial**: igual.
+   - **Meio de processamento**: `Programa informático de faturação`.
+   - **Número de certificação**: `2860` (número atual do Moloni junto da AT — confirma sempre no painel Moloni em *Sobre* ou no rodapé de qualquer documento já emitido caso haja alteração).
+
+3. Submete. A AT devolve o código de validação.
+4. Volta ao Moloni, edita o conjunto e cola o código no campo **ATCUD**.
+
+## Passo 4 — Definir como conjunto predefinido (opcional)
+
+Se este vai ser o conjunto principal para emitir Faturas-Recibo a partir de Shopify ou Stripe, marca-o como **predefinido**:
+
+1. **Definições → Documentos → Conjuntos de Documentos**.
+2. Clica no conjunto.
+3. Ativa **Predefinido para este tipo de documento**.
+
+Cada tipo de documento (FT, FR, NC...) só pode ter **um conjunto predefinido**. Os outros continuam ativos e disponíveis para escolha manual.
+
+## Passo 5 — Verificar emissão certificada
+
+Antes de ligar a integração com Shopify ou Stripe, emite **uma fatura de teste manual** (pode ser anulada depois) e confirma:
+
+- O documento aparece com identificador `<TIPO> <NOME-CONJUNTO>/<NÚMERO>` (ex: `FR 2026FR/00001`).
+- Contém **QR Code**.
+- Contém linha com **ATCUD:** `<código>-<número>`.
+- O **PDF gerado** menciona o software certificado e o número de certificação.
+
+Se algum destes itens falhar, a série não está corretamente certificada.
+
+## Erros frequentes no Moloni
+
+- **Conjunto sem ATCUD**: aparece o aviso `Série não comunicada à AT` no topo. Vai a `Definições → Documentos → Conjuntos` e comunica-a (Via A ou B).
+- **Nome do conjunto desalinhado**: edição não é permitida depois de emitir o primeiro documento. Se erraste, cria um novo conjunto com o nome correto e desativa o antigo.
+- **Tipo de documento errado**: idem. Não há forma de alterar o tipo depois de emitir. Cria novo.
+- **Numeração saltada**: o Moloni não permite saltos manuais na sequência. Se rejeitas um rascunho, ele não consome número — só consume quando finalizas a emissão.
+
+## Como o Rioko ajuda
+
+Depois de criares a série no Moloni e teres o ATCUD configurado, abre o Rioko, vai à página de integração relevante (**Stripe + Moloni** ou **Shopify + Moloni**) e copia o **Document Set ID** do conjunto para o painel Rioko. O ID encontra-se no Moloni em `Definições → Documentos → Conjuntos → <o teu conjunto> → URL` (o número que aparece no final da URL) ou através do endpoint API. A partir daí, todas as faturas geradas automaticamente pelo Rioko a partir de encomendas Shopify ou pagamentos Stripe usam essa série, com ATCUD válido e QR Code conforme a Portaria 195/2020. Se ainda não estás familiarizado com o conceito de série, lê primeiro [Séries de faturação: o que são e como comunicar à AT](/blog/series-faturacao-o-que-sao-como-comunicar).
+
+[Configurar integração Stripe + Moloni →](/integrations/stripe-moloni)

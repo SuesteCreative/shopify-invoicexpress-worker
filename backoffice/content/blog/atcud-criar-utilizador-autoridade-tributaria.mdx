@@ -1,0 +1,104 @@
+---
+title: "ATCUD: Como Criar Utilizador na Autoridade Tributária"
+slug: "atcud-criar-utilizador-autoridade-tributaria"
+description: "Guia passo a passo para criar um subutilizador no Portal das Finanças com permissão para comunicar séries de faturação e obter o código de validação ATCUD."
+date: "2026-05-25"
+author: "Equipa Rioko"
+tags: ["ATCUD", "Autoridade Tributária", "Comunicação Séries", "Portal das Finanças"]
+category: "Guias Fiscais"
+readingMinutes: 6
+source: "https://talkguest.zendesk.com/hc/pt-pt/articles/8359970408221-ATCUD-Como-criar-um-utilizador-no-site-da-Autoridade-Tribut%C3%A1ria"
+---
+
+Antes de qualquer software de faturação certificado poder emitir uma fatura com **ATCUD** válido, é preciso que a série tenha sido **comunicada à Autoridade Tributária (AT)** e que tenha recebido o respetivo **código de validação**. Esse processo é feito no **Portal das Finanças**, e o método mais limpo — sobretudo se trabalhas com contabilista externo ou com várias pessoas a gerir a faturação — é criar um **subutilizador dedicado** apenas com a permissão de *Comunicação de Séries de Faturação*.
+
+Este guia mostra exatamente como o fazer.
+
+## Porque é que precisas de um subutilizador
+
+A obrigatoriedade de incluir o ATCUD em todos os documentos fiscalmente relevantes nasce da **Portaria n.º 195/2020, de 13 de agosto**, que regulamenta o QR Code e o código único do documento. Em vigor desde 1 de janeiro de 2023, esta exigência implica que **todas as séries de faturação têm de ser comunicadas previamente à AT** — só depois é que o software certificado pode incluir o ATCUD nas faturas emitidas.
+
+Criar um subutilizador específico tem três vantagens práticas:
+
+- **Separação de credenciais**: o teu contabilista ou colaborador comunica séries sem aceder ao resto da informação fiscal da empresa.
+- **Rasto de auditoria**: cada série fica associada ao subutilizador que a comunicou.
+- **Reset rápido**: se o colaborador sair, revogas o subutilizador sem ter de trocar a senha principal da empresa no Portal das Finanças.
+
+> Importante: o subutilizador é criado pela **empresa (NIF coletivo)** e não substitui a senha do representante legal. É apenas uma conta delegada com permissões limitadas.
+
+## Passo 1 — Aceder ao Portal das Finanças
+
+1. Abre [www.portaldasfinancas.gov.pt](https://www.portaldasfinancas.gov.pt).
+2. Clica em **Iniciar Sessão** (canto superior direito).
+3. Autentica-te com o **NIF da empresa** e a respetiva senha. Não uses o NIF pessoal do gerente — tem de ser o NIF coletivo, porque é à pessoa coletiva que pertence a obrigação de comunicar séries.
+
+## Passo 2 — Aceder à gestão de subutilizadores
+
+Dentro da área da empresa:
+
+1. Vai a **Todos os Serviços** (menu lateral) ou usa a barra de pesquisa no topo.
+2. Procura por **Gestão de Utilizadores** (também surge como *Subutilizadores* em alguns ecrãs).
+3. Entra em **Gerir Utilizadores → Criar Utilizador**.
+
+A página apresenta a lista de subutilizadores existentes. Se for a primeira vez, está vazia.
+
+## Passo 3 — Criar o novo subutilizador
+
+No formulário **Criar Utilizador** preenche:
+
+| Campo | O que colocar |
+|---|---|
+| **Nome** | Nome legível (ex: `Comunicação Séries`, ou o nome próprio do colaborador) |
+| **Endereço de e-mail** | E-mail válido — a AT envia para aqui o subutilizador e a senha provisória |
+| **Telefone** | Opcional, mas recomendado para recuperação |
+| **Operações autorizadas** | Marca **apenas** a operação `WSE - Comunicação de Séries de Documentos de Faturação por webservice` (ou equivalente para comunicação manual, conforme listagem) |
+
+A operação que **tem mesmo de estar marcada** é a que autoriza a comunicação de séries — sem ela, o subutilizador fica criado mas sem acesso à página de registo de séries.
+
+Confirma e submete. O sistema gera automaticamente:
+
+- Um **Subutilizador** no formato `NIF/N` (ex: `500123456/1`), onde `N` é incremental por cada subutilizador criado.
+- Uma **senha provisória** enviada para o e-mail indicado.
+
+> Guarda imediatamente o `NIF/N`. É essa a credencial que vais usar nos passos seguintes (não o NIF base da empresa).
+
+## Passo 4 — Primeiro acesso e troca de senha
+
+O subutilizador tem de fazer login uma vez antes de poder operar:
+
+1. Sai da sessão atual (estás autenticado como empresa).
+2. Volta a **Iniciar Sessão** mas agora introduz o **Subutilizador (`NIF/N`)** e a **senha provisória** recebida por e-mail.
+3. O Portal das Finanças força a definição de uma **nova senha definitiva**. Define-a e guarda-a em sítio seguro (gestor de passwords).
+
+## Passo 5 — Comunicar a primeira série
+
+Já autenticado como subutilizador, podes finalmente comunicar a série:
+
+```
+Todos os Serviços → Faturas e Outros Documentos Fiscais
+                  → Comunicar Séries Documentais
+                  → Registar Série
+```
+
+Preenche:
+
+- **Tipo de documento**: FT, FS, FR, NC, ND, GT...
+- **Identificador da série**: o nome **exatamente igual** ao que vais usar no teu software (ex: `2026FR`).
+- **Numeração sequencial inicial**: normalmente `1`.
+- **Data de início prevista**.
+- **Meio de processamento**: `Programa informático de faturação` + o **número de certificação** do software (cada software tem o seu — InvoiceXpress é `1419`, **Moloni `2860`**, **Vendus `2230`**). Consulta sempre o painel do teu software em *Sobre* ou no rodapé de qualquer documento já emitido para confirmar.
+
+Submete. A AT devolve um **código de validação de 8 caracteres alfanuméricos** (ex: `CSDF7T5H`). Esse é o teu **código ATCUD** para aquela série — é o que vais introduzir no software de faturação.
+
+## Passo 6 — Cuidados de manutenção
+
+- **Uma série, um código**. Cada par `tipo de documento + identificador` recebe um código próprio. Se tens FT e FR, são duas comunicações distintas.
+- **Não reutilizes identificadores entre anos** sem comunicar série nova. Se queres `2026FR`, comunica-a; o `2025FR` fica fechado.
+- **A senha do subutilizador caduca**. O Portal das Finanças força renovação periódica. Define lembrete no calendário.
+- **Revogação**: se o colaborador sair, vai a **Gestão de Utilizadores** e remove ou desativa o subutilizador. As séries que ele comunicou continuam válidas.
+
+## Como o Rioko ajuda
+
+O Rioko **não precisa** das credenciais do subutilizador AT diretamente — essa parte fica sempre no Portal das Finanças, sob teu controlo. O que o Rioko faz é usar as séries que **já comunicaste** e cujo código ATCUD já está configurado no teu InvoiceXpress, Moloni ou Vendus. Quando ligas a tua loja Shopify ou conta Stripe, escolhes no painel a série a usar por defeito e o Rioko valida que o ATCUD está presente antes de qualquer fatura ser emitida. Se quiseres aprofundar o conceito de série, lê também [Séries de faturação: o que são e como comunicar à AT](/blog/series-faturacao-o-que-sao-como-comunicar).
+
+[Configurar séries no Rioko →](/integrations/shopify-ix)

@@ -26,6 +26,7 @@ const PAYMENT_PLATFORMS = [
 const INVOICING_PLATFORMS = [
     { id: "invoicexpress", name: "InvoiceXpress", icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoW: 30, logoH: 30, active: true },
     { id: "moloni", name: "Moloni", icon: ClipboardList, logo: "/images/moloni-logo.svg", logoW: 30, logoH: 30, active: true },
+    { id: "vendus", name: "Vendus", icon: ClipboardList, logo: "/images/vendus-logo.svg", logoW: 30, logoH: 30, active: true },
 ];
 
 export default function IntegrationsPage() {
@@ -51,19 +52,23 @@ export default function IntegrationsPage() {
 
     // Active combinations:
     //   shopify   + ix          → /integrations/shopify-ix (legacy IX-direct)
-    //   shopify   + moloni      → /integrations/shopify-moloni (pipeline, with B2B EU warning)
+    //   shopify   + moloni      → /integrations/shopify-moloni (pipeline, B2B EU warning)
+    //   shopify   + vendus      → /integrations/shopify-vendus (pipeline, B2B EU warning)
     //   stripe    + ix          → /integrations/stripe-ix
     //   stripe    + moloni      → /integrations/stripe-moloni
+    //   stripe    + vendus      → /integrations/stripe-vendus
     //   eupago    + ix          → /integrations/eupago-ix (Consumidor Final default)
-    // Vendus, eupago+moloni, easypay, ifthenpay still gated.
+    // eupago+moloni / eupago+vendus / easypay / ifthenpay still gated.
     const canConnect =
-        (selectedPayment === "shopify" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"))
-        || (selectedPayment === "stripe" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"))
+        (selectedPayment === "shopify" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
+        || (selectedPayment === "stripe" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
         || (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress");
     const configuratorHref = (() => {
         if (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress") return "/integrations/eupago-ix";
         if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
+        if (selectedPayment === "stripe" && selectedInvoicing === "vendus") return "/integrations/stripe-vendus";
         if (selectedPayment === "shopify" && selectedInvoicing === "moloni") return "/integrations/shopify-moloni";
+        if (selectedPayment === "shopify" && selectedInvoicing === "vendus") return "/integrations/shopify-vendus";
         if (selectedPayment === "stripe") return "/integrations/stripe-ix";
         return "/integrations/shopify-ix";
     })();

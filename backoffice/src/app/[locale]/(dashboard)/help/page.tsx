@@ -386,6 +386,44 @@ function InvoiceXpressGuide({ onZoom }: { onZoom: (src: string) => void }) {
                     ]} />
                 </Section>
             </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="vat" icon={<Percent className="w-5 h-5" />} title={t("vatTitle")} accent="sky">
+                    <HtmlInfoBox html={t("vatInfo")} />
+                    <HtmlWarningBox html={t("vatWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="auto-finalize" icon={<Zap className="w-5 h-5" />} title={t("autoFinalizeTitle")} accent="sky">
+                    <HtmlInfoBox html={t("autoFinalizeInfo")} />
+                    <Steps accent="sky" items={[
+                        t("autoFinalizeStep1"),
+                        t("autoFinalizeStep2"),
+                        t("autoFinalizeStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("autoFinalizeWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="retention" icon={<Tag className="w-5 h-5" />} title={t("retentionTitle")} accent="sky">
+                    <HtmlInfoBox html={t("retentionInfo")} />
+                    <Steps accent="sky" items={[
+                        t("retentionStep1"),
+                        t("retentionStep2"),
+                        t("retentionStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("retentionWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="exemption" icon={<FileText className="w-5 h-5" />} title={t("exemptionTitle")} accent="sky">
+                    <HtmlInfoBox html={t("exemptionInfo")} />
+                    <HtmlWarningBox html={t("exemptionWarn")} />
+                </Section>
+            </div>
         </div>
     );
 }

@@ -49,13 +49,15 @@ export default function IntegrationsPage() {
             });
     }, []);
 
-    // Shopify→Moloni is gated until the legacy-handler migration lands (see
-    // implementation.md). Stripe→Moloni works today via the adapter pipeline.
+    // Shopify→Moloni is supported via routing-by-destination_kind in the worker
+    // (additive — IX legacy path untouched). UI surfaces a limitation warning
+    // inside the configurator (no VIES reverse-charge yet for B2B EU).
     const canConnect =
-        (selectedPayment === "shopify" && selectedInvoicing === "invoicexpress")
+        (selectedPayment === "shopify" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"))
         || (selectedPayment === "stripe" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"));
     const configuratorHref = (() => {
         if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
+        if (selectedPayment === "shopify" && selectedInvoicing === "moloni") return "/integrations/shopify-moloni";
         if (selectedPayment === "stripe") return "/integrations/stripe-ix";
         return "/integrations/shopify-ix";
     })();

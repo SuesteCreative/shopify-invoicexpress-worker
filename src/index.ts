@@ -748,9 +748,51 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
         continue;
       }
 
-      // Phase 3 feature flag: when "1", route Shopify traffic through the
-      // adapter pipeline instead of the legacy handlers. Default "0" keeps
-      // existing behavior. Roll forward gradually.
+      // Routing-by-destination (additive). If the merchant has an active
+      // `connections` row with destination_kind in ("moloni","vendus") for
+      // their Shopify source, route THIS webhook through the adapter pipeline
+      // with that destination. Otherwise fall through to legacy IX-direct
+      // handlers — Shopify→InvoiceXpress stays on the comprovado legacy path
+      // until the full legacy migration lands (~34h work, deferred).
+      //
+      // Known limitations of the pipeline path for Shopify-source (UI warns
+      // the merchant before activating Moloni/Vendus on Shopify):
+      //   - No VIES check / reverse-charge deferral (legacy uses IxBuilder.async)
+      //   - No awaitInvoiceVisibility pad before paid lookup
+      //   - No existing-credit-note dedup defense-in-depth in refunds
+      // These mostly affect EU B2B; PT B2C ships fine.
+      const connRow = config.user_id ? await env.DB.prepare(
+        `SELECT destination_kind, destination_config_json FROM connections
+         WHERE user_id = ? AND source_kind = 'shopify' AND status = 'active' LIMIT 1`
+      ).bind(config.user_id).first<{ destination_kind: string; destination_config_json: string | null } | null>() : null;
+
+      const routedDestination = connRow?.destination_kind && connRow.destination_kind !== "invoicexpress"
+        ? (connRow.destination_kind as "moloni" | "vendus")
+        : null;
+
+      if (routedDestination) {
+        const canonical = shopifyTopicToCanonical(topic);
+        if (canonical) {
+          let destinationConfig: Record<string, any> | undefined;
+          try {
+            destinationConfig = connRow!.destination_config_json
+              ? JSON.parse(connRow!.destination_config_json)
+              : undefined;
+          } catch {
+            destinationConfig = undefined;
+          }
+          await runAdapterPipeline({
+            env, config, source: "shopify", destination: routedDestination,
+            topic: canonical, webhookId, body, destinationConfig,
+          });
+          message.ack();
+          continue;
+        }
+        // "orders/updated" still falls through to legacy until pipeline supports it.
+      }
+
+      // Legacy global flag (kept for staged-rollout testing). When "1", route
+      // Shopify+IX through the adapter pipeline too. Defaults "0".
       if (env.DESTINATION_VIA_ADAPTER === "1") {
         const canonical = shopifyTopicToCanonical(topic);
         if (canonical) {
@@ -761,7 +803,6 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
           message.ack();
           continue;
         }
-        // "orders/updated" still goes through legacy until generic pipeline handles it.
       }
 
       switch (topic) {

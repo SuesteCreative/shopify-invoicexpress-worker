@@ -74,9 +74,10 @@ Conventions:
 ## #4 — Geral & Ajuda
 
 ### High
-- [ ] Corrigir links "o que é?" nas integrations cards (atualmente apontam mal para secções da ajuda)
-- [ ] Atualizar conteúdo da página `/help` com informações reais (ATCUD, séries, certificação AT, etc.)
-- [ ] Embed de vídeos tutoriais nas secções da ajuda
+- [x] Corrigir links "o que é?" nas integrations cards. Corrigidos 6 anchors errados em `integrations/shopify-ix/page.tsx` (`dominio-shopify`→`shopify-domain`, `access-token`→`shopify-token`, `api-version`→`shopify-api-version`, `webhook-secret`→`shopify-webhook`, `doc-type`→`ix-doc-type`, `billing-sequence`→`ix-sequence`, `manual-webhooks`→`shopify-webhook`). Anchors sem secção (`vat`, `auto-finalize`, `retention`, `exemption`) apontam agora para `/help` raiz em vez de hash quebrado.
+- [ ] Criar secções dedicadas no `/help` para conceitos sem documentação: `vat` (VAT inclusivo vs exclusivo), `auto-finalize`, `retention` (IRS/IRC), `exemption` (códigos M01-M99). Depois reapontar os links das integrations para os anchors novos.
+- [ ] Atualizar conteúdo da página `/help` com informações reais (ATCUD, séries, certificação AT, etc.) — sub-task expandida em #1 Blog SEO.
+- [ ] Embed de vídeos tutoriais nas secções da ajuda — depende de produção de vídeos.
 
 ---
 

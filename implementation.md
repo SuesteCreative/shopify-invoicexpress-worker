@@ -19,7 +19,7 @@ Conventions:
 
 ### Critical
 - [x] Implementar `MoloniDestination` adapter (validado contra docs api.moloni.pt; 1 TODO: sandbox URL `apidemo.moloni.pt` não confirmado)
-- [ ] **DEFERRED** — Migrar legacy Shopify handlers para pipeline. Plano detalhado em conversa de 2026-05-25 (~34-38h). Gaps críticos identificados: pipeline sem VIES, sem reverse-charge no destination, sem refund dedup, sem `awaitInvoiceVisibility`, `AdapterCtx` sem KV. Decisão: ship Moloni/Vendus para Stripe-source primeiro (não precisa VIES/reverse-charge); legacy migration depois de #1-#4.
+- [x] **REPLACED** — Em vez de migrar legacy (~34h), criámos **routing-by-destination_kind** em `processShopifyBatch` (2026-05-25, commit 91d58a4). Aditivo: Shopify→IX continua pelo legacy intacto; Shopify→Moloni/Vendus vai pelo pipeline. Limitações documentadas na UI (sem VIES/B2B EU reverse-charge). Legacy big migration fica reservada para quando alguém precisar de B2B EU em Moloni — pode esperar muito tempo.
 
 ### High
 - [x] Implementar `VendusDestination` adapter (re-escrito contra docs reais vendus.pt; 5 TODOs inline: sandbox URL, `/communications/` body shape, refund row mapping, Açores/Madeira tax rates, findByReference substring collision)
@@ -28,10 +28,14 @@ Conventions:
 - [x] Adicionar `destinationConfig?: Record<string, any>` a `AdapterCtx` e `RunPipelineInput`
 - [x] `processStripeBatch` em `src/index.ts` parseia `connections.destination_config_json` e passa para `runAdapterPipeline`
 - [x] Atualizar `classifyPipelineError` para reconhecer erros Vendus (regra: `"vendus" + "fail"|"finalize"`)
-- [ ] Implementar `EuPagoSource` adapter (gateway PT — callback após pagamento)
+- [x] Implementar `EuPagoSource` adapter (Realtime Webhooks 2.0; HMAC-SHA256 via `X-Signature`; PAID→created, REFUNDED→refund; default "Consumidor Final" customer; AES encryption NOT supported, merchant deve desativar)
+- [x] EuPago webhook endpoint `POST /webhooks/eupago/:userId` em worker
+- [x] Route handler `/api/integrations/eupago-source` + UI `/integrations/eupago-ix` + i18n PT/EN
+- [x] Integrations index: EuPago ativo, combo EuPago+IX → configurator
 - [ ] Implementar `EasypaySource` adapter (gateway PT)
 - [ ] Implementar `IfthenpaySource` adapter (gateway PT)
-- [ ] Adicionar route handlers de connect/disconnect para Moloni e Vendus em `backoffice/src/app/api/integrations/`
+- [ ] Adicionar route handlers de connect/disconnect para Vendus em `backoffice/src/app/api/integrations/` (Moloni já feito)
+- [ ] Combos EuPago+Moloni, EuPago+Vendus (replicar padrão eupago-ix)
 
 ### Medium
 - [x] Criar `docs/ADAPTERS.md` — contrato + guia de extensão. 5 inconsistências do código flagged inline (kinds duplicadas em 2 ficheiros, sem pasta tests/, classifier hardcoded a destinations conhecidos, etc.)

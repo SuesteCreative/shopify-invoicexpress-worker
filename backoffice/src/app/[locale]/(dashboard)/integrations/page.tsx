@@ -18,7 +18,7 @@ function cn(...inputs: ClassValue[]) {
 const PAYMENT_PLATFORMS = [
     { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
     { id: "stripe", name: "Stripe", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
-    { id: "eupago", name: "EuPago", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "eupago", name: "EuPago", icon: Wallet, logo: "/images/eupago-logo.svg", logoW: 30, logoH: 30, active: true },
     { id: "easypay", name: "Easypay", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
     { id: "ifthenpay", name: "Ifthenpay", icon: Landmark, logo: null, logoW: 0, logoH: 0, active: false },
 ];
@@ -49,13 +49,19 @@ export default function IntegrationsPage() {
             });
     }, []);
 
-    // Shopify→Moloni is supported via routing-by-destination_kind in the worker
-    // (additive — IX legacy path untouched). UI surfaces a limitation warning
-    // inside the configurator (no VIES reverse-charge yet for B2B EU).
+    // Active combinations:
+    //   shopify   + ix          → /integrations/shopify-ix (legacy IX-direct)
+    //   shopify   + moloni      → /integrations/shopify-moloni (pipeline, with B2B EU warning)
+    //   stripe    + ix          → /integrations/stripe-ix
+    //   stripe    + moloni      → /integrations/stripe-moloni
+    //   eupago    + ix          → /integrations/eupago-ix (Consumidor Final default)
+    // Vendus, eupago+moloni, easypay, ifthenpay still gated.
     const canConnect =
         (selectedPayment === "shopify" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"))
-        || (selectedPayment === "stripe" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"));
+        || (selectedPayment === "stripe" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"))
+        || (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress");
     const configuratorHref = (() => {
+        if (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress") return "/integrations/eupago-ix";
         if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
         if (selectedPayment === "shopify" && selectedInvoicing === "moloni") return "/integrations/shopify-moloni";
         if (selectedPayment === "stripe") return "/integrations/stripe-ix";

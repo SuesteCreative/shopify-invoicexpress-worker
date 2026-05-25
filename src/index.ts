@@ -239,6 +239,106 @@ app.post("/webhooks/stripe", async (c) => {
   return c.text("Queued", 200);
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// EuPago Realtime Webhooks 2.0 — single endpoint scoped by user_id in the URL
+// so the merchant can register a stable callback in the EuPago backoffice.
+//   POST /webhooks/eupago/<user_id>
+//   Headers: X-Signature (base64 HMAC-SHA256 of raw body, using merchant's
+//            HMAC secret), Content-Type: application/json
+// ────────────────────────────────────────────────────────────────────────────
+app.post("/webhooks/eupago/:userId", async (c) => {
+  const userId = c.req.param("userId");
+  const sig = c.req.header("X-Signature");
+  const rawBody = await c.req.text();
+  if (!sig) return c.text("Missing X-Signature", 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT id, source_config_json, destination_kind, destination_config_json
+     FROM connections
+     WHERE user_id = ? AND source_kind = 'eupago' AND status = 'active' LIMIT 1`
+  ).bind(userId).first();
+  if (!conn) {
+    console.log(`[EuPago] No active connection for user ${userId}`);
+    return c.text("No connection", 404);
+  }
+
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+  const hmacSecret = sourceCfg.hmac_secret;
+  if (!hmacSecret) {
+    console.error(`[EuPago] HMAC secret missing for user ${userId}`);
+    return c.text("Secret not configured", 500);
+  }
+  if (sourceCfg.encrypted === true) {
+    // AES-256-CBC payloads are not supported in this adapter version. Merchant
+    // must disable encryption in the EuPago backoffice. We refuse to silently
+    // skip — return 200 so EuPago doesn't retry, but log loudly.
+    console.error(`[EuPago] Encrypted payload received for user ${userId} — not supported yet`);
+    return c.text("Encryption not supported by integration", 200);
+  }
+
+  const adapter = getSourceAdapter("eupago");
+  if (!await adapter.verifyWebhook(rawBody, sig, hmacSecret)) {
+    console.error(`[EuPago] Invalid signature for user ${userId}`);
+    await reportIncident(c.env, {
+      user_id: userId,
+      severity: "critical",
+      kind: "webhook_invalid_signature",
+      summary: "EuPago webhook rejeitado por assinatura inválida.",
+      connection_label: `eupago → ${conn.destination_kind ?? "invoicexpress"}`,
+      bucket: "daily",
+    });
+    return c.text("Invalid signature", 401);
+  }
+
+  let body: any;
+  try { body = JSON.parse(rawBody); } catch { return c.text("Invalid JSON", 400); }
+  const status = String(body?.status ?? "").toUpperCase();
+  let canonical: "created" | "refund" | null = null;
+  if (status === "PAID") canonical = "created";
+  else if (status === "REFUNDED") canonical = "refund";
+  if (!canonical) return c.text(`Status ${status || "unknown"} ignored`, 200);
+
+  const externalId = adapter.externalId(body);
+  const appStorage = new AppStorage(c.env);
+  const { isProcessed, state } = await appStorage.isWebhookProcessed(externalId, `eupago/${canonical}` as any);
+  if (isProcessed && state !== "failed") return c.text("Already processed", 200);
+  await appStorage.markWebhookAsProcessing(externalId, `eupago/${canonical}` as any);
+
+  // Behaviour toggles still come from the legacy `integrations` row (ix_*,
+  // force_tax_rate, auto_finalize, etc.).
+  const legacy: any = await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(userId).first();
+  if (!legacy) {
+    console.error(`[EuPago] No integrations row for user ${userId}`);
+    return c.text("Integration not configured", 500);
+  }
+
+  let destinationConfig: Record<string, any> | undefined;
+  try {
+    destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined;
+  } catch { destinationConfig = undefined; }
+
+  try {
+    await runAdapterPipeline({
+      env: c.env,
+      config: legacy,
+      source: "eupago",
+      destination: (conn.destination_kind as any) ?? "invoicexpress",
+      topic: canonical,
+      webhookId: externalId,
+      body,
+      destinationConfig,
+    });
+    await appStorage.markWebhookAsProcessed(externalId, `eupago/${canonical}` as any, "success");
+    return c.text("OK", 200);
+  } catch (e: any) {
+    console.error(`[EuPago] Pipeline error for ${externalId}:`, e);
+    await appStorage.markWebhookAsProcessed(externalId, `eupago/${canonical}` as any, "failed");
+    // Return 500 so EuPago retries (2min×3 then hourly×24h).
+    return c.text(`Pipeline error: ${e?.message ?? "unknown"}`, 500);
+  }
+});
+
 // Admin: list unprocessed orders
 app.get("/admin/unprocessed-orders", async (c) => {
   const apiKey = c.req.header("x-api-key");

@@ -1,6 +1,7 @@
 import type { SourceAdapter, DestinationAdapter, SourceKind, DestinationKind } from "./types";
 import { ShopifySource } from "./sources/shopify-source";
 import { StripeSource } from "./sources/stripe-source";
+import { EuPagoSource } from "./sources/eupago-source";
 import { InvoiceXpressDestination } from "./destinations/ix-destination";
 import { MoloniDestination } from "./destinations/moloni-destination";
 import { VendusDestination } from "./destinations/vendus-destination";
@@ -8,6 +9,7 @@ import { VendusDestination } from "./destinations/vendus-destination";
 const sourceInstances: Partial<Record<SourceKind, SourceAdapter>> = {
   shopify: new ShopifySource(),
   stripe: new StripeSource(),
+  eupago: new EuPagoSource(),
 };
 
 const destinationInstances: Partial<Record<DestinationKind, DestinationAdapter>> = {

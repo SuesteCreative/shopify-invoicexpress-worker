@@ -164,6 +164,22 @@ async function runPipelineCore(
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
 
+      // Zero-amount short-circuit. PT fiscal rules don't require invoicing 0€
+      // orders and destinations (IX, Moloni, Vendus) reject zero-total payloads.
+      // Treat as success-skip so the queue stops retrying.
+      const orderTotal = Number(normalized.order?.total ?? 0);
+      if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await appStorage.saveLog({
+          shopify_domain: config.shopify_domain,
+          topic: logTopic,
+          payload: JSON.stringify({ externalId, total: orderTotal }),
+          response: "Skipped: zero-amount order — no invoice required",
+          status: 200,
+        });
+        return;
+      }
+
       const { invoiceId } = await destAdapter.createDraft(normalized, ctx);
       await appStorage.saveProcessedInvoice(externalId, invoiceId, { sourceKind: source, destinationKind: destination });
 

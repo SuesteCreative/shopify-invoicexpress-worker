@@ -858,6 +858,21 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Already processed in DB" };
     }
 
+    // Zero-amount short-circuit: PT fiscal rules don't require invoicing 0€
+    // orders (gift cards, 100% discount, test orders). IX would also reject
+    // the request, so we skip cleanly and log it so the merchant can see why.
+    const orderTotal = parseFloat(String(order.total_price ?? order.current_total_price ?? "0"));
+    if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: "orders/created",
+        payload: JSON.stringify({ orderId, total: orderTotal }),
+        response: "Skipped: zero-amount order — no invoice required",
+        status: 200,
+      });
+      return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Zero-amount order — invoice not required (total €0,00)" };
+    }
+
     const ixRef = `Order #${order.order_number}`;
     const ixHeaders = {
       "x-account-name": config.ix_account_name!,

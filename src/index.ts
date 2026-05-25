@@ -459,7 +459,11 @@ app.post("/admin/reemit-order", async (c) => {
       triggered_by: body.triggered_by ?? null,
       notify_emails: body.notify_emails,
     });
-    return c.json(result);
+    // Map result.status → HTTP status so callers (UI) can detect failures
+    // without parsing the payload. 200 = created/skipped (both terminal OK);
+    // 422 = error (something we can't recover from automatically).
+    const httpStatus = (result as any).status === "error" ? 422 : 200;
+    return c.json(result, httpStatus);
   } catch (e) {
     console.error("[Rioko][Admin] Error re-emitting order:", e);
     return c.json({ error: String(e) }, 500);

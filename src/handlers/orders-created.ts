@@ -26,6 +26,25 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     return;
   }
 
+  // Zero-amount short-circuit. PT fiscal rules don't require invoicing 0€
+  // orders (gift cards, 100% discount, test orders) and IX would reject the
+  // creation anyway. Mark the webhook as success so the queue stops retrying.
+  const orderTotal = parseFloat(String(order.total_price ?? order.current_total_price ?? "0"));
+  if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+    console.log(`[Rioko] Skipping zero-amount order ${orderId} (total=${orderTotal})`);
+    if (webhookId) {
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+    }
+    await appStorage.saveLog({
+      shopify_domain: config.shopify_domain,
+      topic: webhookTopic,
+      payload: JSON.stringify({ orderId, total: orderTotal }),
+      response: "Skipped: zero-amount order — no invoice required",
+      status: 200,
+    });
+    return;
+  }
+
   const ixRef = `Order #${order.order_number}`;
   const ixHeaders = {
     "x-account-name": config.ix_account_name!,

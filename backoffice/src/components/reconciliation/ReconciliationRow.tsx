@@ -113,8 +113,20 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ order_number: row.order.order_number }),
             });
-            const j: any = await res.json();
-            if (!res.ok) alert(`Erro: ${j.error ?? "desconhecido"}`);
+            const j: any = await res.json().catch(() => ({}));
+            // Worker may return 200 OK with {status: "error"|"skipped"} payload,
+            // or a non-OK HTTP status. Detect both and surface the real message.
+            const innerStatus = j?.status ?? j?.result?.status;
+            const innerMessage = j?.message ?? j?.result?.message ?? j?.error;
+            if (!res.ok) {
+                alert(`Erro ao emitir fatura: ${innerMessage ?? `HTTP ${res.status}`}`);
+            } else if (innerStatus === "error") {
+                alert(`Não foi possível emitir a fatura.\n\n${innerMessage ?? "Erro desconhecido."}`);
+            } else if (innerStatus === "skipped") {
+                alert(`Sem fatura a emitir.\n\n${innerMessage ?? ""}`);
+            } else if (innerStatus === "created") {
+                // success — no alert needed, UI will refresh
+            }
             onChanged();
         } finally { setActing(false); }
     };

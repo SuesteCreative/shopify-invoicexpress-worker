@@ -2,8 +2,11 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { RIOKO_CONFIG } from "@/lib/config";
 
 export const runtime = "edge";
+
+const WORKER_BASE = RIOKO_CONFIG.workerUrl.replace(/\/$/, "");
 
 /**
  * EuPago source connection management.
@@ -65,7 +68,7 @@ export async function GET(request: NextRequest) {
             source_config: redact(cfg),
             created_at: row.created_at,
             updated_at: row.updated_at,
-            webhook_url: `${((env as any).WORKER_URL ?? (env as any).BACKOFFICE_URL ?? "https://shopify-invoicexpress-worker.kapta.workers.dev")}/webhooks/eupago/${authResult.targetUserId}`,
+            webhook_url: `${WORKER_BASE}/webhooks/eupago/${authResult.targetUserId}`,
         },
     });
 }
@@ -124,10 +127,9 @@ export async function POST(request: NextRequest) {
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceCfg), status, now, now).run();
 
-    const workerHost = (env as any).WORKER_URL ?? (env as any).BACKOFFICE_URL ?? "https://shopify-invoicexpress-worker.kapta.workers.dev";
     return NextResponse.json({
         ok: true,
-        webhook_url: `${workerHost}/webhooks/eupago/${authResult.targetUserId}`,
+        webhook_url: `${WORKER_BASE}/webhooks/eupago/${authResult.targetUserId}`,
     });
 }
 

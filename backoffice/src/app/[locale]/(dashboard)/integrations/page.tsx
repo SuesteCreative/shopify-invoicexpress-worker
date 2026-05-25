@@ -25,7 +25,7 @@ const PAYMENT_PLATFORMS = [
 
 const INVOICING_PLATFORMS = [
     { id: "invoicexpress", name: "InvoiceXpress", icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoW: 30, logoH: 30, active: true },
-    { id: "moloni", name: "Moloni", icon: ClipboardList, logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "moloni", name: "Moloni", icon: ClipboardList, logo: "/images/moloni-logo.svg", logoW: 30, logoH: 30, active: true },
 ];
 
 export default function IntegrationsPage() {
@@ -49,8 +49,16 @@ export default function IntegrationsPage() {
             });
     }, []);
 
-    const canConnect = (selectedPayment === "shopify" || selectedPayment === "stripe") && selectedInvoicing === "invoicexpress";
-    const configuratorHref = selectedPayment === "stripe" ? "/integrations/stripe-ix" : "/integrations/shopify-ix";
+    // Shopify→Moloni is gated until the legacy-handler migration lands (see
+    // implementation.md). Stripe→Moloni works today via the adapter pipeline.
+    const canConnect =
+        (selectedPayment === "shopify" && selectedInvoicing === "invoicexpress")
+        || (selectedPayment === "stripe" && (selectedInvoicing === "invoicexpress" || selectedInvoicing === "moloni"));
+    const configuratorHref = (() => {
+        if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
+        if (selectedPayment === "stripe") return "/integrations/stripe-ix";
+        return "/integrations/shopify-ix";
+    })();
 
     return (
         <div className="max-w-6xl mx-auto space-y-16 animate-in fade-in duration-1000 slide-in-from-bottom-4">

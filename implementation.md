@@ -49,12 +49,25 @@ Conventions:
 
 ---
 
-## #6 — Ativar Moloni no Rioko2.0
+## #6 — Ativar Moloni no produto Rioko (backoffice + worker)
+
+> **Clarificação 2026-05-25:** Rioko é o nome do produto SaaS (não um cliente). `rioko-next/` é versão legacy a deprecar; a versão atual é `src/` (worker CF) + `backoffice/` (Next.js CF Pages). #6 é ativar Moloni nessa versão atual.
 
 ### High
-- [ ] Adicionar selector de destination (IX vs Moloni) no onboarding/integrations de `rioko-next`
-- [ ] Wire-up das credentials Moloni → `connections.moloni_*` via OAuth flow
-- [ ] Testes end-to-end: criar fatura draft, finalizar, emitir nota crédito via Moloni
+- [x] Route handler `backoffice/src/app/api/integrations/moloni-destination/route.ts` — POST/GET/DELETE, escreve em `connections.destination_config_json`. Warning para Shopify-source até legacy migration.
+- [x] UI page `backoffice/src/app/[locale]/(dashboard)/integrations/stripe-moloni/page.tsx` — form Stripe+Moloni com client_id/secret/username/password/company_id/document_set_id/environment.
+- [x] Integrations index page: Moloni ativado em `INVOICING_PLATFORMS`, `canConnect` aceita Stripe+Moloni, routing para `/integrations/stripe-moloni`.
+- [x] i18n strings `stripeMoloniSetup` em `pt.json` + `en.json`.
+- [x] Routing logic destination=moloni → já feito via `processStripeBatch` no #5 (lê `destination_kind` e passa pelo registry).
+
+### Medium
+- [ ] Teste end-to-end com credentials Moloni sandbox reais (criar fatura draft, finalizar, emitir nota crédito) — depende de credenciais do user.
+- [ ] Validar pormenores Moloni reportados como TODO no adapter (sandbox URL `apidemo.moloni.pt`, `document_set_id` real, `country_id`/`tax_id` mapping).
+- [ ] Atualizar landing card Moloni status "planned" → "live" no `backoffice/src/components/landing/Landing.tsx` **APÓS** teste end-to-end.
+
+### Low
+- [ ] Shopify-source + Moloni — bloqueado por legacy migration (DEFERRED). Reabrir quando legacy estiver migrado.
+- [ ] Renomear `INVOICEXPRESS_*` env vars hardcoded em wrangler.jsonc para algo agnóstico (são fallback para destination=invoicexpress, não global).
 
 ---
 

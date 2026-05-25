@@ -7,6 +7,9 @@ import { ptPT, enUS } from "@clerk/localizations";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { setRequestLocale, getMessages, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
+import Script from "next/script";
+
+const GA_ID = "G-CV0NZQC6HW";
 
 import { sansDisplay, monoFont } from "../fonts";
 import InactivityLogout from "@/components/InactivityLogout";
@@ -64,6 +67,19 @@ export default async function LocaleLayout({
               <main className="flex-1 overflow-y-auto">{children}</main>
             </div>
           </NextIntlClientProvider>
+
+          <Script
+            src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+            strategy="afterInteractive"
+          />
+          <Script id="ga-init" strategy="afterInteractive">
+            {`
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', '${GA_ID}');
+            `}
+          </Script>
         </body>
       </html>
     </ClerkProvider>

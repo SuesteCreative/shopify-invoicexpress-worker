@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Store, ClipboardList, Wallet, CreditCard, Landmark, ArrowRight, Lock, CheckCircle2 } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -28,6 +29,7 @@ const INVOICING_PLATFORMS = [
 ];
 
 export default function IntegrationsPage() {
+    const t = useTranslations("integrationsIndex");
     const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
     const [selectedInvoicing, setSelectedInvoicing] = useState<string | null>(null);
     const [activeIntegration, setActiveIntegration] = useState<any>(null);
@@ -54,16 +56,16 @@ export default function IntegrationsPage() {
         <div className="max-w-6xl mx-auto space-y-16 animate-in fade-in duration-1000 slide-in-from-bottom-4">
             <div className="space-y-4 text-center md:text-left">
                 <h1 className="text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
-                    Integrações
+                    {t("title")}
                 </h1>
                 <p className="text-fg-60 font-medium tracking-wide">
-                    Escolha as plataformas que deseja conectar ao seu motor Rioko.
+                    {t("subtitle")}
                 </p>
             </div>
 
             {activeIntegration && (
                 <section className="space-y-6">
-                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">Integrações Ativas</h2>
+                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">{t("activeSection")}</h2>
                     <div className="glass rounded-[2.5rem] p-8 relative overflow-hidden group">
                         <div className="absolute top-0 right-0 p-8 opacity-5">
                             <CheckCircle2 className="w-32 h-32 text-accent-hot" />
@@ -79,7 +81,7 @@ export default function IntegrationsPage() {
                                     </div>
                                 </div>
                                 <div className="space-y-1">
-                                    <h3 className="text-2xl font-medium tracking-tight">Shopify + InvoiceXpress</h3>
+                                    <h3 className="text-2xl font-medium tracking-tight">{t("shopifyPlusIx")}</h3>
                                     <div className="flex items-center gap-3">
                                         <span className={cn(
                                             "px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border",
@@ -87,9 +89,9 @@ export default function IntegrationsPage() {
                                                 ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
                                                 : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
                                         )}>
-                                            {activeIntegration.status === "authorized" ? "Autorizado" : "Configuração Pendente"}
+                                            {activeIntegration.status === "authorized" ? t("statusAuthorized") : t("statusPending")}
                                         </span>
-                                        <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Sincronização em tempo real</span>
+                                        <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("realtimeSync")}</span>
                                     </div>
                                 </div>
                             </div>
@@ -97,7 +99,7 @@ export default function IntegrationsPage() {
                                 href="/integrations/shopify-ix"
                                 className="px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
                             >
-                                Gerir Definições <ArrowRight className="w-4 h-4" />
+                                {t("manageSettings")} <ArrowRight className="w-4 h-4" />
                             </Link>
                         </div>
                     </div>
@@ -107,7 +109,7 @@ export default function IntegrationsPage() {
             <div className="grid lg:grid-cols-2 gap-12">
                 {/* Payment Platforms */}
                 <div className="space-y-6">
-                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">Plataforma de Pagamento / E-commerce</h2>
+                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">{t("paymentPlatform")}</h2>
                     <div className="grid gap-3">
                         {PAYMENT_PLATFORMS.map((p) => {
                             const Icon = p.icon;
@@ -131,7 +133,7 @@ export default function IntegrationsPage() {
                                         <div className="text-left">
                                             <p className="font-medium text-lg text-fg">{p.name}</p>
                                             <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
-                                                {!p.active ? "Brevemente" : "Disponível"}
+                                                {!p.active ? t("comingSoon") : t("available")}
                                             </p>
                                         </div>
                                     </div>
@@ -145,7 +147,7 @@ export default function IntegrationsPage() {
 
                 {/* Invoicing Platforms */}
                 <div className="space-y-6">
-                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">Plataforma de Faturação</h2>
+                    <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">{t("invoicingPlatform")}</h2>
                     <div className="grid gap-3">
                         {INVOICING_PLATFORMS.map((p) => {
                             const Icon = p.icon;
@@ -169,7 +171,7 @@ export default function IntegrationsPage() {
                                         <div className="text-left">
                                             <p className="font-medium text-lg text-fg">{p.name}</p>
                                             <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
-                                                {!p.active ? "Brevemente" : "Disponível"}
+                                                {!p.active ? t("comingSoon") : t("available")}
                                             </p>
                                         </div>
                                     </div>
@@ -213,9 +215,9 @@ export default function IntegrationsPage() {
                                         </div>
                                     </div>
                                     <div className="space-y-2">
-                                        <h3 className="text-2xl font-medium">Pronto para Conectar?</h3>
+                                        <h3 className="text-2xl font-medium">{t("readyToConnect")}</h3>
                                         <p className={cn("text-sm max-w-xs mx-auto", canConnect ? "text-white/80" : "text-fg-60")}>
-                                            Inicie o guia de configuração de 4 passos para automatizar a sua faturação.
+                                            {t("readyBody")}
                                         </p>
                                     </div>
                                     {canConnect ? (
@@ -223,11 +225,11 @@ export default function IntegrationsPage() {
                                             href={configuratorHref}
                                             className="w-full py-5 rounded-3xl bg-white text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95"
                                         >
-                                            Configurar Agora
+                                            {t("configureNow")}
                                         </Link>
                                     ) : (
                                         <button disabled className="w-full py-5 rounded-3xl bg-surface-2 text-fg-40 font-mono text-sm uppercase tracking-[0.18em] cursor-not-allowed opacity-50 border border-hairline">
-                                            Combinação Indisponível
+                                            {t("unavailableCombo")}
                                         </button>
                                     )}
                                 </div>

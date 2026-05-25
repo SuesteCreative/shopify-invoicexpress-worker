@@ -6,19 +6,20 @@ import { useState, useEffect, useMemo } from "react";
 import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 
 type Role = "hiperadmin" | "superadmin" | "user";
 
 const ROLE_ORDER: Record<Role, number> = { hiperadmin: 3, superadmin: 2, user: 1 };
 
-const RoleBadge = ({ role }: { role: Role }) => {
+const RoleBadge = ({ role, t }: { role: Role; t: (k: string) => string }) => {
     const styles: Record<Role, string> = {
         hiperadmin: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.20)]",
         superadmin: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]",
         user: "bg-surface-2 text-fg-40 border-hairline",
     };
-    const labels: Record<Role, string> = { hiperadmin: "Hiperadmin", superadmin: "Superadmin", user: "User" };
+    const labels: Record<Role, string> = { hiperadmin: t("roleHiperadmin"), superadmin: t("roleSuperadmin"), user: t("roleUser") };
     return (
         <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${styles[role]}`}>
             {labels[role]}
@@ -33,6 +34,7 @@ const RoleIcon = ({ role }: { role: Role }) => {
 };
 
 export default function SuperadminPage() {
+    const t = useTranslations("superadmin");
     const { user: clerkUser } = useUser();
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -93,7 +95,7 @@ export default function SuperadminPage() {
                 method: "PATCH", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ targetId, role: newRole })
             });
-            if (!res.ok) { const err = await res.json() as any; alert(`Erro: ${err.error}`); }
+            if (!res.ok) { const err = await res.json() as any; alert(t("errorPrefix", { error: err.error })); }
             else await fetchUsers();
         } catch (err) { console.error(err); }
         finally { setActing(null); }
@@ -107,7 +109,7 @@ export default function SuperadminPage() {
                 body: JSON.stringify({ targetId })
             });
             if (res.ok) setUsers(prev => prev.filter(u => u.id !== targetId));
-            else { const err = await res.json() as any; alert(`Erro: ${err.error}`); }
+            else { const err = await res.json() as any; alert(t("errorPrefix", { error: err.error })); }
         } catch (err) { console.error(err); }
         finally { setActing(null); }
     };
@@ -117,10 +119,10 @@ export default function SuperadminPage() {
         if (callerRole === "hiperadmin") {
             // Hiperadmin can assign any role below hiperadmin
             if (targetRole === "user") return [
-                { label: "Superadmin", role: "superadmin", icon: <ShieldCheck className="w-3 h-3" /> },
+                { label: t("roleSuperadmin"), role: "superadmin", icon: <ShieldCheck className="w-3 h-3" /> },
             ];
             if (targetRole === "superadmin") return [
-                { label: "Revogar", role: "user", icon: <ShieldOff className="w-3 h-3" /> },
+                { label: t("revoke"), role: "user", icon: <ShieldOff className="w-3 h-3" /> },
             ];
         }
         return [];
@@ -140,18 +142,18 @@ export default function SuperadminPage() {
                     <div className="flex items-center gap-3">
                         <ShieldCheck className="w-8 h-8 text-destructive" />
                         <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
-                            Superadmin
+                            {t("title")}
                         </h1>
                     </div>
                     <p className="text-fg-60 font-semibold tracking-wide">
-                        Gestão central de contas e impersonação. A tua role: <RoleBadge role={callerRole} />
+                        {t("subtitleLead")} <RoleBadge role={callerRole} t={t} />
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-4">
                     <div className="relative group">
                         <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-destructive transition-colors" />
                         <input
-                            type="text" placeholder="Pesquisar..."
+                            type="text" placeholder={t("searchPlaceholder")}
                             value={search} onChange={e => setSearch(e.target.value)}
                             className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] focus:border-[rgba(244,63,94,0.40)] w-full lg:w-80 transition-all"
                         />
@@ -161,14 +163,14 @@ export default function SuperadminPage() {
                         className="bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-surface-2/80 transition-all active:scale-95"
                     >
                         <ArrowUpDown className="w-4 h-4 text-destructive" />
-                        {sortOrder === "desc" ? "Mais Recentes" : "Mais Antigos"}
+                        {sortOrder === "desc" ? t("sortNewer") : t("sortOlder")}
                     </button>
                 </div>
             </div>
 
             <div className="text-[10px] font-black uppercase tracking-[0.2em] text-fg-40 border-b border-hairline pb-4 flex justify-between">
-                <span>A mostrar {filtered.length} de {users.length} utilizadores</span>
-                <span>Rioko 2.0 Database</span>
+                <span>{t("showing", { filtered: filtered.length, total: users.length })}</span>
+                <span>{t("database")}</span>
             </div>
 
             <div className="grid gap-6">
@@ -201,23 +203,23 @@ export default function SuperadminPage() {
                                     <div className="flex-1 space-y-2 text-center lg:text-left">
                                         <div className="flex items-center justify-center lg:justify-start gap-3 flex-wrap">
                                             <h2 className="text-xl font-bold">{user.name}</h2>
-                                            <RoleBadge role={targetRole} />
+                                            <RoleBadge role={targetRole} t={t} />
                                             {isSelf && (
-                                                <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black uppercase tracking-widest border border-hairline">A Sua Conta</span>
+                                                <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black uppercase tracking-widest border border-hairline">{t("yourAccount")}</span>
                                             )}
                                         </div>
                                         <div className="flex flex-col gap-1.5">
                                             <p className="text-fg-40 text-sm font-medium">{user.email}</p>
                                             <div className="flex items-center justify-center lg:justify-start gap-2 text-[10px] font-black text-fg-40 uppercase tracking-widest">
                                                 <CalendarDays className="w-3 h-3 text-destructive/60" />
-                                                Adesão: {new Date(user.created_at).toLocaleDateString("pt-PT")}
+                                                {t("joined", { date: new Date(user.created_at).toLocaleDateString("pt-PT") })}
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Fiscal Data */}
                                     <div className="flex flex-col gap-3 px-10 border-x border-hairline min-w-[200px]">
-                                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">Dados Fiscais</span>
+                                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("fiscalData")}</span>
                                         {user.registration_completed ? (
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold text-fg flex items-center gap-2">
@@ -229,16 +231,16 @@ export default function SuperadminPage() {
                                                 <p className="text-[9px] text-fg-40 font-medium truncate max-w-[150px]">{user.fiscal_address}</p>
                                             </div>
                                         ) : (
-                                            <span className="text-[9px] font-black text-soon/50 uppercase tracking-widest italic">Registo Pendente</span>
+                                            <span className="text-[9px] font-black text-soon/50 uppercase tracking-widest italic">{t("registrationPending")}</span>
                                         )}
                                     </div>
 
                                     {/* Status */}
                                     <div className="flex flex-wrap items-center justify-center gap-6 pr-10 border-r border-hairline">
                                         <div className="flex flex-col items-center gap-1.5">
-                                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">Status</span>
+                                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("status")}</span>
                                             <div className="flex items-center gap-4">
-                                                {["Shopify", "IX API"].map((label, i) => {
+                                                {[t("shopify"), t("ixApi")].map((label, i) => {
                                                     const ok = i === 0 ? user.shopify_authorized : user.ix_authorized;
                                                     const err = i === 0 ? user.shopify_error : user.ix_error;
                                                     return (
@@ -258,7 +260,7 @@ export default function SuperadminPage() {
                                             </div>
                                         </div>
                                         <div className="flex flex-col items-center gap-1.5">
-                                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">Domínio</span>
+                                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("domain")}</span>
                                             <span className="text-xs font-bold text-fg">{user.shopify_domain || "---"}</span>
                                         </div>
                                     </div>
@@ -269,14 +271,14 @@ export default function SuperadminPage() {
                                             <button onClick={() => handleImpersonate(user.id)} disabled={acting !== null}
                                                 className="bg-white text-black px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-fg transition-all duration-300 active:scale-95 disabled:opacity-30">
                                                 {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
-                                                Impersonar
+                                                {t("impersonate")}
                                             </button>
                                         )}
 
                                         {!isSelf && (
                                             <Link href={`/superadmin/users/${user.id}/dev-mode`}
                                                 className="bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(2,141,196,0.18)] transition-all active:scale-95">
-                                                <Wrench className="w-3 h-3" /> Dev Mode
+                                                <Wrench className="w-3 h-3" /> {t("devMode")}
                                             </Link>
                                         )}
 
@@ -294,7 +296,7 @@ export default function SuperadminPage() {
                                         {canDelete && (
                                             deleteConfirm === user.id ? (
                                                 <div className="flex items-center gap-2 bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] rounded-2xl px-4 py-2">
-                                                    <span className="text-[10px] font-black text-destructive uppercase tracking-wider">Confirmar?</span>
+                                                    <span className="text-[10px] font-black text-destructive uppercase tracking-wider">{t("confirmQuestion")}</span>
                                                     <button onClick={() => handleDelete(user.id)} className="p-1 rounded-lg bg-destructive text-white hover:bg-destructive/85 transition-all"><Check className="w-3 h-3" /></button>
                                                     <button onClick={() => setDeleteConfirm(null)} className="p-1 rounded-lg bg-surface-2 text-fg-60 hover:bg-surface-2/70 transition-all"><X className="w-3 h-3" /></button>
                                                 </div>
@@ -317,7 +319,7 @@ export default function SuperadminPage() {
                 <button onClick={() => handleImpersonate(null)}
                     className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-[0.2em] transition-all py-4 px-8 border border-hairline rounded-2xl hover:bg-white/5">
                     <LogOut className="w-4 h-4" />
-                    Limpar Impersonação / Voltar ao Meu Perfil
+                    {t("clearImpersonation")}
                 </button>
             </div>
         </div>

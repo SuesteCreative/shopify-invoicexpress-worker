@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Check, Lock, ChevronRight, Store, ClipboardList, Settings2, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen, X, Copy, ArrowLeft } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useUser } from "@clerk/nextjs";
@@ -18,6 +19,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function ShopifyIXIntegration() {
+    const t = useTranslations("shopifyIxSetup");
     const { user: clerkUser } = useUser();
     const searchParams = useSearchParams();
     const stripeSuccess = searchParams?.get("stripe") === "success";
@@ -168,7 +170,7 @@ export default function ShopifyIXIntegration() {
                     ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
-            if (!saveRes.ok) { alert("Erro ao guardar. Tenta novamente."); return; }
+            if (!saveRes.ok) { alert(t("alertSaveError")); return; }
 
             const valRes = await fetch("/api/integrations/validate", {
                 method: "POST",
@@ -182,7 +184,7 @@ export default function ShopifyIXIntegration() {
 
             setStep(2);
         } catch (e: any) {
-            alert(`Erro de rede: ${e.message}`);
+            alert(t("alertNetworkError", { message: e.message }));
         } finally {
             setSaving(false);
         }
@@ -245,10 +247,10 @@ export default function ShopifyIXIntegration() {
                 setWebhookStatus("success");
                 setStep(3);
             } else {
-                alert("Erro ao confirmar. Tenta novamente.");
+                alert(t("alertConfirmError"));
             }
         } catch (e: any) {
-            alert(`Erro de rede: ${e.message}`);
+            alert(t("alertNetworkError", { message: e.message }));
         } finally {
             setSaving(false);
         }
@@ -265,7 +267,7 @@ export default function ShopifyIXIntegration() {
                     const seqs = await seqRes.json() as any[];
                     const found = seqs.find(s => s.name.toLowerCase() === ixSequenceName.trim().toLowerCase());
                     if (!found) {
-                        if (!confirm(`A série de faturação "${ixSequenceName}" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)`)) {
+                        if (!confirm(t("confirmSequenceMissing", { name: ixSequenceName }))) {
                             setSaving(false);
                             return;
                         }
@@ -284,7 +286,7 @@ export default function ShopifyIXIntegration() {
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
-            if (!saveRes.ok) { alert("Erro ao guardar. Tenta novamente."); return; }
+            if (!saveRes.ok) { alert(t("alertSaveError")); return; }
 
             const valRes = await fetch("/api/integrations/validate", {
                 method: "POST",
@@ -297,7 +299,7 @@ export default function ShopifyIXIntegration() {
 
             if (valData.isValid) setStep(4);
         } catch (e: any) {
-            alert(`Erro de rede: ${e.message}`);
+            alert(t("alertNetworkError", { message: e.message }));
         } finally {
             setSaving(false);
         }
@@ -313,7 +315,7 @@ export default function ShopifyIXIntegration() {
                     const seqs = await seqRes.json() as any[];
                     const found = seqs.find(s => s.name.toLowerCase() === ixSequenceName.trim().toLowerCase());
                     if (!found) {
-                        if (!confirm(`A série de faturação "${ixSequenceName}" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)`)) {
+                        if (!confirm(t("confirmSequenceMissing", { name: ixSequenceName }))) {
                             setSaving(false);
                             return;
                         }
@@ -333,9 +335,9 @@ export default function ShopifyIXIntegration() {
                 })
             });
             if (res.ok) setStep(5);
-            else alert("Erro ao guardar definições. Tenta novamente.");
+            else alert(t("alertSaveSettingsError"));
         } catch (e: any) {
-            alert(`Erro ao guardar: ${e.message}`);
+            alert(t("alertSaveExtError", { message: e.message }));
         } finally {
             setSaving(false);
         }
@@ -356,11 +358,11 @@ export default function ShopifyIXIntegration() {
             });
             if (!res.ok) {
                 setIsPaused(previous);
-                alert("Erro ao alterar estado. Tenta novamente.");
+                alert(t("alertToggleError"));
             }
         } catch (e: any) {
             setIsPaused(previous);
-            alert(`Erro de rede: ${e.message}`);
+            alert(t("alertNetworkError", { message: e.message }));
         } finally {
             setTogglingPaused(false);
         }
@@ -398,7 +400,7 @@ export default function ShopifyIXIntegration() {
                     if (stepId === 2) setWebhooksActive(true);
                     if (stepId === 3) setIxAuthorized(true);
                     setOpenDiagnostic(null);
-                } else alert("Erro ao forçar autorização.");
+                } else alert(t("alertForceAuthError"));
             } catch (e: any) { alert(e.message); } finally { setSaving(false); setShowConfirm(false); }
         };
 
@@ -414,7 +416,7 @@ export default function ShopifyIXIntegration() {
                         isOpen && "ring-2 ring-[rgba(245,158,11,0.30)]"
                     )}
                 >
-                    {isAuthorized ? "Autorizado" : "Pendente"}
+                    {isAuthorized ? t("statusAuthorized") : t("statusPending")}
                     {!isAuthorized && <HelpCircle className={cn("w-3 h-3 cursor-help transition-transform", isOpen && "rotate-180")} />}
                 </button>
                 <AnimatePresence>
@@ -427,22 +429,22 @@ export default function ShopifyIXIntegration() {
                                 <div className="flex items-center gap-3 text-soon">
                                     <div className="bg-[rgba(245,158,11,0.10)] p-2 rounded-xl ring-1 ring-[rgba(245,158,11,0.20)]"><Info className="w-5 h-5" /></div>
                                     <div className="flex flex-col text-left">
-                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Diagnóstico</p>
-                                        <p className="text-[9px] font-bold text-soon/60 uppercase mt-1">Rioko Engine</p>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">{t("diagnostic")}</p>
+                                        <p className="text-[9px] font-bold text-soon/60 uppercase mt-1">{t("diagnosticSub")}</p>
                                     </div>
                                 </div>
                                 {isOpen && <button onClick={() => setOpenDiagnostic(null)} className="p-1 hover:bg-white/5 rounded-lg text-fg-40 transition-colors"><X className="w-4 h-4" /></button>}
                             </div>
                             <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5 mb-4">
-                                <p className="text-[13px] text-fg font-bold leading-relaxed text-left">{errorMsg || "A aguardar verificação técnica..."}</p>
+                                <p className="text-[13px] text-fg font-bold leading-relaxed text-left">{errorMsg || t("diagnosticDefault")}</p>
                             </div>
                             {isHiper && isOpen && (
                                 <div className="space-y-2">
                                     <button onClick={handleManualForce} disabled={saving} className={cn("w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2", showConfirm ? "bg-destructive text-white hover:bg-destructive/85 animate-pulse" : "bg-soon text-surface hover:bg-soon/85")}>
                                         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
-                                        {showConfirm ? "Tens a certeza? Clica para confirmar" : "Forçar Autorização"}
+                                        {showConfirm ? t("areYouSure") : t("forceAuth")}
                                     </button>
-                                    {showConfirm && <button onClick={() => setShowConfirm(false)} className="w-full text-[9px] font-bold text-fg-40 uppercase tracking-widest hover:text-fg transition-colors py-1">Cancelar</button>}
+                                    {showConfirm && <button onClick={() => setShowConfirm(false)} className="w-full text-[9px] font-bold text-fg-40 uppercase tracking-widest hover:text-fg transition-colors py-1">{t("cancelAction")}</button>}
                                 </div>
                             )}
                             <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-surface-2 rotate-45 border-r-2 border-b-2 border-[rgba(245,158,11,0.10)]" />
@@ -455,35 +457,35 @@ export default function ShopifyIXIntegration() {
 
     const steps = [
         {
-            id: 1, title: "Passo 1: Ligação Shopify", description: "Conecte a sua loja Shopify através das credenciais de API.",
+            id: 1, title: t("step1Title"), description: t("step1Desc"),
             icon: Store, logo: "/images/shopify-logo.webp", logoWidth: 80, isAuthorized: shopifyAuthorized, errorMsg: shopifyError,
             fields: [
-                { label: "Domínio Shopify (.myshopify.com)", value: shopifyDomain, setter: setShopifyDomain, placeholder: "exemplo.myshopify.com", type: "text", helpAnchor: "dominio-shopify" },
-                { label: "Admin API Access Token", value: shopifyToken, setter: setShopifyToken, placeholder: "shpat_xxxxxxxxxxxxxxxx", type: "password", helpAnchor: "access-token" },
-                { label: "Versão da API", value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: "2026-01", type: "text", helpAnchor: "api-version" }
+                { label: t("fieldDomainLabel"), value: shopifyDomain, setter: setShopifyDomain, placeholder: t("fieldDomainPlaceholder"), type: "text", helpAnchor: "dominio-shopify" },
+                { label: t("fieldTokenLabel"), value: shopifyToken, setter: setShopifyToken, placeholder: t("fieldTokenPlaceholder"), type: "password", helpAnchor: "access-token" },
+                { label: t("fieldApiVersionLabel"), value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: t("fieldApiVersionPlaceholder"), type: "text", helpAnchor: "api-version" }
             ],
-            action: handleShopifyConnect, actionLabel: "Verificar Ligação", isDisabled: !shopifyDomain || !shopifyToken,
+            action: handleShopifyConnect, actionLabel: t("verifyConnection"), isDisabled: !shopifyDomain || !shopifyToken,
         },
         {
-            id: 2, title: "Passo 2: Criação de Webhooks", description: "Instale os webhooks para que o Rioko receba as encomendas automaticamente.",
+            id: 2, title: t("step2Title"), description: t("step2Desc"),
             icon: Webhook, logo: "/images/shopify-logo.webp", logoWidth: 80, isAuthorized: webhooksActive,
-            errorMsg: webhookStatus === "error" ? "Falha ao instalar webhooks. Verifica se o token tem permissão read_orders." : "",
-            fields: [{ label: "Webhook Signing Secret", value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: "Ver Shopify Notificações > Webhooks", type: "password", helpAnchor: "webhook-secret" }],
-            action: handleWebhooksInstall, actionLabel: webhookStatus === "error" ? "Tentar novamente" : "Instalar Webhooks", isDisabled: !shopifyWebhookSecret, isWebhookStep: true,
+            errorMsg: webhookStatus === "error" ? t("webhookInstallError") : "",
+            fields: [{ label: t("fieldWebhookSecretLabel"), value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: t("fieldWebhookSecretPlaceholder"), type: "password", helpAnchor: "webhook-secret" }],
+            action: handleWebhooksInstall, actionLabel: webhookStatus === "error" ? t("retryWebhooks") : t("installWebhooks"), isDisabled: !shopifyWebhookSecret, isWebhookStep: true,
         },
         {
-            id: 3, title: "Passo 3: Conexão InvoiceXpress", description: "Introduza os detalhes da sua conta InvoiceXpress para ligar as finanças.",
+            id: 3, title: t("step3Title"), description: t("step3Desc"),
             icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoWidth: 80, isAuthorized: ixAuthorized, errorMsg: ixError,
             fields: [
-                { label: "Nome da Conta", value: ixAccount, setter: setIxAccount, placeholder: "ultramegasonico", type: "text", helpAnchor: "ix-account" },
-                { label: "Chave API", value: ixApiKey, setter: setIxApiKey, placeholder: "••••••••••••••••••••••••", type: "password", helpAnchor: "ix-api-key" },
-                { label: "Ambiente", value: ixEnvironment, setter: setIxEnvironment, placeholder: "Insira 'production' ou 'sandbox'", type: "text", helpAnchor: "ix-environment", helpLabel: "O que é?" }
+                { label: t("fieldIxAccountLabel"), value: ixAccount, setter: setIxAccount, placeholder: t("fieldIxAccountPlaceholder"), type: "text", helpAnchor: "ix-account" },
+                { label: t("fieldIxApiKeyLabel"), value: ixApiKey, setter: setIxApiKey, placeholder: t("fieldIxApiKeyPlaceholder"), type: "password", helpAnchor: "ix-api-key" },
+                { label: t("fieldIxEnvLabel"), value: ixEnvironment, setter: setIxEnvironment, placeholder: t("fieldIxEnvPlaceholder"), type: "text", helpAnchor: "ix-environment", helpLabel: t("helpWhatIs") }
             ],
-            action: handleIxConnect, actionLabel: "Verificar Ligação", isDisabled: !ixAccount || !ixApiKey,
+            action: handleIxConnect, actionLabel: t("verifyConnection"), isDisabled: !ixAccount || !ixApiKey,
         },
         {
-            id: 4, title: "Passo 4: Definições de Integração", description: "Defina as regras fiscais e o comportamento da emissão de documentos.",
-            icon: Settings2, hasGearLogo: true, isAuthorized: true, errorMsg: "", isConfig: true, action: handleSaveSettings, actionLabel: "Guardar", isDisabled: false,
+            id: 4, title: t("step4Title"), description: t("step4Desc"),
+            icon: Settings2, hasGearLogo: true, isAuthorized: true, errorMsg: "", isConfig: true, action: handleSaveSettings, actionLabel: t("save"), isDisabled: false,
         }
     ];
 
@@ -492,13 +494,13 @@ export default function ShopifyIXIntegration() {
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
                 <div className="space-y-2">
                     <Link href="/integrations" className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
-                        <ArrowLeft className="w-3 h-3" /> Voltar para Integrações
+                        <ArrowLeft className="w-3 h-3" /> {t("backToIntegrations")}
                     </Link>
                     <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
-                        Shopify + InvoiceXpress
+                        {t("pageTitle")}
                     </h1>
                     <p className="text-fg-60 font-semibold tracking-wide flex items-center gap-2">
-                        Rioko 2.0 Engine <span className="w-1 h-1 rounded-full bg-fg-40" /> Configuração de Automação Fiscal.
+                        Rioko 2.0 Engine <span className="w-1 h-1 rounded-full bg-fg-40" /> {t("engineSubtitle")}
                     </p>
                 </div>
                 <div className="flex items-center gap-5 glass px-5 py-3 rounded-2xl border-hairline">
@@ -514,10 +516,10 @@ export default function ShopifyIXIntegration() {
                         </div>
                     </div>
                     <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em]">Estado da Sincronização</span>
+                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em]">{t("syncState")}</span>
                         <span className={cn("text-xs font-bold flex items-center gap-1.5", allComplete ? "text-accent-hot" : "text-fg-40 animate-pulse")}>
                             <span className={cn("w-1.5 h-1.5 rounded-full", allComplete ? "bg-accent-hot animate-pulse" : "bg-surface-2")} />
-                            {allComplete ? "Tempo Real ATIVO" : "A aguardar ligação..."}
+                            {allComplete ? t("realtimeOn") : t("waitingConnection")}
                         </span>
                     </div>
                 </div>
@@ -540,20 +542,18 @@ export default function ShopifyIXIntegration() {
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
                                 <h3 className="text-base font-bold tracking-tight">
-                                    {isPaused ? "Integração em pausa" : "Integração ativa"}
+                                    {isPaused ? t("integrationPaused") : t("integrationActive")}
                                 </h3>
                                 <span className={cn(
                                     "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
                                     isPaused ? "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]"
                                              : "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]"
                                 )}>
-                                    {isPaused ? "Pausada" : "Ativa"}
+                                    {isPaused ? t("pausedBadge") : t("activeBadge")}
                                 </span>
                             </div>
                             <p className="text-xs text-fg-60 mt-1 leading-relaxed max-w-xl">
-                                {isPaused
-                                    ? "Os webhooks da Shopify continuam a chegar, mas o Rioko não emite faturas até reactivares a ligação."
-                                    : "O Rioko está a processar encomendas em tempo real e a emitir faturas no InvoiceXpress."}
+                                {isPaused ? t("pausedBody") : t("activeBody")}
                             </p>
                         </div>
                     </div>
@@ -563,7 +563,7 @@ export default function ShopifyIXIntegration() {
                         onClick={() => handleTogglePaused(!isPaused)}
                         disabled={togglingPaused}
                         aria-pressed={!isPaused}
-                        aria-label={isPaused ? "Reactivar integração" : "Pausar integração"}
+                        aria-label={isPaused ? t("ariaResume") : t("ariaPause")}
                         className={cn(
                             "relative shrink-0 inline-flex h-8 w-14 items-center rounded-full transition-colors duration-300",
                             "focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
@@ -615,7 +615,7 @@ export default function ShopifyIXIntegration() {
                                     {s.hasGearLogo && <div className={cn("hidden xl:block transition-all duration-700", isActive ? "opacity-100" : "opacity-20")}><Settings2 className="w-16 h-16 text-fg-60 stroke-[1]" /></div>}
                                     {isActive && (
                                         <div className="flex items-center gap-4 ml-auto">
-                                            {step > 1 && <button onClick={() => setStep(step - 1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">Voltar</button>}
+                                            {step > 1 && <button onClick={() => setStep(step - 1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>}
                                             {!s.isConfig && (
                                                 <button onClick={s.action} disabled={saving || activating || s.isDisabled} className={cn("px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 transition-all duration-500 transform active:scale-95 group shadow-xl shadow-white/5 disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed", s.isWebhookStep && webhookStatus === "error" ? "bg-destructive text-white hover:bg-destructive/85" : "bg-white text-black hover:bg-accent hover:text-fg")}>
                                                     {(saving || activating) ? <Loader2 className="w-4 h-4 animate-spin" /> : s.actionLabel}
@@ -624,7 +624,7 @@ export default function ShopifyIXIntegration() {
                                             )}
                                         </div>
                                     )}
-                                    {isComplete && <button onClick={() => setStep(s.id)} className="ml-auto bg-surface-2 hover:bg-surface-2 text-fg px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-hairline/50">Atualizar</button>}
+                                    {isComplete && <button onClick={() => setStep(s.id)} className="ml-auto bg-surface-2 hover:bg-surface-2 text-fg px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-hairline/50">{t("update")}</button>}
                                 </div>
                             </div>
                             <motion.div animate={{ height: isActive ? "auto" : 0 }} className="overflow-hidden bg-surface/40 border-t border-hairline">
@@ -634,23 +634,23 @@ export default function ShopifyIXIntegration() {
                                             <>
                                                 <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                                                     <div>
-                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">IVA Incluído</h3><a href="/help#vat" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />O que é?</a></div>
-                                                        <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{vatIncluded ? "ON: Preços Shopify já incluem IVA (ex: 2€ = 1,63€ + IVA)" : "OFF: Preços Shopify são líquidos, soma 23% (ex: 2€ → 2€ + IVA = 2,46€)"}</p>
+                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("vatIncluded")}</h3><a href="/help#vat" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                        <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{vatIncluded ? t("vatIncludedOn") : t("vatIncludedOff")}</p>
                                                     </div>
                                                     <button onClick={() => setVatIncluded(!vatIncluded)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", vatIncluded ? "bg-accent-hot shadow-[0_0_15px_rgba(16,185,129,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", vatIncluded ? "left-7" : "left-1")} /></button>
                                                 </div>
                                                 <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                                                     <div>
-                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">Auto Finalizar</h3><a href="/help#auto-finalize" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />O que é?</a></div>
-                                                        <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">Emitir e finalizar documentos imediatamente</p>
+                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("autoFinalize")}</h3><a href="/help#auto-finalize" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                        <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                                                     </div>
                                                     <button onClick={() => setAutoFinalize(!autoFinalize)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", autoFinalize ? "bg-accent shadow-[0_0_15px_rgba(56,189,248,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} /></button>
                                                 </div>
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-6">
                                                     <div className="flex items-center justify-between">
                                                         <div>
-                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">Retenção na Fonte</h3><a href="/help#retention" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />O que é?</a></div>
-                                                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{ixRetentionEnabled ? `ON: Aplicar ${ixRetention.toFixed(2).replace('.', ',')}% IRS/IRC em todas as faturas` : "OFF: Sem retenção na fonte nas faturas emitidas"}</p>
+                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("retention")}</h3><a href="/help#retention" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{ixRetentionEnabled ? t("retentionOn", { value: ixRetention.toFixed(2).replace('.', ',') }) : t("retentionOff")}</p>
                                                         </div>
                                                         <button onClick={() => setIxRetentionEnabled(!ixRetentionEnabled)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", ixRetentionEnabled ? "bg-destructive" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", ixRetentionEnabled ? "left-7" : "left-1")} /></button>
                                                     </div>
@@ -658,7 +658,7 @@ export default function ShopifyIXIntegration() {
                                                         {ixRetentionEnabled && (
                                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-hairline space-y-4">
                                                                 <div className="flex items-center justify-between gap-4">
-                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">Percentagem (IRS/IRC)</h4><p className="text-[9px] text-fg-40 font-bold uppercase">Consultar o contabilista para a taxa correcta</p></div>
+                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionPercent")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("retentionPercentDesc")}</p></div>
                                                                     <div className="w-44 relative">
                                                                         <select value={[0, 11.5, 16.5, 21.5, 25].includes(ixRetention) ? String(ixRetention) : "outro"} onChange={(e) => { if (e.target.value === "outro") { if ([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) setIxRetention(7.5); } else { setIxRetention(parseFloat(e.target.value)); } }} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] outline-none appearance-none cursor-pointer pr-10">
                                                                             <option value="0">0%</option>
@@ -666,14 +666,14 @@ export default function ShopifyIXIntegration() {
                                                                             <option value="16.5">16,5%</option>
                                                                             <option value="21.5">21,5%</option>
                                                                             <option value="25">25%</option>
-                                                                            <option value="outro">Outro…</option>
+                                                                            <option value="outro">{t("retentionOther")}</option>
                                                                         </select>
                                                                         <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40"><ChevronRight className="w-4 h-4 rotate-90 text-destructive" /></div>
                                                                     </div>
                                                                 </div>
                                                                 {!([0, 11.5, 16.5, 21.5, 25].includes(ixRetention)) && (
                                                                     <div className="flex items-center justify-between gap-4 pt-2 border-t border-hairline">
-                                                                        <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">Valor personalizado</h4><p className="text-[9px] text-fg-40 font-bold uppercase">Entre 0 e 99,99 — duas casas decimais</p></div>
+                                                                        <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("retentionCustom")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("retentionCustomDesc")}</p></div>
                                                                         <div className="w-32 relative">
                                                                             <input type="number" min={0} max={99.99} step={0.01} value={ixRetention} onChange={(e) => { const v = parseFloat(e.target.value); setIxRetention(Number.isFinite(v) ? Math.max(0, Math.min(99.99, v)) : 0); }} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold text-center focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] outline-none" />
                                                                         </div>
@@ -686,19 +686,19 @@ export default function ShopifyIXIntegration() {
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-6">
                                                     <div className="flex items-center justify-between">
                                                         <div>
-                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">Tipo de Fatura</h3><a href="/help#doc-type" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />O que é?</a></div>
-                                                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider leading-relaxed">{ixDocumentType === "invoice_receipt" ? "Fatura-Recibo: Documento emitido e pago no momento." : "Fatura: Documento emitido para pagamento posterior."}</p>
+                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("docType")}</h3><a href="/help#doc-type" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider leading-relaxed">{ixDocumentType === "invoice_receipt" ? t("docTypeReceipt") : t("docTypeInvoice")}</p>
                                                         </div>
                                                         <div className="flex bg-surface-2/80 p-1 rounded-xl border border-hairline">
-                                                            <button onClick={() => setIxDocumentType("invoice_receipt")} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", ixDocumentType === "invoice_receipt" ? "bg-white text-black shadow-lg" : "text-fg-40 hover:text-fg")}>Fatura-Recibo</button>
-                                                            <button onClick={() => setIxDocumentType("invoice")} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", ixDocumentType === "invoice" ? "bg-white text-black shadow-lg" : "text-fg-40 hover:text-fg")}>Fatura</button>
+                                                            <button onClick={() => setIxDocumentType("invoice_receipt")} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", ixDocumentType === "invoice_receipt" ? "bg-white text-black shadow-lg" : "text-fg-40 hover:text-fg")}>{t("docTypeReceiptShort")}</button>
+                                                            <button onClick={() => setIxDocumentType("invoice")} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", ixDocumentType === "invoice" ? "bg-white text-black shadow-lg" : "text-fg-40 hover:text-fg")}>{t("docTypeInvoiceShort")}</button>
                                                         </div>
                                                     </div>
                                                     <AnimatePresence>
                                                         {ixDocumentType === "invoice" && (
                                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-hairline">
                                                                 <div className="flex items-center justify-between gap-4">
-                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">Prazo de Pagamento (Dias)</h4><p className="text-[9px] text-fg-40 font-bold uppercase">Define quantos dias o cliente tem para pagar</p></div>
+                                                                    <div className="flex-1"><h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("paymentTerm")}</h4><p className="text-[9px] text-fg-40 font-bold uppercase">{t("paymentTermDesc")}</p></div>
                                                                     <div className="w-32 relative"><input type="number" value={ixPaymentTerm} onChange={(e) => setIxPaymentTerm(parseInt(e.target.value) || 0)} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-bold text-center focus:ring-2 focus:ring-accent/20 outline-none" /></div>
                                                                 </div>
                                                             </motion.div>
@@ -707,14 +707,14 @@ export default function ShopifyIXIntegration() {
                                                 </div>
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline">
                                                     <div className="flex items-center justify-start gap-4 ml-1 mb-4">
-                                                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent" />Série de Faturação</label>
-                                                        <a href="/help#billing-sequence" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />O que é?</a>
+                                                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent" />{t("sequence")}</label>
+                                                        <a href="/help#billing-sequence" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a>
                                                     </div>
-                                                    <input type="text" value={ixSequenceName} onChange={(e) => setIxSequenceName(e.target.value)} placeholder="Deixe vazio para usar a série pré-definida no InvoiceXpress" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                                                    <input type="text" value={ixSequenceName} onChange={(e) => setIxSequenceName(e.target.value)} placeholder={t("sequencePlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                                                 </div>
                                                 <div className="md:col-span-2 glass p-8 rounded-[2rem] border-hairline space-y-4">
-                                                    <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">Razão de Isenção (IVA 0%)</h3><a href="/help#exemption" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />O que é?</a></div>
-                                                    <p className="text-[10px] text-fg-40 font-medium uppercase tracking-wider leading-relaxed">Se algum artigo na Shopify tiver 0% de IVA, esta será a razão de isenção aplicada automaticamente na fatura.</p>
+                                                    <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3><a href="/help#exemption" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors"><BookOpen className="w-3 h-3" />{t("helpWhatIs")}</a></div>
+                                                    <p className="text-[10px] text-fg-40 font-medium uppercase tracking-wider leading-relaxed">{t("exemptionDesc")}</p>
                                                     <div className="relative pt-2">
                                                         <select value={exemptionReason} onChange={(e) => setExemptionReason(e.target.value)} className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all appearance-none cursor-pointer pr-12 text-fg">
                                                             {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2 py-2">{opt.value} - {opt.label}</option>))}
@@ -722,21 +722,21 @@ export default function ShopifyIXIntegration() {
                                                         <div className="absolute right-6 top-[55%] -translate-y-1/2 pointer-events-none opacity-40"><ChevronRight className="w-5 h-5 rotate-90 text-soon" /></div>
                                                     </div>
                                                 </div>
-                                                <div className="md:col-span-2 pt-4"><button onClick={handleSaveSettings} disabled={saving} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface">{saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> Guardar Definições</>}</button></div>
+                                                <div className="md:col-span-2 pt-4"><button onClick={handleSaveSettings} disabled={saving} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface">{saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {t("saveSettings")}</>}</button></div>
                                             </>
                                         ) : (
                                             s.fields?.map((f: any, i: number) => (
                                                 <div key={i} className="space-y-3">
                                                     <div className="flex items-center justify-between ml-1">
                                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2"><span className="w-1 h-1 rounded-full bg-accent" />{f.label}</label>
-                                                        {f.helpAnchor && (<a href={`/help#${f.helpAnchor}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors group/help"><BookOpen className="w-3 h-3 group-hover/help:scale-110 transition-transform" />{f.helpLabel || "Onde Encontrar"}</a>)}
+                                                        {f.helpAnchor && (<a href={`/help#${f.helpAnchor}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-fg-40 uppercase tracking-widest hover:text-accent transition-colors group/help"><BookOpen className="w-3 h-3 group-hover/help:scale-110 transition-transform" />{f.helpLabel || t("helpWhereFind")}</a>)}
                                                     </div>
                                                     <input type={f.type} value={f.value} onChange={(e) => f.setter(e.target.value)} placeholder={f.placeholder} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                                                 </div>
                                             ))
                                         )}
                                         {s.isWebhookStep && (
-                                            <><div className="md:col-span-2 flex items-start gap-4 bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl px-6 py-4"><Webhook className="w-5 h-5 text-accent shrink-0 mt-0.5" /><div><p className="text-sm font-bold text-accent">O que são os Webhooks?</p><p className="text-[11px] text-fg-60 mt-1 leading-relaxed">Os webhooks são notificações automáticas que a Shopify envia ao Rioko quando uma encomenda é paga ou um reembolso é criado. O Webhook Signing Secret valida que as notificações são autênticas. Encontra-o em <span className="text-accent font-semibold">Shopify Admin → Definições → Notificações → Webhooks</span>.</p></div></div><div className="md:col-span-2 flex items-start gap-4 bg-surface-2/50 border border-hairline rounded-2xl px-6 py-4"><AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" /><div className="flex-1"><p className="text-sm font-bold text-soon">Token sem permissão read_orders?</p><p className="text-[11px] text-fg-60 mt-1 mb-3 leading-relaxed">Se o teu token não tem permissão para instalar webhooks automaticamente (necessita de <code className="bg-surface-2 px-1 rounded">read_orders</code>), podes instalá-los manualmente no painel Shopify (ver instruções acima) e depois confirmar aqui.</p><div className="flex flex-wrap gap-3"><button onClick={handleWebhooksConfirm} disabled={saving || !shopifyWebhookSecret} className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-[rgba(245,158,11,0.10)] text-soon border border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.20)] transition-all disabled:opacity-30 disabled:cursor-not-allowed">{saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}Confirmar Instalação Manual</button><a href="/help#manual-webhooks" target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-surface-2 text-fg border border-hairline hover:bg-surface-2 transition-all"><BookOpen className="w-3.5 h-3.5" />Como fazer?</a></div></div></div></>
+                                            <><div className="md:col-span-2 flex items-start gap-4 bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl px-6 py-4"><Webhook className="w-5 h-5 text-accent shrink-0 mt-0.5" /><div><p className="text-sm font-bold text-accent">{t("webhooksWhatTitle")}</p><p className="text-[11px] text-fg-60 mt-1 leading-relaxed" dangerouslySetInnerHTML={{ __html: t("webhooksWhatBody").replace(/<span>/g, '<span class="text-accent font-semibold">') }} /></div></div><div className="md:col-span-2 flex items-start gap-4 bg-surface-2/50 border border-hairline rounded-2xl px-6 py-4"><AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" /><div className="flex-1"><p className="text-sm font-bold text-soon">{t("tokenNoReadOrdersTitle")}</p><p className="text-[11px] text-fg-60 mt-1 mb-3 leading-relaxed" dangerouslySetInnerHTML={{ __html: t("tokenNoReadOrdersBody").replace(/<code>/g, '<code class="bg-surface-2 px-1 rounded">') }} /><div className="flex flex-wrap gap-3"><button onClick={handleWebhooksConfirm} disabled={saving || !shopifyWebhookSecret} className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-[rgba(245,158,11,0.10)] text-soon border border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.20)] transition-all disabled:opacity-30 disabled:cursor-not-allowed">{saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}{t("confirmManualInstall")}</button><a href="/help#manual-webhooks" target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-surface-2 text-fg border border-hairline hover:bg-surface-2 transition-all"><BookOpen className="w-3.5 h-3.5" />{t("howTo")}</a></div></div></div></>
                                         )}
                                     </div>
                                 )}
@@ -749,13 +749,13 @@ export default function ShopifyIXIntegration() {
                     <motion.div initial={{ opacity: 0, y: 20, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6, ease: "easeOut" }} className="rounded-[2.5rem] p-1 shadow-2xl bg-[rgba(94,234,212,0.10)]">
                         <div className="bg-surface rounded-[2.3rem] p-10 flex flex-col gap-8 border border-white/5">
                             <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-                                <div className="flex items-center gap-8"><div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-[rgba(94,234,212,0.18)] ring-2 ring-accent-hot ring-offset-4 ring-offset-surface"><ShieldCheck className="w-10 h-10 text-accent-hot" /></div><div className="space-y-1"><h3 className="text-2xl font-black tracking-tight">Integração Concluída</h3><p className="text-fg-40 font-bold uppercase tracking-widest text-[10px]">A sua conta está configurada e protegida no Rioko 2.0</p></div></div>
-                                <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]">ONLINE • REAL-TIME</div>
+                                <div className="flex items-center gap-8"><div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-[rgba(94,234,212,0.18)] ring-2 ring-accent-hot ring-offset-4 ring-offset-surface"><ShieldCheck className="w-10 h-10 text-accent-hot" /></div><div className="space-y-1"><h3 className="text-2xl font-black tracking-tight">{t("integrationDoneTitle")}</h3><p className="text-fg-40 font-bold uppercase tracking-widest text-[10px]">{t("integrationDoneSub")}</p></div></div>
+                                <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]">{t("onlineRealtime")}</div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/5 pt-8">
-                                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]"><div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Store className="w-4 h-4 text-accent-hot" /></div><div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">Shopify</p><p className="text-xs font-bold text-accent-hot">Autorizado</p></div><Check className="w-4 h-4 text-accent-hot ml-auto" /></div>
-                                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]"><div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Webhook className="w-4 h-4 text-accent-hot" /></div><div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">Webhooks</p><p className="text-xs font-bold text-accent-hot">Registados</p></div><Check className="w-4 h-4 text-accent-hot ml-auto" /></div>
-                                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]"><div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><ClipboardList className="w-4 h-4 text-accent-hot" /></div><div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">InvoiceXpress</p><p className="text-xs font-bold text-accent-hot">Autorizado</p></div><Check className="w-4 h-4 text-accent-hot ml-auto" /></div>
+                                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]"><div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Store className="w-4 h-4 text-accent-hot" /></div><div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("shopifyLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("authorized")}</p></div><Check className="w-4 h-4 text-accent-hot ml-auto" /></div>
+                                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]"><div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Webhook className="w-4 h-4 text-accent-hot" /></div><div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("webhooksLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("registered")}</p></div><Check className="w-4 h-4 text-accent-hot ml-auto" /></div>
+                                <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]"><div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><ClipboardList className="w-4 h-4 text-accent-hot" /></div><div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("invoicexpressLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("authorized")}</p></div><Check className="w-4 h-4 text-accent-hot ml-auto" /></div>
                             </div>
                         </div>
                     </motion.div>
@@ -765,7 +765,7 @@ export default function ShopifyIXIntegration() {
             <div className="pt-12 text-center">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-2 border border-hairline">
                     <div className="w-2 h-2 rounded-full bg-accent-hot animate-pulse" />
-                    <span className="text-[10px] text-fg-40 font-bold uppercase tracking-wider">D1 DATABASE LIGADA</span>
+                    <span className="text-[10px] text-fg-40 font-bold uppercase tracking-wider">{t("d1Connected")}</span>
                 </div>
             </div>
         </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
     PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles
@@ -36,6 +37,7 @@ type JobResult = {
 };
 
 export function DevModePanel({ target }: { target: Target }) {
+    const t = useTranslations("devMode");
     const [notifyEmails, setNotifyEmails] = useState<string[]>([]);
     const [emailInput, setEmailInput] = useState("");
     const [savingEmails, setSavingEmails] = useState(false);
@@ -78,7 +80,7 @@ export function DevModePanel({ target }: { target: Target }) {
             {/* Header */}
             <div className="flex flex-col gap-6">
                 <Link href="/superadmin" className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest w-fit">
-                    <ArrowLeft className="w-3 h-3" /> Voltar
+                    <ArrowLeft className="w-3 h-3" /> {t("back")}
                 </Link>
                 <div className="flex items-end justify-between flex-wrap gap-4">
                     <div className="flex items-center gap-4">
@@ -87,7 +89,7 @@ export function DevModePanel({ target }: { target: Target }) {
                         </div>
                         <div>
                             <h1 className="text-4xl font-black tracking-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">
-                                Dev Mode
+                                {t("title")}
                             </h1>
                             <p className="text-fg-60 font-semibold mt-1">
                                 {target.name} · {target.email}
@@ -99,7 +101,7 @@ export function DevModePanel({ target }: { target: Target }) {
                 {noShop && (
                     <div className="glass rounded-2xl p-5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.05)] flex items-center gap-3 text-soon text-sm font-bold">
                         <AlertCircle className="w-5 h-5" />
-                        Esta conta não tem `shopify_domain` configurado. Ações Dev Mode indisponíveis.
+                        {t("noShop")}
                     </div>
                 )}
             </div>
@@ -150,6 +152,7 @@ function ResultBox({ result }: { result: JobResult | null }) {
 }
 
 function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: string; targetRole: string }) {
+    const t = useTranslations("devMode");
     const [sub, setSub] = useState<any>(null);
     const [earlyBird, setEarlyBird] = useState(false);
     const [trialEnd, setTrialEnd] = useState<string>("");
@@ -195,23 +198,23 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
 
     if (isAdminTarget) {
         return (
-            <Section icon={<Sparkles className="w-5 h-5 text-accent" />} title="Subscrição" desc="Admins não precisam de subscrição — integração corre sempre.">
+            <Section icon={<Sparkles className="w-5 h-5 text-accent" />} title={t("subscriptionTitle")} desc={t("subscriptionAdminDesc")}>
                 <div className="px-4 py-3 rounded-xl bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] text-accent text-xs font-bold">
-                    Conta {targetRole} · isenta de subscrição
+                    {t("subscriptionAdminBadge", { role: targetRole })}
                 </div>
             </Section>
         );
     }
 
     return (
-        <Section icon={<Sparkles className="w-5 h-5 text-soon" />} title="Subscrição" desc="Controla early bird + data limite do trial deste user. Não cria sub no Stripe — apenas marca elegibilidade para checkout com trial.">
+        <Section icon={<Sparkles className="w-5 h-5 text-soon" />} title={t("subscriptionTitle")} desc={t("subscriptionDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <label className="flex items-center gap-3 cursor-pointer pb-2">
                     <input type="checkbox" checked={earlyBird} onChange={e => setEarlyBird(e.target.checked)} disabled={!loaded} className="accent-soon w-4 h-4" />
-                    <span className="text-xs font-bold text-fg">Early Bird</span>
+                    <span className="text-xs font-bold text-fg">{t("earlyBird")}</span>
                 </label>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                    Trial termina em
+                    {t("trialEnds")}
                     <input
                         type="date"
                         value={trialEnd}
@@ -223,13 +226,13 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
                 <button onClick={save} disabled={!loaded || saving}
                     className="bg-white text-black py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                     {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? <CheckCircle2 className="w-3 h-3" /> : null}
-                    {savedAt && Date.now() - savedAt < 2000 ? "Guardado" : "Guardar"}
+                    {savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("save")}
                 </button>
             </div>
             {sub && (
                 <div className="text-[10px] text-fg-40 font-medium space-y-1">
-                    <p><strong className="text-fg-60">Status atual:</strong> {sub.status}{sub.stripe_subscription_id && <span className="text-fg-40"> · {sub.stripe_subscription_id}</span>}</p>
-                    {sub.current_period_end && <p><strong className="text-fg-60">Próxima cobrança:</strong> {new Date(sub.current_period_end).toLocaleDateString("pt-PT")}</p>}
+                    <p><strong className="text-fg-60">{t("statusNow")}</strong> {sub.status}{sub.stripe_subscription_id && <span className="text-fg-40"> · {sub.stripe_subscription_id}</span>}</p>
+                    {sub.current_period_end && <p><strong className="text-fg-60">{t("nextCharge")}</strong> {new Date(sub.current_period_end).toLocaleDateString("pt-PT")}</p>}
                 </div>
             )}
         </Section>
@@ -237,6 +240,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
 }
 
 function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
+    const t = useTranslations("devMode");
     const [rate, setRate] = useState<string>("");
     const [shippingRate, setShippingRate] = useState<string>("");
     const [oss, setOss] = useState(true);
@@ -284,24 +288,24 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
     };
 
     return (
-        <Section icon={<Percent className="w-5 h-5 text-accent" />} title="Override de IVA" desc="Força uma taxa fixa em todas as faturas geradas (backfill + webhooks). Deixa vazio para usar dados do Shopify.">
+        <Section icon={<Percent className="w-5 h-5 text-accent" />} title={t("taxOverrideTitle")} desc={t("taxOverrideDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                    Force Tax Produtos (%)
+                    {t("forceTaxProducts")}
                     <input
                         type="number" min={0} max={100} step="0.01"
                         value={rate} onChange={e => setRate(e.target.value)}
-                        placeholder="ex: 6 ou vazio"
+                        placeholder={t("forceTaxProductsPlaceholder")}
                         disabled={!loaded}
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white"
                     />
                 </label>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                    Force Tax Portes (%)
+                    {t("forceTaxShipping")}
                     <input
                         type="number" min={0} max={100} step="0.01"
                         value={shippingRate} onChange={e => setShippingRate(e.target.value)}
-                        placeholder="ex: 23 ou vazio"
+                        placeholder={t("forceTaxShippingPlaceholder")}
                         disabled={!loaded}
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white"
                     />
@@ -309,24 +313,24 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                 <label className="flex items-center gap-3 cursor-pointer pb-2">
                     <input type="checkbox" checked={oss} onChange={e => setOss(e.target.checked)} disabled={!loaded} className="accent-accent w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
-                        OSS ativo
+                        {t("ossActive")}
                     </span>
                 </label>
                 <button onClick={save} disabled={!loaded || saving}
                     className="bg-white text-black py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                     {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? <CheckCircle2 className="w-3 h-3" /> : null}
-                    {savedAt && Date.now() - savedAt < 2000 ? "Guardado" : "Guardar"}
+                    {savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("save")}
                 </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mt-2">
                 <label className="flex items-center gap-3 cursor-pointer pb-2 md:col-span-2">
                     <input type="checkbox" checked={b2bReverseCharge} onChange={e => setB2bReverseCharge(e.target.checked)} disabled={!loaded} className="accent-accent w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
-                        B2B Reverse Charge (UE cross-border)
+                        {t("b2bReverseCharge")}
                     </span>
                 </label>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40 md:col-span-2">
-                    Código de isenção B2B
+                    {t("b2bExemptionCode")}
                     <select
                         value={["M16", "M40"].includes(b2bReason) ? b2bReason : "custom"}
                         onChange={e => {
@@ -339,16 +343,16 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                         disabled={!loaded || !b2bReverseCharge}
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                     >
-                        <option value="M16">M16 — Art. 14 RITI (bens UE B2B)</option>
-                        <option value="M40">M40 — Art. 6.º n.º 6 b) (serviços UE B2B)</option>
-                        <option value="custom">Outro (escrever)</option>
+                        <option value="M16">{t("b2bM16")}</option>
+                        <option value="M40">{t("b2bM40")}</option>
+                        <option value="custom">{t("b2bCustom")}</option>
                     </select>
                     {!["M16", "M40"].includes(b2bReason) && (
                         <input
                             type="text"
                             value={b2bReason}
                             onChange={e => setB2bReason(e.target.value.toUpperCase().slice(0, 16))}
-                            placeholder="ex: M99"
+                            placeholder={t("b2bCustomPlaceholder")}
                             disabled={!loaded || !b2bReverseCharge}
                             className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white mt-1.5 disabled:opacity-50"
                         />
@@ -356,10 +360,11 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                 </label>
             </div>
             <p className="text-[10px] text-fg-40 font-medium leading-relaxed">
-                <strong className="text-fg-40">Force Tax Produtos:</strong> aplica taxa fixa a linhas com product_id (livros, etc). Vazio = usa Shopify.<br />
-                <strong className="text-fg-40">Force Tax Portes:</strong> aplica taxa fixa à linha de envio (sem product_id). Vazio = usa Shopify (default).<br />
-                <strong className="text-fg-40">OSS:</strong> informativo por agora. Rotação completa para small-seller requer rewrite do builder.<br />
-                <strong className="text-fg-40">B2B Reverse Charge:</strong> com OSS activo + preços com IVA incluído (<code>vat_included</code>), encomendas cross-border UE com Company + NIF/VAT validado por VIES saem com IVA 0% + menção do Art. 196 da Directiva IVA. Sem confirmação VIES, a fatura fica pendente e é validada manualmente no painel de incidents.
+                <strong className="text-fg-40">{t("taxOverrideExplain1Title")}</strong> {t("taxOverrideExplain1")}<br />
+                <strong className="text-fg-40">{t("taxOverrideExplain2Title")}</strong> {t("taxOverrideExplain2")}<br />
+                <strong className="text-fg-40">{t("taxOverrideExplain3Title")}</strong> {t("taxOverrideExplain3")}<br />
+                <strong className="text-fg-40">{t("taxOverrideExplain4Title")}</strong>{" "}
+                {t.rich("taxOverrideExplain4", { code: (c) => <code>{c}</code> })}
             </p>
         </Section>
     );
@@ -380,6 +385,7 @@ type PendingRcRow = {
 };
 
 function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
+    const t = useTranslations("devMode");
     const [rows, setRows] = useState<PendingRcRow[] | null>(null);
     const [acting, setActing] = useState<string | null>(null);
 
@@ -408,12 +414,12 @@ function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
     return (
         <Section
             icon={<AlertCircle className="w-5 h-5 text-soon" />}
-            title="VIES pendente — Reverse Charge"
-            desc="Ordens com NIF/VAT que o VIES não conseguiu confirmar. Validar manualmente em viesvalidation.com/pt e aprovar (reverse charge) ou rejeitar (factura B2C normal)."
+            title={t("viesPendingTitle")}
+            desc={t("viesPendingDesc")}
         >
-            {rows === null && <p className="text-xs text-fg-40">A carregar…</p>}
+            {rows === null && <p className="text-xs text-fg-40">{t("loadingShort")}</p>}
             {rows && rows.length === 0 && (
-                <p className="text-xs text-fg-40">Sem ordens pendentes.</p>
+                <p className="text-xs text-fg-40">{t("noPendingOrders")}</p>
             )}
             {rows && rows.length > 0 && (
                 <div className="space-y-3">
@@ -423,11 +429,11 @@ function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
                         return (
                             <div key={r.id} className="rounded-2xl border border-hairline bg-surface-2/30 p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <div className="text-xs space-y-1">
-                                    <p className="font-bold text-white">Order #{r.order_id}</p>
-                                    <p className="text-fg-60">VAT: <code className="text-accent">{vat}</code> · tentativas {r.attempts}/3 · {r.incident_id ? "incident aberto" : "a tentar"}</p>
-                                    {r.last_error && <p className="text-fg-40">Último erro: {r.last_error}</p>}
+                                    <p className="font-bold text-white">{t("orderHash", { n: r.order_id })}</p>
+                                    <p className="text-fg-60">{t("viesAttempts", { vat, attempts: r.attempts, state: r.incident_id ? t("viesIncidentOpen") : t("viesTrying") })}</p>
+                                    {r.last_error && <p className="text-fg-40">{t("viesLastError", { error: r.last_error })}</p>}
                                     <a href={viesUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline text-[10px] font-black uppercase tracking-widest">
-                                        Validar no VIES ↗
+                                        {t("validateOnVies")}
                                     </a>
                                 </div>
                                 <div className="flex gap-2">
@@ -436,14 +442,14 @@ function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
                                         disabled={acting === r.id}
                                         className="px-3 py-2 rounded-xl bg-[rgba(94,234,212,0.18)] border border-[rgba(94,234,212,0.40)] text-accent-hot text-[10px] font-black uppercase tracking-widest hover:bg-[rgba(94,234,212,0.25)] disabled:opacity-50"
                                     >
-                                        {acting === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Aprovar (reverse charge)"}
+                                        {acting === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : t("approveRc")}
                                     </button>
                                     <button
                                         onClick={() => decide(r.id, "reject")}
                                         disabled={acting === r.id}
                                         className="px-3 py-2 rounded-xl bg-[rgba(244,63,94,0.18)] border border-[rgba(244,63,94,0.40)] text-destructive text-[10px] font-black uppercase tracking-widest hover:bg-[rgba(244,63,94,0.25)] disabled:opacity-50"
                                     >
-                                        Rejeitar (B2C normal)
+                                        {t("rejectRc")}
                                     </button>
                                 </div>
                             </div>
@@ -458,8 +464,9 @@ function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
 function NotifyEmailsCard({ emails, input, setInput, onAdd, onRemove, saving }: {
     emails: string[]; input: string; setInput: (s: string) => void; onAdd: () => void; onRemove: (e: string) => void; saving: boolean;
 }) {
+    const t = useTranslations("devMode");
     return (
-        <Section icon={<Mail className="w-5 h-5 text-destructive" />} title="Notificações por email" desc="Destinatários incluídos automaticamente em cada job Dev Mode.">
+        <Section icon={<Mail className="w-5 h-5 text-destructive" />} title={t("notifyTitle")} desc={t("notifyDesc")}>
             <div className="flex flex-wrap gap-2">
                 {emails.map(e => (
                     <span key={e} className="bg-surface-2 border border-hairline rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-2">
@@ -469,7 +476,7 @@ function NotifyEmailsCard({ emails, input, setInput, onAdd, onRemove, saving }: 
                 ))}
                 <div className="flex items-center gap-2">
                     <input
-                        type="email" placeholder="adicionar@email.com" value={input}
+                        type="email" placeholder={t("notifyAddPlaceholder")} value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); onAdd(); } }}
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] focus:border-[rgba(244,63,94,0.40)] w-56"
@@ -484,6 +491,7 @@ function NotifyEmailsCard({ emails, input, setInput, onAdd, onRemove, saving }: 
 }
 
 function BackfillCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+    const t = useTranslations("devMode");
     const [mode, setMode] = useState<"date_range" | "since_last">("date_range");
     const [from, setFrom] = useState("");
     const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
@@ -513,43 +521,43 @@ function BackfillCard({ targetUserId, notifyEmails }: { targetUserId: string; no
     };
 
     return (
-        <Section icon={<PlayCircle className="w-5 h-5 text-accent-hot" />} title="Backfill de Faturas" desc="Gera faturas em falta para encomendas Shopify históricas. Verifica DB + InvoiceXpress para evitar duplicados.">
+        <Section icon={<PlayCircle className="w-5 h-5 text-accent-hot" />} title={t("backfillTitle")} desc={t("backfillDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex gap-2">
                     {(["date_range", "since_last"] as const).map(m => (
                         <button key={m} onClick={() => setMode(m)}
                             className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
-                            {m === "date_range" ? "Intervalo de Datas" : "Desde Última"}
+                            {m === "date_range" ? t("modeDateRange") : t("modeSinceLast")}
                         </button>
                     ))}
                 </div>
                 <div className="flex gap-2">
-                    {(["create_orders", "finalize_orders"] as const).map(t => (
-                        <button key={t} onClick={() => setType(t)}
-                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${type === t ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
-                            {t === "create_orders" ? "Criar Faturas" : "Finalizar"}
+                    {(["create_orders", "finalize_orders"] as const).map(tk => (
+                        <button key={tk} onClick={() => setType(tk)}
+                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${type === tk ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                            {tk === "create_orders" ? t("typeCreateOrders") : t("typeFinalizeOrders")}
                         </button>
                     ))}
                 </div>
 
                 {mode === "date_range" && (
                     <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                        De <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                        {t("from")} <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                     </label>
                 )}
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                    Até <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                    {t("to")} <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                 </label>
 
                 <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={dryRun} onChange={e => setDryRun(e.target.checked)} className="accent-soon w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
-                        Dry-run (simulação — não escreve em InvoiceXpress)
+                        {t("dryRunDesc")}
                     </span>
                 </label>
 
                 <textarea
-                    placeholder="Motivo / contexto desta operação..."
+                    placeholder={t("reasonPlaceholder")}
                     value={reason} onChange={e => setReason(e.target.value)}
                     rows={2}
                     className="md:col-span-2 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none"
@@ -559,7 +567,7 @@ function BackfillCard({ targetUserId, notifyEmails }: { targetUserId: string; no
             <button onClick={run} disabled={loading}
                 className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent-hot hover:text-surface transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-                {dryRun ? "Simular Backfill" : "Executar Backfill"}
+                {dryRun ? t("simulateBackfill") : t("runBackfill")}
             </button>
             <ResultBox result={result} />
         </Section>
@@ -567,6 +575,7 @@ function BackfillCard({ targetUserId, notifyEmails }: { targetUserId: string; no
 }
 
 function ReemitCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+    const t = useTranslations("devMode");
     const [orderNumber, setOrderNumber] = useState("");
     const [force, setForce] = useState(false);
     const [reason, setReason] = useState("");
@@ -588,26 +597,26 @@ function ReemitCard({ targetUserId, notifyEmails }: { targetUserId: string; noti
     };
 
     return (
-        <Section icon={<RotateCw className="w-5 h-5 text-soon" />} title="Re-emitir Fatura Única" desc="Força criação de fatura para uma encomenda específica. Útil para corrigir falhas pontuais.">
+        <Section icon={<RotateCw className="w-5 h-5 text-soon" />} title={t("reemitTitle")} desc={t("reemitDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40 md:col-span-1">
-                    Order #
+                    {t("orderNumberShort")}
                     <input type="number" value={orderNumber} onChange={e => setOrderNumber(e.target.value)} placeholder="1234"
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                 </label>
                 <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} className="accent-destructive w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
-                        Forçar (ignora dedup IX + apaga registo prévio)
+                        {t("forceLabel")}
                     </span>
                 </label>
-                <textarea placeholder="Motivo..." value={reason} onChange={e => setReason(e.target.value)} rows={2}
+                <textarea placeholder={t("reasonShort")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
                     className="md:col-span-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
             </div>
             <button onClick={run} disabled={loading || !orderNumber}
                 className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
-                Re-emitir
+                {t("reemit")}
             </button>
             <ResultBox result={result} />
         </Section>
@@ -615,6 +624,7 @@ function ReemitCard({ targetUserId, notifyEmails }: { targetUserId: string; noti
 }
 
 function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+    const t = useTranslations("devMode");
     const [orderNumber, setOrderNumber] = useState("");
     const [mode, setMode] = useState<"delete_draft" | "credit_note">("delete_draft");
     const [reason, setReason] = useState("");
@@ -641,44 +651,44 @@ function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: strin
     return (
         <Section
             icon={isDelete ? <Trash2 className="w-5 h-5 text-destructive" /> : <Receipt className="w-5 h-5 text-soon" />}
-            title="Cancelar / Anular Fatura"
-            desc="Elimina draft (se ainda não finalizada) ou emite nota de crédito (se já finalizada), a partir do número da encomenda."
+            title={t("cancelInvoiceTitle")}
+            desc={t("cancelInvoiceDesc")}
         >
             <div className="flex gap-2">
                 {(["delete_draft", "credit_note"] as const).map(m => (
                     <button key={m} onClick={() => setMode(m)}
                         className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? (m === "delete_draft" ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-[rgba(245,158,11,0.18)] text-soon border-[rgba(245,158,11,0.40)]") : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
-                        {m === "delete_draft" ? "Eliminar Draft" : "Emitir Nota de Crédito"}
+                        {m === "delete_draft" ? t("modeDeleteDraft") : t("modeCreditNote")}
                     </button>
                 ))}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40 md:col-span-1">
-                    Order #
+                    {t("orderNumberShort")}
                     <input type="number" value={orderNumber} onChange={e => setOrderNumber(e.target.value)} placeholder="1137"
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                 </label>
-                <textarea placeholder="Motivo (recomendado)..." value={reason} onChange={e => setReason(e.target.value)} rows={2}
+                <textarea placeholder={t("reasonRecommended")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
                     className="md:col-span-2 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
             </div>
             {confirm ? (
                 <div className="flex items-center gap-3 bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] rounded-2xl p-4">
                     <AlertCircle className="w-4 h-4 text-destructive" />
                     <span className="text-xs font-bold text-destructive flex-1">
-                        Confirmar: {isDelete ? `eliminar draft da #${orderNumber}` : `emitir nota de crédito para #${orderNumber}`}? Ação irreversível em IX.
+                        {isDelete ? t("confirmDeleteDraft", { n: orderNumber }) : t("confirmCreditNote", { n: orderNumber })}
                     </span>
                     <button onClick={run} disabled={loading}
                         className={`px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest ${isDelete ? "bg-destructive hover:bg-destructive/85" : "bg-soon hover:bg-soon/85"} text-white disabled:opacity-50 flex items-center gap-2`}>
                         {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
-                        Confirmar
+                        {t("confirm")}
                     </button>
-                    <button onClick={() => setConfirm(false)} className="px-3 py-2 rounded-xl bg-surface-2 text-fg-60 text-[10px] font-black uppercase">Cancelar</button>
+                    <button onClick={() => setConfirm(false)} className="px-3 py-2 rounded-xl bg-surface-2 text-fg-60 text-[10px] font-black uppercase">{t("back")}</button>
                 </div>
             ) : (
                 <button onClick={() => setConfirm(true)} disabled={loading || !orderNumber}
                     className={`w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${isDelete ? "bg-white text-black hover:bg-destructive hover:text-fg" : "bg-white text-black hover:bg-soon hover:text-fg"}`}>
                     {isDelete ? <Trash2 className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
-                    {isDelete ? "Eliminar Draft" : "Emitir Nota de Crédito"}
+                    {isDelete ? t("modeDeleteDraft") : t("modeCreditNote")}
                 </button>
             )}
             <ResultBox result={result} />
@@ -687,6 +697,7 @@ function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: strin
 }
 
 function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+    const t = useTranslations("devMode");
     const [limit, setLimit] = useState("100");
     const [dryRun, setDryRun] = useState(true);
     const [reason, setReason] = useState("");
@@ -724,14 +735,14 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
     };
 
     return (
-        <Section icon={<FileCheck2 className="w-5 h-5 text-accent" />} title="Finalizar Rascunhos em Massa" desc="Itera processed_orders (oldest→newest), identifica faturas em draft no IX, ajusta data conforme estratégia escolhida e finaliza.">
+        <Section icon={<FileCheck2 className="w-5 h-5 text-accent" />} title={t("finalizeTitle")} desc={t("finalizeDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-3 flex flex-col gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Estratégia de data ao finalizar</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{t("dateStrategy")}</span>
                     <div className="flex gap-2">
                         {([
-                            { id: "closest_available", label: "Mais próxima na série", desc: "Mantém data original se válida; caso contrário usa a última data finalizada" },
-                            { id: "today", label: "Hoje", desc: "Força todos os drafts para a data de hoje" },
+                            { id: "closest_available", label: t("stratClosest"), desc: t("stratClosestDesc") },
+                            { id: "today", label: t("stratToday"), desc: t("stratTodayDesc") },
                         ] as const).map(opt => (
                             <button key={opt.id} type="button" onClick={() => setDateStrategy(opt.id)}
                                 title={opt.desc}
@@ -741,16 +752,16 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
                         ))}
                     </div>
                     <p className="text-[10px] text-fg-40 leading-relaxed">
-                        Quando a data tem de ser ajustada, a observação da fatura recebe o sufixo <code className="text-fg">Fatura referente à encomenda #X de DD/MM/YYYY</code> (preserva o conteúdo existente).
+                        {t.rich("stratNote", { code: (c) => <code className="text-fg">{c}</code> })}
                     </p>
                 </div>
                 <div className="md:col-span-3 flex flex-col gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Filtro (para evitar timeout em loops grandes)</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{t("filter")}</span>
                     <div className="flex gap-2">
                         {([
-                            { id: "all", label: "Todos" },
-                            { id: "order_range", label: "Range de orders" },
-                            { id: "date_range", label: "Range de datas" },
+                            { id: "all", label: t("filterAll") },
+                            { id: "order_range", label: t("filterOrderRange") },
+                            { id: "date_range", label: t("filterDateRange") },
                         ] as const).map(opt => (
                             <button key={opt.id} type="button" onClick={() => setFilterMode(opt.id)}
                                 className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${filterMode === opt.id ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
@@ -761,40 +772,40 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
                     {filterMode === "order_range" && (
                         <div className="grid grid-cols-2 gap-3 mt-1">
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                De # <input type="number" value={fromOrder} onChange={e => setFromOrder(e.target.value)} placeholder="1260" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("from")} # <input type="number" value={fromOrder} onChange={e => setFromOrder(e.target.value)} placeholder="1260" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                             </label>
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                Até # <input type="number" value={toOrder} onChange={e => setToOrder(e.target.value)} placeholder="1280" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("to")} # <input type="number" value={toOrder} onChange={e => setToOrder(e.target.value)} placeholder="1280" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                             </label>
                         </div>
                     )}
                     {filterMode === "date_range" && (
                         <div className="grid grid-cols-2 gap-3 mt-1">
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                De <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("from")} <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                             </label>
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                Até <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("to")} <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                             </label>
                         </div>
                     )}
                 </div>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                    Limite
+                    {t("limit")}
                     <input type="number" value={limit} onChange={e => setLimit(e.target.value)} min={1} max={500}
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                 </label>
                 <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={dryRun} onChange={e => setDryRun(e.target.checked)} className="accent-soon w-4 h-4" />
-                    <span className="text-xs font-bold text-fg">Dry-run</span>
+                    <span className="text-xs font-bold text-fg">{t("dryRun")}</span>
                 </label>
-                <textarea placeholder="Motivo..." value={reason} onChange={e => setReason(e.target.value)} rows={2}
+                <textarea placeholder={t("reasonShort")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
                     className="md:col-span-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
             </div>
             <button onClick={run} disabled={loading}
                 className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-surface transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck2 className="w-4 h-4" />}
-                {dryRun ? "Simular Finalização" : "Finalizar Rascunhos"}
+                {dryRun ? t("simulateFinalize") : t("runFinalize")}
             </button>
             <ResultBox result={result} />
         </Section>
@@ -802,6 +813,7 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
 }
 
 function LogsCard({ targetUserId }: { targetUserId: string }) {
+    const t = useTranslations("devMode");
     const [tab, setTab] = useState<"jobs" | "errors" | "webhooks">("jobs");
     const [entries, setEntries] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
@@ -829,12 +841,12 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
     };
 
     return (
-        <Section icon={<ScrollText className="w-5 h-5 text-fg-60" />} title="Logs Detalhados" desc="Histórico de jobs Dev Mode, erros e webhooks por conta.">
+        <Section icon={<ScrollText className="w-5 h-5 text-fg-60" />} title={t("logsTitle")} desc={t("logsDesc")}>
             <div className="flex gap-2 border-b border-hairline pb-3">
-                {(["jobs", "errors", "webhooks"] as const).map(t => (
-                    <button key={t} onClick={() => setTab(t)}
-                        className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tab === t ? "bg-white text-black" : "text-fg-40 hover:text-fg"}`}>
-                        {t}
+                {(["jobs", "errors", "webhooks"] as const).map(tabId => (
+                    <button key={tabId} onClick={() => setTab(tabId)}
+                        className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tab === tabId ? "bg-white text-black" : "text-fg-40 hover:text-fg"}`}>
+                        {tabId}
                     </button>
                 ))}
                 <button onClick={load} disabled={loading} className="ml-auto px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-fg-40 hover:text-fg">
@@ -843,7 +855,7 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
             </div>
 
             {entries.length === 0 ? (
-                <p className="text-fg-40 text-xs font-medium italic text-center py-8">Sem entradas.</p>
+                <p className="text-fg-40 text-xs font-medium italic text-center py-8">{t("noEntries")}</p>
             ) : (
                 <div className="space-y-2 max-h-[500px] overflow-y-auto">
                     {entries.map((e, i) => {
@@ -857,7 +869,7 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
                                     <div className="flex items-center gap-3 min-w-0">
                                         {ok ? <CheckCircle2 className="w-4 h-4 text-accent-hot shrink-0" /> : <AlertCircle className="w-4 h-4 text-soon shrink-0" />}
                                         <div className="min-w-0">
-                                            <p className="text-xs font-bold text-fg truncate">{e.type ?? e.topic} {isJob && e.summary && <span className="text-fg-40">· {e.summary.total ?? 0} order(s)</span>}</p>
+                                            <p className="text-xs font-bold text-fg truncate">{e.type ?? e.topic} {isJob && e.summary && <span className="text-fg-40">· {t("ordersSuffix", { n: e.summary.total ?? 0 })}</span>}</p>
                                             <p className="text-[10px] text-fg-40 font-medium flex items-center gap-2">
                                                 <Calendar className="w-3 h-3" /> {e.started_at ?? e.created_at}
                                                 {isJob && e.triggered_by && <span>· {e.triggered_by}</span>}
@@ -870,7 +882,7 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
                                 </button>
                                 {isJob && expanded === e.id && (
                                     <pre className="mt-3 bg-surface rounded-lg p-3 text-[10px] font-mono whitespace-pre-wrap text-fg-60 max-h-80 overflow-y-auto">
-                                        {jobDetail ? JSON.stringify(jobDetail, null, 2) : "Carregando..."}
+                                        {jobDetail ? JSON.stringify(jobDetail, null, 2) : t("loadingDots")}
                                     </pre>
                                 )}
                                 {!isJob && e.payload && (

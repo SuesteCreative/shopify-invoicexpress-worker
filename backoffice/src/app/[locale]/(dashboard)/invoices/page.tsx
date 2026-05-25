@@ -7,10 +7,12 @@ import {
     Box, ShoppingBag, Receipt, Split, Zap
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslations } from "next-intl";
 
 const cn = (...inputs: any[]) => inputs.filter(Boolean).join(" ");
 
 export default function InvoicesPage() {
+    const t = useTranslations("invoices");
     const [invoices, setInvoices] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
@@ -46,9 +48,9 @@ export default function InvoicesPage() {
                             <div className="p-2 bg-surface-2 rounded-xl border border-hairline">
                                 <ClipboardList className="w-5 h-5 text-accent" />
                             </div>
-                            <h1 className="text-2xl font-medium tracking-tight text-fg">Faturas</h1>
+                            <h1 className="text-2xl font-medium tracking-tight text-fg">{t("title")}</h1>
                         </div>
-                        <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-11">Histórico de Transações</p>
+                        <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-11">{t("subtitle")}</p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-4">
@@ -56,14 +58,14 @@ export default function InvoicesPage() {
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
                             <input
                                 type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Procurar Order # ou Fatura..."
+                                placeholder={t("searchPlaceholder")}
                                 className="bg-surface-2 border border-hairline rounded-2xl pl-12 pr-4 py-3 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] outline-none w-full md:w-80 transition-all placeholder:text-fg-40"
                             />
                         </div>
                         <div className="flex bg-surface-2/80 p-1 rounded-xl border border-hairline">
-                            <button onClick={() => setFilter("all")} className={cn("px-4 py-2 rounded-lg font-mono text-[10px] uppercase tracking-[0.18em] transition-all", filter === "all" ? "bg-fg text-surface" : "text-fg-40 hover:text-fg")}>Tudo</button>
-                            <button onClick={() => setFilter("unpaid")} className={cn("px-4 py-2 rounded-lg font-mono text-[10px] uppercase tracking-[0.18em] transition-all", filter === "unpaid" ? "bg-fg text-surface" : "text-fg-40 hover:text-fg")}>Pendentes</button>
-                            <button onClick={() => setFilter("credit")} className={cn("px-4 py-2 rounded-lg font-mono text-[10px] uppercase tracking-[0.18em] transition-all", filter === "credit" ? "bg-fg text-surface" : "text-fg-40 hover:text-fg")}>Créditos</button>
+                            <button onClick={() => setFilter("all")} className={cn("px-4 py-2 rounded-lg font-mono text-[10px] uppercase tracking-[0.18em] transition-all", filter === "all" ? "bg-fg text-surface" : "text-fg-40 hover:text-fg")}>{t("filterAll")}</button>
+                            <button onClick={() => setFilter("unpaid")} className={cn("px-4 py-2 rounded-lg font-mono text-[10px] uppercase tracking-[0.18em] transition-all", filter === "unpaid" ? "bg-fg text-surface" : "text-fg-40 hover:text-fg")}>{t("filterUnpaid")}</button>
+                            <button onClick={() => setFilter("credit")} className={cn("px-4 py-2 rounded-lg font-mono text-[10px] uppercase tracking-[0.18em] transition-all", filter === "credit" ? "bg-fg text-surface" : "text-fg-40 hover:text-fg")}>{t("filterCredit")}</button>
                         </div>
                     </div>
                 </div>
@@ -76,7 +78,7 @@ export default function InvoicesPage() {
                             <Loader2 className="w-12 h-12 text-accent animate-spin" />
                             <div className="absolute inset-0 bg-[rgba(2,141,196,0.20)] blur-2xl animate-pulse" />
                         </div>
-                        <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] animate-pulse">Sincronizando com InvoiceXpress...</p>
+                        <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] animate-pulse">{t("syncing")}</p>
                     </div>
                 ) : filtered.length === 0 ? (
                     <div className="py-32 flex flex-col items-center text-center space-y-6 glass rounded-[3rem]">
@@ -84,8 +86,8 @@ export default function InvoicesPage() {
                             <Box className="w-12 h-12 text-fg-40" />
                         </div>
                         <div className="space-y-2">
-                            <h2 className="text-xl font-medium text-fg">Nenhuma fatura encontrada</h2>
-                            <p className="text-fg-40 text-sm max-w-sm">Não encontramos transações para o critério selecionado ou o InvoiceXpress não retornou dados.</p>
+                            <h2 className="text-xl font-medium text-fg">{t("emptyTitle")}</h2>
+                            <p className="text-fg-40 text-sm max-w-sm">{t("emptyBody")}</p>
                         </div>
                     </div>
                 ) : (
@@ -103,6 +105,7 @@ export default function InvoicesPage() {
 }
 
 function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string }) {
+    const t = useTranslations("invoices");
     const [expanded, setExpanded] = useState(false);
 
     const isFinalized = ["finalized", "settled", "sent"].includes(invoice.status);
@@ -110,9 +113,9 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
     const shopifyOrderUrl = `https://admin.shopify.com/store/${shopDomain.split(".")[0]}/orders/${invoice.order_id}`;
 
     const typeLabel = {
-        invoice_receipt: "Fatura-Recibo",
-        invoice: "Fatura",
-        credit_note: "Nota de Crédito"
+        invoice_receipt: t("typeInvoiceReceipt"),
+        invoice: t("typeInvoice"),
+        credit_note: t("typeCreditNote")
     }[invoice.type as string] || invoice.type;
 
     const ixDocType = invoice.type === 'invoice_receipt' ? 'invoice_receipts' : (invoice.type === 'credit_note' ? 'credit_notes' : 'invoices');
@@ -147,7 +150,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                             {isFinalized ? (
                                 <div className="flex items-center gap-1.5 bg-[rgba(94,234,212,0.10)] px-2 py-0.5 rounded-full border border-[rgba(94,234,212,0.20)]">
                                     <div className="w-1 h-1 rounded-full bg-accent-hot animate-pulse" />
-                                    <span className="font-mono text-[8px] uppercase tracking-[0.22em] text-accent-hot">Emitida</span>
+                                    <span className="font-mono text-[8px] uppercase tracking-[0.22em] text-accent-hot">{t("issued")}</span>
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-1.5 bg-[rgba(245,158,11,0.10)] px-2 py-0.5 rounded-full border border-[rgba(245,158,11,0.20)]">
@@ -164,7 +167,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
 
                 <div className="flex items-center justify-between md:justify-end gap-10">
                     <div className="text-right">
-                        <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] block mb-1">Total Transação</span>
+                        <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] block mb-1">{t("transactionTotal")}</span>
                         <p className="text-xl font-medium text-fg tabular-nums">{invoice.total}€</p>
                     </div>
 
@@ -173,7 +176,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                             href={pdfUrl} target="_blank" rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="p-4 bg-surface-2 hover:bg-surface-2/70 text-fg-60 hover:text-fg rounded-[1.25rem] border border-hairline transition-all active:scale-90"
-                            title="Ver PDF"
+                            title={t("viewPdf")}
                         >
                             <FileText className="w-5 h-5" />
                         </a>
@@ -181,7 +184,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                             href={shopifyOrderUrl} target="_blank" rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="p-4 bg-surface-2 hover:bg-[rgba(94,234,212,0.10)] text-fg-60 hover:text-accent-hot rounded-[1.25rem] border border-hairline hover:border-[rgba(94,234,212,0.30)] transition-all active:scale-90"
-                            title="Abrir no Shopify"
+                            title={t("openInShopify")}
                         >
                             <ShoppingBag className="w-5 h-5" />
                         </a>
@@ -200,7 +203,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                     <div className="space-y-6">
                         <div className="flex items-center gap-3">
                             <Zap className="w-4 h-4 text-accent" />
-                            <h4 className="font-mono text-[10px] uppercase text-fg-40 tracking-[0.25em]">Caminho da Transação</h4>
+                            <h4 className="font-mono text-[10px] uppercase text-fg-40 tracking-[0.25em]">{t("transactionPath")}</h4>
                         </div>
 
                         <div className="relative pl-6 space-y-6 before:absolute before:left-1 before:top-2 before:bottom-0 before:w-px before:bg-gradient-to-b before:from-[rgba(2,141,196,0.50)] before:to-transparent">
@@ -210,18 +213,18 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                                         <div className="absolute -left-[24px] top-1.5 w-2 h-2 rounded-full bg-surface ring-2 ring-accent shadow-[0_0_10px_rgba(2,141,196,0.50)] z-10" />
                                         <div className="space-y-1">
                                             <p className="text-[11px] font-medium text-fg flex items-center gap-2">
-                                                {log.topic === "orders/paid" ? "💳 Pagamento Shopify" : (log.topic === "refunds/create" ? "💸 Reembolso Solicitado" : log.topic)}
+                                                {log.topic === "orders/paid" ? t("shopifyPayment") : (log.topic === "refunds/create" ? t("refundRequested") : log.topic)}
                                                 <span className="font-mono text-[9px] text-fg-40">#{log.status}</span>
                                             </p>
                                             <p className="text-[10px] text-fg-60 leading-relaxed font-medium">
-                                                {log.topic === "orders/paid" ? `Fatura InvoiceXpress gerada: ${log.response || '(Pendente)'}` : (log.topic === "refunds/create" ? "Processando Nota de Crédito automática..." : "Operação concluída com sucesso.")}
+                                                {log.topic === "orders/paid" ? t("ixInvoiceGenerated", { value: log.response || t("ixPendingValue") }) : (log.topic === "refunds/create" ? t("creditNoteProcessing") : t("operationSuccess"))}
                                             </p>
                                             <p className="font-mono text-[8px] text-fg-40 uppercase tracking-[0.22em]">{new Date(log.created_at).toLocaleString()}</p>
                                         </div>
                                     </div>
                                 ))
                             ) : (
-                                <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] py-2">Sem logs históricos carregados.</p>
+                                <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] py-2">{t("noLogs")}</p>
                             )}
                         </div>
                     </div>
@@ -232,22 +235,22 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                             <FileText className="w-12 h-12 text-accent" />
                         </div>
                         <div className="space-y-1 z-10">
-                            <h5 className="font-medium text-fg">Pré-visualização do Documento</h5>
-                            <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Documento certificado e assinado digitalmente</p>
+                            <h5 className="font-medium text-fg">{t("documentPreview")}</h5>
+                            <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("documentCertified")}</p>
                         </div>
                         <div className="flex gap-3 z-10">
                             <a
                                 href={pdfUrl}
                                 className="px-6 py-3 bg-fg text-surface hover:bg-accent-hot rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] transition-all shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)] active:scale-95 flex items-center gap-2"
                             >
-                                <Download className="w-3.5 h-3.5" /> Descarregar PDF
+                                <Download className="w-3.5 h-3.5" /> {t("downloadPdf")}
                             </a>
                             <a
                                 href={`https://${shopDomain}/admin/orders/${invoice.order_id}`}
                                 target="_blank"
                                 className="px-6 py-3 bg-surface-2 text-fg hover:bg-surface-2/70 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] transition-all active:scale-95 flex items-center gap-2 border border-hairline"
                             >
-                                <ExternalLink className="w-3.5 h-3.5" /> Ver Shopify
+                                <ExternalLink className="w-3.5 h-3.5" /> {t("viewShopify")}
                             </a>
                         </div>
                     </div>

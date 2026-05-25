@@ -5,6 +5,7 @@ export const runtime = "edge";
 import { useState, useEffect, useMemo } from "react";
 import { Loader2, Settings2, Check, X, Store, Webhook, FileText, ToggleLeft, ToggleRight, AlertTriangle, Search, ArrowUpDown, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslations } from "next-intl";
 
 interface ClientRule {
     id: string;
@@ -53,6 +54,7 @@ const Toggle = ({ value, onChange, label, description, warn }: {
 );
 
 export default function ClientRulesPage() {
+    const t = useTranslations("clientRules");
     const [clients, setClients] = useState<ClientRule[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<string | null>(null);
@@ -111,18 +113,18 @@ export default function ClientRulesPage() {
                     <div className="flex items-center gap-3">
                         <Settings2 className="w-8 h-8 text-accent" />
                         <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
-                            Regras
+                            {t("title")}
                         </h1>
                     </div>
                     <p className="text-fg-60 font-semibold tracking-wide">
-                        Configurações e overrides activos. Exclusivo Hiperadmin.
+                        {t("subtitle")}
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-4">
                     <div className="relative group">
                         <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-accent transition-colors" />
                         <input
-                            type="text" placeholder="Nome, email ou domínio..."
+                            type="text" placeholder={t("searchPlaceholder")}
                             value={search} onChange={e => setSearch(e.target.value)}
                             className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.40)] w-full lg:w-80 transition-all"
                         />
@@ -132,7 +134,7 @@ export default function ClientRulesPage() {
                         className="bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-surface-2/80 transition-all active:scale-95"
                     >
                         <ArrowUpDown className="w-4 h-4 text-accent" />
-                        {sortOrder === "desc" ? "Z-A" : "A-Z"}
+                        {sortOrder === "desc" ? t("sortDesc") : t("sortAsc")}
                     </button>
                 </div>
             </div>
@@ -170,17 +172,17 @@ export default function ClientRulesPage() {
                                 </div>
                                 <div className="flex flex-col items-end gap-2 text-right">
                                     <div className="text-[10px] font-black text-fg-40 uppercase tracking-widest bg-surface-2/50 px-3 py-1 rounded-lg border border-hairline">
-                                        Isenção: {client.ix_exemption_reason || "M01"}
+                                        {t("exemption", { code: client.ix_exemption_reason || "M01" })}
                                     </div>
                                     <div className="flex gap-2">
                                         {client.shopify_authorized === 1 && (
                                             <div className="flex flex-col items-end">
                                                 <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
-                                                    <Check className="w-2.5 h-2.5" /> Shopify Force
+                                                    <Check className="w-2.5 h-2.5" /> {t("shopifyForce")}
                                                 </div>
                                                 {client.shopify_forced_at && (
                                                     <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
-                                                        Ativado: {new Date(client.shopify_forced_at).toLocaleString("pt-PT")}
+                                                        {t("activatedAt", { date: new Date(client.shopify_forced_at).toLocaleString("pt-PT") })}
                                                     </span>
                                                 )}
                                             </div>
@@ -188,11 +190,11 @@ export default function ClientRulesPage() {
                                         {client.webhooks_active === 1 && (
                                             <div className="flex flex-col items-end">
                                                 <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
-                                                    <Webhook className="w-2.5 h-2.5" /> Webhook Force
+                                                    <Webhook className="w-2.5 h-2.5" /> {t("webhookForce")}
                                                 </div>
                                                 {client.webhooks_forced_at && (
                                                     <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
-                                                        Ativado: {new Date(client.webhooks_forced_at).toLocaleString("pt-PT")}
+                                                        {t("activatedAt", { date: new Date(client.webhooks_forced_at).toLocaleString("pt-PT") })}
                                                     </span>
                                                 )}
                                             </div>
@@ -200,11 +202,11 @@ export default function ClientRulesPage() {
                                         {client.ix_authorized === 1 && (
                                             <div className="flex flex-col items-end">
                                                 <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">
-                                                    <Check className="w-2.5 h-2.5" /> IX Force
+                                                    <Check className="w-2.5 h-2.5" /> {t("ixForce")}
                                                 </div>
                                                 {client.ix_forced_at && (
                                                     <span className="text-[7px] text-fg-40 font-bold mt-0.5 uppercase tracking-tighter">
-                                                        Ativado: {new Date(client.ix_forced_at).toLocaleString("pt-PT")}
+                                                        {t("activatedAt", { date: new Date(client.ix_forced_at).toLocaleString("pt-PT") })}
                                                     </span>
                                                 )}
                                             </div>
@@ -218,34 +220,34 @@ export default function ClientRulesPage() {
                                 <Toggle
                                     value={client.pos_mode === 1}
                                     onChange={v => updateFlag(client.id, "pos_mode", v ? 1 : 0)}
-                                    label="🏪 Modo POS (NIF Matrix)"
-                                    description="Activa a resolução de nome por NIF para lojas físicas. Em vez de 'Consumidor Final', usa 'NIF XXXXXXXXX' como identificador único quando não há nome de cliente."
-                                    warn="Activado: os clientes sem nome serão identificados pelo NIF na ficha do InvoiceXpress."
+                                    label={t("posModeLabel")}
+                                    description={t("posModeDesc")}
+                                    warn={t("posModeWarn")}
                                 />
                                 <Toggle
                                     value={client.vat_included === 1}
                                     onChange={v => updateFlag(client.id, "vat_included", v ? 1 : 0)}
-                                    label="💰 IVA Incluído nos Preços"
-                                    description="Se os preços da loja Shopify já incluem IVA, o Rioko faz o cálculo inverso para a fatura."
+                                    label={t("vatIncludedLabel")}
+                                    description={t("vatIncludedDesc")}
                                 />
                                 <Toggle
                                     value={client.auto_finalize === 1}
                                     onChange={v => updateFlag(client.id, "auto_finalize", v ? 1 : 0)}
-                                    label="⚡ Finalizar Automaticamente"
-                                    description="As faturas são emitidas e finalizadas imediatamente após a criação. Se desligado, ficam em rascunho."
-                                    warn="Faturas finalizadas não podem ser editadas no InvoiceXpress."
+                                    label={t("autoFinalizeLabel")}
+                                    description={t("autoFinalizeDesc")}
+                                    warn={t("autoFinalizeWarn")}
                                 />
                                 <Toggle
                                     value={client.client_sync === 1}
                                     onChange={v => updateFlag(client.id, "client_sync", v ? 1 : 0)}
-                                    label="🧹 Sincronizar Fichas (Limpeza)"
-                                    description="Se ativo, o Rioko atualiza o nome no IX (ex: 'Client' → 'João Silva') se encontrar novos dados. Só actua sobre nomes genéricos."
+                                    label={t("clientSyncLabel")}
+                                    description={t("clientSyncDesc")}
                                 />
                             </div>
 
                             {saving && saving.startsWith(client.id) && (
                                 <div className="mt-4 flex items-center gap-2 text-[10px] text-fg-40 font-bold">
-                                    <Loader2 className="w-3 h-3 animate-spin" /> A guardar...
+                                    <Loader2 className="w-3 h-3 animate-spin" /> {t("saving")}
                                 </div>
                             )}
                         </motion.div>
@@ -254,7 +256,7 @@ export default function ClientRulesPage() {
 
                 {clients.length === 0 && (
                     <div className="text-center py-20 text-fg-40 font-bold text-sm">
-                        Nenhum cliente com integração configurada.
+                        {t("emptyList")}
                     </div>
                 )}
             </div>

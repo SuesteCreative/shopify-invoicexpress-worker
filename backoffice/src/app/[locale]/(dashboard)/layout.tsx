@@ -83,7 +83,7 @@ export default async function DashboardLayout({
                     </div>
 
                     <div className="pt-6 border-t border-hairline w-full text-center md:text-left space-y-1">
-                        <div className="font-mono text-[10px] text-fg-40 tracking-[0.18em] leading-snug">
+                        <div className="font-mono text-[10px] text-fg-40 leading-snug tracking-[0.14em] whitespace-nowrap">
                             © {new Date().getFullYear()}{" "}
                             <a
                                 href="https://kapta.pt/"
@@ -93,9 +93,12 @@ export default async function DashboardLayout({
                             >
                                 Kapta
                             </a>
-                            . {t("rights")}
+                            .
                         </div>
-                        <div className="font-mono text-[9px] text-fg-40 tracking-[0.22em] uppercase">v{RIOKO_CONFIG.version} {RIOKO_CONFIG.stableBuild ? t("stableBuild") : t("previewBuild")}</div>
+                        <div className="font-mono text-[10px] text-fg-40 leading-snug tracking-[0.06em] whitespace-nowrap">
+                            {t("rights")}
+                        </div>
+                        <div className="pt-1 font-mono text-[9px] text-fg-40 tracking-[0.22em] uppercase">v{RIOKO_CONFIG.version} {RIOKO_CONFIG.stableBuild ? t("stableBuild") : t("previewBuild")}</div>
                     </div>
                 </div>
             </aside>

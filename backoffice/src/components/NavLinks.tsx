@@ -26,7 +26,12 @@ const INACTIVE = "text-fg-60 hover:text-fg hover:bg-white/5";
 
 export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boolean; isHiperadmin?: boolean }) {
     const t = useTranslations("nav");
-    const pathname = usePathname();
+    const rawPathname = usePathname() || "/";
+    // Defensive: strip any leftover locale prefix and trailing slash so the
+    // active matcher works regardless of which usePathname is in scope.
+    const pathname = rawPathname.replace(/^\/(pt|en)(?=\/|$)/, "").replace(/\/$/, "") || "/";
+    const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+
     const [activeIntegrations, setActiveIntegrations] = useState<ActiveIntegration[]>([]);
     const [isRegistered, setIsRegistered] = useState<boolean>(true);
 
@@ -84,7 +89,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                 href={href}
                 className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-2xl font-medium text-sm transition-all border border-transparent",
-                    pathname === href ? activeClass : INACTIVE
+                    isActive(href) ? activeClass : INACTIVE
                 )}
             >
                 <Icon className="w-4 h-4" />
@@ -132,7 +137,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                                 className={cn(
                                     "flex items-center gap-3 px-4 py-3 rounded-2xl font-medium text-sm transition-all border border-transparent group relative",
                                     !isRegistered ? "opacity-30 cursor-not-allowed" : "",
-                                    pathname.includes(integration.href) ? ACTIVE_BRAND : INACTIVE
+                                    isActive(integration.href) ? ACTIVE_BRAND : INACTIVE
                                 )}
                             >
                                 <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-mono font-medium bg-surface-2 border border-hairline text-fg-60">

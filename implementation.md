@@ -104,17 +104,17 @@ Conventions:
 - [x] Hero stats grid step-down.
 - [x] Pipeline pills `grid-cols-2 sm:grid-cols-4`.
 
-### High dashboard — pendente
-- [ ] Heavy `p-8/10/12/16` flat padding em ~12 sítios (dashboard, integrations cards, help footer, faturacao empty state, invoices expanded panel) — adicionar `sm:` prefix.
-- [ ] Invoices page: `sticky` header em mobile come 30vh — gate em `md:sticky`.
-- [ ] Dashboard log list `text-[9px]` timestamps abaixo do legibility threshold.
-- [ ] NavLinks tooltips hover-only — converter para tap-toggle em mobile.
+### High dashboard — resolvidos
+- [x] Heavy `p-8/10/12/16/20` flat padding em ~50 sítios — sweep automatizado adicionou `sm:` prefix.
+- [x] Invoices page: `sticky` → `md:sticky`.
+- [x] Sub-12px fonts (~30 promoções `text-[7-9px]` → `text-[10px]`).
+- [x] NavLinks tooltips: inline mobile + popover desktop.
+- [x] Clerk sign-in/sign-up widget wrap em `max-w-[440px]`.
 
-### Medium / Low (resto do audit)
-- [ ] Sub-12px fonts (`text-[7-9px]`) — minimum `text-[10px]` em badges, timestamps, labels (6 sítios).
+### Medium / Low — pendentes (próxima sessão)
 - [ ] PT translations longas vs uppercase tracking — verificar overflow em buttons "MAIS RECENTES PRIMEIRO" etc.
-- [ ] Restantes 9 medium + 4 low items do audit landing (detalhe inline em transcript do audit).
-- [ ] Clerk sign-in/sign-up widget — wrap em `w-full max-w-[440px]` para garantir contenção em 320px.
+- [ ] Restantes ~13 medium + 4 low items (detalhe inline em audit transcript).
+- [ ] Sample real visual em browser (320/375/768) — confirmação dinâmica do que o audit estático identificou.
 
 ---
 

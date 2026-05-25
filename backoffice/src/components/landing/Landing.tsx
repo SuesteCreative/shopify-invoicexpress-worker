@@ -970,7 +970,7 @@ function IntegrationMatrix() {
             </div>
           </div>
           <a
-            href="mailto:rioko@kapta.pt?subject=Pedido%20de%20integração"
+            href={`mailto:rioko@kapta.pt?subject=${encodeURIComponent(t("missingEmailSubject"))}`}
             className="group inline-flex items-center gap-2 text-[13px]"
             style={{ color: FG }}
           >

@@ -64,7 +64,8 @@
       "subtitleInvoicing": "output · documents issued to the right gateway",
       "missingTitle": "Missing an integration you need?",
       "missingSub": "we prioritize by real demand",
-      "missingCta": "Request new integration"
+      "missingCta": "Request new integration",
+      "missingEmailSubject": "Integration request"
     },
     "status": {
       "live": "Live",

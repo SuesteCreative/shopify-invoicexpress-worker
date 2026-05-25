@@ -64,7 +64,8 @@
       "subtitleInvoicing": "saída · documentos emitidos ao gateway certo",
       "missingTitle": "Falta uma integração que precisa?",
       "missingSub": "priorizamos por procura real",
-      "missingCta": "Pedir nova integração"
+      "missingCta": "Pedir nova integração",
+      "missingEmailSubject": "Pedido de integração"
     },
     "status": {
       "live": "Ativo",

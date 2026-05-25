@@ -391,7 +391,7 @@ export default function StripeIXIntegration() {
                     {!isAuthorized && showPanel && (
                         <motion.div
                             initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-80 p-6 bg-surface-2 border-2 border-[rgba(245,158,11,0.20)] rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[100] backdrop-blur-3xl pointer-events-auto"
+                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-[90vw] max-w-[20rem] p-6 bg-surface-2 border-2 border-[rgba(245,158,11,0.20)] rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[100] backdrop-blur-3xl pointer-events-auto"
                         >
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-3 text-soon">
@@ -462,7 +462,7 @@ export default function StripeIXIntegration() {
                     <Link href="/integrations" className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
                         <ArrowLeft className="w-3 h-3" /> {t("backToIntegrations")}
                     </Link>
-                    <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
+                    <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                         {t("pageTitle")}
                     </h1>
                     <p className="text-fg-60 font-semibold tracking-wide flex items-center gap-2">

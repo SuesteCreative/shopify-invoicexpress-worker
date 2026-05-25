@@ -40,7 +40,7 @@ function Section({ id, icon, title, step, children, accent = "rose" }: {
                     <h2 className="text-2xl font-black text-white">{title}</h2>
                 </div>
             </div>
-            <div className="ml-16 space-y-6">{children}</div>
+            <div className="ml-0 sm:ml-16 space-y-6">{children}</div>
         </section>
     );
 }

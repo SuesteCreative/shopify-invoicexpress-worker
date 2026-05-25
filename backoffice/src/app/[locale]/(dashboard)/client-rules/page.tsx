@@ -112,7 +112,7 @@ export default function ClientRulesPage() {
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3">
                         <Settings2 className="w-8 h-8 text-accent" />
-                        <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
+                        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                             {t("title")}
                         </h1>
                     </div>
@@ -148,13 +148,13 @@ export default function ClientRulesPage() {
                             initial={{ opacity: 0, scale: 0.98 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.98 }}
-                            className="glass rounded-[2rem] p-8 border-hairline hover:border-rule transition-all"
+                            className="glass rounded-[2rem] p-5 sm:p-8 border-hairline hover:border-rule transition-all"
                         >
                             {/* Client header */}
-                            <div className="flex items-start justify-between mb-6 pb-6 border-b border-hairline">
-                                <div>
-                                    <h2 className="text-xl font-bold">{client.name}</h2>
-                                    <p className="text-fg-40 text-sm">{client.email}</p>
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-6 pb-6 border-b border-hairline">
+                                <div className="min-w-0">
+                                    <h2 className="text-xl font-bold break-words">{client.name}</h2>
+                                    <p className="text-fg-40 text-sm break-words">{client.email}</p>
                                     <div className="flex items-center gap-4 mt-4 flex-wrap">
                                         {client.shopify_domain && (
                                             <span className="flex items-center gap-1.5 text-[10px] text-fg-40 font-bold uppercase tracking-widest">
@@ -170,11 +170,11 @@ export default function ClientRulesPage() {
                                         )}
                                     </div>
                                 </div>
-                                <div className="flex flex-col items-end gap-2 text-right">
+                                <div className="flex flex-col items-start md:items-end gap-2 md:text-right shrink-0">
                                     <div className="text-[10px] font-black text-fg-40 uppercase tracking-widest bg-surface-2/50 px-3 py-1 rounded-lg border border-hairline">
                                         {t("exemption", { code: client.ix_exemption_reason || "M01" })}
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap gap-2">
                                         {client.shopify_authorized === 1 && (
                                             <div className="flex flex-col items-end">
                                                 <div className="px-2 py-1 rounded-md bg-surface-2 border border-hairline text-[9px] font-medium text-fg-60 uppercase tracking-tighter flex items-center gap-1">

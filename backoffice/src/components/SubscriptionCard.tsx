@@ -209,7 +209,7 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
 
                 {showCheckout && (
                     <div className="flex flex-col lg:flex-row gap-6 items-stretch">
-                        <div className="grid grid-cols-2 gap-4 flex-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
                             <button
                                 onClick={() => setSelectedPlan("monthly")}
                                 className={cn(
@@ -262,7 +262,7 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
                             disabled={acting}
                             onClick={startCheckout}
                             className={cn(
-                                "px-8 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] transition-all transform active:scale-95 flex items-center justify-center gap-3 shrink-0 min-w-[260px]",
+                                "px-8 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] transition-all transform active:scale-95 flex items-center justify-center gap-3 w-full lg:w-auto lg:min-w-[260px] lg:shrink-0",
                                 state === "blocked"
                                     ? "bg-destructive text-white hover:bg-destructive/85"
                                     : state === "trialing_earlybird"

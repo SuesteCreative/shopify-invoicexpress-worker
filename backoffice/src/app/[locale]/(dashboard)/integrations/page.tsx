@@ -63,7 +63,7 @@ export default function IntegrationsPage() {
     return (
         <div className="max-w-6xl mx-auto space-y-16 animate-in fade-in duration-1000 slide-in-from-bottom-4">
             <div className="space-y-4 text-center md:text-left">
-                <h1 className="text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                     {t("title")}
                 </h1>
                 <p className="text-fg-60 font-medium tracking-wide">

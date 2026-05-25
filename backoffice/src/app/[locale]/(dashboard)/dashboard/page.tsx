@@ -100,7 +100,7 @@ export default function WelcomeDashboard() {
       {/* Welcome Message */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="space-y-2">
-          <h1 className="text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
             {firstName ? t("welcomeNamed", { name: firstName }) : t("welcome")}
           </h1>
           <p className="text-fg-60 font-medium tracking-wide flex items-center gap-2">

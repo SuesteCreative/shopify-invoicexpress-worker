@@ -250,19 +250,20 @@ function Nav() {
         initial={{ y: -16, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE }}
-        className="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-4 rounded-full px-2 py-2"
+        className="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-3 sm:gap-4 rounded-full px-1.5 sm:px-2 py-2"
         style={{
           ...GLASS,
           background: "rgba(20,24,31,0.62)",
         }}
       >
-        <div className="flex items-center gap-3 pl-6 md:pl-8">
+        <div className="flex items-center gap-3 pl-3 md:pl-8">
           <Image
             src="/images/rioko2-logo.svg"
             alt="Rioko 2.0"
             width={132}
             height={27}
             priority
+            className="w-[100px] h-auto sm:w-[132px]"
           />
           <span
             className="hidden font-mono text-[10px] uppercase tracking-[0.18em] sm:inline-block"
@@ -313,7 +314,7 @@ function Nav() {
           </button>
           <Link
             href="/sign-up"
-            className="group inline-flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-[13px] font-medium transition-all duration-500 active:scale-[0.98]"
+            className="group inline-flex items-center gap-1.5 sm:gap-2 rounded-full py-2 pl-3 sm:pl-4 pr-1.5 sm:pr-2 text-[12px] sm:text-[13px] font-medium transition-all duration-500 active:scale-[0.98]"
             style={{
               background: FG,
               color: SURFACE,
@@ -496,7 +497,7 @@ function Hero() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, ease: EASE, delay: 0.55 }}
-            className="mt-14 grid max-w-[560px] grid-cols-3 gap-6 border-t pt-6"
+            className="mt-14 grid max-w-[560px] grid-cols-1 sm:grid-cols-3 gap-6 border-t pt-6"
             style={{ borderColor: RULE }}
           >
             <Stat value={t("stat1Value")} label={t("stat1Label")} />
@@ -862,7 +863,7 @@ function EngineCard({ destIdx }: { destIdx: number }) {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-4 gap-2">
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {PIPELINE_STEPS.map((step, i) => (
           <motion.div
             key={`${destIdx}-${step}`}
@@ -925,7 +926,7 @@ function IntegrationMatrix() {
   const faturação = INTEGRATIONS.filter((i) => i.kind === "faturação");
 
   return (
-    <section id="integracoes" className="relative px-4 pt-32 md:pt-44">
+    <section id="integracoes" className="relative px-4 pt-20 sm:pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
           eyebrow={t("eyebrow")}
@@ -1186,7 +1187,7 @@ function HowItWorks() {
   ];
 
   return (
-    <section id="como-funciona" className="relative px-4 pt-32 md:pt-44">
+    <section id="como-funciona" className="relative px-4 pt-20 sm:pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
           eyebrow={t("eyebrow")}
@@ -1440,7 +1441,7 @@ function FiscalTrust() {
   ];
 
   return (
-    <section id="fiscal" className="relative px-4 pt-32 md:pt-44">
+    <section id="fiscal" className="relative px-4 pt-20 sm:pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
           eyebrow={t("eyebrow")}
@@ -1549,7 +1550,7 @@ function Pricing() {
   ];
 
   return (
-    <section id="preco" className="relative px-4 pt-32 md:pt-44">
+    <section id="preco" className="relative px-4 pt-20 sm:pt-32 md:pt-44">
       <div className="mx-auto w-full max-w-[1280px]">
         <SectionHead
           eyebrow={t("eyebrow")}
@@ -1557,7 +1558,7 @@ function Pricing() {
           sub={t("sub")}
         />
 
-        <div className="mt-14 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="mt-14 grid grid-cols-1 gap-8 md:grid-cols-3 md:gap-4">
           {tiers.map((tier) => (
             <PricingCard key={tier.id} tier={tier} recommendedLabel={t("recommended")} />
           ))}
@@ -1781,14 +1782,14 @@ function PricingCard({
 function FinalCTA() {
   const t = useTranslations("landing.cta");
   return (
-    <section className="relative px-4 pt-32 pb-24 md:pt-44 md:pb-32">
+    <section className="relative px-4 pt-20 pb-16 sm:pt-32 sm:pb-24 md:pt-44 md:pb-32">
       <div className="mx-auto w-full max-w-[1280px]">
         <div
           className="relative overflow-hidden rounded-[2rem] p-1.5"
           style={{ background: "rgba(2,141,196,0.18)" }}
         >
           <div
-            className="relative overflow-hidden rounded-[calc(2rem-0.375rem)] px-8 py-16 md:px-16 md:py-24"
+            className="relative overflow-hidden rounded-[calc(2rem-0.375rem)] px-6 py-12 sm:px-8 sm:py-16 md:px-16 md:py-24"
             style={{
               background:
                 "linear-gradient(135deg, #0A0A0A 0%, #14181F 60%, #0A2540 100%)",

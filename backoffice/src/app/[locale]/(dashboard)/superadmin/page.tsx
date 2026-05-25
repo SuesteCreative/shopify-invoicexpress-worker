@@ -141,7 +141,7 @@ export default function SuperadminPage() {
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3">
                         <ShieldCheck className="w-8 h-8 text-destructive" />
-                        <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
+                        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                             {t("title")}
                         </h1>
                     </div>
@@ -191,7 +191,7 @@ export default function SuperadminPage() {
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.95, height: 0 }}
-                                className="glass rounded-[2rem] p-8 border-hairline hover:border-rule transition-all"
+                                className="glass rounded-[2rem] p-5 sm:p-8 border-hairline hover:border-rule transition-all"
                             >
                                 <div className="flex flex-col lg:flex-row items-center gap-8">
                                     {/* Avatar */}
@@ -218,7 +218,7 @@ export default function SuperadminPage() {
                                     </div>
 
                                     {/* Fiscal Data */}
-                                    <div className="flex flex-col gap-3 px-10 border-x border-hairline min-w-[200px]">
+                                    <div className="flex flex-col gap-3 w-full lg:w-auto lg:px-10 lg:border-x lg:border-hairline lg:min-w-[200px]">
                                         <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("fiscalData")}</span>
                                         {user.registration_completed ? (
                                             <div className="space-y-1">
@@ -236,7 +236,7 @@ export default function SuperadminPage() {
                                     </div>
 
                                     {/* Status */}
-                                    <div className="flex flex-wrap items-center justify-center gap-6 pr-10 border-r border-hairline">
+                                    <div className="flex flex-wrap items-center justify-center gap-6 w-full lg:w-auto lg:pr-10 lg:border-r lg:border-hairline">
                                         <div className="flex flex-col items-center gap-1.5">
                                             <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("status")}</span>
                                             <div className="flex items-center gap-4">

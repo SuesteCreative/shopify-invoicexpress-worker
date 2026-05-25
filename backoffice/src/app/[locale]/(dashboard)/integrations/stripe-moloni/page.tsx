@@ -209,7 +209,7 @@ export default function StripeMoloniIntegration() {
                     />
                 </Field>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field label={t("companyIdLabel")} hint={t("companyIdHint")}>
                         <input
                             type="number"
@@ -264,20 +264,20 @@ export default function StripeMoloniIntegration() {
                 </div>
             )}
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <button
                     type="button"
                     disabled={saving}
                     onClick={() => save("draft")}
-                    className="px-6 py-3 rounded-2xl border border-hairline hover:border-rule text-sm font-mono uppercase tracking-[0.18em] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-6 py-3 rounded-2xl border border-hairline hover:border-rule text-sm font-mono uppercase tracking-[0.18em] disabled:opacity-50 disabled:cursor-not-allowed transition-colors w-full sm:w-auto"
                 >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : t("saveDraft")}
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : t("saveDraft")}
                 </button>
                 <button
                     type="button"
                     disabled={saving || !stripeConnected}
                     onClick={() => save("active")}
-                    className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 w-full sm:w-auto"
                 >
                     {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                     {t("activate")}

@@ -145,7 +145,7 @@ export default function FaturacaoPage() {
     return (
         <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
             <div className="space-y-4">
-                <h1 className="text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                     {t("title")}
                 </h1>
                 <p className="text-fg-60 font-medium tracking-wide">
@@ -223,8 +223,8 @@ export default function FaturacaoPage() {
                         <p className="text-fg-40 font-medium text-sm">{t("emptyHistory")}</p>
                     </div>
                 ) : (
-                    <div className="glass rounded-[2rem] overflow-hidden">
-                        <table className="w-full">
+                    <div className="glass rounded-[2rem] overflow-x-auto">
+                        <table className="w-full min-w-[640px]">
                             <thead className="bg-surface-2/50 border-b border-hairline">
                                 <tr>
                                     <th className="text-left px-6 py-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("colDate")}</th>

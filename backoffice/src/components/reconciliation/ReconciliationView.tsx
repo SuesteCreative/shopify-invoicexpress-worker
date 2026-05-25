@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCcw, Search, ScrollText, FileDown } from "lucide-react";
+import { Loader2, RefreshCcw, Search, ScrollText, FileDown, PauseCircle, Play } from "lucide-react";
 import { ReconciliationRow, type Row } from "./ReconciliationRow";
 import { DateRangePicker } from "./DateRangePicker";
 import { Filters, type FilterKey } from "./Filters";
@@ -31,6 +31,34 @@ export function ReconciliationView({ shop }: { shop: string }) {
     const [search, setSearch] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
+    const [isPaused, setIsPaused] = useState<boolean | null>(null);
+    const [resuming, setResuming] = useState(false);
+
+    const loadPauseState = async () => {
+        try {
+            const res = await fetch("/api/integrations");
+            if (!res.ok) return;
+            const j: any = await res.json();
+            setIsPaused(j.is_paused === 1);
+        } catch { /* silent — banner just won't appear */ }
+    };
+
+    const resume = async () => {
+        setResuming(true);
+        try {
+            const res = await fetch("/api/integrations/toggle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paused: false }),
+            });
+            if (res.ok) setIsPaused(false);
+            else alert("Falha ao retomar integração. Tenta novamente.");
+        } catch (e: any) {
+            alert(`Erro de rede: ${e.message}`);
+        } finally {
+            setResuming(false);
+        }
+    };
 
     const load = async () => {
         setLoading(true);
@@ -46,7 +74,7 @@ export function ReconciliationView({ shop }: { shop: string }) {
         finally { setLoading(false); }
     };
 
-    useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+    useEffect(() => { load(); loadPauseState(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
     const filtered = useMemo(() => {
         if (!data) return [];
@@ -79,6 +107,31 @@ export function ReconciliationView({ shop }: { shop: string }) {
                     </div>
                 </div>
             </header>
+
+            {isPaused && (
+                <div className="rounded-2xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] p-5 flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
+                    <div className="flex gap-3 items-start">
+                        <PauseCircle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                            <p className="text-sm font-semibold text-amber-300">
+                                Integração pausada — nenhuma fatura está a ser emitida automaticamente
+                            </p>
+                            <p className="text-xs text-fg-60">
+                                A tua integração Shopify ↔ InvoiceXpress está em pausa. As encomendas continuam a chegar,
+                                mas nenhuma vai gerar fatura até retomares. Encomendas paradas aparecem em <strong>Sem fatura</strong> abaixo.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={resume}
+                        disabled={resuming}
+                        className="bg-amber-500 hover:bg-amber-400 text-surface px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
+                    >
+                        {resuming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                        Retomar agora
+                    </button>
+                </div>
+            )}
 
             <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end">
                 <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />

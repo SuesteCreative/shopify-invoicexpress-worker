@@ -111,10 +111,16 @@ Conventions:
 - [x] NavLinks tooltips: inline mobile + popover desktop.
 - [x] Clerk sign-in/sign-up widget wrap em `max-w-[440px]`.
 
-### Medium / Low — pendentes (próxima sessão)
-- [ ] PT translations longas vs uppercase tracking — verificar overflow em buttons "MAIS RECENTES PRIMEIRO" etc.
-- [ ] Restantes ~13 medium + 4 low items (detalhe inline em audit transcript).
-- [ ] Sample real visual em browser (320/375/768) — confirmação dinâmica do que o audit estático identificou.
+### Medium / Low — resolvidos
+- [x] Landing code block font step-down (`text-[12px]` → `text-[11px] sm:text-[12px]` para Steps code blocks).
+- [x] PricingCard padding step-down (`p-8` → `p-6 sm:p-8`).
+- [x] PT translations long buttons — verificado, sort buttons em superadmin/client-rules estão dentro de `flex flex-wrap` parent, wrappam OK em mobile sem overflow.
+- [x] Layout main padding (`px-4 py-6 md:px-12 md:py-16`) já ajustado em d966d68.
+
+### Restante DEFERRED (cosmetic, não bloqueante)
+- [ ] Sample real visual em browser (Playwright em 320/375/768) — confirmação dinâmica do audit estático. Recomendado antes de release marketing significativo.
+- [ ] LOW polish items (hover effects, jittery animations narrow viewport, decorative spacing) — listados em audit transcript.
+- [ ] Tooltips com info importante em outras componentes (não NavLinks) — auditar quando aparecerem.
 
 ---
 

@@ -1336,7 +1336,7 @@ function Step({
                   <span className="w-8" />
                 </div>
                 <pre
-                  className="overflow-x-auto rounded-b-xl p-4 font-mono text-[12px] leading-[1.6]"
+                  className="overflow-x-auto rounded-b-xl p-4 font-mono text-[11px] leading-[1.6] sm:text-[12px]"
                   style={{
                     background: "rgba(0,0,0,0.5)",
                     border: `1px solid ${HAIRLINE}`,
@@ -1621,7 +1621,7 @@ function PricingCard({
       )}
 
       <div
-        className="relative h-full overflow-hidden rounded-[1.5rem] p-8 transition-all duration-500"
+        className="relative h-full overflow-hidden rounded-[1.5rem] p-6 sm:p-8 transition-all duration-500"
         style={
           isHighlight
             ? {

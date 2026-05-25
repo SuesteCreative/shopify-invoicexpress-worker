@@ -83,12 +83,38 @@ Conventions:
 
 ## #2 — Responsividade Mobile
 
-### High
-- [ ] Audit completo das páginas do backoffice em viewport mobile (320px, 375px, 414px, 768px)
-- [ ] Fix de overflow horizontal em tabelas (incidents, processed invoices, logs)
-- [ ] Fix de nav/header em mobile
-- [ ] Fix de modais e drawers
-- [ ] Audit da landing page em mobile
+**Audit estático 2026-05-25:** 8 critical, 28 high, 20 medium, 8 low = 64 issues.
+
+### Critical — todos resolvidos
+- [x] Sidebar drawer mobile (`Sidebar.tsx` novo client component + layout server simplificado).
+- [x] Faturacao table envolto em `overflow-x-auto` + `min-w-[640px]`.
+- [x] `SubscriptionCard` plan picker `grid-cols-1 sm:grid-cols-2` + checkout button `w-full lg:w-auto`.
+- [x] Popovers `w-80` → `w-[90vw] max-w-[20rem]` em shopify-ix + stripe-ix.
+- [x] `stripe-moloni` grid `grid-cols-1 sm:grid-cols-2` + action row `flex-col sm:flex-row`.
+- [x] `superadmin` dividers/min-widths gated em `lg:` + `text-5xl` step-down + padding responsivo.
+- [x] `client-rules` header `flex-col md:flex-row` + status pills wrap + `text-5xl` step-down.
+- [x] `text-5xl` global step-down em 7 ficheiros (`text-3xl sm:text-4xl lg:text-5xl`).
+- [x] `help/page.tsx` `ml-16` → `ml-0 sm:ml-16` (reclama 64px horizontal).
+
+### High Landing — top wins resolvidos
+- [x] Pricing grid `gap-8 md:gap-4` para ribbon não sobrepor.
+- [x] Nav padding tightened + logo width responsive + Start CTA smaller mobile.
+- [x] Final CTA padding step-down.
+- [x] 5 section paddings step-down (`pt-20 sm:pt-32 md:pt-44`).
+- [x] Hero stats grid step-down.
+- [x] Pipeline pills `grid-cols-2 sm:grid-cols-4`.
+
+### High dashboard — pendente
+- [ ] Heavy `p-8/10/12/16` flat padding em ~12 sítios (dashboard, integrations cards, help footer, faturacao empty state, invoices expanded panel) — adicionar `sm:` prefix.
+- [ ] Invoices page: `sticky` header em mobile come 30vh — gate em `md:sticky`.
+- [ ] Dashboard log list `text-[9px]` timestamps abaixo do legibility threshold.
+- [ ] NavLinks tooltips hover-only — converter para tap-toggle em mobile.
+
+### Medium / Low (resto do audit)
+- [ ] Sub-12px fonts (`text-[7-9px]`) — minimum `text-[10px]` em badges, timestamps, labels (6 sítios).
+- [ ] PT translations longas vs uppercase tracking — verificar overflow em buttons "MAIS RECENTES PRIMEIRO" etc.
+- [ ] Restantes 9 medium + 4 low items do audit landing (detalhe inline em transcript do audit).
+- [ ] Clerk sign-in/sign-up widget — wrap em `w-full max-w-[440px]` para garantir contenção em 320px.
 
 ---
 

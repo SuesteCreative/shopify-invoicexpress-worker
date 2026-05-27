@@ -8,6 +8,7 @@ import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 import { loadProductMappings } from "../services/product-mappings";
 import { loadProductOverrides } from "../services/product-overrides";
+import { makeViesChecker } from "../ix/vies";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
 
@@ -107,6 +108,11 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
       : Promise.resolve(undefined),
   ]);
 
+  // Build VIES checker once per pipeline run when reverse-charge is enabled.
+  // Without this, B2B EU customers with valid VAT IDs would get B2C invoices
+  // on the adapter path (legacy handlers already pass viesChecker themselves).
+  const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
+
   const ctx = {
     apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
     config,
@@ -114,6 +120,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     destinationConfig: input.destinationConfig,
     productMappings,
     productOverrides,
+    viesChecker,
   };
   const logTopic = `${source}/${topic}`;
   const connectionLabel = `${source} → ${destination}`;

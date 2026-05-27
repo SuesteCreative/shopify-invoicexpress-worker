@@ -29,6 +29,10 @@ export interface AdapterCtx {
     exemption_reason?: string;
     name_override?: string;
   }>;
+  // VIES checker for B2B EU reverse-charge classification. Built once per
+  // pipeline run when `config.b2b_reverse_charge === 1` so IxBuilder can
+  // decide whether to apply M16/M40 exemptions on EU cross-border orders.
+  viesChecker?: (countryCode: string, vatNumber: string) => Promise<boolean | null>;
 }
 
 export interface WebhookVerification {

@@ -68,6 +68,11 @@
         "max_batch_timeout": 5,
         "dead_letter_queue": "my-queue-dlq",
         "max_retries": 10
+      },
+      {
+        "queue": "my-queue-dlq",
+        "max_batch_size": 5,
+        "max_retries": 1
       }
     ]
   },

@@ -1056,11 +1056,69 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
   }
 }
 
+/**
+ * Dead-letter queue consumer. Every message that exhausted its retries
+ * (25 for Shopify, 10 for Stripe) lands here. We emit a critical incident
+ * so the merchant — and Rioko ops — get an immediate notification rather
+ * than the failure dying silently. We do NOT re-throw / re-retry: this IS
+ * the terminal state.
+ */
+async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
+  for (const message of batch.messages) {
+    const body = message.body ?? {};
+    // Best-effort key extraction (message shape varies by source queue).
+    const sourceQueue: string =
+      body?.eventId ? "stripeeventsqueue"
+      : body?.shopDomain ? "shopifyordersqueue"
+      : "unknown";
+    const externalId: string = String(body?.eventId ?? body?.body?.id ?? body?.body?.order_number ?? "unknown");
+    const topic: string = String(body?.topic ?? "unknown");
+    const shopDomain: string | null = body?.shopDomain ?? null;
+
+    // Resolve owning user_id when possible so the incident lands in the
+    // right merchant's inbox. Stripe path stores it on the message; Shopify
+    // path needs a config lookup by shop_domain.
+    let userId: string | undefined = body?.userId;
+    if (!userId && shopDomain) {
+      try {
+        const appStorage = new AppStorage(env, shopDomain);
+        const cfg = await appStorage.loadConfig();
+        userId = cfg?.user_id;
+      } catch (e) {
+        console.warn("[DLQ] Could not resolve user_id from shop_domain:", e);
+      }
+    }
+
+    console.error(`[DLQ] Terminal failure — source=${sourceQueue} topic=${topic} externalId=${externalId} userId=${userId ?? "unknown"}`);
+
+    try {
+      await reportIncident(env, {
+        user_id: userId,
+        severity: "critical",
+        kind: "queue_retry_exhausted",
+        summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${externalId}. Encomenda NÃO foi facturada.`,
+        detail: { sourceQueue, topic, externalId, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
+        affected_ids: [externalId],
+        connection_label: sourceQueue === "stripeeventsqueue" ? "stripe → invoicexpress" : "shopify → invoicexpress",
+      });
+    } catch (e) {
+      console.error("[DLQ] Failed to emit incident:", e);
+    }
+
+    // ack() — do not bounce back to the DLQ. The incident is the record.
+    message.ack();
+  }
+}
+
 export default {
   fetch: app.fetch,
   async queue(batch: MessageBatch<QueueMessage | StripeQueueMessage>, env: Env) {
-    // Dispatch by queue name. Stripe and Shopify queues share this consumer
-    // but have different message shapes + retry policies.
+    // Dispatch by queue name. Stripe + Shopify queues share this consumer;
+    // the DLQ ("my-queue-dlq") is also routed here so failures get visibility.
+    if (batch.queue === "my-queue-dlq") {
+      await processDeadLetterBatch(batch as MessageBatch<any>, env);
+      return;
+    }
     if (batch.queue === "stripeeventsqueue") {
       await processStripeBatch(batch as MessageBatch<StripeQueueMessage>, env);
       return;

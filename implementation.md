@@ -173,3 +173,5 @@ Confirmed against real Stripe/Moloni/Vendus test accounts. Found a blocker that 
 
 ### Critical
 - [x] Moloni adapter sends JSON body but the Moloni API only accepts `application/x-www-form-urlencoded` with PHP-style bracket nesting for arrays (`products[0][name]=...&products[0][taxes][0][tax_id]=...`). Every Moloni call would have returned `Forbidden, No company_id received`. Patched `moloniCall` with a `formEncode` helper and switched the Content-Type header.
+- [x] Moloni `/invoices/insert/` requires every line to reference an existing `product_id`. Sending lines with `product_id: 0` or no product_id returns the terse validation error `["1 products"]`. Adapter now does find-or-create on a per-company placeholder product (`reference="RIOKO-PLACEHOLDER"`) via `/products/getByReference/` + `/products/insert/`, then references its id from every line while overriding name/summary/price/qty/taxes.
+- [x] `moloniCall` now rejects 200-OK responses whose body is a non-empty array of plain strings — Moloni's field-validation error shape. Was silently treated as success.

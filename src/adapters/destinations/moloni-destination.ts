@@ -180,6 +180,17 @@ async function moloniCall<T = unknown>(
   if (json && typeof json === "object" && "valid" in (json as object) && (json as { valid: number }).valid === 0) {
     throw new Error(`Moloni ${opName} failed: ${truncate(JSON.stringify(json))}`);
   }
+  // Moloni surfaces field-validation errors as a 200-OK body containing
+  // a plain array of strings like `["1 products", "2 customer_id 1 0"]`.
+  // /products/getByReference/ legitimately returns `[]` on no-match (length 0),
+  // but a non-empty array of plain strings is always a validation failure.
+  if (
+    Array.isArray(json)
+    && json.length > 0
+    && json.every((entry) => typeof entry === "string")
+  ) {
+    throw new Error(`Moloni ${opName} failed: validation errors ${truncate(JSON.stringify(json))}`);
+  }
   return json as T;
 }
 
@@ -250,7 +261,11 @@ function extractPtNif(normalized: Normalized): string | null {
   return null;
 }
 
-function buildMoloniLineItems(normalized: Normalized, ctx: AdapterCtx): MoloniProductLine[] {
+function buildMoloniLineItems(
+  normalized: Normalized,
+  ctx: AdapterCtx,
+  placeholderProductId: number,
+): MoloniProductLine[] {
   const forceTaxProducts = ctx.config.force_tax_rate;
   const forceTaxShipping = ctx.config.force_shipping_tax_rate;
 
@@ -279,6 +294,7 @@ function buildMoloniLineItems(normalized: Normalized, ctx: AdapterCtx): MoloniPr
     const discountPct = item.discount?.percent ?? 0;
 
     const line: MoloniProductLine = {
+      product_id: placeholderProductId,
       name,
       qty: item.quantity,
       price: netUnit,
@@ -356,6 +372,75 @@ async function resolveOrCreateCustomer(
   return Number(customerId);
 }
 
+// Moloni rejects invoice lines without a valid `product_id` (returns the terse
+// `["1 products"]` validation error). We can't create products inline in
+// /invoices/insert/ — only references to existing product rows are accepted.
+//
+// Strategy: maintain a single per-company placeholder product (reference =
+// "RIOKO-PLACEHOLDER"). All invoice lines reference its `product_id` but
+// override `name`, `summary`, `price`, `qty`, `discount`, `taxes` per line.
+// Look up by reference each call; create-if-missing on first use. ~200ms per
+// invoice for the extra GET — acceptable since we don't have KV-backed
+// caching in this worker yet.
+const PLACEHOLDER_PRODUCT_REFERENCE = "RIOKO-PLACEHOLDER";
+
+async function resolveOrCreatePlaceholderProduct(
+  cfg: MoloniCfg,
+  token: string,
+): Promise<number> {
+  // 1. Look up by reference (exact match endpoint).
+  try {
+    const found = await moloniCall<Array<{ product_id?: number; reference?: string }>>(
+      cfg, token, "/products/getByReference/",
+      { reference: PLACEHOLDER_PRODUCT_REFERENCE },
+      "lookup",
+    );
+    const match = Array.isArray(found) ? found[0] : null;
+    if (match?.product_id) return Number(match.product_id);
+  } catch {
+    // Fall through to create.
+  }
+
+  // 2. Resolve a category_id + unit_id (required to create a product).
+  const categories = await moloniCall<Array<{ category_id?: number }>>(
+    cfg, token, "/productCategories/getAll/",
+    { parent_id: 0 },
+    "lookup",
+  );
+  const categoryId = Array.isArray(categories) ? categories[0]?.category_id : undefined;
+  if (!categoryId) {
+    throw new Error("Moloni create failed: no product category available to host the Rioko placeholder product");
+  }
+  const units = await moloniCall<Array<{ unit_id?: number }>>(
+    cfg, token, "/measurementUnits/getAll/", {}, "lookup",
+  );
+  const unitId = Array.isArray(units) ? units[0]?.unit_id : undefined;
+  if (!unitId) {
+    throw new Error("Moloni create failed: no measurement unit available to host the Rioko placeholder product");
+  }
+
+  // 3. Create the placeholder product with the default 23% tax line so Moloni
+  //    auto-applies tax when the invoice line includes taxes[].
+  const created = await moloniCall<{ product_id?: number }>(
+    cfg, token, "/products/insert/",
+    {
+      category_id: categoryId,
+      unit_id: unitId,
+      type: 1,
+      name: "Rioko Order Line",
+      reference: PLACEHOLDER_PRODUCT_REFERENCE,
+      price: 0,
+      has_stock: 0,
+      taxes: [{ tax_id: DEFAULT_TAX_ID, value: 23, order: 0, cumulative: 0 }],
+    },
+    "create",
+  );
+  if (!created?.product_id) {
+    throw new Error(`Moloni create failed: placeholder product insert returned no id — ${truncate(JSON.stringify(created))}`);
+  }
+  return Number(created.product_id);
+}
+
 function todayYmd(): string {
   const d = new Date();
   const yyyy = d.getUTCFullYear();
@@ -398,8 +483,11 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = readMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    const customerId = await resolveOrCreateCustomer(cfg, token, normalized);
-    const products = buildMoloniLineItems(normalized, ctx);
+    const [customerId, placeholderProductId] = await Promise.all([
+      resolveOrCreateCustomer(cfg, token, normalized),
+      resolveOrCreatePlaceholderProduct(cfg, token),
+    ]);
+    const products = buildMoloniLineItems(normalized, ctx, placeholderProductId);
     if (products.length === 0) {
       throw new Error("Moloni create failed: no line items derived from normalized order");
     }
@@ -468,7 +556,10 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = readMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    const customerId = await resolveOrCreateCustomer(cfg, token, normalized);
+    const [customerId, placeholderProductId] = await Promise.all([
+      resolveOrCreateCustomer(cfg, token, normalized),
+      resolveOrCreatePlaceholderProduct(cfg, token),
+    ]);
 
     // Build refund lines from the items actually being refunded.
     const refundItems = normalized.order.items.filter((it) => refund.itemsIds.includes(it.id));
@@ -476,7 +567,7 @@ export class MoloniDestination implements DestinationAdapter {
       ...normalized,
       order: { ...normalized.order, items: refundItems },
     };
-    const products = buildMoloniLineItems(subset, ctx);
+    const products = buildMoloniLineItems(subset, ctx, placeholderProductId);
 
     // Free-form refund delta when Shopify reports an amount beyond the line
     // items (e.g. partial cash refund). Mirrors IX adapter's behaviour.
@@ -489,6 +580,7 @@ export class MoloniDestination implements DestinationAdapter {
       const netUnit = Math.round((refund.amountToRefund / factor) * 10000) / 10000;
       const order = products.length + 1;
       const line: MoloniProductLine = {
+        product_id: placeholderProductId,
         name: `Refund amount (#${refund.refundId})`.slice(0, 200),
         summary: `Refund amount of ${refund.amountToRefund}`,
         qty: 1,

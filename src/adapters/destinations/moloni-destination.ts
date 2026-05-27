@@ -7,6 +7,7 @@ import type {
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
+import { reconcileTotalOrThrow } from "../reconcile";
 
 /**
  * MoloniDestination
@@ -377,6 +378,21 @@ export class MoloniDestination implements DestinationAdapter {
     if (products.length === 0) {
       throw new Error("Moloni create failed: no line items derived from normalized order");
     }
+
+    // Source-of-truth invariant: invoice gross MUST equal source paid amount.
+    // Abort before POST if line-item math drifts from normalized.order.total
+    // (Shopify total_price / Stripe amount_received / EuPago valor) by > 1¢.
+    reconcileTotalOrThrow(
+      Number(normalized.order.total),
+      products.map((p) => ({
+        name: p.name,
+        quantity: Number(p.qty),
+        unit_price: Number(p.price),
+        tax_rate: Number(p.taxes?.[0]?.value ?? 0),
+        discount_percent: Number(p.discount ?? 0),
+      })),
+      { context: `→Moloni order#${normalized.order.order_number}` },
+    );
 
     const exemptionReason = (ctx.config.ix_exemption_reason ?? "M01").trim() || "M01";
     const needsExemption = products.some((p) => !p.taxes || p.taxes.length === 0);

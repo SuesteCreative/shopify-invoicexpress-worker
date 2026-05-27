@@ -130,6 +130,32 @@ async function getAccessToken(cfg: MoloniCfg): Promise<string> {
   return token;
 }
 
+// Moloni API rejects JSON bodies with `Forbidden, No company_id received`. It
+// only accepts application/x-www-form-urlencoded with PHP-style bracket
+// nesting for arrays/objects (e.g. `products[0][name]=foo&products[0][taxes][0][tax_id]=123`).
+function formEncode(obj: Record<string, unknown>, prefix = ""): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (Array.isArray(v)) {
+      v.forEach((item, i) => {
+        const idxKey = `${key}[${i}]`;
+        if (item !== null && typeof item === "object") {
+          parts.push(formEncode(item as Record<string, unknown>, idxKey));
+        } else {
+          parts.push(`${encodeURIComponent(idxKey)}=${encodeURIComponent(String(item))}`);
+        }
+      });
+    } else if (typeof v === "object") {
+      parts.push(formEncode(v as Record<string, unknown>, key));
+    } else {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(v))}`);
+    }
+  }
+  return parts.filter(Boolean).join("&");
+}
+
 async function moloniCall<T = unknown>(
   cfg: MoloniCfg,
   token: string,
@@ -140,8 +166,8 @@ async function moloniCall<T = unknown>(
   const url = `${cfg.baseUrl}${path}?access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
-    body: JSON.stringify({ company_id: cfg.companyId, ...body }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+    body: formEncode({ company_id: cfg.companyId, ...body }),
   });
   const json = await safeJson(res);
   if (!res.ok) {

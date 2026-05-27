@@ -166,3 +166,10 @@ Source-of-truth invariant: invoice gross MUST equal source amount paid, em todos
 ### High
 - [x] Stripe→IX: enforce single-line reconciliation (`amount_received == unit_price * qty`) since `raw_order` is absent and `reconcileOrThrow` skips
 - [x] EuPago→IX: emit NET `unit_price` (was gross with tax=23 → IX inflated by 23%). `force_tax_rate` override already supported; now applied correctly to derive net.
+
+## Audit — 2026-05-27 (live API smoke test)
+
+Confirmed against real Stripe/Moloni/Vendus test accounts. Found a blocker that meant the Moloni adapter could never have worked in production.
+
+### Critical
+- [x] Moloni adapter sends JSON body but the Moloni API only accepts `application/x-www-form-urlencoded` with PHP-style bracket nesting for arrays (`products[0][name]=...&products[0][taxes][0][tax_id]=...`). Every Moloni call would have returned `Forbidden, No company_id received`. Patched `moloniCall` with a `formEncode` helper and switched the Content-Type header.

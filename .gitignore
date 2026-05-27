@@ -8,5 +8,8 @@ dist
 .dev.vars*
 !.dev.vars.example
 
+# D1 backups (contain PII, keep local only)
+backups/
+
 # Migration script output (contains PII)
 rioko-next/scripts/out/

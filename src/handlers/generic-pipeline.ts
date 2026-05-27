@@ -34,6 +34,14 @@ export interface RunPipelineInput {
 function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severity } {
   const msg = String(err?.message ?? err ?? "").toLowerCase();
 
+  // Reconcile-or-throw guard fired: the invoice total didn't match source paid.
+  // This is critical because the merchant is in a "we know there's a problem,
+  // we refused to ship the wrong document" state — they MUST act (override SKU
+  // or fix Shopify data) before next webhook.
+  if (msg.includes("invoice total mismatch")) {
+    return { kind: "reconcile_drift", severity: "critical" };
+  }
+
   // Destination rejected the document outright (most common: invalid NIF, invalid client)
   const isDestCreateError =
     msg.includes("invoicexpress create failed")
@@ -132,7 +140,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   }
 
   try {
-    await runPipelineCore(input, sourceAdapter, destAdapter, externalId, appStorage, ctx, logTopic);
+    await runPipelineCore(input, sourceAdapter, destAdapter, externalId, appStorage, ctx, logTopic, connectionLabel);
   } catch (err) {
     const { kind, severity } = classifyPipelineError(err);
     await reportIncident(env, {
@@ -156,6 +164,7 @@ async function runPipelineCore(
   appStorage: AppStorage,
   ctx: { apiKey: string; config: IRequestConfig; sourceConfig?: Record<string, any>; destinationConfig?: Record<string, any> },
   logTopic: string,
+  connectionLabel: string,
 ): Promise<void> {
   const { env, config, source, destination, topic, webhookId, body } = input;
 
@@ -179,6 +188,31 @@ async function runPipelineCore(
 
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
+
+      // Currency guard: PT accounting must be in EUR. Reject non-EUR payments
+      // explicitly rather than silently issuing a misvalued invoice. (Future
+      // work: implement FX conversion via balance_transaction.exchange_rate.)
+      const currency = String(normalized.order?.currency ?? "EUR").toUpperCase();
+      if (currency && currency !== "EUR") {
+        await reportIncident(env, {
+          user_id: config.user_id,
+          severity: "critical",
+          kind: "currency_not_supported",
+          summary: `Pagamento em ${currency} para ${externalId} não foi facturado — só EUR é suportado.`,
+          detail: { externalId, currency, source, destination },
+          affected_ids: [externalId],
+          connection_label: connectionLabel,
+        });
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await appStorage.saveLog({
+          shopify_domain: config.shopify_domain,
+          topic: logTopic,
+          payload: JSON.stringify({ externalId, currency }),
+          response: `Skipped: currency ${currency} not supported (EUR only)`,
+          status: 200,
+        });
+        return;
+      }
 
       // Zero-amount short-circuit. PT fiscal rules don't require invoicing 0€
       // orders and destinations (IX, Moloni, Vendus) reject zero-total payloads.
@@ -250,17 +284,38 @@ async function runPipelineCore(
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for refund of ${externalId}`);
 
+      // Per-credit dedup: query the destination by the canonical credit-note
+      // reference. Without this, a re-delivered refund webhook would issue
+      // duplicate credit notes — a fiscal-document bug. Mirrors the legacy
+      // refunds-create.ts filter that checks existing credit notes first.
+      let issuedCount = 0;
+      let skippedCount = 0;
       for (const credit of normalized.credits) {
+        const reference = `OrderRefund #${credit.refund_id}`;
+        if (destAdapter.findByReference) {
+          const existing = await destAdapter.findByReference(reference, ctx);
+          if (existing) {
+            skippedCount++;
+            continue;
+          }
+        }
         const sum = credit.line_items.reduce((acc, item) => acc + item.subtotal, 0);
         await destAdapter.issueCredit(invoice.invoice_id, {
           refundId: credit.refund_id,
           itemsIds: credit.line_items.map(li => li.id),
           amountToRefund: credit.amount - sum,
         }, normalized, ctx);
+        issuedCount++;
       }
 
       if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
-      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, credits: normalized.credits.length }), response: "Credit notes issued", status: 200 });
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: logTopic,
+        payload: JSON.stringify({ externalId, credits: normalized.credits.length, issued: issuedCount, skipped: skippedCount }),
+        response: skippedCount > 0 ? `Credit notes: ${issuedCount} issued, ${skippedCount} already existed` : "Credit notes issued",
+        status: 200,
+      });
       return;
     }
   }

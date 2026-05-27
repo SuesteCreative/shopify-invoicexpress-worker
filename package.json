@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "wrangler dev -c wrangler.worker.toml",
     "deploy": "wrangler deploy",
+    "deploy:safe": "node scripts/pre-deploy-backup.mjs && wrangler deploy",
+    "backup": "node scripts/pre-deploy-backup.mjs",
     "build": "wrangler deploy --dry-run -c wrangler.worker.toml",
     "preview": "wrangler dev"
   },

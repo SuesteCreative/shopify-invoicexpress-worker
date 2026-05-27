@@ -20,7 +20,9 @@ export type IncidentKind =
   | "subscription_inactive"
   | "queue_retry_exhausted"
   | "webhook_invalid_signature"
-  | "vies_unconfirmed";
+  | "vies_unconfirmed"
+  | "reconcile_drift"
+  | "currency_not_supported";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -522,6 +524,50 @@ export function tplWebhookInvalidSignature(input: IncidentTemplateInput): Render
   };
 }
 
+export function tplReconcileDrift(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph("O total da factura que íamos emitir não coincidia com o valor pago. Abortámos a emissão antes de gerar um documento fiscal com valor errado.")}
+    ${calloutBox("Causa provável", "Configuração incorrecta de IVA (incluído vs excluído) num produto específico, ou taxa de IVA reportada pela Shopify diferente da real. Pode ser corrigido com overrides por SKU em Integrações → InvoiceXpress → Gerir overrides.", BRAND.critical)}
+    ${stepsList([
+      "Verificar o detalhe abaixo para identificar o SKU.",
+      "Abrir Integrações → Gerir overrides e adicionar override para o SKU (tax_rate ou vat_inclusion).",
+      "Reemitir a encomenda em Dev Mode.",
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+    ${ctaButton("Abrir overrides", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations/ix-overrides`)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Drift de total — factura não emitida",
+    html: shell({
+      title: "Drift de total — factura não emitida",
+      preheader: "Bloqueámos a emissão para evitar valor errado.",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
+export function tplCurrencyNotSupported(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph("Recebemos um pagamento numa moeda diferente de EUR. A factura não foi emitida porque a contabilidade portuguesa deve ser em EUR.")}
+    ${stepsList([
+      "Verifique se o cliente pagou numa moeda inesperada.",
+      "Se quer aceitar moedas múltiplas, contacte-nos para implementarmos conversão.",
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Moeda não suportada — factura não emitida",
+    html: shell({
+      title: "Moeda não suportada",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTemplateInput): RenderedTemplate {
   switch (kind) {
     case "auth_failure_destination": return tplAuthFailureDestination(input);
@@ -533,6 +579,8 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "queue_retry_exhausted": return tplQueueRetryExhausted(input);
     case "webhook_invalid_signature": return tplWebhookInvalidSignature(input);
     case "vies_unconfirmed": return tplViesUnconfirmed(input);
+    case "reconcile_drift": return tplReconcileDrift(input);
+    case "currency_not_supported": return tplCurrencyNotSupported(input);
   }
 }
 

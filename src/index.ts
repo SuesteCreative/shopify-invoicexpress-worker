@@ -145,9 +145,31 @@ app.post("/webhooks/stripe", async (c) => {
     return c.text("Stripe source disabled", 404);
   }
 
+  // Fail-fast: refuse to enter the verification path if no secret is set.
+  // Without this we'd loop over every connection trying empty/undefined
+  // secrets and either return a misleading 404 or 500.
+  if (!c.env.STRIPE_WEBHOOK_SECRET) {
+    console.error("[Stripe] STRIPE_WEBHOOK_SECRET missing — set via `wrangler secret put STRIPE_WEBHOOK_SECRET`");
+    return c.text("Stripe webhook secret not configured", 500);
+  }
+
   const sig = c.req.header("Stripe-Signature");
   const rawBody = await c.req.text();
   if (!sig) return c.text("Missing Stripe-Signature", 400);
+
+  // Replay-attack protection: Stripe-Signature carries `t=<unix-seconds>,v1=…`.
+  // Reject events whose timestamp is more than 5 minutes old. Mitigates an
+  // attacker resurfacing old events (e.g. charge.refunded) to emit duplicate
+  // credit notes. Stripe docs recommend 5 minutes as the tolerance.
+  const tMatch = sig.match(/(?:^|,)t=(\d+)/);
+  if (tMatch) {
+    const eventTsMs = Number(tMatch[1]) * 1000;
+    const ageMs = Date.now() - eventTsMs;
+    if (Number.isFinite(eventTsMs) && ageMs > 5 * 60_000) {
+      console.warn(`[Stripe] Rejecting webhook: timestamp ${Math.round(ageMs / 1000)}s old (>5min)`);
+      return c.text("Webhook timestamp too old", 400);
+    }
+  }
 
   const adapter = getSourceAdapter("stripe");
   const stripeAccount = c.req.header("Stripe-Account"); // present only for Connect platforms

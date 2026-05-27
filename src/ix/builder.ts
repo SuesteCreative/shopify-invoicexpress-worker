@@ -19,13 +19,32 @@ export type AsyncInvoiceBuild =
   | { status: "ready"; invoice: IxInvoice; requestTaxExemptionReason: boolean; reverseCharge: boolean }
   | { status: "deferred"; countryCode: string; vatNumber: string };
 
+export interface IxProductOverride {
+  tax_rate?: number;
+  vat_inclusion?: "inc" | "exc";
+  exemption_reason?: string;
+  name_override?: string;
+}
+
 export class IxBuilder {
   private readonly config: IRequestConfig;
   private readonly viesChecker?: ViesChecker;
+  private readonly overrides?: Map<string, IxProductOverride>;
 
-  constructor(config: IRequestConfig, viesChecker?: ViesChecker) {
+  constructor(config: IRequestConfig, viesChecker?: ViesChecker, overrides?: Map<string, IxProductOverride>) {
     this.config = config;
     this.viesChecker = viesChecker;
+    this.overrides = overrides;
+  }
+
+  // Same key shape as MoloniDestination.deriveProductReference so a single
+  // overrides table works for both adapters. Shipping iff no SKU and no ids.
+  private overrideKeyForLine(li: any): string {
+    const sku = (li?.sku ?? "").toString().trim();
+    if (sku) return sku.slice(0, 30);
+    if (li?.variant_id) return `RIOKO-VARIANT-${li.variant_id}`.slice(0, 30);
+    if (li?.product_id) return `RIOKO-PRODUCT-${li.product_id}`.slice(0, 30);
+    return "RIOKO-SHIPPING";
   }
 
   shouldRequestTaxExemptionReason(items: IxInvoice["items"]) {
@@ -58,12 +77,14 @@ export class IxBuilder {
       tax: number,
       name: string,
       description?: string,
+      lineIncluded?: boolean,
     ): IxInvoice["items"][number] | null => {
       if (qty <= 0 || grossUnit <= 0) return null;
+      const effectiveIncluded = lineIncluded ?? shopifyIncluded;
       const factor = rate > 0 ? 1 + rate / 100 : 1;
-      const unitNetExact = shopifyIncluded && rate > 0 ? grossUnit / factor : grossUnit;
+      const unitNetExact = effectiveIncluded && rate > 0 ? grossUnit / factor : grossUnit;
       const targetLineGross = grossUnit * qty - grossLineDiscount;
-      const targetLineNet = shopifyIncluded && rate > 0 ? targetLineGross / factor : targetLineGross;
+      const targetLineNet = effectiveIncluded && rate > 0 ? targetLineGross / factor : targetLineGross;
       // Ceil to 2dp so any sub-cent precision left over is absorbed by a
       // positive `discount` percentage (IX rejects negative discounts).
       const unitNetSend = ceil2(unitNetExact);
@@ -94,15 +115,28 @@ export class IxBuilder {
     const lineItems = Array.isArray(rawOrder?.line_items) ? rawOrder.line_items : [];
     for (const li of lineItems) {
       const quantity = Number(li?.quantity ?? 0);
-      const rate = Number(li?.tax_lines?.[0]?.rate ?? 0) * 100;
+      const shopifyRate = Number(li?.tax_lines?.[0]?.rate ?? 0) * 100;
       const grossUnit = Number(li?.price ?? 0);
       const allocations = Array.isArray(li?.discount_allocations) ? li.discount_allocations : [];
       const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
-      const tax = forceZeroTax ? 0 : (forceTaxProducts != null ? forceTaxProducts : rate);
+
+      // Per-SKU overrides: tax_rate replaces both rate (used for VAT math)
+      // and tax (stamped on the IX line). vat_inclusion flips how we
+      // interpret grossUnit on a per-line basis.
+      const override = this.overrides?.get(this.overrideKeyForLine(li));
+      const rate = override?.tax_rate != null ? Number(override.tax_rate) : shopifyRate;
+      const lineIncluded = override?.vat_inclusion === "inc"
+        ? true
+        : override?.vat_inclusion === "exc"
+          ? false
+          : undefined; // fall back to shopifyIncluded inside buildLine
+
+      const tax = forceZeroTax ? 0 : (override?.tax_rate != null ? Number(override.tax_rate) : (forceTaxProducts != null ? forceTaxProducts : rate));
       const variantTitle = li?.variant_title ? ` / ${li.variant_title}` : "";
-      const name = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
+      const defaultName = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
+      const name = (override?.name_override ?? defaultName).slice(0, 200);
       const description = li?.sku ? `SKU: ${li.sku}`.slice(0, 200) : undefined;
-      const item = buildLine(grossUnit, quantity, grossLineDiscount, rate, tax, name, description);
+      const item = buildLine(grossUnit, quantity, grossLineDiscount, rate, tax, name, description, lineIncluded);
       if (item) items.push(item);
     }
 
@@ -114,7 +148,14 @@ export class IxBuilder {
       const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
       const tax = forceZeroTax ? 0 : (forceTaxShipping != null ? forceTaxShipping : rate);
       const name = `Portes de envio${sl?.title ? ` — ${sl.title}` : ""}`.slice(0, 200);
-      const item = buildLine(grossUnit, 1, grossLineDiscount, rate, tax, name);
+      // Shipping overrides keyed by RIOKO-SHIPPING — same semantics
+      const shipOverride = this.overrides?.get("RIOKO-SHIPPING");
+      const shipIncluded = shipOverride?.vat_inclusion === "inc"
+        ? true
+        : shipOverride?.vat_inclusion === "exc"
+          ? false
+          : undefined;
+      const item = buildLine(grossUnit, 1, grossLineDiscount, rate, tax, name, undefined, shipIncluded);
       if (item) items.push(item);
     }
 

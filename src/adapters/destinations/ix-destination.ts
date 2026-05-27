@@ -35,7 +35,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   }
 
   async createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult> {
-    const builder = new IxBuilder(ctx.config);
+    const builder = new IxBuilder(ctx.config, undefined, ctx.productOverrides);
     const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
 
     // IxBuilder reconciles internally on the raw_order path. For non-raw
@@ -78,7 +78,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   }
 
   async issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult> {
-    const builder = new IxBuilder(ctx.config);
+    const builder = new IxBuilder(ctx.config, undefined, ctx.productOverrides);
     const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
 
     const refundItems = normalized.order.items.filter(item => refund.itemsIds.includes(item.id));

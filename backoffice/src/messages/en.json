@@ -5,6 +5,31 @@
     "privacyTitle": "Privacy Policy | Rioko",
     "termsTitle": "Terms of Service | Rioko"
   },
+  "ixOverrides": {
+    "title": "Per-Product Overrides → InvoiceXpress",
+    "subtitle": "Override VAT, inclusion (inc/exc), exemption code or display name per SKU when Shopify/Stripe data doesn't reflect fiscal reality. Lines without an override keep the default behavior.",
+    "backToIntegration": "Back to {source}",
+    "statTotal": "Products",
+    "statOverridden": "Overridden",
+    "filterPlaceholder": "Filter by name, SKU or reference…",
+    "addOverride": "Add override",
+    "edit": "Edit",
+    "removeOverride": "Remove override",
+    "cancel": "Cancel",
+    "save": "Save",
+    "taxRate": "VAT rate",
+    "vatInclusion": "VAT inclusion",
+    "vatDefault": "Default",
+    "vatInc": "Inc",
+    "vatExc": "Exc",
+    "exemptionReason": "Exemption reason",
+    "nameOverride": "Display name override",
+    "custom": "Custom",
+    "noExemption": "(none)",
+    "renamed": "Renamed",
+    "noSearchResults": "No products match the filter.",
+    "noSourceProducts": "No source products. Check the Shopify/Stripe connection."
+  },
   "moloniMappings": {
     "title": "Map Products → Moloni",
     "subtitle": "Pair each {source} product/variant with an existing Moloni product. Unmapped lines fall back to the Rioko auto-created product (RIOKO-VARIANT-…).",
@@ -674,7 +699,10 @@
     "alertSaveExtError": "Save failed: {message}",
     "alertToggleError": "Failed to change state. Try again.",
     "alertForceAuthError": "Failed to force authorization.",
-    "confirmSequenceMissing": "The invoice series \"{name}\" was not found in InvoiceXpress. Continue anyway? (Rioko will fall back to the default series)"
+    "confirmSequenceMissing": "The invoice series \"{name}\" was not found in InvoiceXpress. Continue anyway? (Rioko will fall back to the default series)",
+    "overridesTitle": "Per-product overrides",
+    "overridesDesc": "Force VAT rate, inclusion (inc/exc) or exemption per SKU",
+    "manageOverrides": "Manage overrides"
   },
   "eupagoIxSetup": {
     "title": "EuPago + InvoiceXpress",
@@ -1183,7 +1211,10 @@
     "errorNetwork": "Network error: {message}",
     "alertSaveError": "Failed to save. Try again.",
     "alertForceAuthError": "Failed to force authorization.",
-    "confirmSequenceMissing": "The invoice series \"{name}\" was not found in InvoiceXpress. Continue anyway? (Rioko will fall back to the default series)"
+    "confirmSequenceMissing": "The invoice series \"{name}\" was not found in InvoiceXpress. Continue anyway? (Rioko will fall back to the default series)",
+    "overridesTitle": "Per-product overrides",
+    "overridesDesc": "Force VAT rate, inclusion (inc/exc) or exemption per SKU",
+    "manageOverrides": "Manage overrides"
   },
   "devMode": {
     "back": "Back",

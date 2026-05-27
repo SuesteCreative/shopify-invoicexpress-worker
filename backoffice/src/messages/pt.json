@@ -9,6 +9,31 @@
     "back": "← Voltar",
     "loading": "A carregar…"
   },
+  "ixOverrides": {
+    "title": "Overrides por Produto → InvoiceXpress",
+    "subtitle": "Ajusta IVA, inclusão (inc/exc), isenção ou nome por SKU quando os dados Shopify/Stripe não refletem a realidade fiscal. Linhas sem override seguem o comportamento padrão.",
+    "backToIntegration": "Voltar a {source}",
+    "statTotal": "Produtos",
+    "statOverridden": "Com override",
+    "filterPlaceholder": "Filtrar por nome, SKU ou referência…",
+    "addOverride": "Adicionar override",
+    "edit": "Editar",
+    "removeOverride": "Remover override",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "taxRate": "Taxa de IVA",
+    "vatInclusion": "Inclusão IVA",
+    "vatDefault": "Padrão",
+    "vatInc": "Inc",
+    "vatExc": "Exc",
+    "exemptionReason": "Razão de Isenção",
+    "nameOverride": "Nome (override)",
+    "custom": "Outra",
+    "noExemption": "(nenhuma)",
+    "renamed": "Renomeado",
+    "noSearchResults": "Nenhum produto corresponde ao filtro.",
+    "noSourceProducts": "Sem produtos no source. Verifica a ligação Shopify/Stripe."
+  },
   "moloniMappings": {
     "title": "Mapear Produtos → Moloni",
     "subtitle": "Liga cada produto/variante do {source} a um produto existente no Moloni. Linhas sem mapping ficam com o produto auto-criado pelo Rioko (RIOKO-VARIANT-…).",
@@ -674,7 +699,10 @@
     "alertSaveExtError": "Erro ao guardar: {message}",
     "alertToggleError": "Erro ao alterar estado. Tenta novamente.",
     "alertForceAuthError": "Erro ao forçar autorização.",
-    "confirmSequenceMissing": "A série de faturação \"{name}\" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)"
+    "confirmSequenceMissing": "A série de faturação \"{name}\" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)",
+    "overridesTitle": "Overrides por produto",
+    "overridesDesc": "Forçar IVA, inclusão (inc/exc) ou isenção por SKU específico",
+    "manageOverrides": "Gerir overrides"
   },
   "eupagoIxSetup": {
     "title": "EuPago + InvoiceXpress",
@@ -1185,7 +1213,10 @@
     "errorNetwork": "Erro de rede: {message}",
     "alertSaveError": "Erro ao guardar. Tenta novamente.",
     "alertForceAuthError": "Erro ao forçar autorização.",
-    "confirmSequenceMissing": "A série de faturação \"{name}\" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)"
+    "confirmSequenceMissing": "A série de faturação \"{name}\" não foi encontrada no InvoiceXpress. Desejas continuar? (O Rioko usará a série pré-definida por omissão)",
+    "overridesTitle": "Overrides por produto",
+    "overridesDesc": "Forçar IVA, inclusão (inc/exc) ou isenção por SKU específico",
+    "manageOverrides": "Gerir overrides"
   },
   "devMode": {
     "back": "Voltar",

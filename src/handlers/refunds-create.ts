@@ -6,6 +6,7 @@ import { IxApi } from "../api/ix";
 import { IxBuilder, type IxCreditNote } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
+import { loadProductOverrides } from "../services/product-overrides";
 
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
@@ -83,7 +84,10 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
     );
 
     const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
-    const ixBuilder = new IxBuilder(config, viesChecker);
+    const productOverrides = config.user_id
+      ? await loadProductOverrides(env, config.user_id, "shopify", "invoicexpress")
+      : undefined;
+    const ixBuilder = new IxBuilder(config, viesChecker, productOverrides);
     const build = await ixBuilder.createInvoiceFromNormalizedOrderAsync(normalizedOrderResponse.normalized);
 
     if (build.status === "deferred") {

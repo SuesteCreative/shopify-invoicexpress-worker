@@ -20,6 +20,15 @@ export interface AdapterCtx {
   // (output of MoloniDestination.deriveProductReference). Adapters consult
   // this Map before falling back to the find-or-create-by-reference path.
   productMappings?: Map<string, number>;
+  // Pre-fetched per-SKU overrides (tax_rate, vat_inclusion, exemption,
+  // name). Used by IxBuilder.buildInvoiceItemsFromRaw to adjust per-line
+  // behavior without touching the integration-level config.
+  productOverrides?: Map<string, {
+    tax_rate?: number;
+    vat_inclusion?: "inc" | "exc";
+    exemption_reason?: string;
+    name_override?: string;
+  }>;
 }
 
 export interface WebhookVerification {

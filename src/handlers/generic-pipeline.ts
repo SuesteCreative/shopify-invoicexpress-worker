@@ -7,6 +7,7 @@ import { isIntegrationPaused } from "../services/pause-gate";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 import { loadProductMappings } from "../services/product-mappings";
+import { loadProductOverrides } from "../services/product-overrides";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
 
@@ -87,12 +88,16 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const externalId = sourceAdapter.externalId(body);
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined);
 
-  // Pre-fetch explicit product mappings (one round-trip; small payload). The
-  // Moloni adapter consults this map before falling back to its find-or-create
-  // path. Returns empty Map when the user hasn't mapped anything.
-  const productMappings = destination === "moloni" && config.user_id
-    ? await loadProductMappings(env, config.user_id, source)
-    : undefined;
+  // Pre-fetch explicit product mappings (Moloni) + per-SKU overrides (IX).
+  // Both are one D1 round-trip with empty-Map fallback when nothing's set.
+  const [productMappings, productOverrides] = await Promise.all([
+    destination === "moloni" && config.user_id
+      ? loadProductMappings(env, config.user_id, source)
+      : Promise.resolve(undefined),
+    destination === "invoicexpress" && config.user_id
+      ? loadProductOverrides(env, config.user_id, source, destination)
+      : Promise.resolve(undefined),
+  ]);
 
   const ctx = {
     apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
@@ -100,6 +105,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     sourceConfig: input.sourceConfig,
     destinationConfig: input.destinationConfig,
     productMappings,
+    productOverrides,
   };
   const logTopic = `${source}/${topic}`;
   const connectionLabel = `${source} → ${destination}`;

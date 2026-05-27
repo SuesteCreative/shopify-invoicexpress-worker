@@ -722,6 +722,13 @@ export default function ShopifyIXIntegration() {
                                                         <div className="absolute right-6 top-[55%] -translate-y-1/2 pointer-events-none opacity-40"><ChevronRight className="w-5 h-5 rotate-90 text-soon" /></div>
                                                     </div>
                                                 </div>
+                                                <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
+                                                    <div className="min-w-0">
+                                                        <h3 className="font-bold text-sm">{t("overridesTitle")}</h3>
+                                                        <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("overridesDesc")}</p>
+                                                    </div>
+                                                    <Link href="/integrations/ix-overrides?source_kind=shopify" className="px-5 py-2.5 rounded-xl border border-hairline hover:border-rule text-[10px] font-black uppercase tracking-[0.18em] transition-colors shrink-0">{t("manageOverrides")}</Link>
+                                                </div>
                                                 <div className="md:col-span-2 pt-4"><button onClick={handleSaveSettings} disabled={saving} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface">{saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {t("saveSettings")}</>}</button></div>
                                             </>
                                         ) : (

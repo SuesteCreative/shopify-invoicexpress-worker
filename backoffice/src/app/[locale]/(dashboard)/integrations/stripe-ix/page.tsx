@@ -700,6 +700,14 @@ export default function StripeIXIntegration() {
                                                     </select>
                                                 </div>
 
+                                                <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
+                                                    <div className="min-w-0">
+                                                        <h3 className="font-bold text-sm">{t("overridesTitle")}</h3>
+                                                        <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("overridesDesc")}</p>
+                                                    </div>
+                                                    <Link href="/integrations/ix-overrides?source_kind=stripe" className="px-5 py-2.5 rounded-xl border border-hairline hover:border-rule text-[10px] font-black uppercase tracking-[0.18em] transition-colors shrink-0">{t("manageOverrides")}</Link>
+                                                </div>
+
                                                 <div className="md:col-span-2 pt-4 flex items-center gap-4">
                                                     <button onClick={() => setStep(step - 1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
                                                     <button onClick={handleIxConnect} disabled={saving || !ixAccount || !ixApiKey} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">

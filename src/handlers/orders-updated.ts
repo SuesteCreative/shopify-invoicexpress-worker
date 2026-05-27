@@ -5,6 +5,7 @@ import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
+import { loadProductOverrides } from "../services/product-overrides";
 
 export async function handleOrderUpdated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/updated";
@@ -33,7 +34,10 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
     }
 
     const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
-    const ixBuilder = new IxBuilder(config, viesChecker);
+    const productOverrides = config.user_id
+      ? await loadProductOverrides(env, config.user_id, "shopify", "invoicexpress")
+      : undefined;
+    const ixBuilder = new IxBuilder(config, viesChecker, productOverrides);
     const build = await ixBuilder.createInvoiceFromNormalizedOrderAsync(normalizedOrderResponse.normalized);
 
     if (build.status === "deferred") {

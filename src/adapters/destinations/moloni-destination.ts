@@ -265,7 +265,11 @@ function taxRateForItem(
   item: Normalized["order"]["items"][number],
   ctx: AdapterCtx,
 ): number {
-  const isShipping = !item.product_id && !item.variant_id;
+  // Shipping iff no SKU AND no product/variant id — same rule as
+  // deriveProductReference. force_shipping_tax_rate only applies to
+  // genuine shipping lines, not Stripe synthetic items with a price id.
+  const sku = (item.sku ?? "").trim();
+  const isShipping = !sku && !item.product_id && !item.variant_id;
   const forceTax = isShipping
     ? ctx.config.force_shipping_tax_rate
     : ctx.config.force_tax_rate;
@@ -285,8 +289,11 @@ function buildMoloniLineItems(
       throw new Error(`Moloni create failed: no Moloni product_id resolved for reference '${reference}'`);
     }
     const name = deriveProductName(item);
-    const isShipping = !item.product_id && !item.variant_id;
-    const summary = isShipping ? undefined : (item.sku ? `SKU: ${item.sku}`.slice(0, 200) : undefined);
+    const sku = (item.sku ?? "").trim();
+    // Show SKU on the line whenever it's present (Shopify variant SKU,
+    // Stripe price id, etc). Genuine Shopify shipping lines have no SKU
+    // so they fall through to undefined.
+    const summary = sku ? `SKU: ${sku}`.slice(0, 200) : undefined;
     const taxRate = taxRateForItem(item, ctx);
 
     // Moloni `price` is the NET unit price (VAT-exclusive); Moloni adds tax
@@ -397,17 +404,23 @@ const FALLBACK_PLACEHOLDER_REFERENCE = "RIOKO-PLACEHOLDER";
 const SHIPPING_REFERENCE = "RIOKO-SHIPPING";
 
 function deriveProductReference(item: Normalized["order"]["items"][number]): string {
-  const isShipping = !item.product_id && !item.variant_id;
-  if (isShipping) return SHIPPING_REFERENCE;
+  // SKU wins regardless of product_id/variant_id: Stripe-source items emit
+  // sku=price_xxx with product_id=0/variant_id=0, and we want the mapping key
+  // to be `price_xxx`, not RIOKO-SHIPPING. Shopify shipping lines have no SKU,
+  // so they still fall into the SHIPPING_REFERENCE branch below.
   const sku = (item.sku ?? "").trim();
   if (sku) return sku.slice(0, 30); // Moloni caps reference at 30 chars
+  if (!item.product_id && !item.variant_id) return SHIPPING_REFERENCE;
   if (item.variant_id) return `RIOKO-VARIANT-${item.variant_id}`.slice(0, 30);
   if (item.product_id) return `RIOKO-PRODUCT-${item.product_id}`.slice(0, 30);
   return FALLBACK_PLACEHOLDER_REFERENCE;
 }
 
 function deriveProductName(item: Normalized["order"]["items"][number]): string {
-  const isShipping = !item.product_id && !item.variant_id;
+  // Shipping iff no SKU AND no product/variant id (a Shopify shipping_lines
+  // row). Stripe items have sku=price_xxx so they don't trip this branch.
+  const sku = (item.sku ?? "").trim();
+  const isShipping = !sku && !item.product_id && !item.variant_id;
   if (isShipping) {
     return `Portes de envio${item.title ? ` — ${item.title}` : ""}`.slice(0, 200);
   }
@@ -457,21 +470,26 @@ async function ensureMoloniProduct(
 
   // 3. Create the product. `price: 0` because the real price is set per
   //    invoice line; Moloni only uses the master price as a default.
+  //
+  //    Moloni requires exemption_reason at the PRODUCT level (not just the
+  //    invoice line) whenever no `taxes[]` row is provided. Default to M01;
+  //    the per-invoice line exemption_reason still overrides if needed.
+  const insertBody: Record<string, unknown> = {
+    category_id: categoryId,
+    unit_id: unitId,
+    type: 1,
+    name: defaultName,
+    reference,
+    price: 0,
+    has_stock: 0,
+  };
+  if (taxRate > 0) {
+    insertBody.taxes = [{ tax_id: DEFAULT_TAX_ID, value: taxRate, order: 0, cumulative: 0 }];
+  } else {
+    insertBody.exemption_reason = "M01";
+  }
   const created = await moloniCall<{ product_id?: number }>(
-    cfg, token, "/products/insert/",
-    {
-      category_id: categoryId,
-      unit_id: unitId,
-      type: 1,
-      name: defaultName,
-      reference,
-      price: 0,
-      has_stock: 0,
-      taxes: taxRate > 0
-        ? [{ tax_id: DEFAULT_TAX_ID, value: taxRate, order: 0, cumulative: 0 }]
-        : undefined,
-    },
-    "create",
+    cfg, token, "/products/insert/", insertBody, "create",
   );
   if (!created?.product_id) {
     throw new Error(`Moloni create failed: product '${reference}' insert returned no id — ${truncate(JSON.stringify(created))}`);

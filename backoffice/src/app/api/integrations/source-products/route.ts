@@ -64,32 +64,28 @@ async function listShopify(domain: string, token: string, apiVersion: string): P
 }
 
 async function listStripe(restrictedKey: string): Promise<SourceProduct[]> {
+    // Stripe Source emits invoice/charge line items with `sku = l.price?.id`
+    // (the price id, e.g. price_xxx). To produce stable mapping rows that
+    // match the worker's deriveProductReference, we enumerate PRICES — one
+    // row per price — and embed the parent product's name as `title`.
     const out: SourceProduct[] = [];
-    const res = await fetch("https://api.stripe.com/v1/products?limit=100&active=true", {
-        headers: { "Authorization": `Bearer ${restrictedKey}` },
-    });
+    const res = await fetch(
+        "https://api.stripe.com/v1/prices?limit=100&active=true&expand[]=data.product",
+        { headers: { "Authorization": `Bearer ${restrictedKey}` } },
+    );
     if (!res.ok) throw new Error(`Stripe ${res.status}: ${await res.text().catch(() => "")}`);
     const json = await res.json() as { data?: any[] };
-    for (const p of json.data ?? []) {
-        // For each product, fetch its default price (or first price).
-        let price = 0;
-        if (p.default_price) {
-            const priceRes = await fetch(`https://api.stripe.com/v1/prices/${p.default_price}`, {
-                headers: { "Authorization": `Bearer ${restrictedKey}` },
-            });
-            if (priceRes.ok) {
-                const priceJson = await priceRes.json() as any;
-                price = (priceJson.unit_amount ?? 0) / 100;
-            }
-        }
+    for (const price of json.data ?? []) {
+        const product = price.product as any; // expanded inline
+        if (!product || typeof product !== "object") continue;
         out.push({
-            source_reference: `RIOKO-PRODUCT-${p.id}`.slice(0, 30),
-            source_product_id: p.id,
+            source_reference: String(price.id).slice(0, 30), // sku=price.id at runtime
+            source_product_id: typeof product === "string" ? product : product.id,
             source_variant_id: null,
-            source_sku: null,
-            title: p.name,
-            variant_title: null,
-            price,
+            source_sku: price.id, // surface the price id as the "SKU" in the UI
+            title: product.name ?? "(no name)",
+            variant_title: price.nickname ?? null,
+            price: (price.unit_amount ?? 0) / 100,
         });
     }
     return out;

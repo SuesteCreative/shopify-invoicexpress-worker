@@ -33,6 +33,9 @@ type VendusBody = {
     vendus_register_id?: number | string;
     vendus_series_id?: number | string;
     vendus_environment?: "production" | "sandbox";
+    vat_included?: boolean;
+    auto_finalize?: boolean;
+    exemption_reason?: string;
     status?: "draft" | "active" | "paused" | "error";
 };
 
@@ -42,6 +45,9 @@ function redactConfig(cfg: Record<string, unknown>) {
         vendus_register_id: cfg.vendus_register_id ?? null,
         vendus_series_id: cfg.vendus_series_id ?? null,
         vendus_environment: cfg.vendus_environment ?? "production",
+        vat_included: cfg.vat_included !== false,
+        auto_finalize: cfg.auto_finalize === true,
+        exemption_reason: cfg.exemption_reason ?? "M01",
     };
 }
 
@@ -107,7 +113,12 @@ export async function POST(request: NextRequest) {
         vendus_api_key: body.vendus_api_key || previousCfg.vendus_api_key,
         vendus_register_id: body.vendus_register_id ?? previousCfg.vendus_register_id ?? null,
         vendus_series_id: body.vendus_series_id ?? previousCfg.vendus_series_id ?? null,
-        vendus_environment: body.vendus_environment === "sandbox" ? "sandbox" : "production",
+        vendus_environment: (body.vendus_environment ?? previousCfg.vendus_environment) === "sandbox" ? "sandbox" : "production",
+        vat_included: body.vat_included !== undefined ? body.vat_included : (previousCfg.vat_included !== false),
+        auto_finalize: body.auto_finalize !== undefined ? body.auto_finalize === true : (previousCfg.auto_finalize === true),
+        exemption_reason: typeof body.exemption_reason === "string" && body.exemption_reason.trim()
+            ? body.exemption_reason.trim()
+            : (previousCfg.exemption_reason ?? "M01"),
     };
 
     const id = crypto.randomUUID();

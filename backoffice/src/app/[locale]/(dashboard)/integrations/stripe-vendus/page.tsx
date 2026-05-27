@@ -3,259 +3,553 @@
 export const runtime = "edge";
 
 import { useState, useEffect } from "react";
-import { Loader2, Check, AlertTriangle, ArrowLeft, Lock } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { CreditCard, Loader2, Check, AlertTriangle, ChevronRight, Webhook, Settings2, Zap, Info, ShieldCheck, Copy, Receipt } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
+import { RIOKO_CONFIG } from "@/lib/config";
+import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
+
+const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_SOURCE_ENABLED === "1";
+const WEBHOOK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/webhooks/stripe`;
+const RECOMMENDED_EVENTS = ["payment_intent.succeeded", "charge.succeeded", "charge.refunded"];
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
+const exemptionOptions = [
+    { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
+    { value: "M02", label: "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho" },
+    { value: "M04", label: "Isento artigo 13.º do CIVA" },
+    { value: "M05", label: "Isento artigo 14.º do CIVA" },
+    { value: "M06", label: "Isento artigo 15.º do CIVA" },
+    { value: "M07", label: "Isento artigo 9.º do CIVA" },
+    { value: "M08", label: "Simples: Não confere direito a dedução" },
+    { value: "M09", label: "IVA – não confere direito a dedução" },
+    { value: "M10", label: "Isento artigo 31.º do CIVA" },
+    { value: "M11", label: "Regime especial de isenção artigo 53.º do CIVA" },
+    { value: "M16", label: "Isento artigo 14.º do RITI" },
+    { value: "M20", label: "IVA - autoliquidação" },
+    { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
+];
+
 export default function StripeVendusIntegration() {
     const t = useTranslations("stripeVendusSetup");
-    const tCommon = useTranslations("integrationsIndex");
 
+    const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [error, setError] = useState("");
-    const [success, setSuccess] = useState(false);
+    const [globalError, setGlobalError] = useState("");
+    const [userRole, setUserRole] = useState("");
+    const [targetUserId, setTargetUserId] = useState("");
 
-    const [stripeConnected, setStripeConnected] = useState<boolean | null>(null);
+    // Stripe
+    const [stripeAccountId, setStripeAccountId] = useState("");
+    const [restrictedKey, setRestrictedKey] = useState("");
+    const [webhookSecret, setWebhookSecret] = useState("");
+    const [hasStripeSaved, setHasStripeSaved] = useState(false);
+    const [hasWebhookSaved, setHasWebhookSaved] = useState(false);
+    const [stripeError, setStripeError] = useState("");
+    const [installError, setInstallError] = useState("");
+    const [showManualFallback, setShowManualFallback] = useState(false);
+    const [copied, setCopied] = useState(false);
 
+    // Vendus creds
     const [apiKey, setApiKey] = useState("");
+    const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
+    const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
+    const [vendusError, setVendusError] = useState("");
+
+    // Settings
     const [registerId, setRegisterId] = useState("");
     const [seriesId, setSeriesId] = useState("");
-    const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
-    const [status, setStatus] = useState<ConnectionStatus>("");
+    const [vatIncluded, setVatIncluded] = useState(true);
+    const [autoFinalize, setAutoFinalize] = useState(false);
+    const [exemptionReason, setExemptionReason] = useState("M01");
 
-    const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
+    const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
+
+    const vendusCredsSaved = hasSavedApiKey;
+    const settingsSaved = !!registerId && !!seriesId;
+    const allComplete = connectionStatus === "active";
 
     useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const [stripeRes, vendusRes] = await Promise.all([
-                    fetch("/api/integrations/stripe-source"),
-                    fetch("/api/integrations/vendus-destination?source_kind=stripe"),
-                ]);
-                if (cancelled) return;
+        if (!STRIPE_ENABLED) { setLoading(false); return; }
+        fetch("/api/auth/sync", { method: "POST" }).catch(console.error);
 
-                if (stripeRes.ok) {
-                    const data = await stripeRes.json() as { connection?: { id: string } | null };
-                    setStripeConnected(!!data.connection);
-                } else {
-                    setStripeConnected(false);
-                }
+        Promise.all([
+            fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
+            fetch("/api/integrations/stripe-source").then(r => r.json()).catch(() => ({})),
+            fetch("/api/integrations/vendus-destination?source_kind=stripe").then(r => r.json()).catch(() => ({})),
+        ]).then(([integ, stripe, vendus]: any) => {
+            if (integ?._viewer_role) setUserRole(integ._viewer_role);
+            if (integ?.user_id) setTargetUserId(integ.user_id);
 
-                if (vendusRes.ok) {
-                    const data = await vendusRes.json() as { connection?: { status: ConnectionStatus; destination_config: Record<string, unknown> } | null };
-                    if (data.connection) {
-                        const cfg = data.connection.destination_config;
-                        setHasSavedApiKey(!!cfg.has_api_key);
-                        setRegisterId(String(cfg.vendus_register_id ?? ""));
-                        setSeriesId(String(cfg.vendus_series_id ?? ""));
-                        setEnvironment((cfg.vendus_environment as "production" | "sandbox") ?? "production");
-                        setStatus(data.connection.status);
-                    }
-                }
-            } finally {
-                if (!cancelled) setLoading(false);
+            const conn = stripe?.connection;
+            const sCfg = conn?.source_config ?? {};
+            if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
+            const stripeSaved = !!sCfg.stripe_account_id;
+            const webhookSaved = !!sCfg.has_webhook_secret;
+            setHasStripeSaved(stripeSaved);
+            setHasWebhookSaved(webhookSaved);
+
+            const vConn = vendus?.connection;
+            let credsOk = false, setOk = false, vStatus = "";
+            if (vConn) {
+                const cfg = vConn.destination_config ?? {};
+                setHasSavedApiKey(!!cfg.has_api_key);
+                setRegisterId(cfg.vendus_register_id != null ? String(cfg.vendus_register_id) : "");
+                setSeriesId(cfg.vendus_series_id != null ? String(cfg.vendus_series_id) : "");
+                setEnvironment((cfg.vendus_environment as "production" | "sandbox") ?? "production");
+                if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
+                if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
+                if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
+                setConnectionStatus(vConn.status ?? "");
+                credsOk = !!cfg.has_api_key;
+                setOk = !!cfg.vendus_register_id && !!cfg.vendus_series_id;
+                vStatus = vConn.status ?? "";
             }
-        })();
-        return () => { cancelled = true; };
+            if (vStatus === "active") setStep(5);
+            else if (stripeSaved && webhookSaved && credsOk && setOk) setStep(4);
+            else if (stripeSaved && webhookSaved && credsOk) setStep(3);
+            else if (stripeSaved && webhookSaved) setStep(2);
+            else setStep(1);
+        }).finally(() => setLoading(false));
     }, []);
 
-    async function save(targetStatus: "draft" | "active") {
-        setError("");
-        setSuccess(false);
+    const postStripeSource = async (patch: Record<string, any>) => {
+        return fetch("/api/integrations/stripe-source", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                stripe_account_id: stripeAccountId,
+                destination_kind: "vendus",
+                ...patch
+            })
+        });
+    };
+
+    const handleStripeStep = async () => {
+        if (!stripeAccountId.trim() || !restrictedKey.trim()) return;
+        setSaving(true);
+        setStripeError("");
+        setInstallError("");
+        try {
+            const saveRes = await postStripeSource({
+                stripe_account_id: stripeAccountId.trim(),
+                restricted_key: restrictedKey.trim(),
+                status: "draft"
+            });
+            if (!saveRes.ok) {
+                const data: any = await saveRes.json().catch(() => ({}));
+                setStripeError(data.error || t("errorSaveCreds"));
+                return;
+            }
+            setHasStripeSaved(true);
+            const instRes = await fetch("/api/integrations/stripe-source/install-webhook", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ restricted_key: restrictedKey.trim() })
+            });
+            const instData: any = await instRes.json().catch(() => ({}));
+            if (!instRes.ok) {
+                const msg = instData.error || t("errorInstallWebhook");
+                setInstallError(`${msg}${instData.stripe_code ? ` (${instData.stripe_code})` : ""}`);
+                setShowManualFallback(true);
+                return;
+            }
+            setHasWebhookSaved(true);
+            setStep(2);
+        } catch (e: any) {
+            setStripeError(t("errorNetwork", { message: e.message }));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleManualSecret = async () => {
+        if (!webhookSecret.trim() || !stripeAccountId) return;
+        setSaving(true);
+        try {
+            const res = await postStripeSource({ webhook_secret: webhookSecret.trim(), status: "draft" });
+            if (!res.ok) {
+                const data: any = await res.json().catch(() => ({}));
+                setStripeError(data.error || t("errorSaveWebhookSecret"));
+                return;
+            }
+            setHasWebhookSaved(true);
+            setShowManualFallback(false);
+            setStep(2);
+        } catch (e: any) {
+            setStripeError(t("errorNetwork", { message: e.message }));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleVendusStep = async () => {
+        setVendusError("");
+        if (!apiKey && !hasSavedApiKey) { setVendusError(t("errorMissingApiKey")); return; }
         setSaving(true);
         try {
             const body: Record<string, unknown> = {
                 source_kind: "stripe",
-                vendus_register_id: registerId || undefined,
-                vendus_series_id: seriesId || undefined,
                 vendus_environment: environment,
-                status: targetStatus,
+                status: "draft",
             };
             if (apiKey) body.vendus_api_key = apiKey;
-            if (targetStatus === "active" && !apiKey && !hasSavedApiKey) {
-                throw new Error(t("errorMissingApiKey"));
-            }
-
             const res = await fetch("/api/integrations/vendus-destination", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
             if (!res.ok) {
-                const json = await res.json().catch(() => ({})) as { error?: string };
-                throw new Error(json.error ?? `HTTP ${res.status}`);
+                const json: any = await res.json().catch(() => ({}));
+                setVendusError(json.error ?? `HTTP ${res.status}`);
+                return;
             }
-            setSuccess(true);
-            setStatus(targetStatus);
             if (apiKey) setHasSavedApiKey(true);
             setApiKey("");
+            setStep(3);
         } catch (e: any) {
-            setError(e?.message ?? "Unknown error");
+            setVendusError(e?.message ?? "Unknown error");
         } finally {
             setSaving(false);
         }
-    }
+    };
 
-    if (loading) {
+    const handleSaveSettings = async () => {
+        if (!registerId || !seriesId) { setGlobalError(t("errorSettingsRequired")); return; }
+        setSaving(true);
+        setGlobalError("");
+        try {
+            const body: Record<string, unknown> = {
+                source_kind: "stripe",
+                vendus_register_id: registerId,
+                vendus_series_id: seriesId,
+                vat_included: vatIncluded,
+                auto_finalize: autoFinalize,
+                exemption_reason: exemptionReason,
+                status: "draft",
+            };
+            const res = await fetch("/api/integrations/vendus-destination", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const json: any = await res.json().catch(() => ({}));
+                setGlobalError(json.error ?? `HTTP ${res.status}`);
+                return;
+            }
+            setStep(4);
+        } catch (e: any) {
+            setGlobalError(e?.message ?? "Unknown error");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleActivate = async () => {
+        setSaving(true);
+        setGlobalError("");
+        try {
+            const res = await fetch("/api/integrations/vendus-destination", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ source_kind: "stripe", status: "active" }),
+            });
+            if (!res.ok) {
+                const json: any = await res.json().catch(() => ({}));
+                setGlobalError(json.error ?? t("errorActivate"));
+                return;
+            }
+            setConnectionStatus("active");
+            setStep(5);
+        } catch (e: any) {
+            setGlobalError(e?.message ?? "Unknown error");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const copyWebhookUrl = async () => {
+        try {
+            await navigator.clipboard.writeText(WEBHOOK_URL);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch { }
+    };
+
+    if (!STRIPE_ENABLED) {
         return (
-            <div className="max-w-3xl mx-auto py-20 flex items-center justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-fg-60" />
+            <div className="max-w-3xl mx-auto py-24 space-y-8">
+                <Link href="/integrations" className="text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-2"><ChevronRight className="w-3 h-3 rotate-180" /> {t("backToIntegrations")}</Link>
+                <div className="glass rounded-[2.5rem] p-12 border-[rgba(245,158,11,0.20)] bg-[rgba(245,158,11,0.04)] text-center">
+                    <h1 className="text-2xl font-black tracking-tight mb-2">{t("disabledTitle")}</h1>
+                    <p className="text-fg-60 text-sm">{t("disabledBody")}</p>
+                </div>
             </div>
         );
     }
 
-    return (
-        <div className="max-w-3xl mx-auto py-6 sm:py-12 space-y-10">
-            <div>
-                <Link href="/integrations" className="inline-flex items-center gap-2 text-sm text-fg-60 hover:text-fg transition-colors">
-                    <ArrowLeft className="w-4 h-4" /> {tCommon("title")}
-                </Link>
+    if (loading) {
+        return (
+            <div className="min-h-[60vh] flex items-center justify-center">
+                <Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" />
             </div>
+        );
+    }
 
-            <header className="space-y-4">
-                <div className="flex items-center gap-4">
-                    <div className="flex -space-x-3">
-                        <div className="w-14 h-14 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface p-3">
-                            <Image src="/images/stripe-logo.svg" alt="Stripe" width={28} height={28} className="object-contain" />
-                        </div>
-                        <div className="w-14 h-14 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface p-3">
-                            <Image src="/images/vendus-logo.svg" alt="Vendus" width={30} height={30} className="object-contain" />
+    const labels = {
+        update: t("update"),
+        back: t("back"),
+        statusAuthorized: t("statusAuthorized"),
+        statusPending: t("statusPending"),
+        diagnostic: t("diagnostic"),
+        diagnosticSub: t("diagnosticSub"),
+        diagnosticDefault: t("diagnosticDefault"),
+        forceAuth: t("forceAuth"),
+        areYouSure: t("areYouSure"),
+        cancelAction: t("cancelAction"),
+        alertForceAuthError: t("alertForceAuthError"),
+    };
+
+    const steps: StepDef[] = [
+        {
+            id: 1,
+            title: t("step1Title"),
+            description: t("step1Desc"),
+            icon: CreditCard,
+            logo: "/images/stripe-logo.svg",
+            logoWidth: 60,
+            isAuthorized: hasStripeSaved && hasWebhookSaved,
+            errorMsg: stripeError || installError,
+            body: (
+                <div className="grid md:grid-cols-2 gap-8">
+                    <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl px-6 py-4">
+                        <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
+                        <div>
+                            <p className="text-sm font-bold text-accent">{t("restrictedKeyHowTitle")}</p>
+                            <ol className="text-[11px] text-fg-60 mt-2 leading-relaxed list-decimal pl-4 space-y-1">
+                                <li>{t("restrictedKeyStep1")}</li>
+                                <li>{t("restrictedKeyStep2")}</li>
+                                <li>{t("restrictedKeyStep3")}</li>
+                                <li>{t("restrictedKeyStep4")}</li>
+                            </ol>
                         </div>
                     </div>
-                    <div>
-                        <h1 className="text-3xl font-medium tracking-tight">{t("title")}</h1>
-                        <p className="text-fg-60 text-sm mt-1">{t("subtitle")}</p>
-                    </div>
-                </div>
-            </header>
-
-            {!stripeConnected && (
-                <div className="glass p-5 sm:p-6 rounded-2xl border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.05)] flex items-start gap-4">
-                    <AlertTriangle className="w-5 h-5 text-soon flex-shrink-0 mt-0.5" />
                     <div className="space-y-3">
-                        <p className="text-sm text-fg">{t("stripeMissingTitle")}</p>
-                        <p className="text-xs text-fg-60">{t("stripeMissingBody")}</p>
-                        <Link href="/integrations/stripe-ix" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-hairline hover:border-rule text-xs font-mono uppercase tracking-[0.18em]">
-                            {t("configureStripe")}
-                        </Link>
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("stripeAccountIdLabel")}</label>
+                        <input type="text" value={stripeAccountId} onChange={(e) => setStripeAccountId(e.target.value)} placeholder={t("stripeAccountIdPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                    </div>
+                    <div className="space-y-3">
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("restrictedKeyLabel")}</label>
+                        <input type="password" value={restrictedKey} onChange={(e) => setRestrictedKey(e.target.value)} placeholder={t("restrictedKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                    </div>
+                    <div className="md:col-span-2 pt-4">
+                        <button onClick={handleStripeStep} disabled={saving || !stripeAccountId.trim() || !restrictedKey.trim()} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                            {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> {t("installingWebhook")}</> : <><Webhook className="w-4 h-4" /> {t("connectStripe")}</>}
+                        </button>
+                        {installError && <p className="text-[11px] text-destructive font-bold text-center mt-4">{installError}</p>}
+                    </div>
+                    <AnimatePresence>
+                        {showManualFallback && (
+                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="md:col-span-2 overflow-hidden">
+                                <div className="mt-4 p-6 rounded-2xl bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] space-y-4">
+                                    <div className="flex items-start gap-3">
+                                        <AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" />
+                                        <div>
+                                            <p className="text-sm font-bold text-soon">{t("manualFallbackTitle")}</p>
+                                            <p className="text-[11px] text-fg-60 mt-1 leading-relaxed">{t("manualFallbackBody")}</p>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] ml-1">{t("endpointUrl")}</label>
+                                        <div className="flex gap-3">
+                                            <input type="text" readOnly value={WEBHOOK_URL} className="flex-1 bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-mono text-accent outline-none" onClick={(e) => (e.target as HTMLInputElement).select()} />
+                                            <button onClick={copyWebhookUrl} className="px-4 py-3 rounded-2xl bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] hover:bg-[rgba(2,141,196,0.20)] transition-all font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
+                                                {copied ? <><Check className="w-3 h-3" />{t("copied")}</> : <><Copy className="w-3 h-3" />{t("copy")}</>}
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] text-fg-40 ml-1 mt-1">{t("eventsToSelect", { events: RECOMMENDED_EVENTS.join(", ") })}</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] ml-1">{t("signingSecret")}</label>
+                                        <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder={t("signingSecretPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-medium focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all placeholder:text-fg-40" />
+                                    </div>
+                                    <button onClick={handleManualSecret} disabled={saving || !webhookSecret.trim()} className="w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 bg-[rgba(245,158,11,0.10)] text-soon border border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.20)] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                        {t("saveSigningSecret")}
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            ),
+        },
+        {
+            id: 2,
+            title: t("step2Title"),
+            description: t("step2Desc"),
+            icon: Receipt,
+            logo: "/images/vendus-logo.svg",
+            logoWidth: 60,
+            isAuthorized: vendusCredsSaved,
+            errorMsg: vendusError,
+            body: (
+                <div className="grid md:grid-cols-2 gap-8">
+                    <div className="md:col-span-2 space-y-3">
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("apiKeyLabel")}</label>
+                        <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasSavedApiKey ? "••••••••••••" : ""} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{hasSavedApiKey ? t("apiKeyStoredHint") : t("apiKeyHint")}</p>
+                    </div>
+                    <div className="md:col-span-2 space-y-3">
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("environmentLabel")}</label>
+                        <div className="flex gap-3">
+                            <button type="button" onClick={() => setEnvironment("production")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envProduction")}</button>
+                            <button type="button" onClick={() => setEnvironment("sandbox")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envSandbox")}</button>
+                        </div>
+                    </div>
+                    <div className="md:col-span-2 pt-4 flex items-center gap-4">
+                        <button onClick={() => setStep(1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
+                        <button onClick={handleVendusStep} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t("saveVendus")} <ChevronRight className="w-4 h-4" /></>}
+                        </button>
+                    </div>
+                    {vendusError && <p className="md:col-span-2 text-[11px] text-destructive font-bold text-center">{vendusError}</p>}
+                </div>
+            ),
+        },
+        {
+            id: 3,
+            title: t("step3Title"),
+            description: t("step3Desc"),
+            icon: Settings2,
+            hasGearLogo: true,
+            isConfig: true,
+            isAuthorized: settingsSaved,
+            body: (
+                <div className="grid md:grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("registerIdLabel")}</label>
+                        <input type="number" value={registerId} onChange={(e) => setRegisterId(e.target.value)} placeholder="1234" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("registerIdHint")}</p>
+                    </div>
+                    <div className="space-y-3">
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("seriesIdLabel")}</label>
+                        <input type="text" value={seriesId} onChange={(e) => setSeriesId(e.target.value)} placeholder="01P2026" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("seriesIdHint")}</p>
+                    </div>
+                    <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
+                        <div>
+                            <h3 className="font-bold text-sm">{t("vatIncluded")}</h3>
+                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{vatIncluded ? t("vatIncludedOn") : t("vatIncludedOff")}</p>
+                        </div>
+                        <button onClick={() => setVatIncluded(!vatIncluded)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${vatIncluded ? "bg-accent-hot" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${vatIncluded ? "left-7" : "left-1"}`} /></button>
+                    </div>
+                    <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
+                        <div>
+                            <h3 className="font-bold text-sm">{t("autoFinalize")}</h3>
+                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
+                        </div>
+                        <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${autoFinalize ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} /></button>
+                    </div>
+                    <div className="md:col-span-2 glass p-5 sm:p-8 rounded-[2rem] border-hairline space-y-4">
+                        <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3></div>
+                        <p className="text-[10px] text-fg-40 font-medium uppercase tracking-wider leading-relaxed">{t("exemptionDesc")}</p>
+                        <select value={exemptionReason} onChange={(e) => setExemptionReason(e.target.value)} className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all cursor-pointer text-fg">
+                            {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
+                        </select>
+                    </div>
+                    <div className="md:col-span-2 pt-4 flex items-center gap-4">
+                        <button onClick={() => setStep(2)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
+                        <button onClick={handleSaveSettings} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {t("saveSettings")}</>}
+                        </button>
                     </div>
                 </div>
-            )}
-
-            <section className="space-y-5">
-                <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("credentialsSection")}</h2>
-
-                <Field label={t("apiKeyLabel")} hint={hasSavedApiKey ? t("apiKeyStoredHint") : t("apiKeyHint")}>
-                    <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder={hasSavedApiKey ? "••••••••••••" : ""}
-                        className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
-                    />
-                </Field>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label={t("registerIdLabel")} hint={t("registerIdHint")}>
-                        <input
-                            type="number"
-                            value={registerId}
-                            onChange={(e) => setRegisterId(e.target.value)}
-                            placeholder="1234"
-                            className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
-                        />
-                    </Field>
-                    <Field label={t("seriesIdLabel")} hint={t("seriesIdHint")}>
-                        <input
-                            type="text"
-                            value={seriesId}
-                            onChange={(e) => setSeriesId(e.target.value)}
-                            placeholder="01P2026"
-                            className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
-                        />
-                    </Field>
-                </div>
-
-                <Field label={t("environmentLabel")} hint={t("environmentHint")}>
-                    <div className="flex gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setEnvironment("production")}
-                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}
-                        >
-                            {t("envProduction")}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setEnvironment("sandbox")}
-                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}
-                        >
-                            {t("envSandbox")}
-                        </button>
+            ),
+        },
+        {
+            id: 4,
+            title: t("activateTitle"),
+            description: t("activateDesc"),
+            icon: Zap,
+            isAuthorized: connectionStatus === "active",
+            body: (
+                <div className="space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><CreditCard className="w-4 h-4 text-accent-hot" /></div>
+                            <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("stripeLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("configured")}</p></div>
+                            <Check className="w-4 h-4 text-accent-hot ml-auto" />
+                        </div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Receipt className="w-4 h-4 text-accent-hot" /></div>
+                            <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("vendusLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("statusAuthorized")}</p></div>
+                            <Check className="w-4 h-4 text-accent-hot ml-auto" />
+                        </div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Settings2 className="w-4 h-4 text-accent-hot" /></div>
+                            <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("settingsLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("configured")}</p></div>
+                            <Check className="w-4 h-4 text-accent-hot ml-auto" />
+                        </div>
                     </div>
-                </Field>
-            </section>
-
-            {error && (
-                <div className="glass p-4 rounded-xl border border-[rgba(239,68,68,0.30)] bg-[rgba(239,68,68,0.05)] flex items-start gap-3">
-                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-400">{error}</p>
+                    <div className="flex items-start gap-4 bg-surface-2/50 border border-hairline rounded-2xl px-6 py-4">
+                        <AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-fg-60 leading-relaxed">{t("activateWarning")}</p>
+                    </div>
+                    <button onClick={handleActivate} disabled={saving || connectionStatus === "active"} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                        {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {connectionStatus === "active" ? t("currentlyActive") : t("markAsActive")}</>}
+                    </button>
+                    {globalError && <p className="text-[11px] text-destructive font-bold text-center">{globalError}</p>}
                 </div>
-            )}
+            ),
+        },
+    ];
 
-            {success && (
-                <div className="glass p-4 rounded-xl border border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.05)] flex items-start gap-3">
-                    <Check className="w-4 h-4 text-accent-hot flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-accent-hot">{t("savedOk")}</p>
-                </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => save("draft")}
-                    className="px-6 py-3 rounded-2xl border border-hairline hover:border-rule text-sm font-mono uppercase tracking-[0.18em] disabled:opacity-50 disabled:cursor-not-allowed transition-colors w-full sm:w-auto"
-                >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : t("saveDraft")}
-                </button>
-                <button
-                    type="button"
-                    disabled={saving || !stripeConnected}
-                    onClick={() => save("active")}
-                    className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 w-full sm:w-auto"
-                >
-                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {t("activate")}
-                </button>
-                {status === "active" && (
-                    <span className="text-xs font-mono uppercase tracking-[0.18em] text-accent-hot flex items-center gap-1">
-                        <Check className="w-3 h-3" /> {t("currentlyActive")}
-                    </span>
-                )}
-            </div>
-
-            <section className="pt-8 border-t border-hairline">
-                <div className="flex items-start gap-3">
-                    <Lock className="w-4 h-4 text-fg-40 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-fg-60">{t("securityFooter")}</p>
-                </div>
-            </section>
-        </div>
-    );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
     return (
-        <label className="block space-y-2">
-            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-60">{label}</span>
-            {children}
-            {hint && <span className="block text-xs text-fg-40">{hint}</span>}
-        </label>
+        <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
+            <StepperHeader
+                backHref="/integrations"
+                backLabel={t("backToIntegrations")}
+                title={t("pageTitle")}
+                subtitle={t("engineSubtitle")}
+                providers={[
+                    { icon: CreditCard, authorized: hasStripeSaved && hasWebhookSaved },
+                    { icon: Receipt, authorized: vendusCredsSaved },
+                    { icon: Settings2, authorized: settingsSaved, color: "accentHot" },
+                ]}
+                allComplete={allComplete}
+                syncStateLabel={t("syncState")}
+                realtimeOnLabel={t("realtimeOn")}
+                waitingLabel={t("waitingConnection")}
+            />
+
+            <IntegrationStepper
+                steps={steps}
+                step={step}
+                setStep={setStep}
+                userRole={userRole}
+                targetUserId={targetUserId}
+                saving={saving}
+                labels={labels}
+            />
+
+            {allComplete && (
+                <motion.div initial={{ opacity: 0, y: 20, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6 }} className="rounded-[2.5rem] p-1 shadow-2xl bg-[rgba(94,234,212,0.10)]">
+                    <div className="bg-surface rounded-[2.3rem] p-6 sm:p-10 flex flex-col gap-8 border border-white/5">
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                            <div className="flex items-center gap-8">
+                                <div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-[rgba(94,234,212,0.18)] ring-2 ring-accent-hot ring-offset-4 ring-offset-surface"><ShieldCheck className="w-10 h-10 text-accent-hot" /></div>
+                                <div className="space-y-1"><h3 className="text-2xl font-black tracking-tight">{t("integrationDoneTitle")}</h3><p className="text-fg-40 font-bold uppercase tracking-widest text-[10px]">{t("integrationDoneSub")}</p></div>
+                            </div>
+                            <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]">{t("onlineRealtime")}</div>
+                        </div>
+                    </div>
+                </motion.div>
+            )}
+        </div>
     );
 }

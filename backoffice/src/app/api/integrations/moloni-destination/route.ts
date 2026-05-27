@@ -38,6 +38,9 @@ type MoloniBody = {
     moloni_company_id?: number | string;
     moloni_document_set_id?: number | string;
     moloni_environment?: "production" | "sandbox";
+    vat_included?: boolean;
+    auto_finalize?: boolean;
+    exemption_reason?: string;
     status?: "draft" | "active" | "paused" | "error";
 };
 
@@ -50,6 +53,9 @@ function redactConfig(cfg: Record<string, unknown>) {
         moloni_company_id: cfg.moloni_company_id ?? null,
         moloni_document_set_id: cfg.moloni_document_set_id ?? null,
         moloni_environment: cfg.moloni_environment ?? "production",
+        vat_included: cfg.vat_included !== false,
+        auto_finalize: cfg.auto_finalize === true,
+        exemption_reason: cfg.exemption_reason ?? "M01",
     };
 }
 
@@ -93,36 +99,58 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as MoloniBody;
 
     const sourceKind = body.source_kind === "shopify" ? "shopify" : "stripe";
-
-    const required: Array<keyof MoloniBody> = [
-        "moloni_client_id",
-        "moloni_client_secret",
-        "moloni_username",
-        "moloni_password",
-        "moloni_company_id",
-        "moloni_document_set_id",
-    ];
-    for (const field of required) {
-        if (body[field] === undefined || body[field] === "" || body[field] === null) {
-            return NextResponse.json({ error: `Missing ${field}` }, { status: 400 });
-        }
-    }
-
     const status = ["draft", "active", "paused", "error"].includes(body.status || "") ? body.status! : "draft";
-    const env_ = body.moloni_environment === "sandbox" ? "sandbox" : "production";
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const destinationConfig = {
-        moloni_client_id: String(body.moloni_client_id),
-        moloni_client_secret: String(body.moloni_client_secret),
-        moloni_username: String(body.moloni_username),
-        moloni_password: String(body.moloni_password),
-        moloni_company_id: Number(body.moloni_company_id),
-        moloni_document_set_id: Number(body.moloni_document_set_id),
+    // Preserve existing credentials when body omits them (lets user save invoice
+    // settings or partial drafts without re-pasting secrets).
+    const existing: any = await db.prepare(
+        `SELECT destination_config_json FROM connections
+         WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`
+    ).bind(authResult.targetUserId, sourceKind).first();
+    const previousCfg = existing?.destination_config_json ? JSON.parse(existing.destination_config_json) : {};
+
+    const merged = {
+        moloni_client_id: body.moloni_client_id ?? previousCfg.moloni_client_id,
+        moloni_client_secret: body.moloni_client_secret ?? previousCfg.moloni_client_secret,
+        moloni_username: body.moloni_username ?? previousCfg.moloni_username,
+        moloni_password: body.moloni_password ?? previousCfg.moloni_password,
+        moloni_company_id: body.moloni_company_id ?? previousCfg.moloni_company_id,
+        moloni_document_set_id: body.moloni_document_set_id ?? previousCfg.moloni_document_set_id,
+        moloni_environment: body.moloni_environment ?? previousCfg.moloni_environment,
+    };
+
+    // Require full credentials for active status; drafts allow partial save.
+    if (status === "active") {
+        const required: Array<keyof typeof merged> = [
+            "moloni_client_id", "moloni_client_secret", "moloni_username",
+            "moloni_password", "moloni_company_id", "moloni_document_set_id",
+        ];
+        for (const field of required) {
+            if (merged[field] === undefined || merged[field] === "" || merged[field] === null) {
+                return NextResponse.json({ error: `Missing ${field}` }, { status: 400 });
+            }
+        }
+    }
+
+    const env_ = (merged.moloni_environment ?? body.moloni_environment) === "sandbox" ? "sandbox" : "production";
+
+    const destinationConfig: Record<string, unknown> = {
+        moloni_client_id: merged.moloni_client_id ? String(merged.moloni_client_id) : undefined,
+        moloni_client_secret: merged.moloni_client_secret ? String(merged.moloni_client_secret) : undefined,
+        moloni_username: merged.moloni_username ? String(merged.moloni_username) : undefined,
+        moloni_password: merged.moloni_password ? String(merged.moloni_password) : undefined,
+        moloni_company_id: merged.moloni_company_id !== undefined && merged.moloni_company_id !== null && merged.moloni_company_id !== "" ? Number(merged.moloni_company_id) : undefined,
+        moloni_document_set_id: merged.moloni_document_set_id !== undefined && merged.moloni_document_set_id !== null && merged.moloni_document_set_id !== "" ? Number(merged.moloni_document_set_id) : undefined,
         moloni_environment: env_,
+        vat_included: body.vat_included !== undefined ? body.vat_included : (previousCfg.vat_included !== false),
+        auto_finalize: body.auto_finalize !== undefined ? body.auto_finalize === true : (previousCfg.auto_finalize === true),
+        exemption_reason: typeof body.exemption_reason === "string" && body.exemption_reason.trim()
+            ? body.exemption_reason.trim()
+            : (previousCfg.exemption_reason ?? "M01"),
     };
 
     const id = crypto.randomUUID();

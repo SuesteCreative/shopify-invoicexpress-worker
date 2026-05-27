@@ -261,27 +261,33 @@ function extractPtNif(normalized: Normalized): string | null {
   return null;
 }
 
+function taxRateForItem(
+  item: Normalized["order"]["items"][number],
+  ctx: AdapterCtx,
+): number {
+  const isShipping = !item.product_id && !item.variant_id;
+  const forceTax = isShipping
+    ? ctx.config.force_shipping_tax_rate
+    : ctx.config.force_tax_rate;
+  if (forceTax != null) return Number(forceTax);
+  return item.tax.unit_amount === 0 ? 0 : Number(item.tax.value);
+}
+
 function buildMoloniLineItems(
   normalized: Normalized,
   ctx: AdapterCtx,
-  placeholderProductId: number,
+  productIds: Map<string, number>,
 ): MoloniProductLine[] {
-  const forceTaxProducts = ctx.config.force_tax_rate;
-  const forceTaxShipping = ctx.config.force_shipping_tax_rate;
-
   return normalized.order.items.map((item, idx): MoloniProductLine => {
+    const reference = deriveProductReference(item);
+    const product_id = productIds.get(reference);
+    if (!product_id) {
+      throw new Error(`Moloni create failed: no Moloni product_id resolved for reference '${reference}'`);
+    }
+    const name = deriveProductName(item);
     const isShipping = !item.product_id && !item.variant_id;
-    const name = isShipping
-      ? `Portes de envio${item.title ? ` — ${item.title}` : ""}`.slice(0, 200)
-      : (item.variant_title
-        ? `${item.title} / ${item.variant_title}`.slice(0, 200)
-        : item.title.slice(0, 200));
     const summary = isShipping ? undefined : (item.sku ? `SKU: ${item.sku}`.slice(0, 200) : undefined);
-
-    const forceTax = isShipping ? forceTaxShipping : forceTaxProducts;
-    const taxRate = forceTax != null
-      ? forceTax
-      : (item.tax.unit_amount === 0 ? 0 : item.tax.value);
+    const taxRate = taxRateForItem(item, ctx);
 
     // Moloni `price` is the NET unit price (VAT-exclusive); Moloni adds tax
     // on top from `taxes[].value`. This matches the IX convention for
@@ -290,11 +296,10 @@ function buildMoloniLineItems(
     // with a non-zero tax_rate, the reconcileTotalOrThrow check in createDraft
     // will catch the drift before the invoice is posted.
     const netUnit = Math.round(item.unit_price * 10000) / 10000;
-
     const discountPct = item.discount?.percent ?? 0;
 
     const line: MoloniProductLine = {
-      product_id: placeholderProductId,
+      product_id,
       name,
       qty: item.quantity,
       price: netUnit,
@@ -376,23 +381,54 @@ async function resolveOrCreateCustomer(
 // `["1 products"]` validation error). We can't create products inline in
 // /invoices/insert/ — only references to existing product rows are accepted.
 //
-// Strategy: maintain a single per-company placeholder product (reference =
-// "RIOKO-PLACEHOLDER"). All invoice lines reference its `product_id` but
-// override `name`, `summary`, `price`, `qty`, `discount`, `taxes` per line.
-// Look up by reference each call; create-if-missing on first use. ~200ms per
-// invoice for the extra GET — acceptable since we don't have KV-backed
-// caching in this worker yet.
-const PLACEHOLDER_PRODUCT_REFERENCE = "RIOKO-PLACEHOLDER";
+// Strategy: mirror the source product catalog. For each normalized item we
+// derive a stable reference from the Shopify SKU / variant_id / product_id
+// (or Stripe price/product id) and find-or-create a Moloni product row with
+// that reference. Future invoices for the same SKU reuse the existing Moloni
+// product — no per-invoice product clutter, real product titles in Moloni.
+//
+// Fallbacks (in order):
+//   1. item.sku                      → reference = SKU verbatim (uppercased)
+//   2. item.variant_id               → "RIOKO-VARIANT-<id>"
+//   3. item.product_id               → "RIOKO-PRODUCT-<id>"
+//   4. shipping line (no ids)        → "RIOKO-SHIPPING"
+//   5. completely synthetic line     → "RIOKO-PLACEHOLDER"
+const FALLBACK_PLACEHOLDER_REFERENCE = "RIOKO-PLACEHOLDER";
+const SHIPPING_REFERENCE = "RIOKO-SHIPPING";
 
-async function resolveOrCreatePlaceholderProduct(
+function deriveProductReference(item: Normalized["order"]["items"][number]): string {
+  const isShipping = !item.product_id && !item.variant_id;
+  if (isShipping) return SHIPPING_REFERENCE;
+  const sku = (item.sku ?? "").trim();
+  if (sku) return sku.slice(0, 30); // Moloni caps reference at 30 chars
+  if (item.variant_id) return `RIOKO-VARIANT-${item.variant_id}`.slice(0, 30);
+  if (item.product_id) return `RIOKO-PRODUCT-${item.product_id}`.slice(0, 30);
+  return FALLBACK_PLACEHOLDER_REFERENCE;
+}
+
+function deriveProductName(item: Normalized["order"]["items"][number]): string {
+  const isShipping = !item.product_id && !item.variant_id;
+  if (isShipping) {
+    return `Portes de envio${item.title ? ` — ${item.title}` : ""}`.slice(0, 200);
+  }
+  if (item.variant_title) {
+    return `${item.title} / ${item.variant_title}`.slice(0, 200);
+  }
+  return (item.title ?? "Item").slice(0, 200);
+}
+
+async function ensureMoloniProduct(
   cfg: MoloniCfg,
   token: string,
+  reference: string,
+  defaultName: string,
+  taxRate: number,
 ): Promise<number> {
   // 1. Look up by reference (exact match endpoint).
   try {
     const found = await moloniCall<Array<{ product_id?: number; reference?: string }>>(
       cfg, token, "/products/getByReference/",
-      { reference: PLACEHOLDER_PRODUCT_REFERENCE },
+      { reference },
       "lookup",
     );
     const match = Array.isArray(found) ? found[0] : null;
@@ -409,36 +445,62 @@ async function resolveOrCreatePlaceholderProduct(
   );
   const categoryId = Array.isArray(categories) ? categories[0]?.category_id : undefined;
   if (!categoryId) {
-    throw new Error("Moloni create failed: no product category available to host the Rioko placeholder product");
+    throw new Error(`Moloni create failed: no product category available to host product '${reference}'`);
   }
   const units = await moloniCall<Array<{ unit_id?: number }>>(
     cfg, token, "/measurementUnits/getAll/", {}, "lookup",
   );
   const unitId = Array.isArray(units) ? units[0]?.unit_id : undefined;
   if (!unitId) {
-    throw new Error("Moloni create failed: no measurement unit available to host the Rioko placeholder product");
+    throw new Error(`Moloni create failed: no measurement unit available to host product '${reference}'`);
   }
 
-  // 3. Create the placeholder product with the default 23% tax line so Moloni
-  //    auto-applies tax when the invoice line includes taxes[].
+  // 3. Create the product. `price: 0` because the real price is set per
+  //    invoice line; Moloni only uses the master price as a default.
   const created = await moloniCall<{ product_id?: number }>(
     cfg, token, "/products/insert/",
     {
       category_id: categoryId,
       unit_id: unitId,
       type: 1,
-      name: "Rioko Order Line",
-      reference: PLACEHOLDER_PRODUCT_REFERENCE,
+      name: defaultName,
+      reference,
       price: 0,
       has_stock: 0,
-      taxes: [{ tax_id: DEFAULT_TAX_ID, value: 23, order: 0, cumulative: 0 }],
+      taxes: taxRate > 0
+        ? [{ tax_id: DEFAULT_TAX_ID, value: taxRate, order: 0, cumulative: 0 }]
+        : undefined,
     },
     "create",
   );
   if (!created?.product_id) {
-    throw new Error(`Moloni create failed: placeholder product insert returned no id — ${truncate(JSON.stringify(created))}`);
+    throw new Error(`Moloni create failed: product '${reference}' insert returned no id — ${truncate(JSON.stringify(created))}`);
   }
   return Number(created.product_id);
+}
+
+// Resolve product_ids for every line in the normalized order. De-duplicates
+// by reference so repeated SKUs share a single lookup/insert per createDraft
+// call. Returns a Map<reference → product_id>.
+async function resolveProductIds(
+  cfg: MoloniCfg,
+  token: string,
+  items: Normalized["order"]["items"],
+  taxRateFor: (item: Normalized["order"]["items"][number]) => number,
+): Promise<Map<string, number>> {
+  const byReference = new Map<string, { name: string; taxRate: number }>();
+  for (const item of items) {
+    const ref = deriveProductReference(item);
+    if (!byReference.has(ref)) {
+      byReference.set(ref, { name: deriveProductName(item), taxRate: taxRateFor(item) });
+    }
+  }
+  const resolved = new Map<string, number>();
+  for (const [reference, meta] of byReference) {
+    const pid = await ensureMoloniProduct(cfg, token, reference, meta.name, meta.taxRate);
+    resolved.set(reference, pid);
+  }
+  return resolved;
 }
 
 function todayYmd(): string {
@@ -483,11 +545,11 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = readMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    const [customerId, placeholderProductId] = await Promise.all([
+    const [customerId, productIds] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
-      resolveOrCreatePlaceholderProduct(cfg, token),
+      resolveProductIds(cfg, token, normalized.order.items, (it) => taxRateForItem(it, ctx)),
     ]);
-    const products = buildMoloniLineItems(normalized, ctx, placeholderProductId);
+    const products = buildMoloniLineItems(normalized, ctx, productIds);
     if (products.length === 0) {
       throw new Error("Moloni create failed: no line items derived from normalized order");
     }
@@ -556,18 +618,19 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = readMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    const [customerId, placeholderProductId] = await Promise.all([
-      resolveOrCreateCustomer(cfg, token, normalized),
-      resolveOrCreatePlaceholderProduct(cfg, token),
-    ]);
-
     // Build refund lines from the items actually being refunded.
     const refundItems = normalized.order.items.filter((it) => refund.itemsIds.includes(it.id));
     const subset: Normalized = {
       ...normalized,
       order: { ...normalized.order, items: refundItems },
     };
-    const products = buildMoloniLineItems(subset, ctx, placeholderProductId);
+
+    const [customerId, productIds] = await Promise.all([
+      resolveOrCreateCustomer(cfg, token, normalized),
+      resolveProductIds(cfg, token, refundItems, (it) => taxRateForItem(it, ctx)),
+    ]);
+
+    const products = buildMoloniLineItems(subset, ctx, productIds);
 
     // Free-form refund delta when Shopify reports an amount beyond the line
     // items (e.g. partial cash refund). Mirrors IX adapter's behaviour.
@@ -579,8 +642,13 @@ export class MoloniDestination implements DestinationAdapter {
       const factor = maxTax > 0 ? 1 + maxTax / 100 : 1;
       const netUnit = Math.round((refund.amountToRefund / factor) * 10000) / 10000;
       const order = products.length + 1;
+      // Cash-only refund delta has no source product. Ensure a synthetic
+      // RIOKO-PLACEHOLDER product exists and reference it here.
+      const fallbackPid = await ensureMoloniProduct(
+        cfg, token, FALLBACK_PLACEHOLDER_REFERENCE, "Rioko Refund Delta", maxTax,
+      );
       const line: MoloniProductLine = {
-        product_id: placeholderProductId,
+        product_id: fallbackPid,
         name: `Refund amount (#${refund.refundId})`.slice(0, 200),
         summary: `Refund amount of ${refund.amountToRefund}`,
         qty: 1,

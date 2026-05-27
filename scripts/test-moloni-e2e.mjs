@@ -1,6 +1,5 @@
-// End-to-end Moloni test: replicates the patched adapter flow.
-// 1) OAuth   2) find-or-create placeholder product   3) lookup customer
-// 4) build line items   5) insert invoice   6) verify gross   7) cleanup
+// End-to-end Moloni test: replicates the patched adapter flow with per-item
+// product references (SKU/variant_id/shipping fallback).
 
 import { readFileSync } from "node:fs";
 
@@ -36,6 +35,7 @@ oauthUrl.searchParams.set("password", env.MOLONI_PASSWORD);
 const token = (await fetch(oauthUrl, { method: "POST" }).then(r => r.json())).access_token;
 const COMPANY_ID = Number(env.MOLONI_COMPANY_ID);
 const DOC_SET = Number(env.MOLONI_DOCUMENT_SET_ID);
+const DEFAULT_TAX_ID = 3476562;
 
 async function call(path, body) {
     const url = `https://api.moloni.pt/v1${path}?access_token=${encodeURIComponent(token)}`;
@@ -54,77 +54,87 @@ async function call(path, body) {
     return json;
 }
 
-// === 1. Placeholder product (find-or-create) ===
-const PLACEHOLDER_REF = "RIOKO-PLACEHOLDER";
-const DEFAULT_TAX_ID = 3476562;
-let placeholderPid;
-const lookup = await call("/products/getByReference/", { reference: PLACEHOLDER_REF });
-if (Array.isArray(lookup) && lookup[0]?.product_id) {
-    placeholderPid = lookup[0].product_id;
-    console.log(`Placeholder ✓ existing product_id=${placeholderPid}`);
-} else {
+// Replicates adapter's ensureMoloniProduct
+async function ensureProduct(reference, defaultName, taxRate) {
+    try {
+        const found = await call("/products/getByReference/", { reference });
+        const match = Array.isArray(found) ? found[0] : null;
+        if (match?.product_id) return { id: match.product_id, created: false };
+    } catch { /* fall through */ }
     const cats = await call("/productCategories/getAll/", { parent_id: 0 });
     const categoryId = cats[0]?.category_id;
     const units = await call("/measurementUnits/getAll/", {});
     const unitId = units[0]?.unit_id;
     const created = await call("/products/insert/", {
         category_id: categoryId, unit_id: unitId, type: 1,
-        name: "Rioko Order Line", reference: PLACEHOLDER_REF,
-        price: 0, has_stock: 0,
-        taxes: [{ tax_id: DEFAULT_TAX_ID, value: 23, order: 0, cumulative: 0 }],
+        name: defaultName, reference, price: 0, has_stock: 0,
+        taxes: taxRate > 0 ? [{ tax_id: DEFAULT_TAX_ID, value: taxRate, order: 0, cumulative: 0 }] : undefined,
     });
-    placeholderPid = created.product_id;
-    console.log(`Placeholder ✓ created product_id=${placeholderPid}`);
+    return { id: created.product_id, created: true };
 }
 
-// === 2. Customer (Consumidor Final) ===
-const customers = await call("/customers/getByVat/", { vat: "999999990" });
-const customerId = customers[0]?.customer_id;
-console.log(`Customer ✓ id=${customerId}`);
-
-// === 3. Build a 2-line invoice that mimics what adapter would post ===
-// Scenario: Shopify order paid 36.90 EUR (gross), 1x prod @ 20.00 net (24.60 gross) + 1x shipping @ 10.00 net (12.30 gross). Total 36.90.
-const today = new Date().toISOString().slice(0, 10);
-const products = [
-    {
-        product_id: placeholderPid,
-        name: "Test Item A",
-        summary: "SKU: TEST-A",
-        qty: 1,
-        price: 20.00,
-        discount: 0,
-        order: 1,
-        taxes: [{ tax_id: DEFAULT_TAX_ID, value: 23, order: 1, cumulative: 0 }],
-    },
-    {
-        product_id: placeholderPid,
-        name: "Portes de envio — Test Shipping",
-        qty: 1,
-        price: 10.00,
-        discount: 0,
-        order: 2,
-        taxes: [{ tax_id: DEFAULT_TAX_ID, value: 23, order: 1, cumulative: 0 }],
-    },
+// === Test: Shopify-like order with 2 distinct SKUs + 1 shipping line ===
+const items = [
+    { id: 1, product_id: 100, variant_id: 10001, sku: "RIOKO-TEST-SKU-A", title: "Test Item A", variant_title: null, qty: 2, unit_price: 10.00, tax: { value: 23, unit_amount: 23 } },
+    { id: 2, product_id: 200, variant_id: 20002, sku: "RIOKO-TEST-SKU-B", title: "Test Item B", variant_title: null, qty: 1, unit_price: 15.00, tax: { value: 23, unit_amount: 23 } },
+    { id: 3, product_id: 0, variant_id: 0, sku: "", title: "Standard Shipping", variant_title: null, qty: 1, unit_price: 5.00, tax: { value: 23, unit_amount: 23 } },
 ];
 
-const expectedGross = 24.60 + 12.30;
-console.log(`Expected gross: ${expectedGross.toFixed(2)} EUR`);
+// Resolve per-item product_ids
+function deriveRef(item) {
+    if (!item.product_id && !item.variant_id) return "RIOKO-SHIPPING";
+    if (item.sku && item.sku.trim()) return item.sku.trim().slice(0, 30);
+    if (item.variant_id) return `RIOKO-VARIANT-${item.variant_id}`.slice(0, 30);
+    return "RIOKO-PLACEHOLDER";
+}
+
+const refs = new Map();
+for (const item of items) {
+    const r = deriveRef(item);
+    if (!refs.has(r)) refs.set(r, { name: item.title, taxRate: item.tax.value });
+}
+
+const productIds = new Map();
+console.log("--- Resolving products ---");
+for (const [ref, meta] of refs) {
+    const { id, created } = await ensureProduct(ref, meta.name, meta.taxRate);
+    productIds.set(ref, id);
+    console.log(`  ${ref.padEnd(20)} → product_id=${id} ${created ? "(CREATED)" : "(reused)"}`);
+}
+
+// Customer
+const customers = await call("/customers/getByVat/", { vat: "999999990" });
+const customerId = customers[0]?.customer_id;
+
+// Build invoice products
+const today = new Date().toISOString().slice(0, 10);
+const products = items.map((item, idx) => ({
+    product_id: productIds.get(deriveRef(item)),
+    name: item.title,
+    qty: item.qty,
+    price: item.unit_price,
+    discount: 0,
+    order: idx + 1,
+    taxes: [{ tax_id: DEFAULT_TAX_ID, value: item.tax.value, order: 1, cumulative: 0 }],
+}));
+
+// Expected gross
+const expectedGross = items.reduce((acc, it) => {
+    const lineNet = it.unit_price * it.qty;
+    const lineGross = lineNet * (1 + it.tax.value / 100);
+    return acc + Math.round(lineGross * 100) / 100;
+}, 0);
+console.log(`\nExpected gross: ${expectedGross.toFixed(2)} EUR`);
+// (10*2 + 15 + 5) * 1.23 = 40 * 1.23 = 49.20
 
 const inv = await call("/invoices/insert/", {
-    document_set_id: DOC_SET,
-    customer_id: customerId,
-    date: today,
-    expiration_date: today,
-    our_reference: `RIOKO-E2E-${Date.now()}`,
-    products,
-    status: 0,
-    notes: "Rioko e2e smoke test — safe to delete",
+    document_set_id: DOC_SET, customer_id: customerId, date: today, expiration_date: today,
+    our_reference: `RIOKO-E2E-${Date.now()}`, products, status: 0, notes: "smoke test",
 });
 console.log(`Invoice ✓ document_id=${inv.document_id}`);
 
-// === 4. Verify totals ===
+// Verify
 const got = await call("/invoices/getOne/", { document_id: inv.document_id });
-// Reminder: Moloni's gross_value=net (before tax), net_value=gross (with tax)
 const moloniGross = Number(got.net_value);
 const drift = Math.abs(moloniGross - expectedGross);
 console.log(`Moloni net_value (real gross): ${moloniGross.toFixed(2)} EUR`);
@@ -132,11 +142,20 @@ console.log(`Drift: ${drift.toFixed(4)} EUR`);
 if (drift > 0.01) {
     console.error("✗ DRIFT > 1¢");
     process.exit(1);
-} else {
-    console.log("✓ Reconcile passes (drift within tolerance)");
 }
+console.log("✓ Reconcile passes");
 
-// === 5. Cleanup ===
+// Cleanup invoice (leave products — they're reusable for next invoices)
 await call("/invoices/delete/", { document_id: inv.document_id });
 console.log("Cleanup invoice ✓");
-// NOTE: leave placeholder product behind — adapter will reuse it on next invoice
+
+// --- 2nd run: verify products are REUSED (no duplicates) ---
+console.log("\n--- 2nd run: reuse check ---");
+const productIds2 = new Map();
+for (const [ref, meta] of refs) {
+    const { id, created } = await ensureProduct(ref, meta.name, meta.taxRate);
+    productIds2.set(ref, id);
+    console.log(`  ${ref.padEnd(20)} → product_id=${id} ${created ? "✗ DUPLICATE" : "✓ reused"}`);
+    if (created) { console.error("Product was created twice!"); process.exit(1); }
+}
+console.log("\n✓ All products reused on 2nd lookup");

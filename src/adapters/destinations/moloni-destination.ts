@@ -242,14 +242,13 @@ function buildMoloniLineItems(normalized: Normalized, ctx: AdapterCtx): MoloniPr
       ? forceTax
       : (item.tax.unit_amount === 0 ? 0 : item.tax.value);
 
-    // Moloni price is net unit price (VAT-exclusive). normalized.unit_price
-    // already follows the IX convention (VAT-exclusive when shop is exclusive,
-    // VAT-inclusive when shop is inclusive). We approximate by stripping VAT
-    // if the order is marked vat_included. Coordinator: a future enhancement
-    // should mirror IxBuilder.buildInvoiceItemsFromRaw to use raw_order rates.
-    const vatIncluded = ctx.config.vat_included === 1;
-    const factor = vatIncluded && taxRate > 0 ? 1 + taxRate / 100 : 1;
-    const netUnit = Math.round((item.unit_price / factor) * 10000) / 10000;
+    // Moloni `price` is the NET unit price (VAT-exclusive); Moloni adds tax
+    // on top from `taxes[].value`. This matches the IX convention for
+    // `normalized.unit_price` (NET — see IxBuilder.buildInvoiceItems), so we
+    // pass through directly. If a source adapter ever emits a gross unit_price
+    // with a non-zero tax_rate, the reconcileTotalOrThrow check in createDraft
+    // will catch the drift before the invoice is posted.
+    const netUnit = Math.round(item.unit_price * 10000) / 10000;
 
     const discountPct = item.discount?.percent ?? 0;
 

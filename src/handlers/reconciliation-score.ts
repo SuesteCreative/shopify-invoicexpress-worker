@@ -61,10 +61,11 @@ export function scoreHeuristicMatch(order: ScoreInput, invoice: ScoreCandidate):
 
   if (order.customerName && invoice.clientName) {
     const sim = jaccard(tokenize(order.customerName), tokenize(invoice.clientName));
-    if (sim > 0) {
-      score += Math.round(30 * sim);
-      if (sim >= 0.3) reasons.push(`cliente ${invoice.clientName}`);
+    if (sim < 0.2) {
+      return { score: 0, reasons: ["nome cliente não corresponde"] };
     }
+    score += Math.round(30 * sim);
+    if (sim >= 0.3) reasons.push(`cliente ${invoice.clientName}`);
   }
 
   if (order.reference && invoice.reference) {

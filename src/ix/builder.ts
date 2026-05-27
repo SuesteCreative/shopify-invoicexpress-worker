@@ -122,7 +122,9 @@ export class IxBuilder {
 
   // Compute the expected gross total that IX should arrive at from the items
   // we're about to send. Mirrors IX's formula: per line
-  // `(unit_price * qty) * (1 - discount/100) * (1 + tax/100)`, rounded to 2dp.
+  // `(unit_price * qty) * (1 - discount/100) * (1 + tax/100)`, rounded to 2dp
+  // per line BEFORE aggregating. IX rounds each line's gross before summing,
+  // which matches how Shopify derives `total_price` from line-level totals.
   computeIxExpectedTotal(items: IxInvoice["items"]): number {
     let total = 0;
     for (const it of items) {
@@ -132,7 +134,7 @@ export class IxBuilder {
       const discPct = Number((it as any).discount ?? 0);
       const lineNet = unit * qty * (1 - discPct / 100);
       const lineGross = lineNet * (1 + tax / 100);
-      total += lineGross;
+      total += Math.round(lineGross * 100) / 100;
     }
     return Math.round(total * 100) / 100;
   }

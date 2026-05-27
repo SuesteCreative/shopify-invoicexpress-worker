@@ -660,15 +660,27 @@ export class AppStorage {
 
   async isWebhookProcessed(webhookId: string, topic: string): Promise<{ isProcessed: boolean; state?: string }> {
     try {
-      const row: any = await this.db.prepare("SELECT webhook_id, state FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).first();
+      const row: any = await this.db.prepare(
+        "SELECT webhook_id, state, created_at FROM webhook_info WHERE webhook_id = ? AND topic = ?"
+      ).bind(webhookId, topic).first();
 
       if (!row) {
         return { isProcessed: false };
       }
 
-      // Allow retry if failed, skip if processing or success
+      // Allow retry if failed.
       if (row.state === "failed") {
         return { isProcessed: false, state: "failed" };
+      }
+
+      // Defensive net: a row stuck in `processing` for more than 10 minutes
+      // means the queue consumer died before marking it. Treat as retryable
+      // so a Shopify HTTP redelivery (or admin re-emit) doesn't get dropped.
+      if (row.state === "processing") {
+        const created = Date.parse(row.created_at);
+        if (!isNaN(created) && Date.now() - created > 10 * 60_000) {
+          return { isProcessed: false, state: "stale" };
+        }
       }
 
       return { isProcessed: true, state: row.state };

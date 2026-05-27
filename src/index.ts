@@ -929,6 +929,21 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
       message.ack();
     } catch (e) {
       console.error(`[Rioko] Queue handler error for ${topic}:`, e);
+      try {
+        const appStorage = new AppStorage(env, shopDomain);
+        if (webhookId) {
+          await appStorage.markWebhookAsProcessed(webhookId, topic, "failed");
+        }
+        await appStorage.saveLog({
+          shopify_domain: shopDomain,
+          topic,
+          payload: "",
+          response: String(e),
+          status: 500,
+        });
+      } catch (logErr) {
+        console.error("[Rioko] Failed to persist failure log:", logErr);
+      }
       message.retry({ delaySeconds: 360 });
     }
   }
@@ -999,6 +1014,21 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       message.ack();
     } catch (e) {
       console.error(`[Stripe] Queue handler error for event ${eventId}:`, e);
+      try {
+        const appStorage = new AppStorage(env);
+        if (eventId) {
+          await appStorage.markWebhookAsProcessed(eventId, `stripe/${topic}`, "failed");
+        }
+        await appStorage.saveLog({
+          shopify_domain: null,
+          topic: `stripe/${topic}`,
+          payload: "",
+          response: String(e),
+          status: 500,
+        });
+      } catch (logErr) {
+        console.error("[Stripe] Failed to persist failure log:", logErr);
+      }
       message.retry({ delaySeconds: 360 });
     }
   }

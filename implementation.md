@@ -152,3 +152,17 @@ Conventions:
 ## Audit — 2026-05-25 (kickoff)
 
 Não há issues de audit — esta é a snapshot inicial do roadmap. Adicionar entradas dated abaixo conforme audits forem corridos.
+
+## Audit — 2026-05-27 (invoice total = paid invariant)
+
+Source-of-truth invariant: invoice gross MUST equal source amount paid, em todos os combos Stripe/Shopify/EuPago × IX/Moloni/Vendus. Auditoria detectou drift silencioso em 4 adapters críticos + 2 paths sem reconciliação.
+
+### Critical
+- [x] Extract `reconcileOrThrow()` from IxBuilder to shared `src/adapters/reconcile.ts` so all destinations can call it
+- [ ] Stripe→Moloni: add pre-POST reconciliation `sum(lines) == normalized.order.total` (throw if drift > 1¢)
+- [ ] Stripe→Vendus + Shopify→Vendus: fix `gross_price = unit_price` assumption — normalized items are NET; either divide by `(1 + tax/100)` or send as net with tax_id; add reconciliation
+- [ ] Shopify→Moloni: document/fix `vat_included` semantics — normalized items are always net per IX convention; remove ambiguous strip-VAT branch in `buildMoloniLineItems`
+
+### High
+- [ ] Stripe→IX: enforce single-line reconciliation (`amount_received == unit_price * qty`) since `raw_order` is absent and `reconcileOrThrow` skips
+- [ ] EuPago→IX: replace hardcoded 23% in `eupago-source.ts` with `ctx.config.force_tax_rate` lookup (fall back to 23%)

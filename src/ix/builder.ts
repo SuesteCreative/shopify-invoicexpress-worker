@@ -4,6 +4,7 @@ import type { PostV2CreditNotesData, PostV2InvoicesData } from "../api/ix/client
 import { validatePTNIF } from "./nif";
 import { isCrossBorderEU } from "./eu-countries";
 import type { ViesChecker } from "./vies";
+import { computeExpectedGross, reconcileTotalOrThrow, type ReconcileLine } from "../adapters/reconcile";
 import { format } from "date-fns";
 
 export type IxInvoice = NonNullable<PostV2InvoicesData["body"]>["invoice"];
@@ -120,23 +121,22 @@ export class IxBuilder {
     return items;
   }
 
+  /** Convert IX-shaped items to the shared ReconcileLine shape. */
+  private toReconcileLines(items: IxInvoice["items"]): ReconcileLine[] {
+    return items.map((it: any) => ({
+      name: it.name,
+      quantity: Number(it.quantity),
+      unit_price: Number(it.unit_price),
+      tax_rate: typeof it.tax === "number" ? it.tax : Number(it.tax?.value ?? 0),
+      discount_percent: Number(it.discount ?? 0),
+    }));
+  }
+
   // Compute the expected gross total that IX should arrive at from the items
-  // we're about to send. Mirrors IX's formula: per line
-  // `(unit_price * qty) * (1 - discount/100) * (1 + tax/100)`, rounded to 2dp
-  // per line BEFORE aggregating. IX rounds each line's gross before summing,
-  // which matches how Shopify derives `total_price` from line-level totals.
+  // we're about to send. Thin wrapper over `computeExpectedGross` for the
+  // shared adapter helper.
   computeIxExpectedTotal(items: IxInvoice["items"]): number {
-    let total = 0;
-    for (const it of items) {
-      const tax = typeof it.tax === "number" ? it.tax : Number((it.tax as any)?.value ?? 0);
-      const qty = Number(it.quantity);
-      const unit = Number(it.unit_price);
-      const discPct = Number((it as any).discount ?? 0);
-      const lineNet = unit * qty * (1 - discPct / 100);
-      const lineGross = lineNet * (1 + tax / 100);
-      total += Math.round(lineGross * 100) / 100;
-    }
-    return Math.round(total * 100) / 100;
+    return computeExpectedGross(this.toReconcileLines(items));
   }
 
   // Throws if our planned IX total drifts from Shopify total_price by more
@@ -146,20 +146,9 @@ export class IxBuilder {
     if (!rawOrder) return;
     const shopifyTotal = Number(rawOrder?.total_price);
     if (!Number.isFinite(shopifyTotal) || shopifyTotal <= 0) return;
-    const expected = this.computeIxExpectedTotal(items);
-    const drift = Math.abs(expected - shopifyTotal);
-    if (drift > 0.01) {
-      const breakdown = items.map((it: any) => ({
-        name: it.name,
-        quantity: it.quantity,
-        tax: typeof it.tax === "number" ? it.tax : it.tax?.value,
-        unit_price: it.unit_price,
-        discount: it.discount,
-      }));
-      throw new Error(
-        `Invoice total mismatch with Shopify: shopify=${shopifyTotal.toFixed(2)} expected=${expected.toFixed(2)} drift=${drift.toFixed(2)}. Lines=${JSON.stringify(breakdown)}`,
-      );
-    }
+    reconcileTotalOrThrow(shopifyTotal, this.toReconcileLines(items), {
+      context: "Shopify→IX",
+    });
   }
 
   buildInvoiceItems(normalizedItems: Normalized["order"]["items"], opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {

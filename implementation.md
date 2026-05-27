@@ -160,7 +160,7 @@ Source-of-truth invariant: invoice gross MUST equal source amount paid, em todos
 ### Critical
 - [x] Extract `reconcileOrThrow()` from IxBuilder to shared `src/adapters/reconcile.ts` so all destinations can call it
 - [x] Stripe→Moloni: add pre-POST reconciliation `sum(lines) == normalized.order.total` (throw if drift > 1¢)
-- [ ] Stripe→Vendus + Shopify→Vendus: fix `gross_price = unit_price` assumption — normalized items are NET; either divide by `(1 + tax/100)` or send as net with tax_id; add reconciliation
+- [x] Stripe→Vendus + Shopify→Vendus: fix `gross_price = unit_price` assumption — normalized items are NET; either divide by `(1 + tax/100)` or send as net with tax_id; add reconciliation
 - [ ] Shopify→Moloni: document/fix `vat_included` semantics — normalized items are always net per IX convention; remove ambiguous strip-VAT branch in `buildMoloniLineItems`
 
 ### High

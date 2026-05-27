@@ -6,6 +6,7 @@ import type {
   NormalizedRefund,
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
+import { reconcileTotalOrThrow } from "../reconcile";
 
 // -----------------------------------------------------------------------------
 // VendusDestination — Cegid Vendus v1.1
@@ -246,10 +247,16 @@ function buildItem(
     : Number(normalizedItem.tax?.value ?? 0);
   const tax_id = vendusTaxId(rate);
 
+  // Vendus `gross_price` is the unit price INCLUDING VAT. The normalized
+  // convention is `unit_price` = NET (VAT-exclusive), so we add VAT here.
+  // Tax-exempt lines (rate=0) skip the conversion.
+  const netUnit = Number(normalizedItem.unit_price) || 0;
+  const grossUnit = rate > 0 ? netUnit * (1 + rate / 100) : netUnit;
+
   const out: VendusItem = {
     qty: normalizedItem.quantity,
     title: lineTitle(normalizedItem),
-    gross_price: normalizedItem.unit_price,
+    gross_price: Math.round(grossUnit * 100) / 100,
     tax_id,
     type_id: "P",
     stock_control: 0,
@@ -347,6 +354,22 @@ export class VendusDestination implements DestinationAdapter {
     const client = buildClient(normalized);
     const items = buildItems(normalized, cfg);
     const type = mapIxDocType(cfg);
+
+    // Source-of-truth invariant: invoice gross MUST equal source paid amount.
+    // Vendus `gross_price` is already VAT-inclusive, so reconcile against the
+    // gross form (tax_rate=0) to mirror Vendus's internal computation.
+    reconcileTotalOrThrow(
+      Number(normalized.order.total),
+      items.map((it) => ({
+        name: it.title,
+        quantity: Number(it.qty),
+        unit_price: Number(it.gross_price),
+        tax_rate: 0,
+        discount_amount: Number(it.discount_amount ?? 0),
+        discount_percent: Number(it.discount_percentage ?? 0),
+      })),
+      { context: `→Vendus order#${normalized.order.order_number}` },
+    );
 
     const body: Record<string, unknown> = {
       type,                 // "FT" or "FR"

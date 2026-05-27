@@ -16,6 +16,10 @@ export interface AdapterCtx {
   // toggles (auto_finalize, ix_send_email, ix_exemption_reason fallback) still
   // live in `config` (legacy `integrations` row) until Phase 5 projects them.
   destinationConfig?: Record<string, any>;
+  // Pre-fetched explicit product mappings, keyed by source_reference
+  // (output of MoloniDestination.deriveProductReference). Adapters consult
+  // this Map before falling back to the find-or-create-by-reference path.
+  productMappings?: Map<string, number>;
 }
 
 export interface WebhookVerification {

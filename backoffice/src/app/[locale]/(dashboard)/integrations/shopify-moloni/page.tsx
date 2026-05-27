@@ -291,6 +291,14 @@ export default function ShopifyMoloniIntegration() {
                 )}
             </div>
 
+            <section className="glass p-5 rounded-2xl border-hairline flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                    <h3 className="font-bold text-sm">{t("productMappingsTitle")}</h3>
+                    <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("productMappingsDesc")}</p>
+                </div>
+                <Link href="/integrations/moloni-mappings?source_kind=shopify" className="px-5 py-2.5 rounded-xl border border-hairline hover:border-rule text-[10px] font-black uppercase tracking-[0.18em] transition-colors shrink-0">{t("manageMappings")}</Link>
+            </section>
+
             <section className="pt-8 border-t border-hairline">
                 <div className="flex items-start gap-3">
                     <Lock className="w-4 h-4 text-fg-40 flex-shrink-0 mt-0.5" />

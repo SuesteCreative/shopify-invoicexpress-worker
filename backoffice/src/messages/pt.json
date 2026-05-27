@@ -9,6 +9,23 @@
     "back": "← Voltar",
     "loading": "A carregar…"
   },
+  "moloniMappings": {
+    "title": "Mapear Produtos → Moloni",
+    "subtitle": "Liga cada produto/variante do {source} a um produto existente no Moloni. Linhas sem mapping ficam com o produto auto-criado pelo Rioko (RIOKO-VARIANT-…).",
+    "backToIntegration": "Voltar a {source}",
+    "statTotal": "Produtos",
+    "statMapped": "Mapeados",
+    "statUnmapped": "Sem mapping",
+    "autoSuggestBanner": "{count} produto(s) têm SKU igual a uma referência Moloni. Posso mapear todos automaticamente.",
+    "autoMapAll": "Auto-mapear sugestões",
+    "noAutoMatches": "Não há matches automáticos por SKU.",
+    "filterPlaceholder": "Filtrar por nome, SKU ou referência…",
+    "autoMatchLabel": "Sugestão por SKU",
+    "pickMoloniProduct": "Escolher produto Moloni…",
+    "unmap": "Remover mapping",
+    "noSearchResults": "Nenhum produto corresponde ao filtro.",
+    "noSourceProducts": "Sem produtos no source. Verifica a conexão Shopify/Stripe."
+  },
   "notFound": {
     "title": "404 - Não Encontrado",
     "body": "A página que procuras não existe ou foi movida.",
@@ -959,7 +976,10 @@
     "savedOk": "Credenciais guardadas com sucesso.",
     "errorMissingSecret": "Falta o Client Secret. Cola o valor da aplicação Moloni.",
     "errorMissingPassword": "Falta a password Moloni.",
-    "securityFooter": "Todas as credenciais são encriptadas em repouso. O Client Secret e a password só são usados pelo worker Rioko para obter tokens de acesso de curta duração junto da API Moloni — nunca são partilhados com terceiros nem com o teu browser."
+    "securityFooter": "Todas as credenciais são encriptadas em repouso. O Client Secret e a password só são usados pelo worker Rioko para obter tokens de acesso de curta duração junto da API Moloni — nunca são partilhados com terceiros nem com o teu browser.",
+    "productMappingsTitle": "Mapeamento de produtos",
+    "productMappingsDesc": "Ligar produtos Shopify a produtos Moloni existentes (opcional)",
+    "manageMappings": "Gerir mappings"
   },
   "stripeMoloniSetup": {
     "title": "Stripe + Moloni",
@@ -1063,7 +1083,10 @@
     "activateWarning": "Ao marcar como ativo, o Rioko começa a processar webhooks Stripe e a emitir faturas Moloni em tempo real. Pode pausar a qualquer momento.",
     "integrationDoneTitle": "Integração Concluída",
     "integrationDoneSub": "Stripe → Moloni online no Rioko 2.0",
-    "onlineRealtime": "ONLINE • REAL-TIME"
+    "onlineRealtime": "ONLINE • REAL-TIME",
+    "productMappingsTitle": "Mapeamento de produtos",
+    "productMappingsDesc": "Ligar produtos Stripe a produtos Moloni existentes (opcional)",
+    "manageMappings": "Gerir mappings"
   },
   "stripeIxSetup": {
     "backToIntegrations": "Voltar para Integrações",

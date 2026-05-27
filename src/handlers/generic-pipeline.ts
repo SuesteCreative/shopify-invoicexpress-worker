@@ -6,6 +6,7 @@ import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
+import { loadProductMappings } from "../services/product-mappings";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
 
@@ -85,11 +86,20 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const destAdapter = getDestinationAdapter(destination);
   const externalId = sourceAdapter.externalId(body);
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined);
+
+  // Pre-fetch explicit product mappings (one round-trip; small payload). The
+  // Moloni adapter consults this map before falling back to its find-or-create
+  // path. Returns empty Map when the user hasn't mapped anything.
+  const productMappings = destination === "moloni" && config.user_id
+    ? await loadProductMappings(env, config.user_id, source)
+    : undefined;
+
   const ctx = {
     apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
     config,
     sourceConfig: input.sourceConfig,
     destinationConfig: input.destinationConfig,
+    productMappings,
   };
   const logTopic = `${source}/${topic}`;
   const connectionLabel = `${source} → ${destination}`;

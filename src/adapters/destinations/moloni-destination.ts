@@ -482,11 +482,17 @@ async function ensureMoloniProduct(
 // Resolve product_ids for every line in the normalized order. De-duplicates
 // by reference so repeated SKUs share a single lookup/insert per createDraft
 // call. Returns a Map<reference → product_id>.
+//
+// Resolution order per reference:
+//   1. Explicit user mapping from `ctx.productMappings` (set via the
+//      /integrations/moloni-mappings backoffice page).
+//   2. find-or-create on Moloni's product catalog via ensureMoloniProduct.
 async function resolveProductIds(
   cfg: MoloniCfg,
   token: string,
   items: Normalized["order"]["items"],
   taxRateFor: (item: Normalized["order"]["items"][number]) => number,
+  explicitMappings?: Map<string, number>,
 ): Promise<Map<string, number>> {
   const byReference = new Map<string, { name: string; taxRate: number }>();
   for (const item of items) {
@@ -497,6 +503,11 @@ async function resolveProductIds(
   }
   const resolved = new Map<string, number>();
   for (const [reference, meta] of byReference) {
+    const mapped = explicitMappings?.get(reference);
+    if (mapped && Number.isFinite(mapped) && mapped > 0) {
+      resolved.set(reference, mapped);
+      continue;
+    }
     const pid = await ensureMoloniProduct(cfg, token, reference, meta.name, meta.taxRate);
     resolved.set(reference, pid);
   }
@@ -547,7 +558,7 @@ export class MoloniDestination implements DestinationAdapter {
 
     const [customerId, productIds] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
-      resolveProductIds(cfg, token, normalized.order.items, (it) => taxRateForItem(it, ctx)),
+      resolveProductIds(cfg, token, normalized.order.items, (it) => taxRateForItem(it, ctx), ctx.productMappings),
     ]);
     const products = buildMoloniLineItems(normalized, ctx, productIds);
     if (products.length === 0) {
@@ -627,7 +638,7 @@ export class MoloniDestination implements DestinationAdapter {
 
     const [customerId, productIds] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
-      resolveProductIds(cfg, token, refundItems, (it) => taxRateForItem(it, ctx)),
+      resolveProductIds(cfg, token, refundItems, (it) => taxRateForItem(it, ctx), ctx.productMappings),
     ]);
 
     const products = buildMoloniLineItems(subset, ctx, productIds);

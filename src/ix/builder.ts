@@ -115,7 +115,15 @@ export class IxBuilder {
     const lineItems = Array.isArray(rawOrder?.line_items) ? rawOrder.line_items : [];
     for (const li of lineItems) {
       const quantity = Number(li?.quantity ?? 0);
-      const shopifyRate = Number(li?.tax_lines?.[0]?.rate ?? 0) * 100;
+      // Effective rate from collected tax, not declared rate. Shopify ships
+      // `tax_lines[].rate` informationally even when `price=0` (B2B reverse
+      // charge, art. 53 exempt seller, manually zeroed). Trusting `rate` would
+      // double-tax. Sum `tax_lines[*].price` and only adopt the rate if any
+      // tax was actually collected.
+      const taxLinesArr = Array.isArray(li?.tax_lines) ? li.tax_lines : [];
+      const taxCollected = taxLinesArr.reduce((acc: number, t: any) => acc + Number(t?.price ?? 0), 0);
+      const declaredRate = Number(taxLinesArr[0]?.rate ?? 0) * 100;
+      const shopifyRate = taxCollected > 0 ? declaredRate : 0;
       const grossUnit = Number(li?.price ?? 0);
       const allocations = Array.isArray(li?.discount_allocations) ? li.discount_allocations : [];
       const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
@@ -142,7 +150,11 @@ export class IxBuilder {
 
     const shippingLines = Array.isArray(rawOrder?.shipping_lines) ? rawOrder.shipping_lines : [];
     for (const sl of shippingLines) {
-      const rate = Number(sl?.tax_lines?.[0]?.rate ?? 0) * 100;
+      // Same effective-rate rule as product lines: trust collected tax, not
+      // declared rate. Reverse-charge shipping reports rate but price=0.
+      const shipTaxLines = Array.isArray(sl?.tax_lines) ? sl.tax_lines : [];
+      const shipTaxCollected = shipTaxLines.reduce((acc: number, t: any) => acc + Number(t?.price ?? 0), 0);
+      const rate = shipTaxCollected > 0 ? Number(shipTaxLines[0]?.rate ?? 0) * 100 : 0;
       const grossUnit = Number(sl?.price ?? 0);
       const allocations = Array.isArray(sl?.discount_allocations) ? sl.discount_allocations : [];
       const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
@@ -255,6 +267,17 @@ export class IxBuilder {
   //   };
   // }
 
+  // Detects "Shopify already concluded this is reverse-charge" without running
+  // VIES. Set by Shopify when the customer presents a valid intra-EU NIF or
+  // when the merchant marks the customer tax-exempt under EU rules. Trusting
+  // this avoids re-confirming via VIES on the raw path (the async path still
+  // performs the 7-signal + VIES check when the merchant opted in).
+  private detectShopifyReverseCharge(rawOrder: any): boolean {
+    const arr = rawOrder?.customer?.tax_exemptions;
+    if (!Array.isArray(arr)) return false;
+    return arr.some((tag: any) => String(tag ?? "").toUpperCase().includes("REVERSE_CHARGE"));
+  }
+
   createInvoiceFromNormalizedOrder(normalized: Normalized) {
     const client = this.buildInvoiceClient(normalized);
     const usingRawPath = !!normalized.raw_order;
@@ -262,19 +285,29 @@ export class IxBuilder {
       ? this.buildInvoiceItemsFromRaw(normalized.raw_order)
       : this.buildInvoiceItems(normalized.order.items);
     const requestTaxExemptionReason = this.shouldRequestTaxExemptionReason(items);
+    const shopifyReverseCharge = usingRawPath && this.detectShopifyReverseCharge(normalized.raw_order);
 
     if (usingRawPath) this.reconcileOrThrow(normalized.raw_order, items);
+
+    // Reverse-charge: prefer M16 (RITI art. 14.º) and stamp the mandatory
+    // "IVA - autoliquidação" mention. Falls back to the merchant-configured
+    // generic exemption reason if neither flag matches.
+    const baseReason = this.config.ix_exemption_reason ?? undefined;
+    const rcReason = shopifyReverseCharge
+      ? (this.config.ix_b2b_exemption_reason ?? "M16")
+      : baseReason;
+    const noteRaw = (normalized.order?.note ?? "").trim();
+    const rcMention = shopifyReverseCharge ? "IVA - autoliquidação (Art. 196.º Directiva IVA UE)" : "";
+    const obsCombined = [noteRaw, rcMention].filter(Boolean).join(" | ").slice(0, 200);
 
     const invoice: IxInvoice = {
       client,
       items,
       reference: `Order #${normalized.order.order_number}`,
-      ...normalized.order?.note ? {
-        observations: (normalized.order.note ?? "").slice(0, 200),
-      } : {},
+      ...obsCombined ? { observations: obsCombined } : {},
       date: normalized.order.created_at,
       due_date: normalized.order.created_at,
-      tax_exemption_reason: requestTaxExemptionReason ? this.config.ix_exemption_reason ?? undefined : undefined,
+      tax_exemption_reason: requestTaxExemptionReason ? rcReason : undefined,
       ...this.config.ix_retention_enabled === 1
         && typeof this.config.ix_retention === "number"
         && this.config.ix_retention > 0
@@ -296,8 +329,19 @@ export class IxBuilder {
   }
 
   buildInvoiceClient(normalized: Normalized): IxInvoice["client"] {
-    const nif = this.extractAndValidateNIF(normalized);
+    let nif: string | null = this.extractAndValidateNIF(normalized);
     const order = normalized.order;
+    // Foreign-VAT fallback: when no PT NIF found, try the EU-prefixed
+    // candidates from the same fields (billing_address.company,
+    // note_attributes, note). Picks the candidate matching the buyer's
+    // billing country first, then any other. Essential for B2B intra-EU
+    // (reverse charge) where IX needs a fiscal_id stamped to honour M16.
+    if (!nif) {
+      const buyerCC = String(order.billing_address?.country_code ?? "").trim().toUpperCase();
+      const euCandidates = this.extractEuVatCandidates(normalized);
+      const preferred = euCandidates.find(c => c.countryCode === buyerCC) ?? euCandidates[0];
+      if (preferred) nif = `${preferred.countryCode}${preferred.vatNumber}`;
+    }
 
     const customerName = (order.customer?.name || "").trim();
     const billingName = (order.billing_address?.name || "").trim();
@@ -459,6 +503,30 @@ export class IxBuilder {
       const up = s.toUpperCase();
       for (const m of up.matchAll(VAT_RE)) push(m[1], m[2]);
     }
+
+    // Bare-format VAT/NIF/DNI/CIF (no country prefix) combined with the
+    // billing country. Restricted to fields where merchants typically jot
+    // foreign tax IDs (company, note_attributes) — NOT note/address2 which
+    // tend to contain phone fragments and other noise.
+    if (buyerCC) {
+      const bareSources: string[] = [];
+      if (order.billing_address?.company) bareSources.push(String(order.billing_address.company));
+      if (order.note_attributes && Array.isArray(order.note_attributes)) {
+        for (const a of order.note_attributes) {
+          if (a?.value != null) bareSources.push(String(a.value));
+        }
+      }
+      // ES DNI 8d+L, ES NIE L+7d+L, ES CIF L+7d+char, FR/IT 11d, DE/NL 9d.
+      const BARE_RE = /\b([A-Z]?\d{7,11}[A-Z0-9]?)\b/g;
+      for (const s of bareSources) {
+        const up = s.toUpperCase();
+        for (const m of up.matchAll(BARE_RE)) {
+          const v = m[1];
+          if (/[A-Z]/.test(v) || v.length >= 9) push(buyerCC, v);
+        }
+      }
+    }
+
     return out;
   }
 

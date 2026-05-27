@@ -79,9 +79,17 @@ export class EuPagoSource implements SourceAdapter {
     const trid = String(body.trid ?? body.identifier ?? "");
     const dateIso = parseDate(body.date) ?? new Date().toISOString();
 
-    // PT B2C default: IVA-included amount, 23% normal rate unless merchant
-    // override via integrations.force_tax_rate (Dev Mode).
+    // PT B2C default: 23% normal rate unless merchant overrides via
+    // integrations.force_tax_rate (Dev Mode). EuPago `amount` is the gross
+    // figure the customer actually paid — invariant: invoice gross MUST
+    // equal `amount`. We emit a NET unit_price so the destination adapter
+    // (which treats unit_price as VAT-exclusive per the IX convention) lands
+    // on `amount` after re-applying tax. Round to 4dp on the net to absorb
+    // sub-cent precision; reconcileTotalOrThrow guards the final total.
     const taxRate = ctx.config.force_tax_rate != null ? Number(ctx.config.force_tax_rate) : 23;
+    const netUnit = taxRate > 0
+      ? Math.round((amount / (1 + taxRate / 100)) * 10000) / 10000
+      : amount;
 
     const customerName = "Consumidor Final";
     const orderId = numericIdFromTrid(trid);
@@ -91,9 +99,9 @@ export class EuPagoSource implements SourceAdapter {
       product_id: 0,
       variant_id: 0,
       quantity: 1,
-      unit_price: amount,
-      unit_price_calculated: amount,
-      subtotal_calculated: amount,
+      unit_price: netUnit,
+      unit_price_calculated: netUnit,
+      subtotal_calculated: netUnit,
       tax: { name: "VAT", value: taxRate, unit_amount: taxRate },
       discount: { name: "", percent: 0 },
       title: `Pagamento ${method} (ref ${body.reference ?? body.identifier ?? trid})`,

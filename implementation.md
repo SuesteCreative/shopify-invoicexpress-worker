@@ -164,5 +164,5 @@ Source-of-truth invariant: invoice gross MUST equal source amount paid, em todos
 - [x] Shopify→Moloni: document/fix `vat_included` semantics — normalized items are always net per IX convention; remove ambiguous strip-VAT branch in `buildMoloniLineItems`
 
 ### High
-- [ ] Stripe→IX: enforce single-line reconciliation (`amount_received == unit_price * qty`) since `raw_order` is absent and `reconcileOrThrow` skips
-- [ ] EuPago→IX: replace hardcoded 23% in `eupago-source.ts` with `ctx.config.force_tax_rate` lookup (fall back to 23%)
+- [x] Stripe→IX: enforce single-line reconciliation (`amount_received == unit_price * qty`) since `raw_order` is absent and `reconcileOrThrow` skips
+- [x] EuPago→IX: emit NET `unit_price` (was gross with tax=23 → IX inflated by 23%). `force_tax_rate` override already supported; now applied correctly to derive net.

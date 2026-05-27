@@ -8,6 +8,7 @@ import type {
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
 import { IxBuilder, type IxCreditNote } from "../../ix/builder";
+import { reconcileTotalOrThrow } from "../reconcile";
 
 function ixHeadersFromCtx(ctx: AdapterCtx) {
   return {
@@ -36,6 +37,23 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   async createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult> {
     const builder = new IxBuilder(ctx.config);
     const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
+
+    // IxBuilder reconciles internally on the raw_order path. For non-raw
+    // sources (Stripe, EuPago) raw_order is absent, so we reconcile here
+    // against normalized.order.total — the source's paid amount.
+    if (!normalized.raw_order) {
+      reconcileTotalOrThrow(
+        Number(normalized.order.total),
+        invoice.items.map((it: any) => ({
+          name: it.name,
+          quantity: Number(it.quantity),
+          unit_price: Number(it.unit_price),
+          tax_rate: typeof it.tax === "number" ? it.tax : Number(it.tax?.value ?? 0),
+          discount_percent: Number(it.discount ?? 0),
+        })),
+        { context: `→IX order#${normalized.order.order_number}` },
+      );
+    }
 
     const res = await IxApi.v2.documents.post({
       headers: ixHeadersFromCtx(ctx),

@@ -8,6 +8,7 @@ import type {
 import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow } from "../reconcile";
+import { redactSecrets } from "../../security";
 
 /**
  * MoloniDestination
@@ -121,11 +122,11 @@ async function getAccessToken(cfg: MoloniCfg): Promise<string> {
   });
   const body = await safeJson(res);
   if (!res.ok) {
-    throw new Error(`Moloni create failed: auth ${res.status} — ${truncate(JSON.stringify(body))}`);
+    throw new Error(`Moloni create failed: auth ${res.status} — ${safeErrorJson(body)}`);
   }
   const token = (body as MoloniTokenResponse)?.access_token;
   if (!token) {
-    throw new Error(`Moloni create failed: auth returned no access_token — ${truncate(JSON.stringify(body))}`);
+    throw new Error(`Moloni create failed: auth returned no access_token — ${safeErrorJson(body)}`);
   }
   return token;
 }
@@ -173,12 +174,12 @@ async function moloniCall<T = unknown>(
   if (!res.ok) {
     // Moloni returns 401 on expired tokens — propagate so the error classifier
     // in generic-pipeline tags it as auth_failure_destination.
-    throw new Error(`Moloni ${opName} failed: ${res.status} — ${truncate(JSON.stringify(json))}`);
+    throw new Error(`Moloni ${opName} failed: ${res.status} — ${safeErrorJson(json)}`);
   }
   // Moloni often returns `{valid: 1, ...}` on success; `{valid: 0, errors: ...}`
   // on logical failure (e.g. invalid NIF). Treat both 200+valid:0 as errors.
   if (json && typeof json === "object" && "valid" in (json as object) && (json as { valid: number }).valid === 0) {
-    throw new Error(`Moloni ${opName} failed: ${truncate(JSON.stringify(json))}`);
+    throw new Error(`Moloni ${opName} failed: ${safeErrorJson(json)}`);
   }
   // Moloni surfaces field-validation errors as a 200-OK body containing
   // a plain array of strings like `["1 products", "2 customer_id 1 0"]`.
@@ -189,7 +190,7 @@ async function moloniCall<T = unknown>(
     && json.length > 0
     && json.every((entry) => typeof entry === "string")
   ) {
-    throw new Error(`Moloni ${opName} failed: validation errors ${truncate(JSON.stringify(json))}`);
+    throw new Error(`Moloni ${opName} failed: validation errors ${safeErrorJson(json)}`);
   }
   return json as T;
 }
@@ -209,6 +210,14 @@ async function safeJson(res: Response): Promise<unknown> {
 
 function truncate(s: string, max = 500): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+// Stringify error payloads with credential redaction. Moloni's auth + API
+// responses can echo request fields back; redactSecrets strips known-sensitive
+// keys (client_secret, password, access_token, …) before they hit error
+// messages, queue logs, or D1 dev_logs.
+function safeErrorJson(value: unknown, max = 500): string {
+  return truncate(JSON.stringify(redactSecrets(value)), max);
 }
 
 function isPortugal(countryCode: string | null | undefined): boolean {
@@ -379,7 +388,7 @@ async function resolveOrCreateCustomer(
   );
   const customerId = inserted?.customer_id;
   if (!customerId) {
-    throw new Error(`Moloni create failed: customer insert returned no id — ${truncate(JSON.stringify(inserted))}`);
+    throw new Error(`Moloni create failed: customer insert returned no id — ${safeErrorJson(inserted)}`);
   }
   return Number(customerId);
 }
@@ -492,7 +501,7 @@ async function ensureMoloniProduct(
     cfg, token, "/products/insert/", insertBody, "create",
   );
   if (!created?.product_id) {
-    throw new Error(`Moloni create failed: product '${reference}' insert returned no id — ${truncate(JSON.stringify(created))}`);
+    throw new Error(`Moloni create failed: product '${reference}' insert returned no id — ${safeErrorJson(created)}`);
   }
   return Number(created.product_id);
 }
@@ -619,7 +628,7 @@ export class MoloniDestination implements DestinationAdapter {
     );
     const id = res?.document_id;
     if (!id) {
-      throw new Error(`Moloni create failed: insert returned no document_id — ${truncate(JSON.stringify(res))}`);
+      throw new Error(`Moloni create failed: insert returned no document_id — ${safeErrorJson(res)}`);
     }
     return { invoiceId: String(id) };
   }
@@ -723,7 +732,7 @@ export class MoloniDestination implements DestinationAdapter {
     );
     const creditId = inserted?.document_id;
     if (!creditId) {
-      throw new Error(`Moloni credit create failed: insert returned no document_id — ${truncate(JSON.stringify(inserted))}`);
+      throw new Error(`Moloni credit create failed: insert returned no document_id — ${safeErrorJson(inserted)}`);
     }
 
     // Close the credit note immediately so it is fiscally valid, matching IX.

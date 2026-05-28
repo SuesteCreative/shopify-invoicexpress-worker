@@ -10,6 +10,9 @@ dist
 
 # D1 backups (contain PII, keep local only)
 backups/
+*.sql
+!migrations/*.sql
+!schema.sql
 
 # Migration script output (contains PII)
 rioko-next/scripts/out/

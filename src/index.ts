@@ -21,6 +21,7 @@ import {
 } from "./handlers/reconciliation";
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
 import { delay } from "./utils";
+import { errorResponse, requireAdminAuth } from "./security";
 
 function shopifyTopicToCanonical(topic: WebhookTopic): StripeCanonicalTopic | null {
   switch (topic) {
@@ -357,16 +358,14 @@ app.post("/webhooks/eupago/:userId", async (c) => {
     console.error(`[EuPago] Pipeline error for ${externalId}:`, e);
     await appStorage.markWebhookAsProcessed(externalId, `eupago/${canonical}` as any, "failed");
     // Return 500 so EuPago retries (2min×3 then hourly×24h).
-    return c.text(`Pipeline error: ${e?.message ?? "unknown"}`, 500);
+    return errorResponse(c, e, "Pipeline error");
   }
 });
 
 // Admin: list unprocessed orders
 app.get("/admin/unprocessed-orders", async (c) => {
-  const apiKey = c.req.header("x-api-key");
-  if (!apiKey || apiKey !== c.env.ADMIN_API_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
 
   const shop = c.req.query("shop");
   const from = c.req.query("from");
@@ -380,29 +379,24 @@ app.get("/admin/unprocessed-orders", async (c) => {
   const config = await appStorage.loadConfig();
 
   if (!config) {
-    return c.json({ error: `No config found for ${shop}` }, 404);
+    return c.json({ error: "Unknown shop" }, 404);
   }
 
   try {
     const result = await getUnprocessedOrders(c.env, config, from, to);
     return c.json(result);
   } catch (e) {
-    console.error("[Rioko][Admin] Error fetching unprocessed orders:", e);
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to fetch unprocessed orders");
   }
 })
 
-function requireAdmin(c: Context<{ Bindings: Env }>) {
-  const apiKey = c.req.header("x-api-key");
-  if (!apiKey || apiKey !== c.env.ADMIN_API_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  return null;
+async function requireAdmin(c: Context<{ Bindings: Env }>) {
+  return requireAdminAuth(c);
 }
 
 // Admin: process (create or finalize) orders
 app.post("/admin/process-orders", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
 
   const body = await c.req.json<{
@@ -447,14 +441,13 @@ app.post("/admin/process-orders", async (c) => {
     });
     return c.json(result);
   } catch (e) {
-    console.error("[Rioko][Admin] Error processing orders:", e);
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to process orders");
   }
 })
 
 // Admin: re-emit single order by order_number
 app.post("/admin/reemit-order", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
 
   const body = await c.req.json<{
@@ -487,14 +480,13 @@ app.post("/admin/reemit-order", async (c) => {
     const httpStatus = (result as any).status === "error" ? 422 : 200;
     return c.json(result, httpStatus);
   } catch (e) {
-    console.error("[Rioko][Admin] Error re-emitting order:", e);
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to re-emit order");
   }
 })
 
 // Admin: finalize drafts
 app.post("/admin/finalize-drafts", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
 
   const body = await c.req.json<{
@@ -532,14 +524,13 @@ app.post("/admin/finalize-drafts", async (c) => {
     });
     return c.json(result);
   } catch (e) {
-    console.error("[Rioko][Admin] Error finalizing drafts:", e);
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to finalize drafts");
   }
 })
 
 // Admin: per-shop logs / jobs / webhooks
 app.get("/admin/logs", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
 
   const shop = c.req.query("shop");
@@ -561,13 +552,13 @@ app.get("/admin/logs", async (c) => {
     }
     return c.json({ entries: await appStorage.getDevJobs(limit) });
   } catch (e) {
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to fetch logs");
   }
 })
 
 // Admin: fetch single job detail (per-order results)
 app.get("/admin/jobs/:id", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
 
   const shop = c.req.query("shop");
@@ -582,7 +573,7 @@ app.get("/admin/jobs/:id", async (c) => {
 
 // Admin: get/set per-account notify emails
 app.get("/admin/notify-emails", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const shop = c.req.query("shop");
   if (!shop) return c.json({ error: "Missing shop" }, 400);
@@ -591,7 +582,7 @@ app.get("/admin/notify-emails", async (c) => {
 })
 
 app.put("/admin/notify-emails", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{ shop: string; emails: string[] }>();
   if (!body.shop) return c.json({ error: "Missing shop" }, 400);
@@ -603,7 +594,7 @@ app.put("/admin/notify-emails", async (c) => {
 
 // Admin: delete draft by order_number
 app.post("/admin/delete-draft", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{ shop: string; order_number: number; reason?: string; triggered_by?: string; notify_emails?: string[] }>();
   if (!body.shop || !body.order_number) return c.json({ error: "Missing shop or order_number" }, 400);
@@ -618,13 +609,13 @@ app.post("/admin/delete-draft", async (c) => {
     });
     return c.json(result);
   } catch (e) {
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to delete draft");
   }
 })
 
 // Admin: issue credit note by order_number
 app.post("/admin/issue-credit-note", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{ shop: string; order_number: number; reason?: string; triggered_by?: string; notify_emails?: string[] }>();
   if (!body.shop || !body.order_number) return c.json({ error: "Missing shop or order_number" }, 400);
@@ -639,13 +630,13 @@ app.post("/admin/issue-credit-note", async (c) => {
     });
     return c.json(result);
   } catch (e) {
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to issue credit note");
   }
 })
 
 // Admin: get/set per-account tax override
 app.get("/admin/tax-override", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const shop = c.req.query("shop");
   if (!shop) return c.json({ error: "Missing shop" }, 400);
@@ -654,7 +645,7 @@ app.get("/admin/tax-override", async (c) => {
 })
 
 app.put("/admin/tax-override", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{
     shop: string;
@@ -691,7 +682,7 @@ app.put("/admin/tax-override", async (c) => {
 
 // Admin: list pending reverse-charge rows for a shop (pending status only).
 app.get("/admin/pending-reverse-charge", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const shop = c.req.query("shop");
   if (!shop) return c.json({ error: "Missing shop" }, 400);
@@ -704,7 +695,7 @@ app.get("/admin/pending-reverse-charge", async (c) => {
 // Admin: manual VIES decisions for pending reverse-charge rows.
 // Both routes idempotently submit the deferred invoice and resolve the row.
 app.post("/admin/pending-reverse-charge/:id/approve", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const id = c.req.param("id");
   const appStorage = new AppStorage(c.env);
@@ -717,7 +708,7 @@ app.post("/admin/pending-reverse-charge/:id/approve", async (c) => {
 })
 
 app.post("/admin/pending-reverse-charge/:id/reject", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const id = c.req.param("id");
   const appStorage = new AppStorage(c.env);
@@ -731,7 +722,7 @@ app.post("/admin/pending-reverse-charge/:id/reject", async (c) => {
 
 // Admin: reconciliation list
 app.get("/admin/reconciliation", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const shop = c.req.query("shop");
   const from = c.req.query("from");
@@ -746,13 +737,12 @@ app.get("/admin/reconciliation", async (c) => {
     const result = await getReconciliation(c.env, config, from, to);
     return c.json(result);
   } catch (e) {
-    console.error("[Rioko][Recon] error:", e);
-    return c.json({ error: String(e) }, 500);
+    return errorResponse(c, e, "Failed to load reconciliation");
   }
 })
 
 app.post("/admin/reconciliation/approve", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{ shop: string; order_id: string; invoice_id: string; approved_by?: string }>();
   if (!body.shop || !body.order_id || !body.invoice_id) return c.json({ error: "Missing shop/order_id/invoice_id" }, 400);
@@ -761,11 +751,11 @@ app.post("/admin/reconciliation/approve", async (c) => {
   if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
   try {
     return c.json(await approveReconciliationMatch(c.env, config, body.order_id, body.invoice_id, body.approved_by ?? null));
-  } catch (e) { return c.json({ error: String(e) }, 500); }
+  } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 
 app.delete("/admin/reconciliation/approve", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const shop = c.req.query("shop");
   const orderId = c.req.query("order_id");
@@ -775,11 +765,11 @@ app.delete("/admin/reconciliation/approve", async (c) => {
   if (!config) return c.json({ error: `No config found for ${shop}` }, 404);
   try {
     return c.json(await revertReconciliationMatch(c.env, config, orderId));
-  } catch (e) { return c.json({ error: String(e) }, 500); }
+  } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 
 app.post("/admin/reconciliation/decision", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{ shop: string; order_id: string; decision: string | null; reason?: string; decided_by?: string }>();
   if (!body.shop || !body.order_id) return c.json({ error: "Missing shop/order_id" }, 400);
@@ -788,22 +778,22 @@ app.post("/admin/reconciliation/decision", async (c) => {
   if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
   try {
     return c.json(await setReconciliationDecisionAction(c.env, config, body.order_id, body.decision ?? null, body.reason ?? null, body.decided_by ?? null));
-  } catch (e) { return c.json({ error: String(e) }, 500); }
+  } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 
 app.get("/admin/user-shop", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const userId = c.req.query("user_id");
   if (!userId) return c.json({ error: "Missing user_id" }, 400);
   try {
     return c.json(await getShopForUser(c.env, userId));
-  } catch (e) { return c.json({ error: String(e) }, 500); }
+  } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 
 // Admin: ad-hoc test notify
 app.post("/admin/notify", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{ recipients: string[]; subject: string; body: string }>();
   if (!body.recipients?.length) return c.json({ error: "Missing recipients" }, 400);
@@ -814,7 +804,7 @@ app.post("/admin/notify", async (c) => {
 // Admin: render an incident template and send it via Resend. Bypasses the
 // incident dedup bucket so it can fire repeatedly for QA.
 app.post("/admin/test-incident-email", async (c) => {
-  const unauth = requireAdmin(c);
+  const unauth = await requireAdmin(c);
   if (unauth) return unauth;
 
   const body = await c.req.json<{
@@ -1159,6 +1149,22 @@ export default {
       console.log(`[Cron] VIES retry: retried=${result.retried} resolved=${result.resolved} deferred=${result.deferred} incidents=${result.incidents}`);
     } catch (e: any) {
       console.error(`[Cron] VIES retry failed: ${e.message}`);
+    }
+
+    // TTL purge of replay-protection tables. webhook_info and billing_events
+    // grow unbounded — keys are external (Shopify webhook id, Stripe event id)
+    // so retention beyond ~90 days adds no dedup value but does enlarge the
+    // replay surface. 90d covers the longest Stripe/Shopify retry windows.
+    try {
+      const wi = await env.DB.prepare(
+        "DELETE FROM webhook_info WHERE created_at < datetime('now', '-90 day')"
+      ).run();
+      const be = await env.DB.prepare(
+        "DELETE FROM billing_events WHERE created_at < datetime('now', '-90 day')"
+      ).run();
+      console.log(`[Cron] TTL purge: webhook_info=${wi.meta?.changes ?? 0} billing_events=${be.meta?.changes ?? 0}`);
+    } catch (e: any) {
+      console.error(`[Cron] TTL purge failed: ${e.message}`);
     }
   },
 }

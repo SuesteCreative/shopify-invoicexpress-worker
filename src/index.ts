@@ -4,7 +4,7 @@ import { Context, Hono } from "hono";
 import { AppStorage } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { getSourceAdapter } from "./adapters/registry";
-import { runAdapterPipeline } from "./handlers/generic-pipeline";
+import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
 import { reportIncident, runIncidentDigest } from "./services/incidents";
 import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
@@ -941,6 +941,7 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
       message.ack();
     } catch (e) {
       console.error(`[Rioko] Queue handler error for ${topic}:`, e);
+      const { kind, severity, permanent } = classifyPipelineError(e);
       try {
         const appStorage = new AppStorage(env, shopDomain);
         if (webhookId) {
@@ -951,12 +952,34 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
           topic,
           payload: "",
           response: String(e),
-          status: 500,
+          status: permanent ? 422 : 500,
         });
       } catch (logErr) {
         console.error("[Rioko] Failed to persist failure log:", logErr);
       }
-      message.retry({ delaySeconds: 360 });
+      if (permanent) {
+        // Legacy Shopify→IX path throws here on unrecoverable errors (bad NIF,
+        // expired IX key, reconcile drift). runAdapterPipeline already reports
+        // its own permanent failures and returns without throwing, so anything
+        // reaching this branch is the legacy path. Emit the incident here.
+        try {
+          const externalId = String((message.body?.body as any)?.id ?? (message.body?.body as any)?.order_number ?? "unknown");
+          await reportIncident(env, {
+            user_id: undefined,
+            severity,
+            kind,
+            summary: `${topic} ${externalId}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
+            detail: { message: (e as any)?.message, externalId, topic, shopDomain },
+            affected_ids: [externalId],
+            connection_label: "shopify → invoicexpress",
+          });
+        } catch (incErr) {
+          console.error("[Rioko] Failed to emit permanent-failure incident:", incErr);
+        }
+        message.ack();
+      } else {
+        message.retry({ delaySeconds: 360 });
+      }
     }
   }
 }
@@ -1026,6 +1049,7 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       message.ack();
     } catch (e) {
       console.error(`[Stripe] Queue handler error for event ${eventId}:`, e);
+      const { permanent } = classifyPipelineError(e);
       try {
         const appStorage = new AppStorage(env);
         if (eventId) {
@@ -1036,12 +1060,17 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
           topic: `stripe/${topic}`,
           payload: "",
           response: String(e),
-          status: 500,
+          status: permanent ? 422 : 500,
         });
       } catch (logErr) {
         console.error("[Stripe] Failed to persist failure log:", logErr);
       }
-      message.retry({ delaySeconds: 360 });
+      // Stripe always routes via runAdapterPipeline, which reports its own
+      // incidents and returns (no throw) on permanent failures. Anything
+      // reaching this catch with permanent=true is an outlier (DB lookup,
+      // unknown kind) — ack to stop the retry storm; transient retries.
+      if (permanent) message.ack();
+      else message.retry({ delaySeconds: 360 });
     }
   }
 }

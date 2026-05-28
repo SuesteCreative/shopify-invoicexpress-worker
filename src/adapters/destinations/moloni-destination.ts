@@ -195,6 +195,25 @@ async function moloniCall<T = unknown>(
   return json as T;
 }
 
+// Distinguish transient Moloni failures (5xx, network, timeout) from genuine
+// "not found" misses. Swallowing a 5xx during a lookup made the code fall
+// through to INSERT — creating duplicate customer/product/invoice records
+// during Moloni outages. Re-throwing 5xx lets the queue retry; 4xx/validation
+// errors keep their "treat as miss" behaviour.
+function isMoloniTransient(e: unknown): boolean {
+  if (!e) return false;
+  const msg = String((e as { message?: string })?.message ?? e).toLowerCase();
+  if (msg.includes("timeout") || msg.includes("network") || msg.includes("fetch failed")) return true;
+  // moloniCall throws "Moloni ${opName} failed: ${status} — …" on !res.ok.
+  // 401/403/404/422 → caller decides; 5xx → transient.
+  const m = msg.match(/moloni [a-z ]+ failed: (\d{3})/);
+  if (m) {
+    const status = Number(m[1]);
+    return status >= 500 && status <= 599;
+  }
+  return false;
+}
+
 async function safeJson(res: Response): Promise<unknown> {
   try {
     return await res.json();
@@ -360,8 +379,10 @@ async function resolveOrCreateCustomer(
     if (first && typeof first === "object" && "customer_id" in first && first.customer_id) {
       return Number(first.customer_id);
     }
-  } catch {
-    // getByVat returns 404-ish on miss; fall through to insert.
+  } catch (e) {
+    // Re-throw transient (5xx, network) so the queue retries instead of
+    // silently inserting a duplicate customer. Genuine misses fall through.
+    if (isMoloniTransient(e)) throw e;
   }
 
   // 2. Insert a new customer record.
@@ -455,8 +476,10 @@ async function ensureMoloniProduct(
     );
     const match = Array.isArray(found) ? found[0] : null;
     if (match?.product_id) return Number(match.product_id);
-  } catch {
-    // Fall through to create.
+  } catch (e) {
+    // Re-throw transient so the queue retries instead of creating a duplicate
+    // product. Genuine misses fall through to the create branch below.
+    if (isMoloniTransient(e)) throw e;
   }
 
   // 2. Resolve a category_id + unit_id (required to create a product).
@@ -574,7 +597,11 @@ export class MoloniDestination implements DestinationAdapter {
       const first = Array.isArray(found) ? found[0] : null;
       if (first?.document_id) return { id: String(first.document_id) };
       return null;
-    } catch {
+    } catch (e) {
+      // Swallowing a 5xx here would let the pipeline issue a DUPLICATE invoice
+      // (the dedup check failed open). Re-throw transient; null only on a real
+      // "no match" response from Moloni.
+      if (isMoloniTransient(e)) throw e;
       return null;
     }
   }

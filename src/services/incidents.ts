@@ -100,13 +100,38 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
 
   // Email immediately on first occurrence of critical incidents.
   if (input.severity === "critical" && wasNew) {
-    try {
-      await emailIncident(env, input, bucketKey, nowIso, nowIso);
-      await env.DB.prepare(
-        "UPDATE incidents SET notified_at = ? WHERE bucket_key = ? AND notified_at IS NULL"
-      ).bind(nowIso, bucketKey).run();
-    } catch (e: any) {
-      console.error(`[incidents] Critical email failed: ${e.message}`);
+    // P3 suppression: when destination auth fails (expired Moloni/IX token),
+    // every queued order in the next hour creates a NEW bucket → fresh critical
+    // email. The merchant only needs one ping to re-auth. Suppress repeats
+    // within a 24h window of the last *notified* incident of the same kind for
+    // the same user; the daily digest still captures any stragglers.
+    let suppressEmail = false;
+    if (input.kind === "auth_failure_destination" && input.user_id) {
+      try {
+        const cutoffIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const prior = await env.DB.prepare(
+          `SELECT 1 FROM incidents
+           WHERE user_id = ? AND kind = ? AND notified_at IS NOT NULL
+             AND notified_at >= ?
+             AND status IN ('open', 'acknowledged')
+           LIMIT 1`
+        ).bind(input.user_id, input.kind, cutoffIso).first();
+        if (prior) suppressEmail = true;
+      } catch (e: any) {
+        // Don't block the email path on a SELECT failure.
+        console.warn(`[incidents] auth-failure suppression lookup failed: ${e.message}`);
+      }
+    }
+
+    if (!suppressEmail) {
+      try {
+        await emailIncident(env, input, bucketKey, nowIso, nowIso);
+        await env.DB.prepare(
+          "UPDATE incidents SET notified_at = ? WHERE bucket_key = ? AND notified_at IS NULL"
+        ).bind(nowIso, bucketKey).run();
+      } catch (e: any) {
+        console.error(`[incidents] Critical email failed: ${e.message}`);
+      }
     }
   }
 }

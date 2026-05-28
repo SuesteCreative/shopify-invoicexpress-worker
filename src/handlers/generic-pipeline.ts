@@ -29,18 +29,20 @@ export interface RunPipelineInput {
 }
 
 /**
- * Classify an error from the pipeline into an incident kind + severity.
+ * Classify an error from the pipeline into an incident kind + severity +
+ * `permanent` flag. `permanent: true` means the same payload will NEVER
+ * succeed by retrying (bad NIF, wrong credentials, broken invoice math) —
+ * the caller should record the incident, ack the queue message, and stop.
  * Heuristics over error.message — refine over time as new failure modes surface.
  */
-function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severity } {
+export function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severity; permanent: boolean } {
   const msg = String(err?.message ?? err ?? "").toLowerCase();
 
   // Reconcile-or-throw guard fired: the invoice total didn't match source paid.
-  // This is critical because the merchant is in a "we know there's a problem,
-  // we refused to ship the wrong document" state — they MUST act (override SKU
-  // or fix Shopify data) before next webhook.
+  // Permanent — the math doesn't change between retries; merchant must override
+  // a SKU price or fix Shopify data, then manually reemit.
   if (msg.includes("invoice total mismatch")) {
-    return { kind: "reconcile_drift", severity: "critical" };
+    return { kind: "reconcile_drift", severity: "critical", permanent: true };
   }
 
   // Destination rejected the document outright (most common: invalid NIF, invalid client)
@@ -51,12 +53,15 @@ function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severi
     || (msg.includes("vendus") && msg.includes("fail"));
   if (isDestCreateError) {
     if (msg.includes("fiscal") || msg.includes("nif")) {
-      return { kind: "nif_invalid", severity: "error" };
+      // Bumped to critical: previously waited for the daily digest, but a bad
+      // NIF blocks the entire invoice — merchant should hear about it now.
+      return { kind: "nif_invalid", severity: "critical", permanent: true };
     }
     if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("autenticação") || msg.includes("auth")) {
-      return { kind: "auth_failure_destination", severity: "critical" };
+      return { kind: "auth_failure_destination", severity: "critical", permanent: true };
     }
-    return { kind: "destination_reject", severity: "error" };
+    // Could be Moloni 5xx or transient destination outage — let the queue retry.
+    return { kind: "destination_reject", severity: "error", permanent: false };
   }
 
   if (
@@ -64,19 +69,19 @@ function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severi
     || (msg.includes("moloni") && msg.includes("finalize"))
     || (msg.includes("vendus") && msg.includes("finalize"))
   ) {
-    return { kind: "destination_reject", severity: "error" };
+    return { kind: "destination_reject", severity: "error", permanent: false };
   }
 
   if (msg.includes("failed to normalize")) {
-    return { kind: "normalize_fail", severity: "warning" };
+    return { kind: "normalize_fail", severity: "warning", permanent: false };
   }
 
   if (msg.includes("invoice not found")) {
     // Likely paid/refund arrived before created — should self-heal via retry.
-    return { kind: "normalize_fail", severity: "info" };
+    return { kind: "normalize_fail", severity: "info", permanent: false };
   }
 
-  return { kind: "destination_reject", severity: "error" };
+  return { kind: "destination_reject", severity: "error", permanent: false };
 }
 
 /**
@@ -149,17 +154,39 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   try {
     await runPipelineCore(input, sourceAdapter, destAdapter, externalId, appStorage, ctx, logTopic, connectionLabel);
   } catch (err) {
-    const { kind, severity } = classifyPipelineError(err);
-    await reportIncident(env, {
-      user_id: config.user_id,
-      severity,
-      kind,
-      summary: `${logTopic} ${externalId}: ${(err as any)?.message ?? String(err)}`.slice(0, 500),
-      detail: { message: (err as any)?.message, externalId, topic, source, destination },
-      affected_ids: [externalId],
-      connection_label: connectionLabel,
-    });
-    throw err; // re-throw so queue handler retries
+    const { kind, severity, permanent } = classifyPipelineError(err);
+
+    // P1: paid/refund-before-created is self-healing via queue retry. Logging
+    // only — no incident row, no digest noise. DLQ still catches the genuinely
+    // stuck ones via `queue_retry_exhausted`.
+    const isSelfHealingNormalize = kind === "normalize_fail" && severity === "info";
+
+    if (!isSelfHealingNormalize) {
+      await reportIncident(env, {
+        user_id: config.user_id,
+        severity,
+        kind,
+        summary: `${logTopic} ${externalId}: ${(err as any)?.message ?? String(err)}`.slice(0, 500),
+        detail: { message: (err as any)?.message, externalId, topic, source, destination },
+        affected_ids: [externalId],
+        connection_label: connectionLabel,
+      });
+    }
+
+    if (permanent) {
+      // Same payload will never succeed. Persist a failure log, ack-by-return,
+      // and skip the queue retry storm.
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: logTopic,
+        payload: String(externalId),
+        response: `Permanent failure (${kind}): ${(err as any)?.message ?? String(err)}`.slice(0, 500),
+        status: 422,
+      });
+      return;
+    }
+
+    throw err; // transient — re-throw so queue handler retries
   }
 }
 

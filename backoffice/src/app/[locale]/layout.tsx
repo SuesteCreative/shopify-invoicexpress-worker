@@ -25,9 +25,28 @@ export async function generateMetadata({
     ? locale
     : routing.defaultLocale;
   const t = await getTranslations({ locale: safeLocale, namespace: "metadata" });
+  const title = t("siteTitle");
+  const description = t("siteDescription");
+  const ogLocale = safeLocale === "pt" ? "pt_PT" : "en_US";
   return {
-    title: t("siteTitle"),
-    description: t("siteDescription"),
+    metadataBase: new URL("https://rioko.online"),
+    title,
+    description,
+    // og:image + twitter:image (+ dimensions) are injected automatically
+    // from app/opengraph-image.png — only the textual fields live here.
+    openGraph: {
+      type: "website",
+      siteName: "Rioko",
+      url: "https://rioko.online",
+      locale: ogLocale,
+      title,
+      description,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
   };
 }
 

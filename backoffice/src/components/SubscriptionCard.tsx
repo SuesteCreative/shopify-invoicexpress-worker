@@ -58,6 +58,9 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
 
     const startCheckout = async () => {
         setActing(true);
+        // Open the tab synchronously inside the click handler so it counts as a
+        // user gesture — otherwise popup blockers kill window.open after the await.
+        const checkoutTab = window.open("", "_blank");
         try {
             const res = await fetch("/api/billing/checkout", {
                 method: "POST",
@@ -66,12 +69,20 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
             });
             const d = (await res.json()) as { url?: string; error?: string };
             if (d.url) {
-                window.location.href = d.url;
+                if (checkoutTab) {
+                    checkoutTab.location.href = d.url;
+                } else {
+                    // Popup was blocked — fall back to same-tab redirect.
+                    window.location.href = d.url;
+                }
+                setActing(false);
             } else {
+                checkoutTab?.close();
                 alert(d.error || t("errorCheckout"));
                 setActing(false);
             }
         } catch (e: any) {
+            checkoutTab?.close();
             alert(e.message);
             setActing(false);
         }

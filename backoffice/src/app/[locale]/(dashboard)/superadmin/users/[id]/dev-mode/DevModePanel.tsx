@@ -210,7 +210,23 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
         <Section icon={<Sparkles className="w-5 h-5 text-soon" />} title={t("subscriptionTitle")} desc={t("subscriptionDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <label className="flex items-center gap-3 cursor-pointer pb-2">
-                    <input type="checkbox" checked={earlyBird} onChange={e => setEarlyBird(e.target.checked)} disabled={!loaded} className="accent-soon w-4 h-4" />
+                    <input
+                        type="checkbox"
+                        checked={earlyBird}
+                        onChange={e => {
+                            const on = e.target.checked;
+                            setEarlyBird(on);
+                            // Early bird is cosmetic: real access is gated by trial_end. Turning it OFF
+                            // must shorten the trial, otherwise the user keeps the early-bird date
+                            // (e.g. 2026-08-01) and gets months of free access. Grace = today + 3 days.
+                            if (!on) {
+                                const grace = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0];
+                                setTrialEnd(grace);
+                            }
+                        }}
+                        disabled={!loaded}
+                        className="accent-soon w-4 h-4"
+                    />
                     <span className="text-xs font-bold text-fg">{t("earlyBird")}</span>
                 </label>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">

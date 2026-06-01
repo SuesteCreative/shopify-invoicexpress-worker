@@ -27,7 +27,32 @@ export async function GET(req: NextRequest) {
             LIMIT 100
         `).bind(targetUserId).all();
 
-        return NextResponse.json({ events: rows.results || [] });
+        // Collapse invoice lifecycle rows: a single invoice can emit both an
+        // open/failed event and a later paid event. Once paid, show only the
+        // paid row. Refunds (charge.refunded) are distinct audit lines, kept as-is.
+        const all: any[] = rows.results || [];
+        const refunds = all.filter(e => e.type === "charge.refunded");
+        const invoiceEvents = all.filter(e => e.type !== "charge.refunded");
+
+        const byInvoice = new Map<string, any[]>();
+        for (const e of invoiceEvents) {
+            const key = e.stripe_object_id || e.id;
+            const g = byInvoice.get(key);
+            if (g) g.push(e); else byInvoice.set(key, [e]);
+        }
+
+        const collapsed: any[] = [];
+        for (const group of byInvoice.values()) {
+            // rows arrive newest-first; prefer a paid row, else keep the latest.
+            const paid = group.find(e => e.status === "paid");
+            collapsed.push(paid || group[0]);
+        }
+
+        const events = [...collapsed, ...refunds].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        return NextResponse.json({ events });
     } catch (e: any) {
         console.error("[billing/invoices] error", e);
         return NextResponse.json({ error: e.message }, { status: 500 });

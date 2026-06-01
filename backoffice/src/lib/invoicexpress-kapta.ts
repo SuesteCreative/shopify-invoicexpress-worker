@@ -113,7 +113,11 @@ export async function findByReference(reference: string, docType: "invoice" | "c
             const found = list.find((d: any) => d.reference === reference || (typeof d.reference === "string" && d.reference.includes(reference)));
             if (found) {
                 const doc: IXDocument = { ...found, type: t.type };
-                doc.permalink = buildPermalink(cfg, baseUrl, doc);
+                // Prefer IX's own public permalink (no login wall). buildPermalink builds the
+                // back-office URL which requires a Kapta login — only use it as a fallback.
+                doc.permalink = (typeof found.permalink === "string" && found.permalink)
+                    ? found.permalink
+                    : buildPermalink(cfg, baseUrl, doc);
                 return doc;
             }
         } catch (err) {
@@ -191,7 +195,11 @@ export async function findByHeuristic(c: MatchCandidate, docType: "invoice" | "c
     }
 
     if (best && best.score >= 60) {
-        best.doc.permalink = buildPermalink(cfg, baseUrl, best.doc);
+        // Keep IX's public permalink (preserved from the list response); fall back to the
+        // back-office URL only if the API didn't return one.
+        if (!(typeof best.doc.permalink === "string" && best.doc.permalink)) {
+            best.doc.permalink = buildPermalink(cfg, baseUrl, best.doc);
+        }
         return best;
     }
     return null;
@@ -208,8 +216,11 @@ export async function matchStripeChargeToIX(opts: {
     // Try 1: exact reference match (try multiple refs: pi_xxx, bare id, re_xxx for refunds, etc.)
     const refsToTry: string[] = [];
     if (opts.payment_intent_id) {
-        const bare = opts.payment_intent_id.replace(/^pi_/, "");
-        refsToTry.push(`pi_${bare}`, opts.payment_intent_id);
+        // Kapta's Stripe→IX connector stamps the document reference as "#stripe_<bareId>"
+        // (bare = payment_intent id without the pi_ prefix). Match that first for a
+        // deterministic hit; keep the pi_/full variants as fallbacks.
+        const bare = opts.payment_intent_id.replace(/^(pi_|ch_)/, "");
+        refsToTry.push(`#stripe_${bare}`, bare, `pi_${bare}`, opts.payment_intent_id);
     }
     if (opts.extra_refs) refsToTry.push(...opts.extra_refs);
 

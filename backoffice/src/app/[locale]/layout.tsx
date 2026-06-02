@@ -9,10 +9,11 @@ import { setRequestLocale, getMessages, getTranslations } from "next-intl/server
 import { notFound } from "next/navigation";
 import Script from "next/script";
 
-const GA_ID = "G-CV0NZQC6HW";
+const GA_ID = "G-VJBW01N7DM";
 
 import { sansDisplay, monoFont } from "../fonts";
 import InactivityLogout from "@/components/InactivityLogout";
+import ConsentBanner from "@/components/ConsentBanner";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata({
@@ -80,6 +81,7 @@ export default async function LocaleLayout({
         >
           <NextIntlClientProvider locale={locale} messages={messages}>
             <InactivityLogout />
+            <ConsentBanner />
             <div className="brand-ambient" aria-hidden="true" />
 
             <div className="relative min-h-screen flex flex-col md:flex-row">
@@ -95,6 +97,13 @@ export default async function LocaleLayout({
             {`
               window.dataLayer = window.dataLayer || [];
               function gtag(){dataLayer.push(arguments);}
+              gtag('consent', 'default', {
+                ad_storage: 'denied',
+                ad_user_data: 'denied',
+                ad_personalization: 'denied',
+                analytics_storage: 'denied',
+                wait_for_update: 500
+              });
               gtag('js', new Date());
               gtag('config', '${GA_ID}');
             `}

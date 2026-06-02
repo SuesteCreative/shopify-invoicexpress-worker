@@ -1919,6 +1919,16 @@ function Footer() {
           <Link href="/terms" className="text-[12px]" style={{ color: FG_60 }}>
             {t("terms")}
           </Link>
+          <button
+            type="button"
+            onClick={() =>
+              window.dispatchEvent(new Event("rioko:open-consent"))
+            }
+            className="text-[12px] transition hover:opacity-80"
+            style={{ color: FG_60 }}
+          >
+            {t("cookies")}
+          </button>
         </div>
 
         <div className="flex flex-col items-center gap-3">

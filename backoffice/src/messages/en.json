@@ -5,6 +5,13 @@
     "privacyTitle": "Privacy Policy | Rioko",
     "termsTitle": "Terms of Service | Rioko"
   },
+  "consent": {
+    "title": "Cookie preferences",
+    "message": "We use analytics cookies to measure traffic and improve your experience. They load only if you accept — you can reject without affecting the site.",
+    "learnMore": "Learn more",
+    "accept": "Accept",
+    "reject": "Reject"
+  },
   "ixOverrides": {
     "title": "Per-Product Overrides → InvoiceXpress",
     "subtitle": "Override VAT, inclusion (inc/exc), exemption code or display name per SKU when Shopify/Stripe data doesn't reflect fiscal reality. Lines without an override keep the default behavior.",
@@ -359,13 +366,14 @@
       "rights": "© {year} · all rights reserved",
       "privacy": "Privacy",
       "terms": "Terms",
+      "cookies": "Cookie settings",
       "developedBy": "Developed by"
     }
   },
   "privacy": {
     "back": "← Back",
     "title": "Privacy Policy",
-    "lastUpdate": "Last updated: May 18, 2026",
+    "lastUpdate": "Last updated: June 2, 2026",
     "s1": {
       "title": "1. Who we are",
       "body": "Rioko is a service operated by <b>Kapta</b>, based in Portugal, which automates invoicing for Shopify stores through InvoiceXpress. For privacy matters, contact us at <mail>pedro@kapta.pt</mail>."
@@ -380,7 +388,7 @@
     },
     "s4": {
       "title": "4. Subprocessors",
-      "body": "To operate the service, we rely on:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — EU/global.</li><li><b>Clerk</b> (authentication) — EU/US.</li><li><b>Shopify</b> (order source) — per your store configuration.</li><li><b>InvoiceXpress</b> (tax issuer) — Portugal.</li><li><b>Vercel</b> (supplementary logging) — EU/US.</li></ul>"
+      "body": "To operate the service, we rely on:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — EU/global.</li><li><b>Clerk</b> (authentication) — EU/US.</li><li><b>Shopify</b> (order source) — per your store configuration.</li><li><b>InvoiceXpress</b> (tax issuer) — Portugal.</li><li><b>Vercel</b> (supplementary logging) — EU/US.</li><li><b>Google</b> (Google Analytics 4 — anonymous traffic measurement) — EU/US, under the EU Standard Contractual Clauses. Loads only with your consent.</li></ul>"
     },
     "s5": {
       "title": "5. Retention",
@@ -396,7 +404,7 @@
     },
     "s8": {
       "title": "8. Cookies",
-      "body": "We only use cookies essential to authentication (Clerk session). No marketing cookies or third-party tracking."
+      "body": "<p><b>Strictly necessary</b> (always active, no consent needed): Clerk session — authentication; <b>rioko_impersonate_id</b> — admin impersonation only (1 day).</p><p><b>Analytics</b> (only with your consent): <b>Google Analytics 4</b> — cookies <b>_ga</b> and <b>_ga_*</b> (~2 years) measure anonymous traffic. Data may be processed by Google in the United States under the EU Standard Contractual Clauses. Loaded via Google Consent Mode v2 with <b>analytics denied by default</b> — these cookies are set only after you accept.</p><p>You can change or withdraw your choice at any time via <b>Cookie settings</b> in the page footer. Your choice is stored locally on your device for 6 months, after which we ask again. We use no marketing or advertising cookies.</p>"
     },
     "s9": {
       "title": "9. Changes",

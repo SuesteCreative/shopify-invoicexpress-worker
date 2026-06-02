@@ -5,6 +5,13 @@
     "privacyTitle": "Política de Privacidade | Rioko",
     "termsTitle": "Termos de Serviço | Rioko"
   },
+  "consent": {
+    "title": "Preferências de cookies",
+    "message": "Usamos cookies de análise para medir o tráfego e melhorar a experiência. Só carregam se aceitar — pode recusar sem afetar o site.",
+    "learnMore": "Saber mais",
+    "accept": "Aceitar",
+    "reject": "Recusar"
+  },
   "common": {
     "back": "← Voltar",
     "loading": "A carregar…"
@@ -359,13 +366,14 @@
       "rights": "© {year} · todos os direitos reservados",
       "privacy": "Privacidade",
       "terms": "Termos",
+      "cookies": "Gerir cookies",
       "developedBy": "Developed by"
     }
   },
   "privacy": {
     "back": "← Voltar",
     "title": "Política de Privacidade",
-    "lastUpdate": "Última atualização: 18 de maio de 2026",
+    "lastUpdate": "Última atualização: 2 de junho de 2026",
     "s1": {
       "title": "1. Quem somos",
       "body": "A Rioko é um serviço operado pela <b>Kapta</b>, com sede em Portugal, que automatiza a faturação de lojas Shopify através do InvoiceXpress. Para questões de privacidade, contacta-nos em <mail>pedro@kapta.pt</mail>."
@@ -380,7 +388,7 @@
     },
     "s4": {
       "title": "4. Subprocessadores",
-      "body": "Para operar o serviço, recorremos a:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — EU/global.</li><li><b>Clerk</b> (autenticação) — EU/US.</li><li><b>Shopify</b> (origem das encomendas) — conforme a configuração da tua loja.</li><li><b>InvoiceXpress</b> (emissor fiscal) — Portugal.</li><li><b>Vercel</b> (logging suplementar) — EU/US.</li></ul>"
+      "body": "Para operar o serviço, recorremos a:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — EU/global.</li><li><b>Clerk</b> (autenticação) — EU/US.</li><li><b>Shopify</b> (origem das encomendas) — conforme a configuração da tua loja.</li><li><b>InvoiceXpress</b> (emissor fiscal) — Portugal.</li><li><b>Vercel</b> (logging suplementar) — EU/US.</li><li><b>Google</b> (Google Analytics 4 — medição anónima de tráfego) — EU/US, ao abrigo das Cláusulas Contratuais-Tipo da UE. Só carrega com o teu consentimento.</li></ul>"
     },
     "s5": {
       "title": "5. Retenção",
@@ -396,7 +404,7 @@
     },
     "s8": {
       "title": "8. Cookies",
-      "body": "Usamos apenas cookies essenciais à autenticação (Clerk session). Não usamos cookies de marketing nem tracking de terceiros."
+      "body": "<p><b>Estritamente necessários</b> (sempre ativos, sem consentimento): sessão Clerk — autenticação; <b>rioko_impersonate_id</b> — apenas impersonação de admin (1 dia).</p><p><b>Análise</b> (só com o teu consentimento): <b>Google Analytics 4</b> — cookies <b>_ga</b> e <b>_ga_*</b> (~2 anos) medem tráfego anónimo. Os dados podem ser processados pela Google nos Estados Unidos ao abrigo das Cláusulas Contratuais-Tipo da UE. Carregados via Google Consent Mode v2 com <b>análise negada por predefinição</b> — estes cookies só são definidos depois de aceitares.</p><p>Podes alterar ou retirar a tua escolha a qualquer momento em <b>Gerir cookies</b> no rodapé da página. A tua escolha fica guardada localmente no teu dispositivo durante 6 meses, após os quais perguntamos de novo. Não usamos cookies de marketing nem de publicidade.</p>"
     },
     "s9": {
       "title": "9. Alterações",

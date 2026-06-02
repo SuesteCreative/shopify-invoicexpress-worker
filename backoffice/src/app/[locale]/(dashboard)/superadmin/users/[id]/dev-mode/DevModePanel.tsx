@@ -5,7 +5,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
-    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2
+    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2, Webhook
 } from "lucide-react";
 
 type Target = {
@@ -108,6 +108,7 @@ export function DevModePanel({ target }: { target: Target }) {
 
             <SubscriptionAdminCard targetUserId={target.id} targetRole={target.role} />
             <LinkIxCard targetUserId={target.id} />
+            <StripeRecoveryCard targetUserId={target.id} />
 
             {!noShop && (
                 <>
@@ -669,6 +670,91 @@ function LinkIxCard({ targetUserId }: { targetUserId: string }) {
                     </button>
                 </div>
             )}
+            <ResultBox result={result} />
+        </Section>
+    );
+}
+
+type StripeEndpoint = { id: string; url: string; status: string; enabled_events: string[] };
+
+function StripeRecoveryCard({ targetUserId }: { targetUserId: string }) {
+    const t = useTranslations("devMode");
+    const [endpoints, setEndpoints] = useState<StripeEndpoint[]>([]);
+    const [loadErr, setLoadErr] = useState<string | null>(null);
+    const [eventId, setEventId] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState<JobResult | null>(null);
+
+    const loadEndpoints = async () => {
+        setLoadErr(null);
+        try {
+            const res = await fetch(`/api/admin/dev-mode/stripe-webhooks?targetUserId=${targetUserId}`);
+            const d: any = await res.json();
+            if (!res.ok) { setLoadErr(d.error || "load failed"); setEndpoints([]); return; }
+            setEndpoints(d.endpoints ?? []);
+        } catch (e: any) { setLoadErr(String(e)); }
+    };
+    useEffect(() => { loadEndpoints(); }, [targetUserId]);
+
+    const action = async (act: "reenable" | "delete", endpoint_id: string) => {
+        if (act === "delete" && !confirm(t("stripeConfirmDelete"))) return;
+        setLoading(true); setResult(null);
+        try {
+            const res = await fetch("/api/admin/dev-mode/stripe-webhooks", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetUserId, action: act, endpoint_id }),
+            });
+            const d: any = await res.json(); setResult(d);
+            if (res.ok) await loadEndpoints();
+        } catch (e: any) { setResult({ error: String(e) }); }
+        finally { setLoading(false); }
+    };
+
+    const replay = async () => {
+        if (!eventId.trim()) return;
+        setLoading(true); setResult(null);
+        try {
+            const res = await fetch("/api/admin/dev-mode/stripe-replay", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetUserId, event_id: eventId.trim() }),
+            });
+            const d: any = await res.json(); setResult(d);
+            if (res.ok) setEventId("");
+        } catch (e: any) { setResult({ error: String(e) }); }
+        finally { setLoading(false); }
+    };
+
+    return (
+        <Section icon={<Webhook className="w-5 h-5 text-accent" />} title={t("stripeRecoveryTitle")} desc={t("stripeRecoveryDesc")}>
+            {loadErr ? (
+                <p className="text-fg-40 text-xs font-medium">{t("stripeNoConn")} — {loadErr}</p>
+            ) : endpoints.length === 0 ? (
+                <p className="text-fg-40 text-xs font-medium">{t("stripeNoEndpoints")}</p>
+            ) : (
+                <div className="space-y-2">
+                    {endpoints.map(ep => (
+                        <div key={ep.id} className="flex items-center gap-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2">
+                            <span className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-widest border ${ep.status === "enabled" ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]" : "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]"}`}>{ep.status}</span>
+                            <span className="flex-1 text-xs font-mono text-fg-60 truncate" title={ep.url}>{ep.url}</span>
+                            {ep.status !== "enabled" && (
+                                <button onClick={() => action("reenable", ep.id)} disabled={loading} className="px-3 py-1.5 rounded-lg bg-white text-black text-[10px] font-black uppercase tracking-widest hover:bg-accent hover:text-fg disabled:opacity-50">{t("stripeReenable")}</button>
+                            )}
+                            <button onClick={() => action("delete", ep.id)} disabled={loading} className="px-3 py-1.5 rounded-lg bg-[rgba(244,63,94,0.10)] text-destructive border border-[rgba(244,63,94,0.20)] text-[10px] font-black uppercase tracking-widest hover:bg-[rgba(244,63,94,0.18)] disabled:opacity-50">{t("stripeDelete")}</button>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="flex flex-col gap-1.5 pt-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-fg-40">{t("stripeReplayLabel")}</label>
+                <div className="flex gap-2">
+                    <input value={eventId} onChange={e => setEventId(e.target.value)} placeholder="evt_..."
+                        className="flex-1 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-mono text-white" />
+                    <button onClick={replay} disabled={loading || !eventId.trim()}
+                        className="px-5 rounded-xl bg-white text-black font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-fg disabled:opacity-50 flex items-center gap-2">
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}{t("stripeReplay")}
+                    </button>
+                </div>
+            </div>
             <ResultBox result={result} />
         </Section>
     );

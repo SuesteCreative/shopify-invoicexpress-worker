@@ -6,6 +6,7 @@ import { IxApi } from "../api/ix";
 import { awaitInvoiceVisibility } from "../utils";
 import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
+import { handleOrderCreated } from "./orders-created";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -40,11 +41,27 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
       throw new Error(`Failed to normalize order for order ${orderId}`);
     }
 
-    // Search for invoice — if not found, throw so the queue retries in 60s
-    const invoice = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
+    // Look up the invoice by the RAW order id — the same key orders/created
+    // persists with (avoid normalized.order.id, which can diverge).
+    let invoice = await appStorage.getInvoiceByOrderId(String(orderId));
+
+    // Self-heal: a missing row means orders/created never ran, failed, or found
+    // an existing IX doc it didn't track. Run the create flow (idempotent — it
+    // checks IX by reference and now links the existing doc) and re-look-up,
+    // instead of throwing into a permanent retry storm.
+    if (!invoice || !invoice.invoice_id) {
+      console.log(`[Rioko] No invoice row for order ${orderId}; self-healing via create flow`);
+      await handleOrderCreated(env, config, null, order);
+      invoice = await appStorage.getInvoiceByOrderId(String(orderId));
+    }
 
     if (!invoice || !invoice.invoice_id) {
-      throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
+      // Still nothing — create legitimately produced no invoice (zero-amount,
+      // VIES-deferred, or a hard failure already logged by handleOrderCreated).
+      console.log(`[Rioko] Order ${orderId} has no invoice after self-heal — nothing to finalize`);
+      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: "No invoice after self-heal (zero-amount/deferred/failed)", status: 200 });
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      return;
     }
 
     // Check if auto_finalize is enabled

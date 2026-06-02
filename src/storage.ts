@@ -193,7 +193,7 @@ export class AppStorage {
     //    writes. Legacy rows with NULL are read as ("shopify","invoicexpress").
     try {
       await this.db.prepare(
-        "INSERT INTO processed_orders (id, invoice_id, shopify_domain, created_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, created_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, ?)"
       ).bind(
         String(orderId),
         String(invoiceId),

@@ -62,7 +62,14 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
 
   if (ixExisting.data?.data?.id) {
     console.log(`[Rioko] Invoice already exists for order ${orderId}`);
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Already exists", status: 401 });
+    // Persist the mapping. Without this, orders/paid can never find the invoice
+    // (the IX doc exists but processed_orders has no row) and retries forever
+    // with "Invoice not found by order.id".
+    await appStorage.saveProcessedInvoice(orderId, String(ixExisting.data.data.id));
+    if (webhookId) {
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+    }
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: ixExisting.data.data.id }), response: "Already exists — linked", status: 200 });
     return;
   }
 

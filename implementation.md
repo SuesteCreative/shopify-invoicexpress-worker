@@ -175,3 +175,19 @@ Confirmed against real Stripe/Moloni/Vendus test accounts. Found a blocker that 
 - [x] Moloni adapter sends JSON body but the Moloni API only accepts `application/x-www-form-urlencoded` with PHP-style bracket nesting for arrays (`products[0][name]=...&products[0][taxes][0][tax_id]=...`). Every Moloni call would have returned `Forbidden, No company_id received`. Patched `moloniCall` with a `formEncode` helper and switched the Content-Type header.
 - [x] Moloni `/invoices/insert/` requires every line to reference an existing `product_id`. Sending lines with `product_id: 0` or no product_id returns the terse validation error `["1 products"]`. Adapter does find-or-create on a per-company product catalog: reference derived from the source item (SKU verbatim, else `RIOKO-VARIANT-<id>`, else `RIOKO-PRODUCT-<id>`, else `RIOKO-SHIPPING` for shipping lines, else `RIOKO-PLACEHOLDER` for synthetic lines). Repeated SKUs across invoices reuse the same Moloni product row — no per-invoice clutter, Moloni's product catalog mirrors Shopify/Stripe.
 - [x] `moloniCall` now rejects 200-OK responses whose body is a non-empty array of plain strings — Moloni's field-validation error shape. Was silently treated as success.
+
+## Audit — 2026-06-02 (per-merchant invoice failures, legacy Shopify→IX)
+
+Prod log/incident sweep (`rioko-db`) after the IX country-name fix. All four active merchants
+affected by distinct bugs in the legacy Shopify→IX path: Fabrica Coffee Roasters,
+Vanessa Holler (soulkrave), Stella Carvalho, Benedita Homem de Gouveia.
+
+### High
+- [x] `orders/paid` "Invoice not found by order.id" → permanent-failure retry storm (Fabrica ~600, Benedita ~960). Root: `orders/created` returned without persisting `processed_orders` when the IX doc already exists, and any create failure left no row. Fix: `orders-created` now saves the existing IX doc id on the "already exists" branch + marks success; `orders-paid` looks up by raw `orderId` and **self-heals** (runs the idempotent create flow, re-looks-up) instead of throwing; `saveProcessedInvoice` made `INSERT OR REPLACE`.
+- [x] "Invoice total mismatch" on Stella Carvalho — **already fixed, no new code**. Real root was NOT an unallocated discount: these are **Spain (ES) reverse-charge / VAT-not-collected** orders (`tax_lines.rate=0.21, price=0.00, total_tax=0`). The deployed guard `028afdf` (`taxCollected>0 ? declaredRate : 0`) already issues a net invoice matching `total_price`. Verified: **zero `total mismatch` logs since 2026-05-29**. (Proper intra-EU reverse-charge exemption codes = separate feature; `b2b_reverse_charge=0` for her.)
+
+### Medium
+- [ ] Normalize SPOF resilience: add timeout + 1–2 retries in `fetchNormalized`; treat a definitive Shopify **404 "Unable to fetch order"** as permanent (ack once with incident) instead of 25× retries.
+
+### Deferred (this pass)
+- [ ] Shopify `webhook_invalid_signature` (Vanessa's stale per-shop secret) — skipped per user. Blocks her NEW orders auto-enqueueing; existing backlog still recoverable via conciliação/backfill.

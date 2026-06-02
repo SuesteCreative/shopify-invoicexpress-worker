@@ -11,6 +11,14 @@ function isoFromUnix(unix: number | null | undefined): string | null {
     return new Date(unix * 1000).toISOString();
 }
 
+// Rioko users are provisioned by Clerk and always have an id that starts with
+// "user_". Any other reference (e.g. a Stripe "acct_" id arriving on this shared
+// webhook from an unrelated Connect checkout) must NEVER be treated as a Rioko
+// user — otherwise we create phantom accounts and bill-match unrelated payments.
+function isRiokoUserId(id: string | null | undefined): id is string {
+    return !!id && id.startsWith("user_");
+}
+
 async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, sub: Stripe.Subscription) {
     const item = sub.items.data[0];
     const priceId = item?.price?.id || null;
@@ -63,6 +71,14 @@ export async function POST(req: NextRequest) {
         return new Response(`Webhook Error: ${e.message}`, { status: 400 });
     }
 
+    // This endpoint serves ONLY Rioko's own platform subscription billing. Events
+    // that originate from a connected account belong to a different product /
+    // unrelated payments and must never reach the handlers below.
+    if ((event as any).account) {
+        console.warn(`[Stripe webhook] Ignoring event ${event.id} from connected account ${(event as any).account}`);
+        return NextResponse.json({ received: true, ignored: "connected_account" });
+    }
+
     const db = getDB();
 
     // Idempotency
@@ -79,6 +95,10 @@ export async function POST(req: NextRequest) {
                 const userId = session.client_reference_id || (session.metadata?.user_id as string);
                 if (!userId) {
                     console.error("[Stripe webhook] checkout.session.completed without user_id");
+                    break;
+                }
+                if (!isRiokoUserId(userId)) {
+                    console.warn(`[Stripe webhook] Ignoring checkout.session.completed for non-Rioko reference "${userId}" (session ${session.id})`);
                     break;
                 }
 
@@ -181,6 +201,10 @@ export async function POST(req: NextRequest) {
                     console.error("[Stripe webhook] sub event with no user_id", event.id);
                     break;
                 }
+                if (!isRiokoUserId(userId)) {
+                    console.warn(`[Stripe webhook] Ignoring ${event.type} for non-Rioko reference "${userId}" (${event.id})`);
+                    break;
+                }
                 await upsertSubscriptionFromStripeSub(db, userId, sub);
                 await db.prepare(
                     "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"
@@ -196,6 +220,10 @@ export async function POST(req: NextRequest) {
                     || await resolveUserIdFromCustomer(db, stripe, invoice.customer);
                 if (!userId) {
                     console.error("[Stripe webhook] invoice event with no user_id", event.id);
+                    break;
+                }
+                if (!isRiokoUserId(userId)) {
+                    console.warn(`[Stripe webhook] Ignoring ${event.type} for non-Rioko reference "${userId}" (${event.id})`);
                     break;
                 }
 
@@ -255,6 +283,10 @@ export async function POST(req: NextRequest) {
                 const userId = await resolveUserIdFromCustomer(db, stripe, charge.customer);
                 if (!userId) {
                     console.error("[Stripe webhook] charge.refunded with no user_id", event.id);
+                    break;
+                }
+                if (!isRiokoUserId(userId)) {
+                    console.warn(`[Stripe webhook] Ignoring charge.refunded for non-Rioko reference "${userId}" (${event.id})`);
                     break;
                 }
 

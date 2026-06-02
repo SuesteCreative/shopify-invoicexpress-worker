@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
             }],
             subscription_data: {
                 metadata: {
+                    app: "rioko",
                     user_id: targetUserId,
                     early_bird: isEarlyBird ? "1" : "0",
                     plan,
@@ -111,6 +112,7 @@ export async function POST(req: NextRequest) {
             },
             payment_method_collection: "always",
             metadata: {
+                app: "rioko",
                 user_id: targetUserId,
                 plan,
                 early_bird: isEarlyBird ? "1" : "0",

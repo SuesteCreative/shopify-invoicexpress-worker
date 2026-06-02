@@ -10,6 +10,23 @@ import { format } from "date-fns";
 export type IxInvoice = NonNullable<PostV2InvoicesData["body"]>["invoice"];
 export type IxCreditNote = NonNullable<PostV2CreditNotesData["body"]>["credit_note"];
 
+/**
+ * InvoiceXpress requires the client country as a full English name ("Portugal",
+ * "Germany"), NOT an ISO code. Sending "PT" fails with `Country PT was not found`
+ * (422), which the invoice endpoint surfaces as the cascading "Client is invalid /
+ * Fiscal is invalid". Shopify already provides the full name in `billing_address.country`;
+ * Stripe-source only has the ISO code, so map any bare 2-letter code to its English name.
+ */
+function toIxCountryName(value: string): string {
+  const v = (value || "").trim();
+  if (v.length !== 2) return v; // already a full name (or empty)
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(v.toUpperCase()) || v;
+  } catch {
+    return v;
+  }
+}
+
 export type ReverseChargeDecision =
   | { status: "apply"; countryCode: string; vatNumber: string }
   | { status: "skip" }
@@ -382,7 +399,10 @@ export class IxBuilder {
       }
     }
 
-    const rawCountry = String(order.billing_address?.country_code || order.billing_address?.country || "").trim();
+    // Prefer the full country NAME (Shopify provides it); fall back to the code.
+    // toIxCountryName converts any leftover ISO code (e.g. Stripe-source) to the
+    // name IX requires — sending "PT" is rejected as "Country PT was not found".
+    const rawCountry = String(order.billing_address?.country || order.billing_address?.country_code || "").trim();
 
     return {
       name,
@@ -391,13 +411,17 @@ export class IxBuilder {
       code: String(order.customer?.id || order.id),
       address: address.address1,
       city: order.billing_address?.city,
-      country: rawCountry,
+      country: toIxCountryName(rawCountry),
       phone: order.customer?.phone || order.billing_address?.phone
     };
   }
 
   extractAndValidateNIF(normalized: Normalized): string | null {
     const candidates: string[] = [];
+    // Candidates that came from an explicitly NIF/VAT-labeled field, kept apart
+    // from bare 9-digit numbers scraped out of free text (notes/address/phone),
+    // which must never be stamped as a fiscal_id for PT.
+    const labeled: string[] = [];
     const order = normalized.order;
 
     // 1. Extract from note_attributes (Dedicated NIF/VAT fields from Shopify apps)
@@ -423,7 +447,7 @@ export class IxBuilder {
         const nameMatches = keywords.some(k => name.includes(k));
         if (nameMatches) {
           const clean = value.replace(/\D/g, "");
-          if (clean.length >= 9) candidates.push(clean.slice(-9));
+          if (clean.length >= 9) { candidates.push(clean.slice(-9)); labeled.push(clean.slice(-9)); }
         } else {
           const matches = value.match(/\b\d{9}\b/g);
           if (matches) candidates.push(...matches);
@@ -459,8 +483,18 @@ export class IxBuilder {
       if (validatePTNIF(nif)) return nif;
     }
 
-    // 7. If no algorithm match, pick the first 9-digit candidate if any (for international or just in case)
-    if (candidates.length > 0) return candidates[0];
+    // 7. No PT-valid NIF. Do NOT blindly stamp a random 9-digit number as the
+    //    fiscal_id: InvoiceXpress validates it against the (PT) country and
+    //    rejects the ENTIRE client with "Fiscal is invalid" → no invoice at all.
+    //    A bare 9-digit scraped from notes/address/phone is almost always a phone
+    //    or postal code, not a NIF. For PT (and unknown country, which IX treats
+    //    as PT) omit it → the client falls back to "Consumidor Final". Only for an
+    //    explicitly non-PT buyer do we keep a value the customer typed into a
+    //    NIF/VAT-labeled field (foreign fiscal IDs can't pass the PT checksum;
+    //    letter-prefixed EU VATs are handled by extractEuVatCandidates).
+    const buyerCC = String(order.billing_address?.country_code ?? "").trim().toUpperCase();
+    const isPortugueseOrUnknown = buyerCC === "" || buyerCC === "PT";
+    if (!isPortugueseOrUnknown && labeled.length > 0) return labeled[0];
 
     return null;
   }

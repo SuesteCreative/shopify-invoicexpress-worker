@@ -404,7 +404,7 @@
     },
     "s8": {
       "title": "8. Cookies",
-      "body": "<p><b>Strictly necessary</b> (always active, no consent needed): Clerk session — authentication; <b>rioko_impersonate_id</b> — admin impersonation only (1 day).</p><p><b>Analytics</b> (only with your consent): <b>Google Analytics 4</b> — cookies <b>_ga</b> and <b>_ga_*</b> (~2 years) measure anonymous traffic. Data may be processed by Google in the United States under the EU Standard Contractual Clauses. Loaded via Google Consent Mode v2 with <b>analytics denied by default</b> — these cookies are set only after you accept.</p><p>You can change or withdraw your choice at any time via <b>Cookie settings</b> in the page footer. Your choice is stored locally on your device for 6 months, after which we ask again. We use no marketing or advertising cookies.</p>"
+      "body": "<p><b>Strictly necessary</b> (always active, no consent needed): Clerk session — authentication; <b>rioko_impersonate_id</b> — admin impersonation only (1 day); <b>rioko_attr</b> — records signup origin (referrer/campaign) for abuse prevention (90 days).</p><p><b>Analytics</b> (only with your consent): <b>Google Analytics 4</b> — cookies <b>_ga</b> and <b>_ga_*</b> (~2 years) measure anonymous traffic. Data may be processed by Google in the United States under the EU Standard Contractual Clauses. Loaded via Google Consent Mode v2 with <b>analytics denied by default</b> — these cookies are set only after you accept.</p><p>You can change or withdraw your choice at any time via <b>Cookie settings</b> in the page footer. Your choice is stored locally on your device for 6 months, after which we ask again. We use no marketing or advertising cookies.</p>"
     },
     "s9": {
       "title": "9. Changes",
@@ -599,6 +599,9 @@
     "shopify": "Shopify",
     "ixApi": "IX API",
     "domain": "Domain",
+    "origin": "Origin",
+    "originDirect": "Direct",
+    "originNone": "No trace",
     "impersonate": "Impersonate",
     "devMode": "Dev Mode",
     "revoke": "Revoke",

@@ -14,6 +14,7 @@ const GA_ID = "G-VJBW01N7DM";
 import { sansDisplay, monoFont } from "../fonts";
 import InactivityLogout from "@/components/InactivityLogout";
 import ConsentBanner from "@/components/ConsentBanner";
+import AttributionCapture from "@/components/AttributionCapture";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata({
@@ -81,6 +82,7 @@ export default async function LocaleLayout({
         >
           <NextIntlClientProvider locale={locale} messages={messages}>
             <InactivityLogout />
+            <AttributionCapture />
             <ConsentBanner />
             <div className="brand-ambient" aria-hidden="true" />
 

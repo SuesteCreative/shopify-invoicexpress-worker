@@ -33,6 +33,19 @@ const RoleIcon = ({ role }: { role: Role }) => {
     return <User className="w-8 h-8 text-fg-40" />;
 };
 
+/** ISO-3166 alpha-2 → flag emoji. */
+const flagEmoji = (cc?: string | null): string => {
+    if (!cc || cc.length !== 2) return "";
+    const base = 0x1f1e6;
+    const up = cc.toUpperCase();
+    return String.fromCodePoint(base + up.charCodeAt(0) - 65, base + up.charCodeAt(1) - 65);
+};
+
+const hostOf = (url?: string | null): string | null => {
+    if (!url) return null;
+    try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
+};
+
 export default function SuperadminPage() {
     const t = useTranslations("superadmin");
     const { user: clerkUser } = useUser();
@@ -66,11 +79,17 @@ export default function SuperadminPage() {
 
     const filtered = useMemo(() =>
         users
-            .filter(u =>
-                u.name?.toLowerCase().includes(search.toLowerCase()) ||
-                u.email?.toLowerCase().includes(search.toLowerCase()) ||
-                u.shopify_domain?.toLowerCase().includes(search.toLowerCase())
-            )
+            .filter(u => {
+                const q = search.toLowerCase();
+                return (
+                    u.name?.toLowerCase().includes(q) ||
+                    u.email?.toLowerCase().includes(q) ||
+                    u.shopify_domain?.toLowerCase().includes(q) ||
+                    u.acq_utm_source?.toLowerCase().includes(q) ||
+                    u.acq_referrer?.toLowerCase().includes(q) ||
+                    u.acq_country?.toLowerCase().includes(q)
+                );
+            })
             .sort((a, b) => {
                 const dateA = new Date(a.created_at).getTime();
                 const dateB = new Date(b.created_at).getTime();
@@ -153,6 +172,11 @@ export default function SuperadminPage() {
         const canDelete = !isSelf && targetRole !== "hiperadmin" &&
             (callerRole === "hiperadmin" || (callerRole === "superadmin" && targetLevel < ROLE_ORDER["superadmin"]));
 
+        // Acquisition origin: utm > referrer host > direct; null = never captured (bot/API signup).
+        const acqLabel: string | null = user.acq_utm_source
+            ? (user.acq_utm_medium ? `${user.acq_utm_source} / ${user.acq_utm_medium}` : user.acq_utm_source)
+            : (hostOf(user.acq_referrer) || (user.acq_captured_at ? t("originDirect") : null));
+
         return (
             <motion.div
                 layout key={user.id}
@@ -231,6 +255,21 @@ export default function SuperadminPage() {
                             <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("domain")}</span>
                             <span className="text-xs font-bold text-fg">{user.shopify_domain || "---"}</span>
                         </div>
+                    </div>
+
+                    {/* Acquisition origin */}
+                    <div className="flex flex-col items-center gap-1.5 w-full lg:w-auto lg:pr-10 lg:border-r lg:border-hairline lg:min-w-[140px]">
+                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("origin")}</span>
+                        {acqLabel ? (
+                            <div className="flex flex-col items-center gap-0.5">
+                                <span className="text-xs font-bold text-fg truncate max-w-[140px]">{acqLabel}</span>
+                                {user.acq_country && (
+                                    <span className="text-[10px] text-fg-40 font-bold">{flagEmoji(user.acq_country)} {user.acq_country}</span>
+                                )}
+                            </div>
+                        ) : (
+                            <span className="text-[10px] font-black text-soon/60 uppercase tracking-widest italic">{t("originNone")}</span>
+                        )}
                     </div>
 
                     {/* Actions */}

@@ -404,7 +404,7 @@
     },
     "s8": {
       "title": "8. Cookies",
-      "body": "<p><b>Estritamente necessários</b> (sempre ativos, sem consentimento): sessão Clerk — autenticação; <b>rioko_impersonate_id</b> — apenas impersonação de admin (1 dia).</p><p><b>Análise</b> (só com o teu consentimento): <b>Google Analytics 4</b> — cookies <b>_ga</b> e <b>_ga_*</b> (~2 anos) medem tráfego anónimo. Os dados podem ser processados pela Google nos Estados Unidos ao abrigo das Cláusulas Contratuais-Tipo da UE. Carregados via Google Consent Mode v2 com <b>análise negada por predefinição</b> — estes cookies só são definidos depois de aceitares.</p><p>Podes alterar ou retirar a tua escolha a qualquer momento em <b>Gerir cookies</b> no rodapé da página. A tua escolha fica guardada localmente no teu dispositivo durante 6 meses, após os quais perguntamos de novo. Não usamos cookies de marketing nem de publicidade.</p>"
+      "body": "<p><b>Estritamente necessários</b> (sempre ativos, sem consentimento): sessão Clerk — autenticação; <b>rioko_impersonate_id</b> — apenas impersonação de admin (1 dia); <b>rioko_attr</b> — regista a origem da inscrição (referenciador/campanha) para prevenção de abuso (90 dias).</p><p><b>Análise</b> (só com o teu consentimento): <b>Google Analytics 4</b> — cookies <b>_ga</b> e <b>_ga_*</b> (~2 anos) medem tráfego anónimo. Os dados podem ser processados pela Google nos Estados Unidos ao abrigo das Cláusulas Contratuais-Tipo da UE. Carregados via Google Consent Mode v2 com <b>análise negada por predefinição</b> — estes cookies só são definidos depois de aceitares.</p><p>Podes alterar ou retirar a tua escolha a qualquer momento em <b>Gerir cookies</b> no rodapé da página. A tua escolha fica guardada localmente no teu dispositivo durante 6 meses, após os quais perguntamos de novo. Não usamos cookies de marketing nem de publicidade.</p>"
     },
     "s9": {
       "title": "9. Alterações",
@@ -599,6 +599,9 @@
     "shopify": "Shopify",
     "ixApi": "IX API",
     "domain": "Domínio",
+    "origin": "Origem",
+    "originDirect": "Direto",
+    "originNone": "Sem rasto",
     "impersonate": "Impersonar",
     "devMode": "Dev Mode",
     "revoke": "Revogar",

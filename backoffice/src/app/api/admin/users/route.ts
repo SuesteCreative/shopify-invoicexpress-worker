@@ -23,9 +23,10 @@ export async function GET(request: NextRequest) {
         const db = (env as any).DB;
 
         const results = await db.prepare(`
-      SELECT 
+      SELECT
         u.id, u.email, u.name, u.role, u.last_login, u.created_at,
         u.nif, u.company_name, u.fiscal_address, u.phone, u.website, u.registration_completed,
+        u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
         i.ix_authorized, i.ix_error,
         CASE WHEN i.shopify_token IS NOT NULL AND i.ix_api_key IS NOT NULL THEN 1 ELSE 0 END as is_connected

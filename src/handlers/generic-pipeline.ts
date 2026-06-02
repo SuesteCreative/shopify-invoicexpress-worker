@@ -85,6 +85,12 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
     return { kind: "destination_reject", severity: "error", permanent: false };
   }
 
+  // Shopify order was deleted — normalization can never succeed. Permanent, so
+  // we ack once with an incident instead of burning the whole retry budget.
+  if (msg.includes("not found in shopify") || msg.includes("unable to fetch order")) {
+    return { kind: "normalize_fail", severity: "warning", permanent: true };
+  }
+
   if (msg.includes("failed to normalize")) {
     return { kind: "normalize_fail", severity: "warning", permanent: false };
   }

@@ -1,5 +1,6 @@
 import type { IRequestConfig } from "./storage";
 import type { NormalizedOrderResponse } from "./api/normalize-shopify";
+import { delay } from "./utils";
 
 export async function verifyShopifyWebhook(hmac: string, body: string, secret: string): Promise<boolean> {
   const encoder = new TextEncoder();
@@ -52,19 +53,46 @@ export class Shopify {
   }
 
   private async fetchNormalized(orderId: string): Promise<NormalizedOrderResponse | null> {
-    const authResponse = await fetch(`https://endpoint-shopify.srv1250352.hstgr.cloud/orders/normalize/${orderId}`, {
-      headers: {
-        "x-api-key": this.apiKey.trim(),
-        "shop-url": this.config.shopify_domain!,
-        "access-token": this.config.shopify_token!,
-        "Accept": "application/json",
-      },
-    });
-    if (!authResponse.ok) {
-      console.error(`[Rioko] Failed to normalize order ${orderId}:`, await authResponse.text());
-      return null;
+    const url = `https://endpoint-shopify.srv1250352.hstgr.cloud/orders/normalize/${orderId}`;
+    const headers = {
+      "x-api-key": this.apiKey.trim(),
+      "shop-url": this.config.shopify_domain!,
+      "access-token": this.config.shopify_token!,
+      "Accept": "application/json",
+    };
+
+    // The normalize service is an external single point of failure. Add a bounded
+    // timeout + short retries so a transient blip doesn't burn the queue's retry
+    // budget. A definitive "order not found" (the Shopify order was deleted) is
+    // PERMANENT — throw a recognizable error so classifyPipelineError acks it once
+    // instead of retrying ~25× pointlessly.
+    const MAX_ATTEMPTS = 3;
+    let lastErr = "";
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+      } catch (e: any) {
+        lastErr = `network/timeout: ${e?.message ?? e}`;
+        if (attempt < MAX_ATTEMPTS) { await delay(400 * attempt); continue; }
+        return null; // transient → caller throws "Failed to normalize" → queue retries
+      }
+
+      if (res.ok) return res.json();
+
+      const bodyText = await res.text().catch(() => "");
+      // Order gone in Shopify — the service returns 404, or 5xx whose body says
+      // "Unable to fetch order" / "Shopify error 404". Never recoverable.
+      if (res.status === 404 || /unable to fetch order|shopify error 404/i.test(bodyText)) {
+        throw new Error(`Normalize: order ${orderId} not found in Shopify (permanent): ${bodyText.slice(0, 160)}`);
+      }
+
+      lastErr = `http ${res.status}: ${bodyText.slice(0, 160)}`;
+      if (attempt < MAX_ATTEMPTS && res.status >= 500) { await delay(400 * attempt); continue; }
+      break; // 4xx (other than 404) — don't hammer
     }
-    return authResponse.json();
+    console.error(`[Rioko] Failed to normalize order ${orderId} after ${MAX_ATTEMPTS} attempts: ${lastErr}`);
+    return null;
   }
 
   private async fetchRawOrder(orderId: string): Promise<any | null> {

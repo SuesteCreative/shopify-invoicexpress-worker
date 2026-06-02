@@ -187,7 +187,7 @@ Vanessa Holler (soulkrave), Stella Carvalho, Benedita Homem de Gouveia.
 - [x] "Invoice total mismatch" on Stella Carvalho — **already fixed, no new code**. Real root was NOT an unallocated discount: these are **Spain (ES) reverse-charge / VAT-not-collected** orders (`tax_lines.rate=0.21, price=0.00, total_tax=0`). The deployed guard `028afdf` (`taxCollected>0 ? declaredRate : 0`) already issues a net invoice matching `total_price`. Verified: **zero `total mismatch` logs since 2026-05-29**. (Proper intra-EU reverse-charge exemption codes = separate feature; `b2b_reverse_charge=0` for her.)
 
 ### Medium
-- [ ] Normalize SPOF resilience: add timeout + 1–2 retries in `fetchNormalized`; treat a definitive Shopify **404 "Unable to fetch order"** as permanent (ack once with incident) instead of 25× retries.
+- [x] Normalize SPOF resilience: `fetchNormalized` now wraps the external call in a 10s `AbortSignal.timeout` + 2 retries (backoff) on network/5xx; a definitive Shopify **404 / "Unable to fetch order"** throws a permanent error that `classifyPipelineError` acks once with an incident instead of retrying ~25×.
 
 ### Deferred (this pass)
 - [ ] Shopify `webhook_invalid_signature` (Vanessa's stale per-shop secret) — skipped per user. Blocks her NEW orders auto-enqueueing; existing backlog still recoverable via conciliação/backfill.

@@ -604,7 +604,11 @@
     "revoke": "Revogar",
     "confirmQuestion": "Confirmar?",
     "clearImpersonation": "Limpar Impersonação / Voltar ao Meu Perfil",
-    "errorPrefix": "Erro: {error}"
+    "errorPrefix": "Erro: {error}",
+    "groupAdmins": "Administradores",
+    "groupIntegrated": "Integração Completa",
+    "groupPending": "Sem Integração",
+    "groupEmpty": "Nenhuma conta neste grupo"
   },
   "shopifyIxSetup": {
     "backToIntegrations": "Voltar para Integrações",

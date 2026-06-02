@@ -3,7 +3,7 @@
 export const runtime = "edge";
 
 import { useState, useEffect, useMemo } from "react";
-import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench } from "lucide-react";
+import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 import { Link } from "@/i18n/navigation";
@@ -44,6 +44,9 @@ export default function SuperadminPage() {
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const [callerRole, setCallerRole] = useState<Role>("user");
     const [viewerId, setViewerId] = useState<string | null>(null); // impersonation-aware self ID
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+    const toggleGroup = (key: string) => setCollapsed(p => ({ ...p, [key]: !p[key] }));
 
     useEffect(() => { fetchUsers(); }, []);
 
@@ -75,6 +78,18 @@ export default function SuperadminPage() {
             }),
         [users, search, sortOrder]
     );
+
+    // Split filtered users into 3 buckets: admins, fully-integrated, no-integration
+    const groups = useMemo(() => {
+        const admins: any[] = [], integrated: any[] = [], pending: any[] = [];
+        for (const u of filtered) {
+            const role = u.role as Role;
+            if (role === "hiperadmin" || role === "superadmin") admins.push(u);
+            else if (u.shopify_authorized && u.ix_authorized) integrated.push(u);
+            else pending.push(u);
+        }
+        return { admins, integrated, pending };
+    }, [filtered]);
 
     const handleImpersonate = async (targetId: string | null) => {
         setActing(targetId || "clear");
@@ -128,6 +143,144 @@ export default function SuperadminPage() {
         return [];
     };
 
+    const renderUserCard = (user: any) => {
+        const isSelf = (viewerId || clerkUser?.id) === user.id;
+        const targetRole = user.role as Role;
+        const callerLevel = ROLE_ORDER[callerRole] || 1;
+        const targetLevel = ROLE_ORDER[targetRole] || 1;
+        const canImpersonate = !isSelf && callerLevel > targetLevel;
+        const promoteOptions = !isSelf && targetRole !== "hiperadmin" ? getPromoteOptions(targetRole) : [];
+        const canDelete = !isSelf && targetRole !== "hiperadmin" &&
+            (callerRole === "hiperadmin" || (callerRole === "superadmin" && targetLevel < ROLE_ORDER["superadmin"]));
+
+        return (
+            <motion.div
+                layout key={user.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95, height: 0 }}
+                className="glass rounded-[2rem] p-5 sm:p-8 border-hairline hover:border-rule transition-all"
+            >
+                <div className="flex flex-col lg:flex-row items-center gap-8">
+                    {/* Avatar */}
+                    <div className="w-16 h-16 rounded-2xl bg-surface-2 border border-hairline flex items-center justify-center shrink-0">
+                        <RoleIcon role={targetRole} />
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 space-y-2 text-center lg:text-left">
+                        <div className="flex items-center justify-center lg:justify-start gap-3 flex-wrap">
+                            <h2 className="text-xl font-bold">{user.name}</h2>
+                            <RoleBadge role={targetRole} t={t} />
+                            {isSelf && (
+                                <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black uppercase tracking-widest border border-hairline">{t("yourAccount")}</span>
+                            )}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <p className="text-fg-40 text-sm font-medium">{user.email}</p>
+                            <div className="flex items-center justify-center lg:justify-start gap-2 text-[10px] font-black text-fg-40 uppercase tracking-widest">
+                                <CalendarDays className="w-3 h-3 text-destructive/60" />
+                                {t("joined", { date: new Date(user.created_at).toLocaleDateString("pt-PT") })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Fiscal Data */}
+                    <div className="flex flex-col gap-3 w-full lg:w-auto lg:px-10 lg:border-x lg:border-hairline lg:min-w-[200px]">
+                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("fiscalData")}</span>
+                        {user.registration_completed ? (
+                            <div className="space-y-1">
+                                <p className="text-xs font-bold text-fg flex items-center gap-2">
+                                    <ShieldCheck className="w-3 h-3 text-accent" /> {user.nif}
+                                </p>
+                                {user.company_name && (
+                                    <p className="text-[10px] text-fg-40 font-bold uppercase truncate max-w-[150px]">{user.company_name}</p>
+                                )}
+                                <p className="text-[10px] text-fg-40 font-medium truncate max-w-[150px]">{user.fiscal_address}</p>
+                            </div>
+                        ) : (
+                            <span className="text-[10px] font-black text-soon/50 uppercase tracking-widest italic">{t("registrationPending")}</span>
+                        )}
+                    </div>
+
+                    {/* Status */}
+                    <div className="flex flex-wrap items-center justify-center gap-6 w-full lg:w-auto lg:pr-10 lg:border-r lg:border-hairline">
+                        <div className="flex flex-col items-center gap-1.5">
+                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("status")}</span>
+                            <div className="flex items-center gap-4">
+                                {[t("shopify"), t("ixApi")].map((label, i) => {
+                                    const ok = i === 0 ? user.shopify_authorized : user.ix_authorized;
+                                    const err = i === 0 ? user.shopify_error : user.ix_error;
+                                    return (
+                                        <div key={label} className="flex flex-col items-center group/tip relative">
+                                            <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
+                                            {ok ? <div className="text-accent-hot text-[10px] font-bold">● OK</div>
+                                                : <div className="text-soon text-[10px] font-bold flex items-center gap-1">
+                                                    ● {(i === 0 ? user.shopify_domain : true) ? "ERR" : "OFF"}
+                                                    {err && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
+                                                </div>}
+                                            {err && <div className="absolute bottom-full mb-2 w-48 p-3 bg-surface-2 border border-hairline rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
+                                                <p className="text-[10px] text-soon/80 font-medium leading-tight">{err}</p>
+                                            </div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-center gap-1.5">
+                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("domain")}</span>
+                            <span className="text-xs font-bold text-fg">{user.shopify_domain || "---"}</span>
+                        </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 flex-wrap justify-center">
+                        {canImpersonate && (
+                            <button onClick={() => handleImpersonate(user.id)} disabled={acting !== null}
+                                className="bg-white text-black px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-fg transition-all duration-300 active:scale-95 disabled:opacity-30">
+                                {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
+                                {t("impersonate")}
+                            </button>
+                        )}
+
+                        {!isSelf && (
+                            <Link href={`/superadmin/users/${user.id}/dev-mode`}
+                                className="bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(2,141,196,0.18)] transition-all active:scale-95">
+                                <Wrench className="w-3 h-3" /> {t("devMode")}
+                            </Link>
+                        )}
+
+                        {/* Role change buttons */}
+                        {promoteOptions.map(opt => (
+                            <button key={opt.role} onClick={() => handleRoleChange(user.id, opt.role)}
+                                disabled={acting !== null}
+                                className="px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-[rgba(245,158,11,0.10)] text-soon border border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.18)] transition-all disabled:opacity-30">
+                                {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : opt.icon}
+                                {opt.label}
+                            </button>
+                        ))}
+
+                        {/* Delete */}
+                        {canDelete && (
+                            deleteConfirm === user.id ? (
+                                <div className="flex items-center gap-2 bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] rounded-2xl px-4 py-2">
+                                    <span className="text-[10px] font-black text-destructive uppercase tracking-wider">{t("confirmQuestion")}</span>
+                                    <button onClick={() => handleDelete(user.id)} className="p-1 rounded-lg bg-destructive text-white hover:bg-destructive/85 transition-all"><Check className="w-3 h-3" /></button>
+                                    <button onClick={() => setDeleteConfirm(null)} className="p-1 rounded-lg bg-surface-2 text-fg-60 hover:bg-surface-2/70 transition-all"><X className="w-3 h-3" /></button>
+                                </div>
+                            ) : (
+                                <button onClick={() => setDeleteConfirm(user.id)} disabled={acting !== null}
+                                    className="px-3 py-3 rounded-2xl flex items-center gap-2 bg-[rgba(244,63,94,0.05)] text-destructive/50 border border-[rgba(244,63,94,0.10)] hover:bg-[rgba(244,63,94,0.10)] hover:text-destructive hover:border-[rgba(244,63,94,0.20)] transition-all disabled:opacity-30">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                            )
+                        )}
+                    </div>
+                </div>
+            </motion.div>
+        );
+    };
+
     if (loading) return (
         <div className="min-h-[60vh] flex items-center justify-center">
             <Loader2 className="w-12 h-12 text-destructive animate-spin opacity-50" />
@@ -173,146 +326,52 @@ export default function SuperadminPage() {
                 <span>{t("database")}</span>
             </div>
 
-            <div className="grid gap-6">
-                <AnimatePresence mode="popLayout">
-                    {filtered.map(user => {
-                        const isSelf = (viewerId || clerkUser?.id) === user.id;
-                        const targetRole = user.role as Role;
-                        const callerLevel = ROLE_ORDER[callerRole] || 1;
-                        const targetLevel = ROLE_ORDER[targetRole] || 1;
-                        const canImpersonate = !isSelf && callerLevel > targetLevel;
-                        const promoteOptions = !isSelf && targetRole !== "hiperadmin" ? getPromoteOptions(targetRole) : [];
-                        const canDelete = !isSelf && targetRole !== "hiperadmin" &&
-                            (callerRole === "hiperadmin" || (callerRole === "superadmin" && targetLevel < ROLE_ORDER["superadmin"]));
-
-                        return (
-                            <motion.div
-                                layout key={user.id}
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.95, height: 0 }}
-                                className="glass rounded-[2rem] p-5 sm:p-8 border-hairline hover:border-rule transition-all"
+            <div className="space-y-10">
+                {([
+                    { key: "admins", label: t("groupAdmins"), icon: <ShieldCheck className="w-4 h-4 text-destructive" />, list: groups.admins },
+                    { key: "integrated", label: t("groupIntegrated"), icon: <Link2 className="w-4 h-4 text-accent-hot" />, list: groups.integrated },
+                    { key: "pending", label: t("groupPending"), icon: <Link2Off className="w-4 h-4 text-soon" />, list: groups.pending },
+                ] as const).map(sec => {
+                    const isOpen = !collapsed[sec.key];
+                    return (
+                        <section key={sec.key} className="space-y-6">
+                            {/* Group header — click to collapse */}
+                            <button
+                                onClick={() => toggleGroup(sec.key)}
+                                className="w-full flex items-center justify-between gap-4 px-5 py-4 rounded-2xl bg-surface-2/40 border border-hairline hover:bg-surface-2/70 transition-all"
                             >
-                                <div className="flex flex-col lg:flex-row items-center gap-8">
-                                    {/* Avatar */}
-                                    <div className="w-16 h-16 rounded-2xl bg-surface-2 border border-hairline flex items-center justify-center shrink-0">
-                                        <RoleIcon role={targetRole} />
-                                    </div>
-
-                                    {/* Info */}
-                                    <div className="flex-1 space-y-2 text-center lg:text-left">
-                                        <div className="flex items-center justify-center lg:justify-start gap-3 flex-wrap">
-                                            <h2 className="text-xl font-bold">{user.name}</h2>
-                                            <RoleBadge role={targetRole} t={t} />
-                                            {isSelf && (
-                                                <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black uppercase tracking-widest border border-hairline">{t("yourAccount")}</span>
-                                            )}
-                                        </div>
-                                        <div className="flex flex-col gap-1.5">
-                                            <p className="text-fg-40 text-sm font-medium">{user.email}</p>
-                                            <div className="flex items-center justify-center lg:justify-start gap-2 text-[10px] font-black text-fg-40 uppercase tracking-widest">
-                                                <CalendarDays className="w-3 h-3 text-destructive/60" />
-                                                {t("joined", { date: new Date(user.created_at).toLocaleDateString("pt-PT") })}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Fiscal Data */}
-                                    <div className="flex flex-col gap-3 w-full lg:w-auto lg:px-10 lg:border-x lg:border-hairline lg:min-w-[200px]">
-                                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("fiscalData")}</span>
-                                        {user.registration_completed ? (
-                                            <div className="space-y-1">
-                                                <p className="text-xs font-bold text-fg flex items-center gap-2">
-                                                    <ShieldCheck className="w-3 h-3 text-accent" /> {user.nif}
-                                                </p>
-                                                {user.company_name && (
-                                                    <p className="text-[10px] text-fg-40 font-bold uppercase truncate max-w-[150px]">{user.company_name}</p>
-                                                )}
-                                                <p className="text-[10px] text-fg-40 font-medium truncate max-w-[150px]">{user.fiscal_address}</p>
-                                            </div>
-                                        ) : (
-                                            <span className="text-[10px] font-black text-soon/50 uppercase tracking-widest italic">{t("registrationPending")}</span>
-                                        )}
-                                    </div>
-
-                                    {/* Status */}
-                                    <div className="flex flex-wrap items-center justify-center gap-6 w-full lg:w-auto lg:pr-10 lg:border-r lg:border-hairline">
-                                        <div className="flex flex-col items-center gap-1.5">
-                                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("status")}</span>
-                                            <div className="flex items-center gap-4">
-                                                {[t("shopify"), t("ixApi")].map((label, i) => {
-                                                    const ok = i === 0 ? user.shopify_authorized : user.ix_authorized;
-                                                    const err = i === 0 ? user.shopify_error : user.ix_error;
-                                                    return (
-                                                        <div key={label} className="flex flex-col items-center group/tip relative">
-                                                            <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
-                                                            {ok ? <div className="text-accent-hot text-[10px] font-bold">● OK</div>
-                                                                : <div className="text-soon text-[10px] font-bold flex items-center gap-1">
-                                                                    ● {(i === 0 ? user.shopify_domain : true) ? "ERR" : "OFF"}
-                                                                    {err && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
-                                                                </div>}
-                                                            {err && <div className="absolute bottom-full mb-2 w-48 p-3 bg-surface-2 border border-hairline rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
-                                                                <p className="text-[10px] text-soon/80 font-medium leading-tight">{err}</p>
-                                                            </div>}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col items-center gap-1.5">
-                                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("domain")}</span>
-                                            <span className="text-xs font-bold text-fg">{user.shopify_domain || "---"}</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Actions */}
-                                    <div className="flex items-center gap-2 flex-wrap justify-center">
-                                        {canImpersonate && (
-                                            <button onClick={() => handleImpersonate(user.id)} disabled={acting !== null}
-                                                className="bg-white text-black px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-fg transition-all duration-300 active:scale-95 disabled:opacity-30">
-                                                {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
-                                                {t("impersonate")}
-                                            </button>
-                                        )}
-
-                                        {!isSelf && (
-                                            <Link href={`/superadmin/users/${user.id}/dev-mode`}
-                                                className="bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(2,141,196,0.18)] transition-all active:scale-95">
-                                                <Wrench className="w-3 h-3" /> {t("devMode")}
-                                            </Link>
-                                        )}
-
-                                        {/* Role change buttons */}
-                                        {promoteOptions.map(opt => (
-                                            <button key={opt.role} onClick={() => handleRoleChange(user.id, opt.role)}
-                                                disabled={acting !== null}
-                                                className="px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-[rgba(245,158,11,0.10)] text-soon border border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.18)] transition-all disabled:opacity-30">
-                                                {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : opt.icon}
-                                                {opt.label}
-                                            </button>
-                                        ))}
-
-                                        {/* Delete */}
-                                        {canDelete && (
-                                            deleteConfirm === user.id ? (
-                                                <div className="flex items-center gap-2 bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] rounded-2xl px-4 py-2">
-                                                    <span className="text-[10px] font-black text-destructive uppercase tracking-wider">{t("confirmQuestion")}</span>
-                                                    <button onClick={() => handleDelete(user.id)} className="p-1 rounded-lg bg-destructive text-white hover:bg-destructive/85 transition-all"><Check className="w-3 h-3" /></button>
-                                                    <button onClick={() => setDeleteConfirm(null)} className="p-1 rounded-lg bg-surface-2 text-fg-60 hover:bg-surface-2/70 transition-all"><X className="w-3 h-3" /></button>
-                                                </div>
-                                            ) : (
-                                                <button onClick={() => setDeleteConfirm(user.id)} disabled={acting !== null}
-                                                    className="px-3 py-3 rounded-2xl flex items-center gap-2 bg-[rgba(244,63,94,0.05)] text-destructive/50 border border-[rgba(244,63,94,0.10)] hover:bg-[rgba(244,63,94,0.10)] hover:text-destructive hover:border-[rgba(244,63,94,0.20)] transition-all disabled:opacity-30">
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                            )
-                                        )}
-                                    </div>
+                                <div className="flex items-center gap-3">
+                                    {sec.icon}
+                                    <span className="text-xs font-black uppercase tracking-[0.2em] text-fg">{sec.label}</span>
+                                    <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black tracking-widest border border-hairline">{sec.list.length}</span>
                                 </div>
-                            </motion.div>
-                        );
-                    })}
-                </AnimatePresence>
+                                <ChevronDown className={`w-4 h-4 text-fg-40 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                            </button>
+
+                            <AnimatePresence initial={false}>
+                                {isOpen && (
+                                    <motion.div
+                                        key="body"
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: "auto" }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        className="overflow-hidden"
+                                    >
+                                        {sec.list.length === 0 ? (
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-fg-40 italic px-5 py-6">{t("groupEmpty")}</p>
+                                        ) : (
+                                            <div className="grid gap-6">
+                                                <AnimatePresence mode="popLayout">
+                                                    {sec.list.map(renderUserCard)}
+                                                </AnimatePresence>
+                                            </div>
+                                        )}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </section>
+                    );
+                })}
             </div>
 
             <div className="pt-10 flex justify-center">

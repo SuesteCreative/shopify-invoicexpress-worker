@@ -60,7 +60,7 @@
         "queue": "shopifyordersqueue",
         "max_batch_size": 10,
         "dead_letter_queue": "my-queue-dlq",
-        "max_retries": 25
+        "max_retries": 10
       },
       {
         "queue": "stripeeventsqueue",

@@ -718,6 +718,15 @@ export class AppStorage {
     }
   }
 
+  /** Drop a webhook_info row so an admin replay isn't short-circuited by dedup. */
+  async resetWebhookInfo(webhookId: string, topic: string) {
+    try {
+      await this.db.prepare("DELETE FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to reset webhook_info:", e);
+    }
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // Phase 2: connections lookup. Not yet wired into runtime handlers — Phase 3+
   // will switch the pipeline to read from these before falling back to the

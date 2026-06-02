@@ -15,6 +15,11 @@ export interface StripeQueueMessage {
   eventId: string;
   /** The user_id of the merchant owning the Stripe-source connection. */
   userId: string;
-  /** Stripe event payload (data.object etc.). */
-  body: any;
+  /** Stripe event payload (data.object etc.). Omitted when spilled to KV — see bodyRef. */
+  body?: any;
+  /**
+   * KV key holding the full event JSON when the payload exceeds the Cloudflare
+   * Queues 128KB per-message limit. The consumer hydrates `body` from here.
+   */
+  bodyRef?: string;
 }

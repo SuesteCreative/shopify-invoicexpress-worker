@@ -35,6 +35,13 @@ export interface RunPipelineInput {
  * the caller should record the incident, ack the queue message, and stop.
  * Heuristics over error.message — refine over time as new failure modes surface.
  */
+// A destination error mentioning a 4xx status (or bad-request wording) won't
+// resolve on retry — the document is invalid, not the connection. Treat as
+// permanent so we fail fast instead of grinding through the full retry budget.
+function looksPermanent4xx(msg: string): boolean {
+  return /\b(400|403|404|409|422)\b/.test(msg) || msg.includes("bad request") || msg.includes("unprocessable");
+}
+
 export function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severity; permanent: boolean } {
   const msg = String(err?.message ?? err ?? "").toLowerCase();
 
@@ -60,6 +67,9 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
     if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("autenticação") || msg.includes("auth")) {
       return { kind: "auth_failure_destination", severity: "critical", permanent: true };
     }
+    if (looksPermanent4xx(msg)) {
+      return { kind: "destination_reject", severity: "critical", permanent: true };
+    }
     // Could be Moloni 5xx or transient destination outage — let the queue retry.
     return { kind: "destination_reject", severity: "error", permanent: false };
   }
@@ -69,6 +79,9 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
     || (msg.includes("moloni") && msg.includes("finalize"))
     || (msg.includes("vendus") && msg.includes("finalize"))
   ) {
+    if (looksPermanent4xx(msg)) {
+      return { kind: "destination_reject", severity: "critical", permanent: true };
+    }
     return { kind: "destination_reject", severity: "error", permanent: false };
   }
 

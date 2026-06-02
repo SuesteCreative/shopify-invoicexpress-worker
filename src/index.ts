@@ -22,6 +22,10 @@ import {
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
 import { delay } from "./utils";
 import { errorResponse, requireAdminAuth } from "./security";
+import {
+  resolveStripeConnection, listWebhookEndpoints, reenableWebhookEndpoint,
+  deleteWebhookEndpoint, getStripeEvent, listStripeEvents,
+} from "./handlers/stripe-admin";
 
 function shopifyTopicToCanonical(topic: WebhookTopic): StripeCanonicalTopic | null {
   switch (topic) {
@@ -52,6 +56,14 @@ function stripeEventToCanonical(eventType: string): StripeCanonicalTopic | null 
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Global error net: any unhandled throw in a route returns a consistent 500 and
+// is logged (worker observability is on), instead of a bare runtime crash. This
+// makes future webhook failures visible in `wrangler tail` rather than silent.
+app.onError((err, c) => {
+  console.error(`[Rioko] Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+  return c.text("Internal error", 500);
+});
 
 // Health check endpoint
 app.get("/", (c) => c.text("OK"))
@@ -245,19 +257,47 @@ app.post("/webhooks/stripe", async (c) => {
 
   // Dedup by Stripe event id (use webhook_info table since it's source-agnostic
   // after Phase 2's source_kind ALTER ADD).
+  const topicKey = `stripe/${canonical}`;
   const appStorage = new AppStorage(c.env);
-  const { isProcessed, state } = await appStorage.isWebhookProcessed(eventId, `stripe/${canonical}`);
+  const { isProcessed, state } = await appStorage.isWebhookProcessed(eventId, topicKey);
   if (isProcessed && state !== "failed") {
     return c.text("Already processed", 200);
   }
-  await appStorage.markWebhookAsProcessing(eventId, `stripe/${canonical}`);
 
-  await c.env.STRIPE_QUEUE.send({
-    topic: canonical,
-    eventId,
-    userId: ownerRow.user_id,
-    body: event,
-  } satisfies StripeQueueMessage);
+  // Enqueue FIRST, then mark `processing`. If send() throws we return 500 with
+  // NO `processing` row left behind, so Stripe's retry reprocesses cleanly
+  // instead of short-circuiting on a stuck `processing` state (the old bug that
+  // silently lost events). Events larger than the Cloudflare Queues 128KB limit
+  // are spilled to KV and passed by reference.
+  try {
+    const queueMsg: StripeQueueMessage = { topic: canonical, eventId, userId: ownerRow.user_id, body: event };
+    if (rawBody.length > 110_000) {
+      const kvKey = `stripe-evt:${eventId}`;
+      await c.env.INVOICE_KV.put(kvKey, rawBody, { expirationTtl: 7 * 24 * 60 * 60 });
+      delete queueMsg.body;
+      queueMsg.bodyRef = kvKey;
+    }
+    await c.env.STRIPE_QUEUE.send(queueMsg);
+    await appStorage.markWebhookAsProcessing(eventId, topicKey);
+  } catch (err: any) {
+    console.error(`[Stripe] Failed to enqueue event ${eventId}: ${err?.message ?? err}`);
+    try {
+      await reportIncident(c.env, {
+        user_id: ownerRow.user_id,
+        severity: "critical",
+        kind: "queue_retry_exhausted",
+        summary: `Falha ao enfileirar evento Stripe ${eventId} (${canonical}). Evento NÃO foi processado.`,
+        detail: { eventId, topic: canonical, error: String(err?.message ?? err) },
+        affected_ids: [eventId],
+        connection_label: "stripe → invoicexpress",
+      });
+    } catch (incErr) {
+      console.error("[Stripe] Failed to emit enqueue-failure incident:", incErr);
+    }
+    // 500 → Stripe retries. No `processing` row was written, so the retry runs
+    // the full path again rather than being short-circuited as "already processed".
+    return c.text("Enqueue failed", 500);
+  }
 
   return c.text("Queued", 200);
 });
@@ -359,6 +399,96 @@ app.post("/webhooks/eupago/:userId", async (c) => {
     await appStorage.markWebhookAsProcessed(externalId, `eupago/${canonical}` as any, "failed");
     // Return 500 so EuPago retries (2min×3 then hourly×24h).
     return errorResponse(c, e, "Pipeline error");
+  }
+});
+
+// ── Admin: Stripe webhook + event recovery (Phase 3 ops tooling) ──────────────
+// All operate on the Stripe-source connection for ?userId / body.userId, using
+// the connection's stored restricted_key.
+
+// List webhook endpoints on the connection's Stripe account.
+app.get("/admin/stripe/webhooks", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const userId = c.req.query("userId");
+  if (!userId) return c.json({ error: "Missing userId" }, 400);
+  const conn = await resolveStripeConnection(c.env, userId);
+  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+  try {
+    const endpoints = await listWebhookEndpoints(conn.restrictedKey);
+    return c.json({ connection_id: conn.connectionId, stored_endpoint_id: conn.webhookEndpointId, endpoints });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to list Stripe webhook endpoints");
+  }
+});
+
+// Re-enable a Stripe-disabled endpoint.
+app.post("/admin/stripe/webhooks/reenable", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const { userId, endpoint_id } = await c.req.json<{ userId: string; endpoint_id: string }>();
+  if (!userId || !endpoint_id) return c.json({ error: "Missing userId or endpoint_id" }, 400);
+  const conn = await resolveStripeConnection(c.env, userId);
+  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+  try {
+    const endpoint = await reenableWebhookEndpoint(conn.restrictedKey, endpoint_id);
+    return c.json({ ok: true, endpoint });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to re-enable Stripe webhook endpoint");
+  }
+});
+
+// Delete a webhook endpoint (orphan / incomplete-install cleanup).
+app.post("/admin/stripe/webhooks/delete", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const { userId, endpoint_id } = await c.req.json<{ userId: string; endpoint_id: string }>();
+  if (!userId || !endpoint_id) return c.json({ error: "Missing userId or endpoint_id" }, 400);
+  const conn = await resolveStripeConnection(c.env, userId);
+  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+  try {
+    const result = await deleteWebhookEndpoint(conn.restrictedKey, endpoint_id);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to delete Stripe webhook endpoint");
+  }
+});
+
+// Replay missed Stripe event(s) into the processing queue.
+//   { userId, event_id }                  → replay one event
+//   { userId, type?, from?, to?, limit? }  → backfill a window (unix seconds)
+app.post("/admin/stripe/replay", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ userId: string; event_id?: string; type?: string; from?: number; to?: number; limit?: number }>();
+  if (!body.userId) return c.json({ error: "Missing userId" }, 400);
+  const conn = await resolveStripeConnection(c.env, body.userId);
+  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+
+  try {
+    let events: any[];
+    if (body.event_id) {
+      events = [await getStripeEvent(conn.restrictedKey, body.event_id)];
+    } else {
+      const types = body.type ? [body.type] : ["payment_intent.succeeded", "charge.succeeded", "charge.refunded", "checkout.session.completed"];
+      events = await listStripeEvents(conn.restrictedKey, { types, from: body.from, to: body.to, limit: body.limit });
+    }
+
+    const appStorage = new AppStorage(c.env);
+    const queued: string[] = [];
+    const skipped: { id: string; reason: string }[] = [];
+    for (const event of events) {
+      const canonical = stripeEventToCanonical(event.type ?? "");
+      if (!canonical) { skipped.push({ id: event.id, reason: `unhandled type ${event.type}` }); continue; }
+      // Reset dedup so the success-defense re-marks cleanly; the consumer's
+      // processed_orders idempotency still blocks a duplicate invoice.
+      await appStorage.resetWebhookInfo(event.id, `stripe/${canonical}`);
+      await c.env.STRIPE_QUEUE.send({ topic: canonical, eventId: event.id, userId: body.userId, body: event } satisfies StripeQueueMessage);
+      queued.push(event.id);
+    }
+    return c.json({ ok: true, queued_count: queued.length, queued, skipped });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to replay Stripe events");
   }
 });
 
@@ -848,6 +978,11 @@ app.post("/admin/test-incident-email", async (c) => {
   return c.json({ ok: result.ok, provider: result.provider, id: result.id, detail: result.detail, kind }, result.ok ? 200 : 500);
 })
 
+// Stuck *transient* errors (not destination 5xx) give up after this many queue
+// attempts instead of grinding to the 25→10 DLQ. ~6 × 360s ≈ 30min, ample for
+// the orders/created→orders/paid race to self-heal.
+const TRANSIENT_GIVEUP_ATTEMPTS = 6;
+
 async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) {
   for (const message of batch.messages) {
     const { topic, webhookId, shopDomain, body } = message.body;
@@ -957,24 +1092,28 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
       } catch (logErr) {
         console.error("[Rioko] Failed to persist failure log:", logErr);
       }
-      if (permanent) {
-        // Legacy Shopify→IX path throws here on unrecoverable errors (bad NIF,
-        // expired IX key, reconcile drift). runAdapterPipeline already reports
-        // its own permanent failures and returns without throwing, so anything
-        // reaching this branch is the legacy path. Emit the incident here.
+      // Give up when the error is permanent, OR when a *stuck* transient error
+      // (normalize service down, or a paid/refund whose invoice never gets
+      // created) has burned enough attempts that more retries won't help. We
+      // exempt destination_reject (likely a recoverable IX/Moloni 5xx outage),
+      // which keeps the full retry budget. ~6 attempts ≈ 30min at 360s delay —
+      // far cheaper than grinding to the DLQ.
+      const attempts = message.attempts ?? 1;
+      const giveUpTransient = !permanent && kind !== "destination_reject" && attempts >= TRANSIENT_GIVEUP_ATTEMPTS;
+      if (permanent || giveUpTransient) {
         try {
           const externalId = String((message.body?.body as any)?.id ?? (message.body?.body as any)?.order_number ?? "unknown");
           await reportIncident(env, {
             user_id: undefined,
             severity,
-            kind,
+            kind: permanent ? kind : "queue_retry_exhausted",
             summary: `${topic} ${externalId}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
-            detail: { message: (e as any)?.message, externalId, topic, shopDomain },
+            detail: { message: (e as any)?.message, externalId, topic, shopDomain, attempts, permanent },
             affected_ids: [externalId],
             connection_label: "shopify → invoicexpress",
           });
         } catch (incErr) {
-          console.error("[Rioko] Failed to emit permanent-failure incident:", incErr);
+          console.error("[Rioko] Failed to emit failure incident:", incErr);
         }
         message.ack();
       } else {
@@ -986,10 +1125,19 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
 
 async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: Env) {
   for (const message of batch.messages) {
-    const { topic, eventId, userId, body } = message.body;
+    const { topic, eventId, userId, bodyRef } = message.body;
     console.log(`[Stripe] Queue processing: ${topic} event=${eventId} user=${userId}`);
 
     try {
+      // Hydrate the payload: small events travel inline as `body`; oversized ones
+      // were spilled to KV by the webhook handler and arrive as a `bodyRef` key.
+      let body = message.body.body;
+      if (body === undefined && bodyRef) {
+        const raw = await env.INVOICE_KV.get(bodyRef);
+        if (!raw) throw new Error(`Stripe event payload missing from KV (${bodyRef})`);
+        body = JSON.parse(raw);
+      }
+
       // Stripe-source connection drives config + destination choice. We also
       // pull source_config_json so the adapter can use the restricted_key to
       // expand Customer.tax_ids for B2B native VAT collection.
@@ -1045,6 +1193,11 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         sourceConfig,
         destinationConfig,
       });
+
+      // Defense: ensure the row never lingers in `processing`. The pipeline marks
+      // success on its own paths, but a path that returns without marking would
+      // otherwise leave a stuck row; re-marking is idempotent (INSERT OR REPLACE).
+      try { await new AppStorage(env).markWebhookAsProcessed(eventId, `stripe/${topic}`, "success"); } catch { /* best-effort */ }
 
       message.ack();
     } catch (e) {

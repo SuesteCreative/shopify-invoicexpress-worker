@@ -254,6 +254,8 @@
       "eupago": { "note": "Multibanco, MB WAY e referências" },
       "easypay": { "note": "Captura imediata e diferida" },
       "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
+      "amazon": { "note": "Amazon Pay — checkout e subscrições" },
+      "paypal": { "note": "Pagamentos, assinaturas e refunds" },
       "invoicexpress": { "note": "Faturas, recibos, notas de crédito" },
       "moloni": { "note": "Sincronização total de documentos" },
       "vendus": { "note": "POS + faturação certificada" }
@@ -264,6 +266,8 @@
       "easypay": { "sub": "capture · pmt_5921" },
       "eupago": { "sub": "MB WAY confirmado · #2847" },
       "ifthenpay": { "sub": "MB referência · #883" },
+      "amazon": { "sub": "Amazon Pay · ap_7741" },
+      "paypal": { "sub": "payment captured · pp_4096" },
       "invoicexpress": { "sub": "FT 2026/A/847 · finalizada" },
       "moloni": { "sub": "FT 2026/A/523 · finalizada" },
       "vendus": { "sub": "FT 2026/A/319 · finalizada" }

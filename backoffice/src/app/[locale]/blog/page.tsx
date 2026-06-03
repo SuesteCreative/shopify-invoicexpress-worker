@@ -1,25 +1,42 @@
 import type { Metadata } from "next";
 import { Link } from "@/i18n/navigation";
 import { listArticles } from "@/lib/blog";
+import JsonLd from "@/components/JsonLd";
+import { breadcrumbSchema } from "@/lib/schema";
 import { Calendar, ArrowRight } from "lucide-react";
 
 export const runtime = "edge";
 
-export const metadata: Metadata = {
-    title: "Blog Rioko — Guias Fiscais e Técnicos",
-    description: "Artigos sobre faturação automática em Portugal: ATCUD, séries certificadas, IVA OSS, reverse charge, integrações Shopify/Stripe com InvoiceXpress/Moloni/Vendus.",
-    openGraph: {
-        title: "Blog Rioko — Guias Fiscais e Técnicos",
-        description: "Artigos sobre faturação automática em Portugal.",
-        type: "website",
-    },
-};
+type Props = { params: Promise<{ locale: string }> };
 
-export default function BlogIndexPage() {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+    const { locale } = await params;
+    return {
+        title: "Blog Rioko — Guias Fiscais e Técnicos",
+        description: "Artigos sobre faturação automática em Portugal: ATCUD, séries certificadas, IVA OSS, reverse charge, integrações Shopify/Stripe com InvoiceXpress/Moloni/Vendus.",
+        alternates: {
+            canonical: `/${locale}/blog`,
+            languages: { pt: "/pt/blog", en: "/en/blog", "x-default": "/pt/blog" },
+        },
+        openGraph: {
+            title: "Blog Rioko — Guias Fiscais e Técnicos",
+            description: "Artigos sobre faturação automática em Portugal.",
+            type: "website",
+        },
+    };
+}
+
+export default async function BlogIndexPage({ params }: Props) {
+    const { locale } = await params;
     const articles = listArticles();
+    const breadcrumb = breadcrumbSchema([
+        { name: locale === "en" ? "Home" : "Início", url: `https://rioko.online/${locale}` },
+        { name: "Blog", url: `https://rioko.online/${locale}/blog` },
+    ]);
 
     return (
         <div className="min-h-screen bg-surface text-fg">
+            <JsonLd data={breadcrumb} />
             <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-12 py-12 sm:py-20">
                 <header className="mb-16 text-center">
                     <p className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em] mb-4">Blog Rioko</p>

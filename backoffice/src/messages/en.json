@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "siteTitle": "Rioko 2.0 | Developed by Kapta",
-    "siteDescription": "Invoicing integrations hub for Shopify, Stripe and more.",
+    "siteTitle": "Rioko — Automatic invoicing for Shopify and Stripe in Portugal",
+    "siteDescription": "Connect Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issue certified invoices automatically — with ATCUD, series, NIF and VAT. Set it up once, invoice forever.",
     "privacyTitle": "Privacy Policy | Rioko",
     "termsTitle": "Terms of Service | Rioko"
   },
@@ -201,6 +201,7 @@
       "how": "How it works",
       "pricing": "Pricing",
       "compliance": "Compliance",
+      "faq": "FAQ",
       "signIn": "Sign in",
       "start": "Start",
       "openMenu": "Open menu",
@@ -354,6 +355,41 @@
         "b3": "Dedicated SLA",
         "b4": "Technical onboarding video call"
       }
+    },
+    "faq": {
+      "eyebrow": "FAQ",
+      "title": "Frequently asked <g>questions</g>.",
+      "sub": "Everything you need before connecting your first store. Can't find your answer? Talk to us.",
+      "items": [
+        {
+          "q": "What is Rioko?",
+          "a": "Rioko automates invoicing for your online sales. It connects Shopify or Stripe to your certified invoicing software (InvoiceXpress, Moloni or Vendus) and issues an invoice for every order automatically, with no manual work."
+        },
+        {
+          "q": "Which platforms does it work with?",
+          "a": "Payment sources: Shopify and Stripe (EuPago and Easypay coming soon). Invoicing software: InvoiceXpress available now, Moloni and Vendus on the roadmap. Each store connects only the integrations it needs."
+        },
+        {
+          "q": "Are the invoices legal and certified in Portugal?",
+          "a": "Yes. Rioko doesn't issue invoices itself — it sends the data to your AT-certified software (InvoiceXpress, Moloni or Vendus), which issues the document with ATCUD, a reported series and the correct VAT exemptions (M01–M99). The certification is the invoicing software's."
+        },
+        {
+          "q": "Do I need to install a checkout extension on Shopify?",
+          "a": "No. Rioko connects via webhook and API, with no extensions and no changes to your checkout. You set it up once in the dashboard and it invoices on its own."
+        },
+        {
+          "q": "How much does Rioko cost?",
+          "a": "€7.50 + VAT per month or €75 + VAT per year, per connected integration (two months free on the annual plan). No per-document fees and no volume limits. Custom integrations (ERP, marketplaces) are quoted case by case."
+        },
+        {
+          "q": "How long does setup take?",
+          "a": "About four minutes: connect the store, pick the invoicing software and series, and activate. No card required to start."
+        },
+        {
+          "q": "How does Rioko handle NIF, VAT and foreign sales?",
+          "a": "Rioko detects the customer's tax ID, applies the correct VAT rate and flags exempt or intra-EU sales (reverse charge, OSS). The billing address determines the country and the rate applied to each document."
+        }
+      ]
     },
     "cta": {
       "eyebrow": "Ready?",

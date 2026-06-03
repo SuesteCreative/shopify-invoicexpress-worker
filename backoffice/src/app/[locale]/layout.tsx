@@ -15,6 +15,8 @@ import { sansDisplay, monoFont } from "../fonts";
 import InactivityLogout from "@/components/InactivityLogout";
 import ConsentBanner from "@/components/ConsentBanner";
 import AttributionCapture from "@/components/AttributionCapture";
+import JsonLd from "@/components/JsonLd";
+import { organizationSchema, websiteSchema } from "@/lib/schema";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata({
@@ -80,6 +82,9 @@ export default async function LocaleLayout({
             fontFamily: "var(--font-sans-display), system-ui, sans-serif",
           }}
         >
+          <JsonLd data={organizationSchema(locale)} />
+          <JsonLd data={websiteSchema(locale)} />
+
           <NextIntlClientProvider locale={locale} messages={messages}>
             <InactivityLogout />
             <AttributionCapture />

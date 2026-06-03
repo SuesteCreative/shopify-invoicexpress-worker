@@ -20,6 +20,7 @@ import {
   Sparkle,
   Menu,
   X,
+  ChevronDown,
 } from "lucide-react";
 import { LangToggle } from "./LangToggle";
 
@@ -230,6 +231,7 @@ export default function Landing() {
         <HowItWorks />
         <FiscalTrust />
         <Pricing />
+        <Faq />
         <FinalCTA />
         <Footer />
       </main>
@@ -285,6 +287,9 @@ function Nav() {
           </a>
           <a href="#fiscal" className="text-[13px] transition-colors" style={{ color: FG_60 }}>
             {t("compliance")}
+          </a>
+          <a href="#faq" className="text-[13px] transition-colors" style={{ color: FG_60 }}>
+            {t("faq")}
           </a>
         </div>
 
@@ -358,6 +363,7 @@ function Nav() {
                 { href: "#como-funciona", label: t("how") },
                 { href: "#preco", label: t("pricing") },
                 { href: "#fiscal", label: t("compliance") },
+                { href: "#faq", label: t("faq") },
               ].map((link) => (
                 <a
                   key={link.href}
@@ -1773,6 +1779,83 @@ function PricingCard({
         </div>
       </div>
     </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Final CTA
+// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// FAQ — answer-first Q&A; FAQPage JSON-LD is emitted server-side in page.tsx
+// ─────────────────────────────────────────────────────────────
+function Faq() {
+  const t = useTranslations("landing.faq");
+  const items = t.raw("items") as Array<{ q: string; a: string }>;
+  const [open, setOpen] = useState<number | null>(0);
+
+  return (
+    <section id="faq" className="relative px-4 pt-20 sm:pt-32 md:pt-44">
+      <div className="mx-auto w-full max-w-[1280px]">
+        <SectionHead
+          eyebrow={t("eyebrow")}
+          title={t.rich("title", RICH_ELEMENTS)}
+          sub={t("sub")}
+        />
+
+        <div className="mx-auto mt-14 max-w-[820px]">
+          {items.map((item, i) => {
+            const isOpen = open === i;
+            return (
+              <div
+                key={i}
+                className="border-t first:border-t-0"
+                style={{ borderColor: HAIRLINE }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpen(isOpen ? null : i)}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center justify-between gap-6 py-6 text-left transition-opacity hover:opacity-90"
+                >
+                  <span
+                    className="text-[16px] font-medium tracking-tight sm:text-[18px]"
+                    style={{ color: FG }}
+                  >
+                    {item.q}
+                  </span>
+                  <ChevronDown
+                    className="h-5 w-5 shrink-0 transition-transform duration-300"
+                    style={{
+                      color: ACCENT_HOT,
+                      transform: isOpen ? "rotate(180deg)" : "none",
+                    }}
+                    strokeWidth={1.6}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3, ease: EASE }}
+                      className="overflow-hidden"
+                    >
+                      <p
+                        className="max-w-[68ch] pb-6 text-[14px] leading-[1.6]"
+                        style={{ color: FG_60 }}
+                      >
+                        {item.a}
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 

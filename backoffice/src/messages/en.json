@@ -254,6 +254,8 @@
       "eupago": { "note": "Multibanco, MB WAY and references" },
       "easypay": { "note": "Immediate and deferred capture" },
       "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
+      "amazon": { "note": "Amazon Pay — checkout and subscriptions" },
+      "paypal": { "note": "Payments, subscriptions and refunds" },
       "invoicexpress": { "note": "Invoices, receipts, credit notes" },
       "moloni": { "note": "Full document synchronization" },
       "vendus": { "note": "POS + certified invoicing" }
@@ -264,6 +266,8 @@
       "easypay": { "sub": "capture · pmt_5921" },
       "eupago": { "sub": "MB WAY confirmed · #2847" },
       "ifthenpay": { "sub": "MB reference · #883" },
+      "amazon": { "sub": "Amazon Pay · ap_7741" },
+      "paypal": { "sub": "payment captured · pp_4096" },
       "invoicexpress": { "sub": "INV 2026/A/847 · finalized" },
       "moloni": { "sub": "INV 2026/A/523 · finalized" },
       "vendus": { "sub": "INV 2026/A/319 · finalized" }

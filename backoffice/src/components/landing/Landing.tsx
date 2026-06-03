@@ -75,9 +75,11 @@ const INTEGRATIONS: Integration[] = [
   { id: "eupago", name: "EuPago", kind: "pagamentos", status: "soon", logoSrc: "/images/eupago-logo.svg" },
   { id: "easypay", name: "Easypay", kind: "pagamentos", status: "soon", logoSrc: "/images/easypay-logo.svg" },
   { id: "ifthenpay", name: "Ifthenpay", kind: "pagamentos", status: "planned", logoSrc: "/images/ifthenpay-logo.svg" },
+  { id: "amazon", name: "Amazon Pay", kind: "pagamentos", status: "planned", logoSrc: "/images/amazon-logo.svg" },
+  { id: "paypal", name: "PayPal", kind: "pagamentos", status: "planned", logoSrc: "/images/paypal-logo.svg" },
   { id: "invoicexpress", name: "InvoiceXpress", kind: "faturação", status: "live", logoSrc: "/images/invoicexpress-logo.svg" },
-  { id: "moloni", name: "Moloni", kind: "faturação", status: "planned", logoSrc: "/images/moloni-logo.svg" },
-  { id: "vendus", name: "Vendus", kind: "faturação", status: "planned", logoSrc: "/images/vendus-logo.svg" },
+  { id: "moloni", name: "Moloni", kind: "faturação", status: "live", logoSrc: "/images/moloni-logo.svg" },
+  { id: "vendus", name: "Vendus", kind: "faturação", status: "live", logoSrc: "/images/vendus-logo.svg" },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -151,6 +153,8 @@ const ORIGIN_SLOTS: FlowSlot[] = [
   { id: "easypay", title: "Easypay", logoSrc: "/images/easypay-logo.svg" },
   { id: "eupago", title: "EuPago", logoSrc: "/images/eupago-logo.svg" },
   { id: "ifthenpay", title: "Ifthenpay", logoSrc: "/images/ifthenpay-logo.svg" },
+  { id: "amazon", title: "Amazon Pay", logoSrc: "/images/amazon-logo.svg" },
+  { id: "paypal", title: "PayPal", logoSrc: "/images/paypal-logo.svg" },
 ];
 
 const DESTINATION_SLOTS: FlowSlot[] = [

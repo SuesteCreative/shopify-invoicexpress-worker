@@ -671,3 +671,107 @@ export function tplDigest(input: {
     html,
   };
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Weekly merchant digest — still-unprocessed invoices (customer-facing)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface WeeklyUnprocessedItem {
+  kind: string;
+  summary: string;
+  lastSeenAt: string;
+  severity?: Severity;
+  /** Order/payment references still missing an invoice (empty for account-level). */
+  missingIds: string[];
+}
+
+/**
+ * Customer-facing weekly email listing the merchant's OWN sales that were
+ * received but have no invoice issued yet. Friendlier framing than the ops
+ * digest: no `kind` jargon in the body, links to the dashboard (not /superadmin),
+ * and one row per still-unprocessed incident with the affected order references.
+ */
+export function tplWeeklyUnprocessed(input: {
+  merchantName?: string;
+  items: WeeklyUnprocessedItem[];
+  totalMissing: number;
+  helpUrl?: string;
+  dashboardUrl?: string;
+}): RenderedTemplate {
+  const helpUrl = input.helpUrl ?? DEFAULT_HELP_URL;
+  const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
+  const merchant = input.merchantName
+    ? `<p style="margin:6px 0 0;color:#94a3b8;font-size:13px">${escapeHtml(input.merchantName)}</p>`
+    : "";
+
+  const rows = input.items.map((it) => {
+    const sevColor = severityColor(it.severity);
+    const idChips = it.missingIds.length
+      ? `<div style="margin-top:8px">${it.missingIds.slice(0, 12).map((id) =>
+          `<span style="display:inline-block;background:${BRAND.chipBg};border:1px solid ${BRAND.borderSubtle};color:${BRAND.text};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:4px 8px;border-radius:5px;margin:0 4px 4px 0">${escapeHtml(id)}</span>`
+        ).join("")}${it.missingIds.length > 12 ? `<span style="font-size:12px;color:${BRAND.muted}">… e mais ${it.missingIds.length - 12}</span>` : ""}</div>`
+      : "";
+    return `<tr>
+      <td style="padding:14px 0;border-bottom:1px solid ${BRAND.border};vertical-align:top;width:8px">
+        <div style="width:6px;height:36px;background:${sevColor};border-radius:3px"></div>
+      </td>
+      <td style="padding:14px 12px;border-bottom:1px solid ${BRAND.border};vertical-align:top">
+        <div style="font-size:14px;color:${BRAND.text};line-height:1.45">${escapeHtml(it.summary)}</div>
+        ${idChips}
+      </td>
+    </tr>`;
+  }).join("");
+
+  const n = input.totalMissing;
+  const plural = n === 1 ? "" : "s";
+  const html = `<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark only">
+  <meta name="supported-color-schemes" content="dark only">
+</head>
+<body style="margin:0;padding:0;background:${BRAND.pageBg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:${BRAND.text}">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${n} venda${plural} recebida${plural} sem fatura emitida.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.pageBg};padding:32px 16px">
+    <tr><td align="center">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;background:${BRAND.cardBg};border-radius:14px;overflow:hidden">
+        <tr><td class="header-bg" bgcolor="#1e1b4b" style="background-color:#1e1b4b;background-image:${BRAND.bgGradient};padding:28px 32px 24px">
+          <img src="${LOGO_WHITE}" alt="Rioko 2.0" width="140" height="auto" style="display:block;border:0;max-width:140px;height:auto">
+          <h1 class="force-white" style="margin:20px 0 0;color:#ffffff !important;font-size:22px;font-weight:600;letter-spacing:-0.3px"><font color="#ffffff">Faturas por emitir</font></h1>
+          ${merchant}
+          <div style="height:3px;width:100%;background-color:${BRAND.blue};background-image:linear-gradient(90deg, ${BRAND.blue}, ${BRAND.purple});margin-top:24px"></div>
+        </td></tr>
+        <tr><td class="card-bg" bgcolor="${BRAND.cardBg}" style="background-color:${BRAND.cardBg};padding:28px 32px;color:${BRAND.text}">
+          <p style="margin:0 0 8px;color:${BRAND.text};font-size:15px;line-height:1.6">
+            <font color="${BRAND.text}">Estas vendas foram recebidas mas <strong>ainda não têm fatura emitida</strong>. Reveja-as e reemita no painel.</font>
+          </p>
+          <p style="margin:0 0 20px;color:${BRAND.muted};font-size:14px">
+            <font color="${BRAND.text}"><strong>${n}</strong></font> <font color="${BRAND.muted}">venda${plural} por faturar.</font>
+          </p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tbody>${rows}</tbody>
+          </table>
+          <div style="margin-top:24px">
+            ${ctaButton("Abrir painel", dashboardUrl)}
+          </div>
+        </td></tr>
+        <tr><td class="footer-bg" bgcolor="${BRAND.cardBgAlt}" style="background-color:${BRAND.cardBgAlt};padding:24px 32px;border-top:1px solid ${BRAND.border};text-align:center">
+          <p class="force-muted" style="margin:0;font-size:13px;color:${BRAND.muted};line-height:1.6">
+            <font color="${BRAND.muted}">Precisa de ajuda?</font> <a href="${escapeHtml(helpUrl)}" class="force-blue" style="color:${BRAND.blue};text-decoration:none;font-weight:500"><font color="${BRAND.blue}">Contacte a equipa Rioko 2.0</font></a>
+          </p>
+          <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${BRAND.muted}">
+            <font color="${BRAND.muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${BRAND.muted};text-decoration:underline"><font color="${BRAND.muted}">Kapta</font></a> · Resumo semanal · Não responda a este email</font>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+  return {
+    subject: `[Rioko 2.0] ${n} fatura${plural} por emitir`,
+    html,
+  };
+}

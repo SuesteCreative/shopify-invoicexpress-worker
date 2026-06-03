@@ -5,7 +5,7 @@ import { AppStorage } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { getSourceAdapter } from "./adapters/registry";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
-import { reportIncident, runIncidentDigest } from "./services/incidents";
+import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest } from "./services/incidents";
 import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
@@ -1297,7 +1297,24 @@ export default {
     }
     await processShopifyBatch(batch as MessageBatch<QueueMessage>, env);
   },
-  async scheduled(_event: ScheduledEvent, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
+  async scheduled(event: ScheduledController, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
+    // Friday 16:00 UTC — weekly per-merchant "unprocessed invoices" digest only.
+    // Runs on its own cron so it doesn't ride along with the daily ops sweep.
+    if (event.cron === "0 16 * * 5") {
+      if (env.WEEKLY_MERCHANT_DIGEST_ENABLED === "1") {
+        try {
+          const r = await runWeeklyMerchantDigest(env);
+          console.log(`[Cron] Weekly merchant digest: ${r.merchantsNotified} merchant(s) emailed, ${r.totalMissing} unprocessed invoice(s), ${r.skippedNoEmail} skipped (no email on file)`);
+        } catch (e: any) {
+          console.error(`[Cron] Weekly merchant digest failed: ${e.message}`);
+        }
+      } else {
+        console.log("[Cron] Weekly merchant digest disabled (WEEKLY_MERCHANT_DIGEST_ENABLED != 1)");
+      }
+      return;
+    }
+
+    // Daily ops sweep (0 8 * * *) below.
     const baseUrl = env.BACKOFFICE_URL || "https://rioko.online";
     const key = env.CRON_SECRET || env.ADMIN_API_KEY;
     if (!key) {

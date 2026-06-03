@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { getArticleBySlug, listSlugs, listArticles } from "@/lib/blog";
+import JsonLd from "@/components/JsonLd";
+import { blogPostingSchema, breadcrumbSchema } from "@/lib/schema";
 import { ArrowLeft, Calendar, Clock, ExternalLink, ArrowRight } from "lucide-react";
 
 type Props = {
@@ -14,13 +16,21 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-    const { slug } = await params;
+    const { slug, locale } = await params;
     const article = getArticleBySlug(slug);
     if (!article) return { title: "Artigo não encontrado" };
 
     return {
         title: `${article.title} — Blog Rioko`,
         description: article.description,
+        alternates: {
+            canonical: `/${locale}/blog/${slug}`,
+            languages: {
+                pt: `/pt/blog/${slug}`,
+                en: `/en/blog/${slug}`,
+                "x-default": `/pt/blog/${slug}`,
+            },
+        },
         openGraph: {
             title: article.title,
             description: article.description,
@@ -34,40 +44,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function BlogArticlePage({ params }: Props) {
-    const { slug } = await params;
+    const { slug, locale } = await params;
     const article = getArticleBySlug(slug);
     if (!article) notFound();
 
     const { Content } = article;
     const related = listArticles().filter((a) => a.slug !== slug).slice(0, 3);
 
-    // JSON-LD structured data for Google
-    const structuredData = {
-        "@context": "https://schema.org",
-        "@type": "BlogPosting",
-        headline: article.title,
-        description: article.description,
-        datePublished: article.date,
-        author: {
-            "@type": "Organization",
-            name: article.author ?? "Rioko",
-            url: "https://rioko.online",
-        },
-        publisher: {
-            "@type": "Organization",
-            name: "Rioko",
-            url: "https://rioko.online",
-        },
-        ...(article.heroImage ? { image: article.heroImage } : {}),
-        ...(article.tags ? { keywords: article.tags.join(", ") } : {}),
-    };
+    // JSON-LD: BlogPosting + breadcrumb trail (Início/Home → Blog → article)
+    const url = `https://rioko.online/${locale}/blog/${slug}`;
+    const articleSchema = blogPostingSchema(article, { url, locale });
+    const breadcrumb = breadcrumbSchema([
+        { name: locale === "en" ? "Home" : "Início", url: `https://rioko.online/${locale}` },
+        { name: "Blog", url: `https://rioko.online/${locale}/blog` },
+        { name: article.title, url },
+    ]);
 
     return (
         <div className="min-h-screen bg-surface text-fg">
-            <script
-                type="application/ld+json"
-                dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
-            />
+            <JsonLd data={articleSchema} />
+            <JsonLd data={breadcrumb} />
 
             <article className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-16">
                 <Link href={"/blog" as any} className="inline-flex items-center gap-2 text-sm text-fg-60 hover:text-fg transition-colors mb-8">

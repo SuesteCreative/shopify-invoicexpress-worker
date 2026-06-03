@@ -16,6 +16,7 @@ type RawFrontmatter = {
     slug: string;
     description: string;
     date: string;
+    dateModified?: string;
     author?: string;
     tags?: string[];
     category?: string;

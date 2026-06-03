@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "siteTitle": "Rioko 2.0 | Developed by Kapta",
-    "siteDescription": "Hub de integrações de faturação para Shopify, Stripe e mais.",
+    "siteTitle": "Rioko — Faturação automática para Shopify e Stripe em Portugal",
+    "siteDescription": "Liga a Shopify e a Stripe ao InvoiceXpress, Moloni ou Vendus e emite faturas certificadas automaticamente — com ATCUD, séries, NIF e IVA. Configura uma vez, fatura para sempre.",
     "privacyTitle": "Política de Privacidade | Rioko",
     "termsTitle": "Termos de Serviço | Rioko"
   },
@@ -201,6 +201,7 @@
       "how": "Como funciona",
       "pricing": "Preço",
       "compliance": "Conformidade",
+      "faq": "FAQ",
       "signIn": "Entrar",
       "start": "Começar",
       "openMenu": "Abrir menu",
@@ -354,6 +355,41 @@
         "b3": "SLA dedicado",
         "b4": "Onboarding técnico em videochamada"
       }
+    },
+    "faq": {
+      "eyebrow": "FAQ",
+      "title": "Perguntas <g>frequentes</g>.",
+      "sub": "Tudo o que precisas de saber antes de ligar a primeira loja. Não encontraste a resposta? Fala connosco.",
+      "items": [
+        {
+          "q": "O que é o Rioko?",
+          "a": "O Rioko é um serviço que automatiza a faturação das tuas vendas online. Liga a Shopify ou a Stripe ao teu programa de faturação certificado (InvoiceXpress, Moloni ou Vendus) e emite a fatura de cada encomenda automaticamente, sem intervenção manual."
+        },
+        {
+          "q": "Com que plataformas funciona?",
+          "a": "Origens de pagamento: Shopify e Stripe (EuPago e Easypay em breve). Programas de faturação: InvoiceXpress disponível, Moloni e Vendus no roadmap. Cada loja liga apenas as integrações de que precisa."
+        },
+        {
+          "q": "As faturas emitidas são legais e certificadas em Portugal?",
+          "a": "Sim. O Rioko não emite faturas — envia os dados para o teu programa certificado pela Autoridade Tributária (InvoiceXpress, Moloni ou Vendus), que emite o documento com ATCUD, série comunicada e as isenções de IVA corretas (M01–M99). A certificação é a do programa de faturação."
+        },
+        {
+          "q": "Preciso de instalar alguma extensão no checkout da Shopify?",
+          "a": "Não. O Rioko liga-se por webhook e API, sem extensões nem alterações ao checkout. Configuras uma vez no painel e fica a faturar sozinho."
+        },
+        {
+          "q": "Quanto custa o Rioko?",
+          "a": "7,50 € + IVA por mês ou 75 € + IVA por ano, por cada integração ligada (dois meses grátis no plano anual). Sem fees por documento emitido e sem limites de volume. Integrações à medida (ERP, marketplaces) são orçamentadas caso a caso."
+        },
+        {
+          "q": "Quanto tempo demora a configurar?",
+          "a": "Cerca de quatro minutos: ligas a loja, escolhes o programa de faturação e a série, e ativas. Não é preciso cartão para começar."
+        },
+        {
+          "q": "Como trata o Rioko o NIF, o IVA e as vendas para o estrangeiro?",
+          "a": "O Rioko deteta o NIF do cliente, aplica a taxa de IVA correta e identifica vendas isentas ou intracomunitárias (reverse charge, OSS). A morada de faturação determina o país e a taxa aplicável a cada documento."
+        }
+      ]
     },
     "cta": {
       "eyebrow": "Pronto?",

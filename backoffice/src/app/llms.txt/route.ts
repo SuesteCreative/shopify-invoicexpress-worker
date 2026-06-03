@@ -1,4 +1,5 @@
 import { listArticles } from "@/lib/blog";
+import { listPages } from "@/lib/pages";
 
 export const runtime = "edge";
 
@@ -8,6 +9,7 @@ export const runtime = "edge";
  */
 export async function GET() {
     const articles = listArticles();
+    const guides = listPages("pt");
 
     const lines = [
         "# Rioko",
@@ -18,8 +20,8 @@ export async function GET() {
         "- Operado pela Kapta (https://kapta.pt), com sede em Portugal. Contacto: pedro@kapta.pt",
         "- O Rioko não emite faturas — envia os dados ao software certificado pela AT (InvoiceXpress, Moloni, Vendus), que emite o documento.",
         "- Preço: 7,50 € + IVA/mês ou 75 € + IVA/ano, por integração. Sem fees por documento, sem limites de volume.",
-        "- Origens de pagamento ATIVAS: Shopify, Stripe. Em breve: EuPago, Easypay. Em estudo: Ifthenpay.",
-        "- Programas de faturação ATIVOS: InvoiceXpress. No roadmap: Moloni, Vendus.",
+        "- Origens de pagamento ATIVAS: Shopify, Stripe. Em breve: EuPago, Easypay. Em estudo: Ifthenpay, Amazon Pay, PayPal.",
+        "- Programas de faturação ATIVOS: InvoiceXpress, Moloni, Vendus.",
         "- Configuração: ~4 minutos, sem cartão para começar, sem extensão no checkout (webhook + API).",
         "",
         "## Site (PT)",
@@ -34,6 +36,11 @@ export async function GET() {
         "- [Pricing](https://rioko.online/en#preco): €7.50 + VAT/month or €75 + VAT/year, per integration",
         "- [FAQ](https://rioko.online/en#faq): frequently asked questions about automatic invoicing",
         "- [Blog](https://rioko.online/en/blog): fiscal and technical guides",
+        "",
+        "## Guias",
+        ...guides.map(
+            (g) => `- [${g.title}](https://rioko.online/pt/guias/${g.slug}): ${g.description}`
+        ),
         "",
         "## Blog",
         ...articles.map(

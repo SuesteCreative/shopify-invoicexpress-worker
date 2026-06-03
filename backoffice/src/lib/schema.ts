@@ -241,3 +241,38 @@ export function blogPostingSchema(
         ...(article.tags ? { keywords: article.tags.join(", ") } : {}),
     };
 }
+
+/**
+ * Article for use-case / comparison "guias" pages (lib/pages.ts). Like
+ * blogPostingSchema but a plain Article, and author/publisher reference the
+ * global #organization node (injected on every page via the layout).
+ */
+export function articleSchema(
+    page: {
+        title: string;
+        description: string;
+        date: string;
+        dateModified?: string;
+        heroImage?: string;
+        tags?: string[];
+    },
+    opts: { url: string; locale: Locale; about?: string }
+) {
+    return {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        headline: page.title,
+        description: page.description,
+        datePublished: page.date,
+        dateModified: page.dateModified ?? page.date,
+        inLanguage: isEn(opts.locale) ? "en" : "pt-PT",
+        mainEntityOfPage: { "@type": "WebPage", "@id": opts.url },
+        url: opts.url,
+        isAccessibleForFree: true,
+        author: { "@id": `${SITE}/#organization` },
+        publisher: { "@id": `${SITE}/#organization` },
+        ...(opts.about ? { about: opts.about } : {}),
+        ...(page.heroImage ? { image: page.heroImage } : {}),
+        ...(page.tags ? { keywords: page.tags.join(", ") } : {}),
+    };
+}

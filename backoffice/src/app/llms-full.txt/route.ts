@@ -1,4 +1,5 @@
 import { listArticles } from "@/lib/blog";
+import { listPages } from "@/lib/pages";
 import pt from "@/messages/pt.json";
 import en from "@/messages/en.json";
 
@@ -17,6 +18,7 @@ type Faq = { q: string; a: string };
 
 export async function GET() {
     const articles = listArticles();
+    const guides = listPages("pt");
     // FAQ items live in the same next-intl messages the on-page accordion uses.
     const faqPt = pt.landing.faq.items as Faq[];
     const faqEn = en.landing.faq.items as Faq[];
@@ -47,13 +49,18 @@ export async function GET() {
         "€7.50 + VAT per month, or €75 + VAT per year (two months free annually), per connected integration. No per-document fees and no volume limits. Custom integrations (ERP, marketplaces) are quoted case by case. No card required to start.",
         "",
         "## Integrações / Integrations",
-        "- Origens de pagamento / Payment sources: Shopify (ativo/live), Stripe (ativo/live), EuPago (em breve/soon), Easypay (em breve/soon), Ifthenpay (em estudo/planned)",
-        "- Programas de faturação / Invoicing software: InvoiceXpress (ativo/live), Moloni (roadmap), Vendus (roadmap)",
+        "- Origens de pagamento / Payment sources: Shopify (ativo/live), Stripe (ativo/live), EuPago (em breve/soon), Easypay (em breve/soon), Ifthenpay (em estudo/planned), Amazon Pay (em estudo/planned), PayPal (em estudo/planned)",
+        "- Programas de faturação / Invoicing software: InvoiceXpress (ativo/live), Moloni (ativo/live), Vendus (ativo/live)",
         "",
         "## FAQ (Português)",
         ...faqPt.flatMap((it) => [`### ${it.q}`, it.a, ""]),
         "## FAQ (English)",
         ...faqEn.flatMap((it) => [`### ${it.q}`, it.a, ""]),
+        "## Guias / Guides",
+        ...guides.map(
+            (g) => `- [${g.title}](https://rioko.online/pt/guias/${g.slug}): ${g.description}`
+        ),
+        "",
         "## Blog",
         ...articles.map(
             (a) => `- [${a.title}](https://rioko.online/pt/blog/${a.slug}): ${a.description}`

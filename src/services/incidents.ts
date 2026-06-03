@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
 import { renderIncidentTemplate, type IncidentKind } from "./email-templates";
 
@@ -137,11 +138,15 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
 }
 
 async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: string, firstSeenAt: string, lastSeenAt: string) {
-  const merchantEmails = await resolveMerchantEmails(env, input.user_id);
+  // Real-time critical alerts go to the Rioko/Kapta team ONLY. Merchants were
+  // being flooded by per-failure emails (every new bucket = a fresh email), so
+  // their inbox is now served exclusively by the weekly Friday digest
+  // (runWeeklyMerchantDigest) which lists only their own still-unprocessed
+  // invoices. Do NOT add merchant emails back here.
   const devEmails = parseEmailList(env.KAPTA_DEV_EMAILS);
-  const recipients = [...new Set([...merchantEmails, ...devEmails])];
+  const recipients = [...new Set(devEmails)];
   if (recipients.length === 0) {
-    console.warn(`[incidents] No recipients for critical incident ${bucketKey}`);
+    console.warn(`[incidents] No dev recipients for critical incident ${bucketKey} (set KAPTA_DEV_EMAILS)`);
     return;
   }
 
@@ -264,4 +269,168 @@ export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number
   }
 
   return { digestsSent, autoResolved };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Weekly per-merchant digest of still-unprocessed invoices
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Invoice-failure incident kinds — the ones that mean a sale was received but
+ * no invoice got issued. Config/security kinds (webhook_invalid_signature,
+ * auth_failure_*, vies_unconfirmed, reconcile_drift's siblings) are deliberately
+ * excluded: the merchant's weekly email is about *missing invoices*, not
+ * infrastructure alerts (those go to the Rioko team in real time).
+ */
+const INVOICE_FAILURE_KINDS: IncidentKind[] = [
+  "queue_retry_exhausted",
+  "destination_reject",
+  "normalize_fail",
+  "nif_invalid",
+  "currency_not_supported",
+  "reconcile_drift",
+  "subscription_inactive",
+];
+
+/** Only surface incidents seen within this window; older misses are noise. */
+const WEEKLY_LOOKBACK_DAYS = 90;
+
+export interface WeeklyDigestItem {
+  kind: IncidentKind;
+  summary: string;
+  lastSeenAt: string;
+  severity?: Severity;
+  /** Affected order/payment ids still missing an invoice (empty for account-level). */
+  missingIds: string[];
+}
+
+export interface WeeklyDigestResult {
+  merchantsNotified: number;
+  totalMissing: number;
+  skippedNoEmail: number;
+}
+
+function parseAffectedIds(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Weekly per-merchant digest of STILL-unprocessed invoices.
+ *
+ * Candidates = invoice-failure incidents (see INVOICE_FAILURE_KINDS) that are
+ * still open/acknowledged and were seen within WEEKLY_LOOKBACK_DAYS. Each
+ * candidate's affected order ids are verified against `processed_orders`: any
+ * order that has since been invoiced (self-heal or manual re-emit) is dropped,
+ * and an incident whose ids are all resolved is removed entirely. Survivors are
+ * grouped by user_id and ONE email is sent per merchant containing ONLY their
+ * own missing invoices ("they can only get their own missing invoices"). The
+ * Rioko team (KAPTA_DEV_EMAILS) is BCC'd on every send.
+ *
+ * Stateless re notified_at: this is a recurring weekly reminder, so it neither
+ * reads nor writes notified_at — it recomputes from open incidents + the
+ * ground-truth processed_orders table on each run, which makes it
+ * self-correcting (a re-emitted order silently drops off next Friday).
+ */
+export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestResult> {
+  const empty: WeeklyDigestResult = { merchantsNotified: 0, totalMissing: 0, skippedNoEmail: 0 };
+  const cutoffIso = new Date(Date.now() - WEEKLY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const kindPlaceholders = INVOICE_FAILURE_KINDS.map(() => "?").join(",");
+
+  let rows: any[] = [];
+  try {
+    const result = await env.DB.prepare(
+      `SELECT id, user_id, kind, summary, occurrences, last_seen_at, severity, affected_ids_json
+       FROM incidents
+       WHERE status IN ('open','acknowledged')
+         AND user_id IS NOT NULL
+         AND last_seen_at >= ?
+         AND kind IN (${kindPlaceholders})
+       ORDER BY user_id, last_seen_at DESC`
+    ).bind(cutoffIso, ...INVOICE_FAILURE_KINDS).all();
+    rows = (result.results ?? []) as any[];
+  } catch (e: any) {
+    console.error(`[weekly-digest] incident query failed: ${e.message}`);
+    return empty;
+  }
+
+  if (rows.length === 0) return empty;
+
+  // Verify against processed_orders in one batched lookup: any affected id that
+  // now has an invoice is no longer "unprocessed". getProcessedOrderIds keys by
+  // the same external id the pipeline writes (saveProcessedInvoice(externalId)).
+  const allAffected = new Set<string>();
+  for (const r of rows) for (const id of parseAffectedIds(r.affected_ids_json)) allAffected.add(id);
+  const processed = await new AppStorage(env).getProcessedOrderIds([...allAffected]);
+
+  const byUser = new Map<string, WeeklyDigestItem[]>();
+  for (const r of rows) {
+    const affected = parseAffectedIds(r.affected_ids_json);
+    // Order-scoped incident: keep only the ids still missing an invoice.
+    // Account-level incident (no affected ids, e.g. subscription_inactive):
+    // can't verify per order, so always keep it.
+    const missing = affected.filter((id) => !processed.has(id));
+    if (affected.length > 0 && missing.length === 0) continue; // fully resolved
+    const userId = String(r.user_id);
+    if (!byUser.has(userId)) byUser.set(userId, []);
+    byUser.get(userId)!.push({
+      kind: r.kind,
+      summary: r.summary,
+      lastSeenAt: r.last_seen_at,
+      severity: r.severity,
+      missingIds: missing,
+    });
+  }
+
+  if (byUser.size === 0) return empty;
+
+  const devEmails = parseEmailList(env.KAPTA_DEV_EMAILS);
+  const { tplWeeklyUnprocessed } = await import("./email-templates");
+  let merchantsNotified = 0;
+  let totalMissing = 0;
+  let skippedNoEmail = 0;
+
+  for (const [userId, items] of byUser) {
+    // Strict isolation: resolve recipients per user so a merchant can only ever
+    // receive their own list.
+    const recipients = await resolveMerchantEmails(env, userId);
+    if (recipients.length === 0) {
+      console.warn(`[weekly-digest] No merchant email for user ${userId}; skipping (${items.length} item(s))`);
+      skippedNoEmail++;
+      continue;
+    }
+
+    // Count unique missing orders + account-level items so the headline number
+    // doesn't double-count an order that appears in two incidents.
+    const uniqueOrders = new Set<string>();
+    let accountLevel = 0;
+    for (const it of items) {
+      if (it.missingIds.length) it.missingIds.forEach((id) => uniqueOrders.add(id));
+      else accountLevel++;
+    }
+    const missingCount = uniqueOrders.size + accountLevel;
+
+    const merchantName = await resolveMerchantName(env, userId);
+    const tpl = tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount });
+
+    const result = await sendEmail(env, {
+      to: recipients,
+      bcc: devEmails.length ? devEmails : undefined,
+      subject: tpl.subject,
+      html: tpl.html,
+    });
+    if (result.ok) {
+      merchantsNotified++;
+      totalMissing += missingCount;
+    } else {
+      console.error(`[weekly-digest] send failed for user ${userId}: ${result.detail ?? result.provider}`);
+    }
+  }
+
+  return { merchantsNotified, totalMissing, skippedNoEmail };
 }

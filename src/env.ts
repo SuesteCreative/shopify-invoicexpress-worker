@@ -17,4 +17,5 @@ export interface Env {
   RESEND_FROM_EMAIL?: string;             // optional override; defaults to rioko-devmode@kapta.pt
   KAPTA_DEV_EMAILS?: string;              // comma-separated list of dev team recipients for critical incidents
   INCIDENT_DIGEST_ENABLED?: string;       // "0" | "1" — gates the daily digest path in scheduled()
+  WEEKLY_MERCHANT_DIGEST_ENABLED?: string; // "0" | "1" — gates the Friday per-merchant "unprocessed invoices" digest
 }

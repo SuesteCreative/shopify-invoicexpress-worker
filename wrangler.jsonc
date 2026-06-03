@@ -29,7 +29,8 @@
     "STRIPE_SOURCE_ENABLED": "1",
     "RESEND_FROM_EMAIL": "noreply@rioko.online",
     "KAPTA_DEV_EMAILS": "pedrotovarporto@gmail.com",
-    "INCIDENT_DIGEST_ENABLED": "0"
+    "INCIDENT_DIGEST_ENABLED": "0",
+    "WEEKLY_MERCHANT_DIGEST_ENABLED": "1"
   },
   "kv_namespaces": [
     {
@@ -77,7 +78,9 @@
     ]
   },
   "triggers": {
-    "crons": ["0 8 * * *"]
+    // 0 8 * * *  → daily ops sweep (IX match retry, VIES retry, TTL purge)
+    // 0 16 * * 5 → Friday weekly per-merchant "unprocessed invoices" digest
+    "crons": ["0 8 * * *", "0 16 * * 5"]
   },
   "limits": {
     "cpu_ms": 60000

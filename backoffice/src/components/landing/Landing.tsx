@@ -1818,6 +1818,7 @@ function Faq() {
                   className="flex w-full items-center justify-between gap-6 py-6 text-left transition-opacity hover:opacity-90"
                 >
                   <span
+                    data-faq-question
                     className="text-[16px] font-medium tracking-tight sm:text-[18px]"
                     style={{ color: FG }}
                   >
@@ -1842,6 +1843,7 @@ function Faq() {
                       className="overflow-hidden"
                     >
                       <p
+                        data-faq-answer
                         className="max-w-[68ch] pb-6 text-[14px] leading-[1.6]"
                         style={{ color: FG_60 }}
                       >

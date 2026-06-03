@@ -4,7 +4,7 @@ import { setRequestLocale, getTranslations } from "next-intl/server";
 import { redirect } from "@/i18n/navigation";
 import Landing from "@/components/landing/Landing";
 import JsonLd from "@/components/JsonLd";
-import { faqSchema, softwareApplicationSchema } from "@/lib/schema";
+import { faqSchema, howToSchema, softwareApplicationSchema } from "@/lib/schema";
 import { sansDisplay, monoFont } from "../fonts";
 
 export const runtime = "edge";
@@ -42,6 +42,14 @@ export default async function LandingPage({
   const tFaq = await getTranslations({ locale, namespace: "landing.faq" });
   const faqItems = tFaq.raw("items") as Array<{ q: string; a: string }>;
 
+  // "How it works" 3-step flow (landing.how) — emitted as HowTo JSON-LD so the
+  // setup steps are rich-result eligible and directly answer "how to set up".
+  const tHow = await getTranslations({ locale, namespace: "landing.how" });
+  const howSteps = [1, 2, 3].map((n) => ({
+    name: tHow(`step${n}.title`),
+    text: tHow(`step${n}.body`),
+  }));
+
   return (
     <div
       className={`${sansDisplay.variable} ${monoFont.variable}`}
@@ -49,6 +57,7 @@ export default async function LandingPage({
     >
       <JsonLd data={softwareApplicationSchema(locale)} />
       <JsonLd data={faqSchema(faqItems)} />
+      <JsonLd data={howToSchema(howSteps, { locale })} />
       <Landing />
     </div>
   );

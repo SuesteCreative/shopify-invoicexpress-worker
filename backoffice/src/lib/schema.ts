@@ -21,8 +21,42 @@ const DESC: Record<"pt" | "en", string> = {
     en: "Rioko automates certified invoicing in Portugal: it connects Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issues invoices with ATCUD, series, NIF and VAT with no manual work.",
 };
 
+const SLOGAN: Record<"pt" | "en", string> = {
+    pt: "Uma fatura para cada encomenda, de cada plataforma.",
+    en: "One invoice for every order, from every platform.",
+};
+
+const FEATURES: Record<"pt" | "en", string[]> = {
+    pt: [
+        "Fatura automática para cada encomenda paga, em menos de 1 segundo",
+        "Emissão em software certificado pela AT (InvoiceXpress, Moloni, Vendus)",
+        "ATCUD e séries de faturação comunicadas",
+        "Cálculo de IVA correto: incluído ou separado, isenções M01–M99, autoliquidação e OSS",
+        "Deteção e validação algorítmica de NIF",
+        "Reembolsos convertidos em notas de crédito automaticamente",
+        "Idempotência: 1 encomenda = 1 fatura, sem duplicados",
+        "Sem extensão no checkout — liga por webhook e API",
+        "Origens Shopify e Stripe; mais gateways no roadmap",
+    ],
+    en: [
+        "Automatic invoice for every paid order, in under a second",
+        "Issued via AT-certified software (InvoiceXpress, Moloni, Vendus)",
+        "ATCUD and reported invoice series",
+        "Correct VAT: included or separate, M01–M99 exemptions, reverse charge and OSS",
+        "VAT ID detection and algorithmic validation",
+        "Refunds turned into credit notes automatically",
+        "Idempotency: 1 order = 1 invoice, no duplicates",
+        "No checkout extension — connects via webhook and API",
+        "Shopify and Stripe sources; more gateways on the roadmap",
+    ],
+};
+
 function pickDesc(locale: Locale): string {
     return locale === "en" ? DESC.en : DESC.pt;
+}
+
+function isEn(locale: Locale): boolean {
+    return locale === "en";
 }
 
 export function organizationSchema(locale: Locale = "pt") {
@@ -34,14 +68,27 @@ export function organizationSchema(locale: Locale = "pt") {
         url: SITE,
         logo: { "@type": "ImageObject", url: LOGO },
         description: pickDesc(locale),
+        slogan: isEn(locale) ? SLOGAN.en : SLOGAN.pt,
         areaServed: { "@type": "Country", name: "Portugal" },
         knowsLanguage: ["pt-PT", "en"],
         brand: { "@type": "Brand", name: "Rioko" },
+        founder: { "@type": "Person", name: "Pedro Porto" },
+        email: "pedro@kapta.pt",
+        address: { "@type": "PostalAddress", addressCountry: "PT" },
+        contactPoint: {
+            "@type": "ContactPoint",
+            email: "pedro@kapta.pt",
+            contactType: "customer support",
+            areaServed: "PT",
+            availableLanguage: ["pt-PT", "en"],
+        },
         parentOrganization: {
             "@type": "Organization",
             name: "Kapta",
             url: "https://kapta.pt",
         },
+        // NOTE: `sameAs` (social profiles) intentionally omitted until real
+        // Rioko/Kapta profiles exist — never link a dead profile. See GEO plan P0.7.
     };
 }
 
@@ -96,8 +143,11 @@ export function softwareApplicationSchema(locale: Locale = "pt") {
         applicationCategory: "BusinessApplication",
         operatingSystem: "Web",
         description: pickDesc(locale),
+        featureList: isEn(locale) ? FEATURES.en : FEATURES.pt,
         offers: [offer("7.50", "MONTH"), offer("75.00", "ANNUAL")],
         publisher: { "@id": `${SITE}/#organization` },
+        // NOTE: `aggregateRating` / `review` intentionally omitted until real
+        // customer reviews exist — fabricated ratings risk a manual action. GEO plan P0.4.
     };
 }
 
@@ -105,10 +155,45 @@ export function faqSchema(items: Array<{ q: string; a: string }>) {
     return {
         "@context": "https://schema.org",
         "@type": "FAQPage",
+        // speakable lets voice assistants read the Q&A aloud (best-effort hint).
+        speakable: {
+            "@type": "SpeakableSpecification",
+            cssSelector: ["[data-faq-question]", "[data-faq-answer]"],
+        },
         mainEntity: items.map((it) => ({
             "@type": "Question",
             name: it.q,
             acceptedAnswer: { "@type": "Answer", text: it.a },
+        })),
+    };
+}
+
+/**
+ * HowTo for the on-page "how it works" flow (3 steps / ~4 min setup). Maps the
+ * localized step copy from `landing.how` to schema.org HowToStep — answers
+ * "how do I set this up" directly and is rich-result eligible. Pass the steps
+ * from the page (they live in next-intl messages, like faqSchema's items).
+ */
+export function howToSchema(
+    steps: Array<{ name: string; text: string }>,
+    opts: { locale: Locale }
+) {
+    const en = isEn(opts.locale);
+    return {
+        "@context": "https://schema.org",
+        "@type": "HowTo",
+        name: en
+            ? "How to set up automatic invoicing with Rioko"
+            : "Como configurar faturação automática com o Rioko",
+        description: pickDesc(opts.locale),
+        totalTime: "PT4M",
+        inLanguage: en ? "en" : "pt-PT",
+        step: steps.map((s, i) => ({
+            "@type": "HowToStep",
+            position: i + 1,
+            name: s.name,
+            text: s.text,
+            url: `${SITE}/${en ? "en" : "pt"}#how`,
         })),
     };
 }
@@ -140,17 +225,18 @@ export function blogPostingSchema(
         inLanguage: opts.locale === "en" ? "en" : "pt-PT",
         mainEntityOfPage: { "@type": "WebPage", "@id": opts.url },
         url: opts.url,
-        author: {
-            "@type": "Organization",
-            name: article.author ?? "Rioko",
-            url: SITE,
-        },
+        isAccessibleForFree: true,
+        // Named author → Person (E-E-A-T); fall back to the Rioko org otherwise.
+        author: article.author
+            ? { "@type": "Person", name: article.author }
+            : { "@type": "Organization", name: "Rioko", url: SITE },
         publisher: {
             "@type": "Organization",
             name: "Rioko",
             url: SITE,
             logo: { "@type": "ImageObject", url: LOGO },
         },
+        ...(article.category ? { articleSection: article.category } : {}),
         ...(article.heroImage ? { image: article.heroImage } : {}),
         ...(article.tags ? { keywords: article.tags.join(", ") } : {}),
     };

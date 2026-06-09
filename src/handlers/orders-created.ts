@@ -153,14 +153,28 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
       }), response: "Created", status: 200
     });
   } else {
-    console.log(`[Rioko] Failed to create invoice for order ${orderId}`);
-    console.log(ixCreateResponse);
+    // The IX rejection reason (tax not found, fiscal invalid, plan limit, …)
+    // used to go ONLY to console.log — ephemeral in Workers — so the DB log and
+    // the incident kept the useless generic "Failed to create invoice". Diagnosing
+    // a 26-order outage then needed a live re-emit. Persist the real reason: write
+    // it to the log row AND embed it in the thrown Error so the queue consumer's
+    // own error log / incident carries it too.
+    const ixError = JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data ?? null).slice(0, 1500);
+    console.log(`[Rioko] Failed to create invoice for order ${orderId}: ${ixError}`);
+
+    await appStorage.saveLog({
+      shopify_domain: config.shopify_domain,
+      topic: webhookTopic,
+      payload: JSON.stringify({ orderId }),
+      response: `IX create failed: ${ixError}`,
+      status: 500,
+    });
 
     // Mark webhook as failed
     if (webhookId) {
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
     }
 
-    throw new Error(`Failed to create invoice for order ${orderId}`);
+    throw new Error(`Failed to create invoice for order ${orderId}: ${ixError}`);
   }
 }

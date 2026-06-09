@@ -3,6 +3,7 @@ import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
+import { ixCall } from "../ix/ix-call";
 import { awaitInvoiceVisibility } from "../utils";
 import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
@@ -80,15 +81,19 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
       "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
     };
 
-    // Finalize the invoice
-    const { data, error } = await IxApi.v2.changeState.post({
-      body: {
-        type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
-        id: Number(invoice.invoice_id),
-        state: "finalized"
-      },
-      headers: ixHeaders
-    });
+    // Finalize the invoice (timeout + retry: a hung finalize would otherwise
+    // stall the queue consumer to the Worker wall-clock limit).
+    const { data, error } = await ixCall(
+      () => IxApi.v2.changeState.post({
+        body: {
+          type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+          id: Number(invoice.invoice_id),
+          state: "finalized"
+        },
+        headers: ixHeaders
+      }),
+      { isOk: (r) => !r.error, label: `finalize ${invoice.invoice_id}` },
+    );
 
     console.log(`[Rioko] Invoice finalized for order ${orderId}`, { data, error });
 
@@ -100,12 +105,15 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }), response: "Finalized", status: 200 });
 
     if (config.ix_send_email) {
-      const { data: invoiceData, error: invoiceError } = await IxApi.v2.documents.byId.get({
-        headers: ixHeaders,
-        path: {
-          id: Number(invoice.invoice_id)
-        }
-      });
+      const { data: invoiceData, error: invoiceError } = await ixCall(
+        () => IxApi.v2.documents.byId.get({
+          headers: ixHeaders,
+          path: {
+            id: Number(invoice.invoice_id)
+          }
+        }),
+        { isOk: (r) => !r.error, label: `get ${invoice.invoice_id}` },
+      );
 
       if (invoiceError) {
         console.error(`[Rioko] Failed to get invoice by id ${invoice.invoice_id}:`, invoiceError);
@@ -119,25 +127,28 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
         return;
       }
 
-      const { error } = await IxApi.v2.documents.byId.email.post({
-        body: {
-          message: {
-            client: {
-              email: invoiceData.data.client.email,
-              save: "0"
-            },
-            body: config.ix_email_body ?? undefined,
-            subject: config.ix_email_subject ?? undefined
-          }
-        },
-        path: {
-          id: Number(invoice.invoice_id)
-        },
-        query: {
-          type: config.ix_document_type === "invoice_receipt" ? "invoice_receipts" : "invoices"
-        },
-        headers: ixHeaders
-      });
+      const { error } = await ixCall(
+        () => IxApi.v2.documents.byId.email.post({
+          body: {
+            message: {
+              client: {
+                email: invoiceData.data.client.email,
+                save: "0"
+              },
+              body: config.ix_email_body ?? undefined,
+              subject: config.ix_email_subject ?? undefined
+            }
+          },
+          path: {
+            id: Number(invoice.invoice_id)
+          },
+          query: {
+            type: config.ix_document_type === "invoice_receipt" ? "invoice_receipts" : "invoices"
+          },
+          headers: ixHeaders
+        }),
+        { isOk: (r) => !r.error, label: `email ${invoice.invoice_id}` },
+      );
 
       if (error) {
         console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);

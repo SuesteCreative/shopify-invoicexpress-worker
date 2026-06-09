@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Facebook outage report — Downdetector</title>
+<style>
+  :root{
+    --bg:#0e0f12;
+    --panel:#1c1f26;
+    --panel-2:#22262f;
+    --line:#2c313b;
+    --text:#e8eaed;
+    --muted:#9aa0aa;
+    --red:#e60000;
+    --cyan:#2ec5d3;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh;
+  }
+
+  /* top browser-ish chrome omitted — pure page */
+
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:22px 48px;
+  }
+  .brand{display:flex;flex-direction:column;line-height:1;}
+  .brand .logo{
+    font-size:28px;font-weight:800;letter-spacing:-.5px;display:flex;align-items:center;gap:4px;
+  }
+  .brand .logo .bang{
+    color:var(--red);font-weight:900;
+  }
+  .brand .by{font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:.5px;}
+
+  nav{display:flex;align-items:center;gap:30px;font-size:15px;}
+  nav .sel{display:flex;align-items:center;gap:8px;color:var(--text);}
+  nav .flag{width:20px;height:14px;border-radius:2px;overflow:hidden;display:inline-block;}
+  nav a{color:var(--text);text-decoration:none;}
+  nav a:hover{color:var(--cyan);}
+  .toggle{
+    width:44px;height:44px;border-radius:50%;background:var(--panel-2);
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+  }
+
+  /* hero status banner */
+  .status-banner{
+    max-width:1480px;margin:0 auto;padding:0 48px;
+  }
+  .alert{
+    background:linear-gradient(180deg,#3a1414,#2a1010);
+    border:1px solid #5a1c1c;border-radius:14px;
+    padding:26px 32px;display:flex;align-items:center;gap:24px;
+    box-shadow:0 0 40px rgba(230,0,0,.25);
+  }
+  .alert .ico{
+    width:54px;height:54px;border-radius:50%;background:var(--red);
+    display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;
+    color:#fff;flex-shrink:0;box-shadow:0 0 24px rgba(230,0,0,.7);
+  }
+  .alert h1{font-size:24px;font-weight:800;margin-bottom:4px;}
+  .alert p{color:#f3c6c6;font-size:15px;}
+  .alert .big{margin-left:auto;text-align:right;}
+  .alert .big .num{font-size:40px;font-weight:900;color:#fff;line-height:1;}
+  .alert .big .lbl{font-size:12px;color:#f3c6c6;text-transform:uppercase;letter-spacing:1px;margin-top:4px;}
+
+  .jump{
+    text-align:center;color:var(--text);font-size:16px;margin:26px 0;
+    display:flex;align-items:center;justify-content:center;gap:10px;
+  }
+
+  .cols{
+    max-width:1480px;margin:0 auto;padding:0 48px 60px;
+    display:grid;grid-template-columns:2fr 1fr;gap:24px;
+  }
+  .panel{
+    background:var(--panel);border-radius:14px;overflow:hidden;
+  }
+  .panel .ph{
+    padding:22px 28px;border-bottom:1px solid var(--line);
+    font-size:20px;font-weight:700;
+  }
+  .panel .pb{padding:24px 28px;}
+
+  /* chart */
+  .chart-wrap{position:relative;}
+  .wm{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:46px;font-weight:800;color:rgba(255,255,255,.05);pointer-events:none;
+    letter-spacing:-1px;
+  }
+  .wm .bang{color:rgba(230,0,0,.18);}
+  svg{display:block;width:100%;height:auto;}
+
+  .methodology{
+    text-align:center;padding:22px;background:var(--panel-2);
+  }
+  .btn-red{
+    background:var(--red);color:#fff;border:none;border-radius:24px;
+    padding:13px 26px;font-size:15px;font-weight:600;cursor:pointer;
+  }
+  .btn-red:hover{background:#c40000;}
+
+  /* sidebar */
+  .side h2{font-size:24px;font-weight:800;margin:18px 0 14px;line-height:1.2;}
+  .side .sub{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;
+    border-bottom:1px solid var(--line);padding-bottom:14px;}
+  .side p{color:var(--muted);font-size:16px;line-height:1.55;margin-bottom:22px;}
+  .side .thumb{
+    float:right;width:140px;height:96px;background:var(--panel-2);border-radius:8px;
+    margin:0 0 10px 16px;background-image:linear-gradient(135deg,#2a2f38,#1a1d24);
+    border:1px solid var(--line);
+  }
+  .side hr{border:none;border-top:1px solid var(--line);margin:6px 0 18px;}
+
+  @media(max-width:980px){
+    .cols{grid-template-columns:1fr;}
+    nav{display:none;}
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="logo">Downdetector<span class="bang">❗</span></div>
+      <div class="by">by Ookla®</div>
+    </div>
+    <nav>
+      <span class="sel">
+        <span class="flag" style="background:linear-gradient(90deg,#060 0 33%,#d00 33% 100%)"></span>
+        Portugal ▾
+      </span>
+      <span class="sel">🌐 English ▾</span>
+      <a href="#">For Business</a>
+      <a href="#">About Us</a>
+      <div class="toggle">☀️</div>
+    </nav>
+  </header>
+
+  <div class="status-banner">
+    <div class="alert">
+      <div class="ico">!</div>
+      <div>
+        <h1>User reports indicate problems at Facebook</h1>
+        <p>Facebook is having issues since 1:14 AM WEST. Are you also affected? Leave a message in the comments.</p>
+      </div>
+      <div class="big">
+        <div class="num">38,742</div>
+        <div class="lbl">reports in 24h</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="jump">💬 Jump to comments</div>
+
+  <div class="cols">
+
+    <!-- LEFT: chart -->
+    <div class="panel chart-wrap">
+      <div class="ph">Facebook problems reported in the last 24 hours</div>
+      <div class="pb">
+        <div class="wm">Downdetector<span class="bang">❗</span></div>
+        <svg viewBox="0 0 1000 360" preserveAspectRatio="none" aria-label="Facebook outage chart">
+          <!-- gridlines -->
+          <g stroke="#2c313b" stroke-width="1">
+            <line x1="60" y1="20"  x2="1000" y2="20"/>
+            <line x1="60" y1="95"  x2="1000" y2="95"/>
+            <line x1="60" y1="170" x2="1000" y2="170"/>
+            <line x1="60" y1="245" x2="1000" y2="245"/>
+            <line x1="60" y1="320" x2="1000" y2="320"/>
+          </g>
+          <!-- vertical dashed gridlines -->
+          <g stroke="#2c313b" stroke-width="1" stroke-dasharray="3 5">
+            <line x1="160" y1="20" x2="160" y2="320"/>
+            <line x1="280" y1="20" x2="280" y2="320"/>
+            <line x1="400" y1="20" x2="400" y2="320"/>
+            <line x1="520" y1="20" x2="520" y2="320"/>
+            <line x1="640" y1="20" x2="640" y2="320"/>
+            <line x1="760" y1="20" x2="760" y2="320"/>
+            <line x1="880" y1="20" x2="880" y2="320"/>
+          </g>
+          <!-- y labels (0..2000) -->
+          <g fill="#9aa0aa" font-size="14" font-family="sans-serif" text-anchor="end">
+            <text x="48" y="25">2000</text>
+            <text x="48" y="100">1500</text>
+            <text x="48" y="175">1000</text>
+            <text x="48" y="250">500</text>
+            <text x="48" y="325">0</text>
+          </g>
+          <!-- baseline value (red dashed reference of normal) -->
+          <line x1="60" y1="312" x2="1000" y2="312" stroke="#e60000" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.6"/>
+
+          <!-- area fill: high all-day float, irregular noise -->
+          <path d="
+            M60,140 L90,128 L120,150 L150,110 L180,122 L210,95 L240,108 L270,75
+            L300,92 L330,70 L360,118 L390,98 L420,60 L450,82 L480,68 L510,100
+            L540,55 L570,78 L600,48 L630,72 L660,90 L690,52 L720,66 L750,112
+            L780,88 L810,58 L840,80 L870,45 L900,70 L930,95 L960,62 L990,84 L1000,76
+            L1000,320 L60,320 Z"
+            fill="rgba(46,197,211,0.18)"/>
+
+          <!-- sustained high line, irregular noise -->
+          <path d="
+            M60,140 L90,128 L120,150 L150,110 L180,122 L210,95 L240,108 L270,75
+            L300,92 L330,70 L360,118 L390,98 L420,60 L450,82 L480,68 L510,100
+            L540,55 L570,78 L600,48 L630,72 L660,90 L690,52 L720,66 L750,112
+            L780,88 L810,58 L840,80 L870,45 L900,70 L930,95 L960,62 L990,84 L1000,76"
+            fill="none" stroke="#2ec5d3" stroke-width="2.5" stroke-linejoin="round"/>
+
+          <!-- x labels -->
+          <g fill="#9aa0aa" font-size="14" font-family="sans-serif" text-anchor="middle">
+            <text x="160" y="345">3 pm</text>
+            <text x="280" y="345">6 pm</text>
+            <text x="400" y="345">9 pm</text>
+            <text x="520" y="345">12 am</text>
+            <text x="640" y="345">3 am</text>
+            <text x="760" y="345">6 am</text>
+            <text x="880" y="345">9 am</text>
+            <text x="980" y="345">12 pm</text>
+          </g>
+        </svg>
+      </div>
+      <div class="methodology">
+        <button class="btn-red">Learn about our methodology</button>
+      </div>
+    </div>
+
+    <!-- RIGHT: enterprise promo -->
+    <div class="panel side">
+      <div class="pb">
+        <div class="sub">Downdetector Explorer for Enterprise</div>
+        <h2>Need outage information for your Business?</h2>
+        <div class="thumb"></div>
+        <p>Downdetector Explorer helps companies rapidly resolve issues, reduce service downtime, and improve mean time to resolution.</p>
+        <hr>
+        <button class="btn-red">Discover Downdetector Explorer</button>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

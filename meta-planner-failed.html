@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planner — Meta Business Suite</title>
+<style>
+  :root{
+    --ink:#1c2b33;
+    --muted:#65676b;
+    --line:#dadde1;
+    --line-soft:#eaebee;
+    --blue:#1877f2;
+    --blue-dk:#1b74e4;
+    --err:#d93025;
+    --err-bg:#fdeceb;
+    --err-bd:#f6d2cf;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:#fff;font-size:14px;-webkit-font-smoothing:antialiased;
+  }
+  svg{display:block;}
+  .ic{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.85;stroke-linecap:round;stroke-linejoin:round;}
+  .app{display:flex;height:100vh;overflow:hidden;}
+
+  /* ---------- left rail ---------- */
+  .rail{width:50px;flex-shrink:0;border-right:1px solid var(--line-soft);
+    display:flex;flex-direction:column;align-items:center;gap:19px;padding:12px 0 16px;color:#5b5e66;overflow-y:auto;}
+  .rail::-webkit-scrollbar{display:none;}
+  .rail .item{position:relative;display:flex;align-items:center;justify-content:center;cursor:default;}
+  .rail .item.active{color:var(--blue);}
+  .rail .dot{position:absolute;top:-2px;right:-3px;width:8px;height:8px;border-radius:50%;background:#fa3e3e;border:1.5px solid #fff;}
+  .rail .spacer{flex:1;min-height:18px;}
+  .metalogo{width:30px;height:22px;margin-bottom:1px;}
+  .acct{width:30px;height:30px;border-radius:50%;padding:2px;
+    background:conic-gradient(from -35deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5,#1877f2,#feda75);}
+  .acct i{display:block;width:100%;height:100%;border-radius:50%;
+    background:linear-gradient(135deg,#8a96a3,#5b6470);border:2px solid #fff;}
+
+  /* ---------- main ---------- */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+  .topbar{display:flex;align-items:flex-start;justify-content:space-between;padding:15px 18px 12px;
+    background:linear-gradient(180deg,#eaf0f9 0%,#f5f8fc 60%,#ffffff 100%);}
+  .topbar h1{font-size:21px;font-weight:700;letter-spacing:-.2px;}
+  .topbar .sub{font-size:13px;color:var(--muted);margin-top:3px;}
+  .actions{display:flex;align-items:center;gap:8px;}
+  .btn{border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;
+    padding:0 14px;height:38px;display:inline-flex;align-items:center;gap:8px;line-height:1;}
+  .btn .ic{width:18px;height:18px;stroke-width:2;}
+  .btn.ghost{background:#e7f0fe;color:var(--blue-dk);}
+  .btn.primary{background:var(--blue);color:#fff;border-radius:6px 0 0 6px;}
+  .btn.caret{background:var(--blue);color:#fff;padding:0 8px;border-radius:0 6px 6px 0;margin-left:1px;}
+  .split{display:flex;}
+  .avatar{width:36px;height:36px;border-radius:50%;margin-left:6px;position:relative;
+    background:radial-gradient(circle at 50% 35%,#c3a089,#7d6450);}
+  .avatar::after{content:"";position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:50%;
+    background:var(--blue);border:2px solid #fff;
+    -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M13 22v-8h2.7l.5-3.2H13V8.7c0-.9.3-1.6 1.7-1.6H16V4.2C15.4 4.1 14.5 4 13.5 4 11.2 4 9.7 5.4 9.7 8.3v2.5H7V14h2.7v8z'/></svg>") center/12px no-repeat;
+            mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M13 22v-8h2.7l.5-3.2H13V8.7c0-.9.3-1.6 1.7-1.6H16V4.2C15.4 4.1 14.5 4 13.5 4 11.2 4 9.7 5.4 9.7 8.3v2.5H7V14h2.7v8z'/></svg>") center/12px no-repeat;}
+
+  /* full-width toolbar (calendar controls | side dropdowns) */
+  .toolbar{display:flex;border-bottom:1px solid var(--line-soft);}
+  .calbar{flex:1;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:10px 16px;}
+  .calbar .left{display:flex;align-items:center;gap:12px;}
+  .calbar .month{font-size:18px;font-weight:500;white-space:nowrap;}
+  .calbar .month b{font-weight:700;}
+  .sidetools{width:340px;display:flex;align-items:center;gap:10px;padding:10px 18px;}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .seg button{border:none;background:#fff;padding:0 16px;height:36px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;}
+  .seg button.on{background:#e7f0fe;color:var(--blue-dk);}
+  .iconbtn{width:36px;height:36px;display:flex;align-items:center;justify-content:center;
+    border:none;background:transparent;border-radius:8px;cursor:pointer;color:#3a3b3c;}
+  .iconbtn:hover{background:#f0f1f3;}
+  .today{border:none;background:transparent;padding:0 8px;height:36px;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);}
+  .dd{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:8px;
+    padding:0 12px;height:36px;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;}
+  .dd .ic{width:15px;height:15px;color:var(--muted);}
+
+  .content{display:flex;flex:1;min-height:0;}
+  .cal{flex:1;min-width:0;overflow:auto;}
+
+  /* week grid */
+  .row7{display:grid;grid-template-columns:repeat(7,1fr);}
+  .dayhead{padding:10px 14px;font-size:13px;color:var(--muted);font-weight:500;
+    border-right:1px solid var(--line-soft);border-bottom:1px solid var(--line);}
+  .dayhead:last-child{border-right:none;}
+  .daycol{min-height:760px;border-right:1px solid var(--line-soft);padding:8px;display:flex;flex-direction:column;gap:10px;}
+  .daycol:last-child{border-right:none;}
+
+  /* ---- failed post card ---- */
+  .card{background:var(--err-bg);border-radius:8px;overflow:hidden;padding-bottom:14px;}
+  .chead{display:flex;align-items:center;gap:6px;padding:8px 10px 5px;font-size:12.5px;font-weight:600;color:var(--err);}
+  .chead .ic{width:15px;height:15px;stroke-width:2;}
+  .thumb{position:relative;margin:0 6px;border-radius:6px;overflow:hidden;height:78px;
+    background-image:url('planner-thumb.png');background-size:cover;background-position:center;}
+  .thumb::after{content:"";position:absolute;inset:0;background:rgba(185,33,26,.14);}
+  .thumb::before{content:"";position:absolute;left:0;right:0;top:0;height:40px;z-index:2;
+    background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0));}
+  .err-badge{position:absolute;top:6px;right:6px;z-index:3;width:23px;height:23px;border-radius:50%;
+    background:var(--err);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);}
+  .err-badge .ic{width:14px;height:14px;stroke-width:2.4;}
+  .carousel{position:absolute;left:6px;bottom:6px;z-index:3;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7));}
+  .carousel .ic{width:17px;height:17px;}
+  .net{position:absolute;right:6px;bottom:6px;z-index:3;width:19px;height:19px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;border:1.5px solid #fff;}
+  .net.fb{background:var(--blue);}
+  .net.ig{background:conic-gradient(from -35deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5,#feda75);}
+  .net .ic{width:11px;height:11px;stroke:#fff;stroke-width:2.2;}
+  .cbody{display:flex;align-items:center;gap:6px;padding:9px 10px 0;font-size:12.5px;font-weight:600;color:var(--err);}
+  .cbody .ic{width:14px;height:14px;stroke-width:2.2;flex-shrink:0;}
+  .cbody .retry{margin-left:auto;color:var(--blue-dk);font-weight:700;cursor:pointer;}
+
+  /* ---------- right panel ---------- */
+  .side{width:340px;flex-shrink:0;border-left:1px solid var(--line-soft);padding:14px 18px;overflow:auto;}
+  .tabs{display:flex;gap:24px;border-bottom:1px solid var(--line-soft);margin-bottom:18px;}
+  .tabs span{padding:2px 0 12px;font-size:15px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;}
+  .tabs span.on{color:var(--blue-dk);border-bottom-color:var(--blue-dk);}
+  .goalh{display:flex;align-items:center;gap:9px;font-size:18px;font-weight:700;margin-bottom:16px;}
+  .goalh .ic{width:21px;height:21px;color:#f5a623;stroke:#f5a623;}
+  .goalrow{display:flex;gap:14px;align-items:center;}
+  .goalrow .pic{width:64px;height:64px;border-radius:50%;flex-shrink:0;
+    background:radial-gradient(circle at 50% 36%,#dcebff,#7fa8ee);display:flex;align-items:center;justify-content:center;}
+  .goalrow .pic .ic{width:30px;height:30px;color:#fff;stroke:#fff;}
+  .goalrow p{font-size:14px;color:#2b3a42;line-height:1.5;}
+  .startbtn{width:100%;margin:18px 0;background:var(--blue-dk);color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;}
+  .boostnote{display:flex;gap:9px;font-size:14px;color:#2b3a42;line-height:1.5;margin-bottom:12px;align-items:flex-start;}
+  .boostnote .ic{width:18px;height:18px;flex-shrink:0;color:var(--muted);margin-top:1px;}
+  .boostbtn{width:100%;border:1px solid var(--line);background:#fff;border-radius:8px;padding:10px;font-size:14px;font-weight:700;cursor:pointer;color:var(--ink);}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= LEFT RAIL ================= -->
+  <div class="rail">
+    <svg class="metalogo" viewBox="0 0 36 24" fill="none">
+      <defs><linearGradient id="mg" x1="0" y1="0" x2="36" y2="24" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#0064E0"/><stop offset="1" stop-color="#19AFFF"/></linearGradient></defs>
+      <path d="M5.5 18.5C3 18.5 2 16 2 12.5 2 7.5 4.5 4.5 7.5 4.5c2.8 0 4.6 2.4 6.3 5.2 1.9 3.1 3.2 5.2 5 5.2 1.6 0 2.5-1.6 2.5-4.4 0-3.2-1.1-4.7-2.6-4.7-1.4 0-2.7 1.3-4.2 3.6" stroke="url(#mg)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M30.5 18.5C28.7 18.5 27.4 16.4 25.7 13.6 23.8 10.5 22.5 8.4 20.7 8.4" stroke="url(#mg)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M30.5 18.5C33 18.5 34 16 34 12.5 34 7.5 31.5 4.5 28.5 4.5" stroke="url(#mg)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+
+    <div class="item"><div class="acct"><i></i></div></div>
+
+    <!-- home -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M9.5 20v-6h5v6"/></svg></div>
+    <!-- bell -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot"></span></div>
+    <!-- A / AI -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M9 16 12 7.8 15 16"/><path d="M10.2 13.4h3.6"/></svg></div>
+    <!-- chat -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8A8.5 8.5 0 0 1 12.5 3a8.38 8.38 0 0 1 8.5 8.5z"/></svg><span class="dot"></span></div>
+    <!-- layers -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg></div>
+    <!-- grid ACTIVE -->
+    <div class="item active"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
+    <!-- megaphone -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><path d="m3 11 14-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/><path d="M17 7a4 4 0 0 1 0 6"/></svg></div>
+    <!-- bar chart -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><line x1="6" y1="20" x2="6" y2="14"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="10"/></svg></div>
+    <!-- menu -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></div>
+    <!-- dollar -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M15 9.3A2.6 2.6 0 0 0 12.6 8h-1.3a2 2 0 0 0 0 4h1.4a2 2 0 0 1 0 4h-1.4A2.6 2.6 0 0 1 9 14.7"/><line x1="12" y1="6.6" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="17.4"/></svg></div>
+    <!-- files -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></div>
+    <!-- people -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+    <!-- share -->
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="10.5" x2="15.4" y2="6.5"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/></svg></div>
+
+    <div class="spacer"></div>
+
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+    <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+  </div>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main">
+
+    <div class="topbar">
+      <div>
+        <h1>Planner</h1>
+        <div class="sub">Plan your marketing calendar by creating, scheduling, and managing your content.</div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost"><svg class="ic" viewBox="0 0 24 24"><path d="m3 11 14-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Create ad</button>
+        <div class="split">
+          <button class="btn primary"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>Create post</button>
+          <button class="btn caret"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px;"><polyline points="6 9 12 15 18 9"/></svg></button>
+        </div>
+        <div class="avatar"></div>
+      </div>
+    </div>
+
+    <!-- toolbar: calendar controls + side dropdowns -->
+    <div class="toolbar">
+      <div class="calbar">
+        <div class="left">
+          <div class="seg"><button class="on">Week</button><button>Month</button></div>
+          <button class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <button class="today">Today</button>
+          <button class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
+        </div>
+        <div class="month">June <b>2026</b></div>
+        <div></div>
+      </div>
+      <div class="sidetools">
+        <button class="dd">Content type: all <svg class="ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <button class="dd">Shared to: all <svg class="ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- ===== calendar ===== -->
+      <div class="cal">
+        <div class="row7">
+          <div class="dayhead">Sun 31</div>
+          <div class="dayhead">Mon 1</div>
+          <div class="dayhead">Tue 2</div>
+          <div class="dayhead">Wed 3</div>
+          <div class="dayhead">Thu 4</div>
+          <div class="dayhead">Fri 5</div>
+          <div class="dayhead">Sat 6</div>
+        </div>
+        <div class="row7">
+          <div class="daycol"></div>
+          <div class="daycol"></div>
+          <div class="daycol"></div>
+          <div class="daycol"></div>
+          <div class="daycol"></div>
+          <div class="daycol"></div>
+
+          <!-- Saturday: two failed uploads -->
+          <div class="daycol">
+
+            <div class="card">
+              <div class="chead"><svg class="ic" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>12:30 PM</div>
+              <div class="thumb">
+                <div class="err-badge"><svg class="ic" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><line x1="12" y1="9" x2="12" y2="13.5"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/></svg></div>
+                <div class="carousel"><svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/></svg></div>
+                <div class="net fb"><svg class="ic" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M13 22v-8h2.7l.5-3.2H13V8.7c0-.9.3-1.6 1.7-1.6H16V4.2C15.4 4.1 14.5 4 13.5 4 11.2 4 9.7 5.4 9.7 8.3v2.5H7V14h2.7v8z"/></svg></div>
+              </div>
+              <div class="cbody"><svg class="ic" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><line x1="12" y1="9" x2="12" y2="13.5"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/></svg>Failed to upload<span class="retry">Retry</span></div>
+            </div>
+
+            <div class="card">
+              <div class="chead"><svg class="ic" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>12:30 PM</div>
+              <div class="thumb">
+                <div class="err-badge"><svg class="ic" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><line x1="12" y1="9" x2="12" y2="13.5"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/></svg></div>
+                <div class="carousel"><svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/></svg></div>
+                <div class="net ig"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg></div>
+              </div>
+              <div class="cbody"><svg class="ic" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><line x1="12" y1="9" x2="12" y2="13.5"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/></svg>Failed to upload<span class="retry">Retry</span></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== right panel ===== -->
+      <div class="side">
+        <div class="tabs"><span class="on">Goals</span><span>Moments</span><span>Drafts</span></div>
+        <div class="goalh"><svg class="ic" viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>Goals</div>
+        <div class="goalrow">
+          <div class="pic"><svg class="ic" viewBox="0 0 24 24"><path d="M4 21V4"/><path d="M4 5h11l-1.5 3L15 11H4"/></svg></div>
+          <p>Set a goal, track progress and learn helpful tips for your professional success.</p>
+        </div>
+        <button class="startbtn">Start new goal</button>
+        <div class="boostnote"><svg class="ic" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>Consider boosting a recent post so audiences that don't follow you may see it.</div>
+        <button class="boostbtn">Boost</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

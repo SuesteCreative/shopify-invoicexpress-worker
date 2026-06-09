@@ -48,6 +48,42 @@ function bareConsumidorFinal(client: any): any {
   return { name: "Consumidor Final", country: (client && client.country) || "Portugal" };
 }
 
+/**
+ * When a shop sets force_tax_rate > 0 it means "charge this rate on EVERY sale,
+ * including foreign clients" (e.g. a PT ticket office: place-of-supply is always
+ * PT, never intra-EU exempt). But the builder sends the line tax as a bare NUMBER
+ * (the rate), and IX's `on_tax_fallback_search_tax_by_value` resolver then falls
+ * back to "Isento" (0%) for non-PT clients because the matching account tax is
+ * region PT. Result: foreign invoices wrongly went out at 0%.
+ *
+ * Fix (verified live against IX with a France client + IVA6 draft): send the tax
+ * EXPLICITLY as the account's tax object {id,name,value}. IX then honours it for
+ * any client country instead of falling back to Isento. We only do this for lines
+ * whose numeric tax equals the forced rate, and only when force_tax_rate > 0, so
+ * shops that legitimately exempt foreign sales (exports/OSS) are untouched.
+ */
+async function resolveExplicitForcedTax(
+  ixHeaders: IxHeaders,
+  data: any,
+  forceTaxRate: number,
+): Promise<void> {
+  const items: any[] = Array.isArray(data?.items) ? data.items : [];
+  if (!items.some((it) => typeof it?.tax === "number" && it.tax === forceTaxRate)) return;
+  try {
+    const { data: taxData, error } = await IxApi.v2.taxes.get({ headers: ixHeaders });
+    if (error) return;
+    const list: any[] = (taxData as any)?.taxes ?? (taxData as any)?.data?.taxes ?? (taxData as any)?.data ?? [];
+    const match = list.find((t: any) => Number(t?.value) === forceTaxRate);
+    if (!match?.id) return; // no matching account tax — leave numeric, let resolver try
+    const explicit = { id: Number(match.id), name: String(match.name), value: Number(match.value) };
+    for (const it of items) {
+      if (typeof it?.tax === "number" && it.tax === forceTaxRate) it.tax = explicit;
+    }
+  } catch {
+    // best-effort: on any failure leave the numeric tax (current behaviour)
+  }
+}
+
 export interface IxCreateOutcome {
   /** The raw IX SDK response of the attempt that was returned (success or final failure). */
   res: any;
@@ -64,8 +100,15 @@ export async function createIxInvoiceWithFallback(
   ixHeaders: IxHeaders,
   data: any,
   docType: "invoice" | "invoice_receipt",
+  opts?: { forceTaxRate?: number | null },
 ): Promise<IxCreateOutcome> {
   const query = { resolvers: "on_tax_fallback_search_tax_by_value" as const };
+
+  // 0. Force a positive forced rate to be sent as an explicit account tax so IX
+  //    applies it to foreign clients too (instead of falling back to Isento).
+  if (typeof opts?.forceTaxRate === "number" && opts.forceTaxRate > 0) {
+    await resolveExplicitForcedTax(ixHeaders, data, opts.forceTaxRate);
+  }
 
   // 1. Normal create, with transient retry.
   let res: any;

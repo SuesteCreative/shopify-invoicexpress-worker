@@ -31,6 +31,10 @@ export type Row = {
         permalink: string | null;
         pdf_url: string | null;
         client_name: string | null;
+        /** Invoice is known to exist (we hold its id) but its details couldn't be
+         * loaded from InvoiceXpress this round. Show "fatura emitida (detalhe
+         * indisponível)" — never the false "Sem fatura emitida" alarm. */
+        meta_unavailable?: boolean;
     } | null;
     candidates: Array<{
         id: string;
@@ -199,6 +203,12 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                                 <span className="text-[10px] font-bold text-fg-40">{fmtDate(row.invoice.date)}</span>
                             )}
                         </div>
+                        {row.invoice.meta_unavailable && (
+                            <p className="text-[10px] font-medium text-soon flex items-center gap-1 mt-0.5">
+                                <AlertCircle className="w-3 h-3 shrink-0" />
+                                Fatura emitida (id {row.invoice.id}) — detalhe do InvoiceXpress indisponível de momento. Atualiza daqui a pouco.
+                            </p>
+                        )}
                         <div className="flex flex-wrap gap-2 mt-1">
                             {row.invoice.pdf_url && (
                                 <a href={row.invoice.pdf_url} target="_blank" rel="noopener noreferrer"

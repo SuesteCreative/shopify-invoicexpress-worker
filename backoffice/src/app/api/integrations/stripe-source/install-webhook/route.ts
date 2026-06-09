@@ -47,9 +47,13 @@ export async function POST(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const body = await request.json().catch(() => ({})) as { restricted_key?: string };
+    const body = await request.json().catch(() => ({})) as { restricted_key?: string; connect?: boolean };
     const restrictedKey = (body.restricted_key || "").trim();
     if (!restrictedKey) return NextResponse.json({ error: "Missing restricted_key" }, { status: 400 });
+    // Stripe Connect direct charges: events fire on the connected account and
+    // are only delivered to a Connect endpoint (connect=true). A plain account
+    // endpoint never receives them. https://docs.stripe.com/connect/webhooks
+    const isConnect = body.connect === true;
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -70,38 +74,79 @@ export async function POST(request: NextRequest) {
     const workerUrl = (process.env.WORKER_URL || RIOKO_CONFIG.workerUrl).replace(/\/$/, "");
     const webhookUrl = `${workerUrl}/webhooks/stripe`;
 
-    // Stripe API form-encodes parameters; arrays use bracketed indices.
-    const form = new URLSearchParams();
-    form.set("url", webhookUrl);
-    form.set("description", "Rioko 2.0 — auto-installed");
-    ENABLED_EVENTS.forEach((evt, i) => form.set(`enabled_events[${i}]`, evt));
+    // Connect: ONE endpoint serves every connected account on a platform. If each
+    // connected-account connection created its own endpoint, Stripe would fan each
+    // event out to all of them — each signed with a different secret — and the
+    // worker (which routes by event.account to a single row) would reject every
+    // delivery except the one matching that row's secret. So for Connect we reuse
+    // the platform's existing endpoint id + secret across all connections.
+    let platformAccountId: string | undefined;
+    let endpointId: string | undefined;
+    let signingSecret: string | undefined;
+    let reused = false;
 
-    let stripeResp: Response;
-    try {
-        stripeResp = await fetch("https://api.stripe.com/v1/webhook_endpoints", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${restrictedKey}`,
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Stripe-Version": "2024-12-18.acacia",
-            },
-            body: form.toString(),
-        });
-    } catch (e: any) {
-        return NextResponse.json({ error: `Network error calling Stripe: ${e.message}` }, { status: 502 });
+    if (isConnect) {
+        platformAccountId = await fetchPlatformAccountId(restrictedKey);
+        if (platformAccountId) {
+            const existing: any = await db
+                .prepare(
+                    `SELECT source_config_json FROM connections
+                     WHERE source_kind = 'stripe'
+                       AND json_extract(source_config_json, '$.platform_account_id') = ?
+                       AND json_extract(source_config_json, '$.webhook_secret') IS NOT NULL
+                       AND json_extract(source_config_json, '$.webhook_endpoint_id') IS NOT NULL
+                     LIMIT 1`
+                )
+                .bind(platformAccountId)
+                .first();
+            if (existing?.source_config_json) {
+                const ecfg = JSON.parse(existing.source_config_json);
+                if (ecfg.webhook_secret && ecfg.webhook_endpoint_id) {
+                    endpointId = ecfg.webhook_endpoint_id;
+                    signingSecret = ecfg.webhook_secret;
+                    reused = true;
+                }
+            }
+        }
     }
 
-    const stripeBody: any = await stripeResp.json().catch(() => ({}));
-    if (!stripeResp.ok) {
-        const msg = stripeBody?.error?.message || `Stripe returned ${stripeResp.status}`;
-        const code = stripeBody?.error?.code || "stripe_error";
-        return NextResponse.json({ error: msg, stripe_code: code, stripe_status: stripeResp.status }, { status: 400 });
-    }
+    if (!reused) {
+        // Stripe API form-encodes parameters; arrays use bracketed indices.
+        const form = new URLSearchParams();
+        form.set("url", webhookUrl);
+        form.set("description", `Rioko 2.0 — auto-installed${isConnect ? " (Connect)" : ""}`);
+        ENABLED_EVENTS.forEach((evt, i) => form.set(`enabled_events[${i}]`, evt));
+        // connect=true makes Stripe deliver events from all connected accounts to
+        // this single platform endpoint, each carrying a top-level `account` field.
+        if (isConnect) form.set("connect", "true");
 
-    const endpointId = stripeBody.id as string | undefined;
-    const signingSecret = stripeBody.secret as string | undefined;
-    if (!endpointId || !signingSecret) {
-        return NextResponse.json({ error: "Stripe response missing id/secret", raw: stripeBody }, { status: 502 });
+        let stripeResp: Response;
+        try {
+            stripeResp = await fetch("https://api.stripe.com/v1/webhook_endpoints", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${restrictedKey}`,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Stripe-Version": "2024-12-18.acacia",
+                },
+                body: form.toString(),
+            });
+        } catch (e: any) {
+            return NextResponse.json({ error: `Network error calling Stripe: ${e.message}` }, { status: 502 });
+        }
+
+        const stripeBody: any = await stripeResp.json().catch(() => ({}));
+        if (!stripeResp.ok) {
+            const msg = stripeBody?.error?.message || `Stripe returned ${stripeResp.status}`;
+            const code = stripeBody?.error?.code || "stripe_error";
+            return NextResponse.json({ error: msg, stripe_code: code, stripe_status: stripeResp.status }, { status: 400 });
+        }
+
+        endpointId = stripeBody.id as string | undefined;
+        signingSecret = stripeBody.secret as string | undefined;
+        if (!endpointId || !signingSecret) {
+            return NextResponse.json({ error: "Stripe response missing id/secret", raw: stripeBody }, { status: 502 });
+        }
     }
 
     const newCfg = {
@@ -109,6 +154,8 @@ export async function POST(request: NextRequest) {
         restricted_key: cfg.restricted_key || restrictedKey,
         webhook_secret: signingSecret,
         webhook_endpoint_id: endpointId,
+        is_connect: isConnect,
+        ...(platformAccountId ? { platform_account_id: platformAccountId } : {}),
     };
 
     const now = new Date().toISOString();
@@ -121,5 +168,28 @@ export async function POST(request: NextRequest) {
         webhook_endpoint_id: endpointId,
         webhook_url: webhookUrl,
         enabled_events: ENABLED_EVENTS,
+        reused_platform_endpoint: reused,
     });
+}
+
+/**
+ * The connected-account endpoint reuse needs a stable platform identity. A
+ * restricted key's GET /account returns the account that owns the key (the
+ * platform). Returns undefined on any failure — caller falls back to creating a
+ * fresh endpoint rather than blocking install.
+ */
+async function fetchPlatformAccountId(restrictedKey: string): Promise<string | undefined> {
+    try {
+        const res = await fetch("https://api.stripe.com/v1/account", {
+            headers: {
+                "Authorization": `Bearer ${restrictedKey}`,
+                "Stripe-Version": "2024-12-18.acacia",
+            },
+        });
+        if (!res.ok) return undefined;
+        const body: any = await res.json();
+        return typeof body?.id === "string" ? body.id : undefined;
+    } catch {
+        return undefined;
+    }
 }

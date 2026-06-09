@@ -28,6 +28,13 @@ export default async function DevModePage({ params }: { params: Promise<{ id: st
 
     if (!target) notFound();
 
+    // Stripe-only customers (e.g. Mafalda) have no shopify_domain on their
+    // integrations row. We surface the Stripe connection here so the panel can
+    // render Stripe-flavored Dev Mode cards.
+    const stripeConn: any = await db.prepare(
+        "SELECT id, status FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1"
+    ).bind(id).first();
+
     return (
         <DevModePanel
             target={{
@@ -42,6 +49,7 @@ export default async function DevModePage({ params }: { params: Promise<{ id: st
                 ix_authorized: !!target.ix_authorized,
                 shopify_error: target.shopify_error,
                 ix_error: target.ix_error,
+                stripe_connection: stripeConn ? { id: stripeConn.id, status: stripeConn.status } : null,
             }}
         />
     );

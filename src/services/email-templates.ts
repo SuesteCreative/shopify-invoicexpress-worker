@@ -683,6 +683,11 @@ export interface WeeklyUnprocessedItem {
   severity?: Severity;
   /** Order/payment references still missing an invoice (empty for account-level). */
   missingIds: string[];
+  /**
+   * Human Shopify order numbers (#1234) shown to the merchant, parallel to
+   * missingIds. Falls back to missingIds when not provided.
+   */
+  missingLabels?: string[];
 }
 
 /**
@@ -706,10 +711,16 @@ export function tplWeeklyUnprocessed(input: {
 
   const rows = input.items.map((it) => {
     const sevColor = severityColor(it.severity);
-    const idChips = it.missingIds.length
-      ? `<div style="margin-top:8px">${it.missingIds.slice(0, 12).map((id) =>
-          `<span style="display:inline-block;background:${BRAND.chipBg};border:1px solid ${BRAND.borderSubtle};color:${BRAND.text};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:4px 8px;border-radius:5px;margin:0 4px 4px 0">${escapeHtml(id)}</span>`
-        ).join("")}${it.missingIds.length > 12 ? `<span style="font-size:12px;color:${BRAND.muted}">… e mais ${it.missingIds.length - 12}</span>` : ""}</div>`
+    // Prefer the human order numbers (#1234); fall back to raw ids per-slot.
+    const labels = it.missingIds.map((id, i) => it.missingLabels?.[i] ?? id);
+    const idChips = labels.length
+      ? `<div style="margin-top:8px">${labels.slice(0, 12).map((label) => {
+          // Deep-link each chip to that order in the reconciliation page. Strip the
+          // leading "#" so the query matches order_number; the search box also
+          // matches the "#1234" name, so either form resolves.
+          const q = encodeURIComponent(String(label).replace(/^#/, ""));
+          return `<a href="${dashboardUrl}/conciliacao?order=${q}" style="text-decoration:none"><span style="display:inline-block;background:${BRAND.chipBg};border:1px solid ${BRAND.borderSubtle};color:${BRAND.blue};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:4px 8px;border-radius:5px;margin:0 4px 4px 0">${escapeHtml(label)}</span></a>`;
+        }).join("")}${labels.length > 12 ? `<span style="font-size:12px;color:${BRAND.muted}">… e mais ${labels.length - 12}</span>` : ""}</div>`
       : "";
     return `<tr>
       <td style="padding:14px 0;border-bottom:1px solid ${BRAND.border};vertical-align:top;width:8px">
@@ -754,7 +765,7 @@ export function tplWeeklyUnprocessed(input: {
             <tbody>${rows}</tbody>
           </table>
           <div style="margin-top:24px">
-            ${ctaButton("Abrir painel", dashboardUrl)}
+            ${ctaButton("Abrir conciliação", `${dashboardUrl}/conciliacao`)}
           </div>
         </td></tr>
         <tr><td class="footer-bg" bgcolor="${BRAND.cardBgAlt}" style="background-color:${BRAND.cardBgAlt};padding:24px 32px;border-top:1px solid ${BRAND.border};text-align:center">

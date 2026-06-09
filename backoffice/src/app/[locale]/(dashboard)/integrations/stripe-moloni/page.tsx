@@ -47,6 +47,7 @@ export default function StripeMoloniIntegration() {
     const [stripeAccountId, setStripeAccountId] = useState("");
     const [restrictedKey, setRestrictedKey] = useState("");
     const [webhookSecret, setWebhookSecret] = useState("");
+    const [connectMode, setConnectMode] = useState(false);
     const [hasStripeSaved, setHasStripeSaved] = useState(false);
     const [hasWebhookSaved, setHasWebhookSaved] = useState(false);
     const [stripeError, setStripeError] = useState("");
@@ -92,6 +93,7 @@ export default function StripeMoloniIntegration() {
             const conn = stripe?.connection;
             const sCfg = conn?.source_config ?? {};
             if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
+            if (typeof sCfg.is_connect === "boolean") setConnectMode(sCfg.is_connect);
             const stripeSaved = !!sCfg.stripe_account_id;
             const webhookSaved = !!sCfg.has_webhook_secret;
             setHasStripeSaved(stripeSaved);
@@ -139,6 +141,7 @@ export default function StripeMoloniIntegration() {
             body: JSON.stringify({
                 stripe_account_id: stripeAccountId,
                 destination_kind: "moloni",
+                is_connect: connectMode,
                 ...patch
             })
         });
@@ -165,7 +168,7 @@ export default function StripeMoloniIntegration() {
             const instRes = await fetch("/api/integrations/stripe-source/install-webhook", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ restricted_key: restrictedKey.trim() })
+                body: JSON.stringify({ restricted_key: restrictedKey.trim(), connect: connectMode })
             });
             const instData: any = await instRes.json().catch(() => ({}));
             if (!instRes.ok) {
@@ -369,9 +372,17 @@ export default function StripeMoloniIntegration() {
                             </ol>
                         </div>
                     </div>
+                    <div className="md:col-span-2 glass p-6 rounded-2xl flex items-center justify-between gap-4 border-hairline">
+                        <div className="min-w-0">
+                            <h3 className="font-bold text-sm">{t("connectModeTitle")}</h3>
+                            <p className="text-[11px] text-fg-60 font-medium mt-1 leading-relaxed">{t("connectModeHint")}</p>
+                        </div>
+                        <button type="button" onClick={() => setConnectMode(!connectMode)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 shrink-0 ${connectMode ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${connectMode ? "left-7" : "left-1"}`} /></button>
+                    </div>
                     <div className="space-y-3">
-                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("stripeAccountIdLabel")}</label>
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{connectMode ? t("connectedAccountIdLabel") : t("stripeAccountIdLabel")}</label>
                         <input type="text" value={stripeAccountId} onChange={(e) => setStripeAccountId(e.target.value)} placeholder={t("stripeAccountIdPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                        {connectMode && <p className="text-[10px] text-fg-40 ml-1">{t("connectedAccountIdHint")}</p>}
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("restrictedKeyLabel")}</label>
@@ -403,6 +414,7 @@ export default function StripeMoloniIntegration() {
                                             </button>
                                         </div>
                                         <p className="text-[10px] text-fg-40 ml-1 mt-1">{t("eventsToSelect", { events: RECOMMENDED_EVENTS.join(", ") })}</p>
+                                        {connectMode && <p className="text-[10px] text-soon ml-1 mt-1">{t("connectEndpointNote")}</p>}
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] ml-1">{t("signingSecret")}</label>

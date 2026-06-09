@@ -20,7 +20,7 @@ export async function submitInvoiceForPendingRow(
   row: PendingReverseChargeRow,
   disposition: DispositionFor,
 ): Promise<{ ok: boolean; invoiceId?: string; error?: string }> {
-  const appStorage = new AppStorage(env, row.shopify_domain);
+  const appStorage = new AppStorage(env, row.shopify_domain ?? undefined, row.user_id ?? undefined);
   const config = await appStorage.loadConfig();
   if (!config) return { ok: false, error: "No config for shop" };
 
@@ -66,7 +66,9 @@ export async function submitInvoiceForPendingRow(
     return { ok: false, error: "IX create returned no id" };
   }
 
-  await appStorage.saveProcessedInvoice(row.order_id, String(invoiceId));
+  // Infer source: Stripe-only users have no shopify_domain on the pending row.
+  const sourceKind = row.shopify_domain ? "shopify" as const : "stripe" as const;
+  await appStorage.saveProcessedInvoice(row.order_id, String(invoiceId), { sourceKind });
   await appStorage.resolvePending(row.id, disposition === "apply" ? "approved" : "rejected");
   await appStorage.saveLog({
     shopify_domain: row.shopify_domain,
@@ -103,7 +105,7 @@ export async function runViesRetry(env: Env): Promise<{ retried: number; resolve
         const nextAttempt = row.attempts + 1;
         const backoffIdx = Math.min(nextAttempt - 1, RETRY_BACKOFF_MS.length - 1);
         const nextRetryAt = new Date(Date.now() + RETRY_BACKOFF_MS[backoffIdx]).toISOString();
-        const storage = new AppStorage(env, row.shopify_domain);
+        const storage = new AppStorage(env, row.shopify_domain ?? undefined, row.user_id ?? undefined);
         await storage.markPendingAttempt(row.id, nextAttempt, nextRetryAt, "VIES unknown (timeout/5xx)");
         summary.deferred++;
       }
@@ -113,7 +115,7 @@ export async function runViesRetry(env: Env): Promise<{ retried: number; resolve
   // Pass 2: rows that have exhausted retries but haven't opened an incident yet.
   const needsIncident = await rootStorage.getPendingNeedingIncident(50);
   for (const row of needsIncident) {
-    const storage = new AppStorage(env, row.shopify_domain);
+    const storage = new AppStorage(env, row.shopify_domain ?? undefined, row.user_id ?? undefined);
     const config = await storage.loadConfig();
     if (!config) continue;
     let orderNumber: string | number = row.order_id;
@@ -135,7 +137,7 @@ export async function runViesRetry(env: Env): Promise<{ retried: number; resolve
         viesValidationUrl: "https://viesvalidation.com/pt/",
       },
       affected_ids: [String(row.order_id)],
-      connection_label: "shopify → invoicexpress",
+      connection_label: row.shopify_domain ? "shopify → invoicexpress" : "stripe → invoicexpress",
       bucket: "daily",
     });
 
@@ -147,7 +149,7 @@ export async function runViesRetry(env: Env): Promise<{ retried: number; resolve
 }
 
 async function markRowError(env: Env, row: PendingReverseChargeRow, err: string) {
-  const storage = new AppStorage(env, row.shopify_domain);
+  const storage = new AppStorage(env, row.shopify_domain ?? undefined, row.user_id ?? undefined);
   const nextAttempt = row.attempts + 1;
   const backoffIdx = Math.min(nextAttempt - 1, RETRY_BACKOFF_MS.length - 1);
   const nextRetryAt = new Date(Date.now() + RETRY_BACKOFF_MS[backoffIdx]).toISOString();

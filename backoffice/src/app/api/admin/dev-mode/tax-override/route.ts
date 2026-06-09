@@ -15,9 +15,10 @@ export async function GET(request: NextRequest) {
     if (!targetUserId) return NextResponse.json({ error: "Missing targetUserId" }, { status: 400 });
 
     const shop = await resolveShopForUser(targetUserId);
-    if (!shop) return NextResponse.json({ error: "Target user has no shopify_domain" }, { status: 404 });
-
-    const { ok, status, data } = await callWorkerJson(`/admin/tax-override?shop=${encodeURIComponent(shop)}`);
+    const qs = shop
+        ? `shop=${encodeURIComponent(shop)}`
+        : `user_id=${encodeURIComponent(targetUserId)}`;
+    const { ok, status, data } = await callWorkerJson(`/admin/tax-override?${qs}`);
     return NextResponse.json(data, { status: ok ? 200 : status });
 }
 
@@ -35,12 +36,11 @@ export async function PUT(request: NextRequest) {
         ix_b2b_exemption_reason?: string;
     };
     const shop = await resolveShopForUser(body.targetUserId);
-    if (!shop) return NextResponse.json({ error: "Target user has no shopify_domain" }, { status: 404 });
-
     const { ok, status, data } = await callWorkerJson("/admin/tax-override", {
         method: "PUT",
         body: JSON.stringify({
-            shop,
+            shop: shop ?? undefined,
+            user_id: shop ? undefined : body.targetUserId,
             force_tax_rate: body.force_tax_rate,
             force_shipping_tax_rate: body.force_shipping_tax_rate,
             oss_enabled: body.oss_enabled,

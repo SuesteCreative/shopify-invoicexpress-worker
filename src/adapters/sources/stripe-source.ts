@@ -1,5 +1,6 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
+import { stripeFetch } from "../../services/stripe";
 
 /**
  * Verifies a Stripe webhook signature per
@@ -112,16 +113,16 @@ function taxIdsToNoteAttributes(taxIds: any): any[] {
  *
  * Failures are swallowed: the worst case is we miss a B2B VAT, but the
  * invoice still gets created for the buyer.
+ *
+ * For Stripe Connect direct charges the Customer lives on the connected
+ * account, so `stripeAccount` (acct_…) must be passed or the expand returns
+ * "no such customer" against the platform.
  */
-async function fetchCustomerTaxIds(customerId: string, restrictedKey: string): Promise<any[]> {
+async function fetchCustomerTaxIds(customerId: string, restrictedKey: string, stripeAccount?: string | null): Promise<any[]> {
   try {
-    const url = `https://api.stripe.com/v1/customers/${encodeURIComponent(customerId)}?expand[]=tax_ids`;
-    const res = await fetch(url, {
-      headers: {
-        "Authorization": `Bearer ${restrictedKey}`,
-        "Stripe-Version": "2024-12-18.acacia",
-      },
-    });
+    const query = new URLSearchParams();
+    query.append("expand[]", "tax_ids");
+    const res = await stripeFetch(`customers/${encodeURIComponent(customerId)}`, restrictedKey, { stripeAccount, query });
     if (!res.ok) {
       console.warn(`[Stripe] Customer expand failed (${res.status}) for ${customerId}`);
       return [];
@@ -543,9 +544,13 @@ export class StripeSource implements SourceAdapter {
     const obj = event?.data?.object;
     const isSession = event?.type === "checkout.session.completed";
     const restrictedKey = ctx.sourceConfig?.restricted_key as string | undefined;
+    // Connect direct charges: the connected account id is on `event.account`
+    // for webhook events; fall back to the connection's stored id (backfill/
+    // reemit synthesize events that carry no `account`).
+    const stripeAccount = (event?.account as string | undefined) ?? (ctx.sourceConfig?.stripe_account_id as string | undefined);
 
     if (!isSession && restrictedKey && obj?.customer && typeof obj.customer === "string") {
-      const taxIds = await fetchCustomerTaxIds(obj.customer, restrictedKey);
+      const taxIds = await fetchCustomerTaxIds(obj.customer, restrictedKey, stripeAccount);
       if (taxIds.length > 0) {
         const extra = taxIdsToNoteAttributes(taxIds);
         normalized.order.note_attributes = [

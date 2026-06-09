@@ -18,9 +18,9 @@ export async function GET(request: NextRequest) {
     if (!targetUserId) return NextResponse.json({ error: "Missing targetUserId" }, { status: 400 });
 
     const shop = await resolveShopForUser(targetUserId);
-    if (!shop) return NextResponse.json({ error: "Target user has no shopify_domain" }, { status: 404 });
-
-    const qs = new URLSearchParams({ shop, type, limit });
+    const qs = new URLSearchParams({ type, limit });
+    if (shop) qs.set("shop", shop);
+    else qs.set("user_id", targetUserId);
     const { ok, status, data } = await callWorkerJson(`/admin/logs?${qs.toString()}`);
     return NextResponse.json(data, { status: ok ? 200 : status });
 }

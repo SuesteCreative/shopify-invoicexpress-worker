@@ -191,3 +191,21 @@ Vanessa Holler (soulkrave), Stella Carvalho, Benedita Homem de Gouveia.
 
 ### Deferred (this pass)
 - [ ] Shopify `webhook_invalid_signature` (Vanessa's stale per-shop secret) — skipped per user. Blocks her NEW orders auto-enqueueing; existing backlog still recoverable via conciliação/backfill.
+
+---
+
+## Audit — 2026-06-09 — Incidente zoolagos "faturas por emitir"
+
+Cliente Pedro Botelho (`zoolagos.myshopify.com`, IX `pelicanzooparquez`, bilheteira de zoo).
+Verificação autoritativa: 253 pagas (90d) · 222 com invoice_id · **213+ confirmadas no IX, 0 perdidas** · **26 PT‑6% mesmo por emitir** · ~120 estrangeiras emitidas a 0%.
+
+### Critical
+- [x] **Phantom "Sem fatura"** — `getReconciliation` dispara 1 fetch/fatura via `Promise.all` sem cap (200+ GETs paralelos ao proxy `ix-proxy.kapta.app`); sob carga muitos devolvem null e faturas EMITIDAS são mostradas como "Sem fatura emitida". Fix: cap de concorrência (6) + retry, e **nunca** marcar "none" quando há `invoice_id` na BD (estado `meta_unavailable`). Worker `src/handlers/reconciliation.ts` + frontend `ReconciliationRow.tsx`.
+- [ ] **Erros IX engolidos** — `orders-created.ts:157` faz `console.log(ixCreateResponse)` (efémero) mas grava só "Failed to create invoice" na BD/incidente. Sem rasto de causa. Fix: persistir `ixCreateResponse.error` em `logs.response` + `incidents.detail_json`.
+- [ ] **26 PT‑6% por emitir** (3–8 jun) — [OPS] precisa erro real do IX (clique "Emitir" em #ZL1206 ou `ADMIN_API_KEY` atual) → corrigir raiz → reemitir as 26. Lista: 1037,1038,1039,1054,1056,1064,1066,1070,1072,1074,1090,1091,1098,1100,1102,1128,1133,1146,1149,1188,1189,1193,1206,1216,1218,1229.
+
+### High
+- [ ] **~120 estrangeiras a 0% Isento** — deviam ser 6% PT (bilheteira, lugar de prestação = PT). Resolver IX `on_tax_fallback_search_tax_by_value` faz fallback p/ Isento em clientes não‑PT (não há taxa 6% "estrangeira" na conta). Fix forward [CODE]: enviar taxa explícita (id/nome `IVA6`) em vez de depender do search‑by‑value, ou gate por config. Correção do passado [OPS, sensível]: nota de crédito + reemissão a 6% — **só com OK do contabilista**.
+
+### Medium
+- [ ] **Sem cache de meta de fatura** — conciliação refaz todos os GETs ao IX a cada load. Guardar reference/total/date em `processed_orders` na emissão; conciliação lê da BD e só vai ao IX para os que faltam. Mata a causa-raiz da carga no proxy.

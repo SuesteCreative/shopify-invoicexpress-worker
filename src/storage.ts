@@ -214,6 +214,30 @@ export class AppStorage {
     }
   }
 
+  // Reconciliation invoice-meta cache (KV). The conciliação view used to re-fetch
+  // every invoice's metadata from the IX proxy on EVERY load — a 200-order shop
+  // hammered ix-proxy.kapta.app with 200 reads per refresh, which is the root
+  // cause of the "phantom Sem fatura" (proxy overload → null metas). We cache the
+  // immutable-ish meta (reference/total/date/permalink) keyed by invoice id so
+  // subsequent loads read from KV instead. 24h TTL: ref/total/date never change;
+  // only `status` can drift (draft→final), which is harmless for a matching view.
+  async getCachedInvoiceMetas(invoiceIds: string[]): Promise<Map<string, any>> {
+    const map = new Map<string, any>();
+    await Promise.all(invoiceIds.map(async (id) => {
+      try {
+        const v = await this.kv.get(`ixmeta:${id}`);
+        if (v) map.set(String(id), JSON.parse(v));
+      } catch { /* treat as cache miss */ }
+    }));
+    return map;
+  }
+
+  async cacheInvoiceMeta(invoiceId: string, meta: any): Promise<void> {
+    try {
+      await this.kv.put(`ixmeta:${invoiceId}`, JSON.stringify(meta), { expirationTtl: 86400 });
+    } catch { /* best-effort cache; a miss just refetches */ }
+  }
+
   async deleteProcessedInvoice(orderId: string, sourceKind?: SourceKind) {
     const newKey = `${sourceKind ?? "shopify"}_order:${orderId}`;
     const legacyKey = `shopify_order:${orderId}`;

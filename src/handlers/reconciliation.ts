@@ -165,11 +165,25 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
     if (!orderToInvoice.has(orderId)) orderToInvoice.set(orderId, m.invoice_id);
   }
 
-  // 5. Fetch invoice metadata with bounded concurrency (see mapWithConcurrency).
+  // 5. Resolve invoice metadata: KV cache FIRST (so we stop hammering the IX
+  //    proxy with one read per invoice on every load — the load that overwhelmed
+  //    the proxy and produced the phantom "Sem fatura"). On a cache miss we fetch
+  //    from IX with bounded concurrency + retry (as before) and write the result
+  //    back to KV, so the cache warms itself and subsequent loads are proxy-free.
   const invoiceEntries = Array.from(orderToInvoice.entries());
+  const cachedMetas = await appStorage.getCachedInvoiceMetas(invoiceEntries.map(([, invoiceId]) => invoiceId));
   const invoiceMetas = await mapWithConcurrency(
     invoiceEntries, 6,
-    ([orderId, invoiceId]) => fetchInvoiceMeta(config, invoiceId, orderId)
+    async ([orderId, invoiceId]) => {
+      const cached = cachedMetas.get(String(invoiceId));
+      if (cached) return { ...cached, order_id_link: orderId } as InvoiceMeta;
+      const meta = await fetchInvoiceMeta(config, invoiceId, orderId);
+      if (meta) {
+        const { order_id_link, ...store } = meta;
+        await appStorage.cacheInvoiceMeta(invoiceId, store);
+      }
+      return meta;
+    }
   );
   const invoicesByOrderId = new Map<string, InvoiceMeta>();
   const allInvoiceMetas: InvoiceMeta[] = [];

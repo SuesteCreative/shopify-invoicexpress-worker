@@ -129,6 +129,7 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     ixHeaders,
     invoice,
     config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+    { forceTaxRate: config.force_tax_rate },
   );
 
   if (ixCreateResponse.data?.data?.id) {

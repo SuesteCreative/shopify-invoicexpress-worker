@@ -4,10 +4,13 @@ import type { PostV2CreditNotesData, PostV2InvoicesData } from "../api/ix/client
 import { validatePTNIF } from "./nif";
 import { isCrossBorderEU } from "./eu-countries";
 import type { ViesChecker } from "./vies";
-import { computeExpectedGross, reconcileTotalOrThrow, type ReconcileLine } from "../adapters/reconcile";
+import { computeExpectedGross, computeResidual, reconcileTotalOrThrow, type ReconcileLine } from "../adapters/reconcile";
 import { format } from "date-fns";
 
 export type IxInvoice = NonNullable<PostV2InvoicesData["body"]>["invoice"];
+
+/** Sentinel name for the auto-inserted rounding-adjustment line. */
+const ROUNDING_ADJ_NAME = "Ajuste de arredondamento";
 export type IxCreditNote = NonNullable<PostV2CreditNotesData["body"]>["credit_note"];
 
 /**
@@ -221,6 +224,36 @@ export class IxBuilder {
     });
   }
 
+  // Sub-cent per-line rounding (each IX line rounds to 2dp) accumulates on long
+  // discounted orders: a 19-line order drifted 0.28€ and the reconcile guard
+  // aborted it, leaving it unbilled (observed on #4228). When the residual is a
+  // small rounding artefact (positive, within a per-line band) we append a tiny
+  // "Ajuste de arredondamento" line carrying the invoice's DOMINANT tax rate — so
+  // it's not a 0% line (which would trip the exemption logic / be rejected by IX)
+  // and the VAT stays proportionate — making the invoice total land on the amount
+  // actually paid. Larger or negative residuals are left for reconcileOrThrow to
+  // surface (a genuine mismatch, not rounding). Mutates `items` in place.
+  appendRoundingAdjustment(items: IxInvoice["items"], paidTotal: number): void {
+    if (!Array.isArray(items) || items.length === 0) return;
+    if (!Number.isFinite(paidTotal) || paidTotal <= 0) return;
+    const residual = computeResidual(paidTotal, this.toReconcileLines(items));
+    if (residual <= 0.01) return; // exact (or overcount — leave to reconcile), nothing to add
+    const band = Math.min(0.05 * items.length, 0.50);
+    if (residual > band) return; // too large to be rounding — let reconcileOrThrow throw
+
+    // Dominant rate = tax of the largest-value line, so the adjustment matches the
+    // goods' VAT treatment and never introduces a 0% line.
+    let dominantRate = 0, maxValue = -1;
+    for (const it of items as any[]) {
+      const rate = typeof it.tax === "number" ? it.tax : Number(it.tax?.value ?? 0);
+      const value = Number(it.unit_price) * Number(it.quantity);
+      if (value > maxValue) { maxValue = value; dominantRate = rate; }
+    }
+    const unitPrice = Math.round((residual / (1 + dominantRate / 100)) * 100) / 100;
+    if (unitPrice <= 0) return;
+    (items as any[]).push({ quantity: 1, tax: dominantRate, unit_price: unitPrice, name: ROUNDING_ADJ_NAME });
+  }
+
   buildInvoiceItems(normalizedItems: Normalized["order"]["items"], opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {
     const forceTaxProducts = this.config.force_tax_rate;
     const forceTaxShipping = this.config.force_shipping_tax_rate;
@@ -304,7 +337,12 @@ export class IxBuilder {
     const requestTaxExemptionReason = this.shouldRequestTaxExemptionReason(items);
     const shopifyReverseCharge = usingRawPath && this.detectShopifyReverseCharge(normalized.raw_order);
 
-    if (usingRawPath) this.reconcileOrThrow(normalized.raw_order, items);
+    if (usingRawPath) {
+      // Absorb sub-cent per-line rounding into an adjustment line BEFORE the
+      // reconcile guard, so a tiny drift no longer aborts the whole invoice.
+      this.appendRoundingAdjustment(items, Number(normalized.raw_order?.total_price));
+      this.reconcileOrThrow(normalized.raw_order, items);
+    }
 
     // Reverse-charge: prefer M16 (RITI art. 14.º) and stamp the mandatory
     // "IVA - autoliquidação" mention. Falls back to the merchant-configured

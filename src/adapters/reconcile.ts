@@ -52,6 +52,19 @@ export function computeExpectedGross(lines: ReconcileLine[]): number {
 }
 
 /**
+ * Signed residual between the amount actually paid and the gross our lines add
+ * up to: `paid - expected`. Positive means our invoice undercounts the payment
+ * (add a small adjustment); negative means it overcounts. Used to decide whether
+ * a sub-cent-per-line rounding drift can be absorbed by a rounding-adjustment
+ * line instead of aborting the whole invoice.
+ */
+export function computeResidual(sourcePaidAmount: number, lines: ReconcileLine[]): number {
+    const paid = Number(sourcePaidAmount);
+    if (!Number.isFinite(paid) || paid <= 0) return 0;
+    return Math.round((paid - computeExpectedGross(lines)) * 100) / 100;
+}
+
+/**
  * Throw if expected total drifts from source paid amount by more than tolerance.
  * Caller MUST catch and abort the destination call rather than ship a wrong
  * invoice. The thrown Error message is safe to log/persist (no PII beyond the

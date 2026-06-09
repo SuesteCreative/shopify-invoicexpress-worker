@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { IxApi } from "../api/ix";
+import { ixCall } from "../ix/ix-call";
 import { scoreHeuristicMatch } from "./reconciliation-score";
 
 export interface ReconciliationRow {
@@ -313,6 +314,52 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
       })),
     };
   });
+
+  // 6b. Recover manual / mapping-lost invoices: for orders still showing "none",
+  // ask IX whether a document with our "Order #N" reference exists. This catches
+  // (a) invoices the system created but whose DB mapping was lost (e.g. a create
+  // that timed out after IX had already issued it — see #1054), and (b) manual
+  // invoices that followed the reference convention. NOTE: it can NOT find manual
+  // invoices with arbitrary references — the IX API has no list endpoint. Bounded
+  // (capped concurrency + ixCall timeout) and cached per reference (id or "MISS",
+  // 1h TTL) so repeated loads don't re-hammer the proxy.
+  const noneRows = rows.filter(r => r.match.type === "none");
+  if (noneRows.length > 0) {
+    const ixHeaders = {
+      "x-account-name": config.ix_account_name!,
+      "x-api-key": config.ix_api_key!,
+      "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+    };
+    const refOf = (r: ReconciliationRow) => `Order #${r.order.order_number}`;
+    const account = config.ix_account_name!;
+    const cachedRefs = await appStorage.getCachedRefLookups(account, noneRows.map(refOf));
+    await mapWithConcurrency(noneRows, 4, async (row) => {
+      const ref = refOf(row);
+      let invoiceId: string | null = null;
+      const cached = cachedRefs.get(ref);
+      if (cached === "MISS") return;
+      if (cached) invoiceId = cached;
+      else {
+        const res: any = await ixCall(
+          () => IxApi.v2.documents.reference.post({ headers: ixHeaders, body: { reference: ref } }),
+          { isOk: (r: any) => !r?.error, label: `ref ${ref}` },
+        );
+        invoiceId = res?.data?.data?.id ? String(res.data.data.id) : null;
+        await appStorage.cacheRefLookup(account, ref, invoiceId ?? "MISS");
+      }
+      if (!invoiceId) return;
+      const meta = await fetchInvoiceMeta(config, invoiceId, row.order.id);
+      if (!meta) return;
+      const { order_id_link, ...store } = meta;
+      await appStorage.cacheInvoiceMeta(invoiceId, store);
+      row.match = { type: "heuristic", confidence: 90, reason: "Encontrada no InvoiceXpress por referência (não mapeada na BD)" };
+      row.invoice = {
+        id: meta.id, reference: meta.reference, status: meta.status, total: meta.total,
+        date: meta.date, permalink: meta.permalink, pdf_url: meta.pdf_url, client_name: meta.client_name,
+      };
+      row.candidates = [];
+    });
+  }
 
   // Sort newest first
   rows.sort((a, b) => Date.parse(b.order.paid_at) - Date.parse(a.order.paid_at));

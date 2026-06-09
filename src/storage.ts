@@ -238,6 +238,29 @@ export class AppStorage {
     } catch { /* best-effort cache; a miss just refetches */ }
   }
 
+  // Reference-lookup cache (KV). Conciliação asks IX whether a document with our
+  // "Order #N" reference exists for orders with no DB mapping (recovers manual or
+  // mapping-lost invoices). The IX reference search is expensive, so we cache the
+  // result per (account, reference) — an invoice id when found, the sentinel
+  // "MISS" when not — for 1h, so repeated loads don't re-hammer the proxy. Short
+  // TTL because a current MISS can become a hit once the invoice is created.
+  async getCachedRefLookups(account: string, refs: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    await Promise.all(refs.map(async (ref) => {
+      try {
+        const v = await this.kv.get(`ixref:${account}:${ref}`);
+        if (v) map.set(ref, v);
+      } catch { /* treat as cache miss */ }
+    }));
+    return map;
+  }
+
+  async cacheRefLookup(account: string, ref: string, value: string): Promise<void> {
+    try {
+      await this.kv.put(`ixref:${account}:${ref}`, value, { expirationTtl: 3600 });
+    } catch { /* best-effort */ }
+  }
+
   async deleteProcessedInvoice(orderId: string, sourceKind?: SourceKind) {
     const newKey = `${sourceKind ?? "shopify"}_order:${orderId}`;
     const legacyKey = `shopify_order:${orderId}`;

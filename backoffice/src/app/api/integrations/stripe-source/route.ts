@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
         stripe_account_id: cfg.stripe_account_id ?? null,
         has_webhook_secret: !!cfg.webhook_secret,
         has_restricted_key: !!cfg.restricted_key,
+        is_connect: !!cfg.is_connect,
     };
     return NextResponse.json({
         connection: {
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
         restricted_key?: string;
         destination_kind?: string;
         status?: string;
+        is_connect?: boolean;
     };
 
     if (!body.stripe_account_id || typeof body.stripe_account_id !== "string") {
@@ -87,9 +89,25 @@ export async function POST(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const sourceConfig: Record<string, any> = { stripe_account_id: body.stripe_account_id };
+    // Merge into the existing row's source_config_json so partial updates
+    // (e.g. activating with only { stripe_account_id, status }) don't wipe
+    // webhook_secret / webhook_endpoint_id / restricted_key persisted earlier.
+    const existing: any = await db
+        .prepare("SELECT source_config_json FROM connections WHERE user_id = ? AND source_kind = 'stripe' AND destination_kind = ? LIMIT 1")
+        .bind(authResult.targetUserId, destinationKind)
+        .first();
+
+    const existingCfg: Record<string, any> = existing?.source_config_json
+        ? JSON.parse(existing.source_config_json)
+        : {};
+
+    const sourceConfig: Record<string, any> = { ...existingCfg, stripe_account_id: body.stripe_account_id };
     if (body.webhook_secret) sourceConfig.webhook_secret = body.webhook_secret;
     if (body.restricted_key) sourceConfig.restricted_key = body.restricted_key;
+    // Stripe Connect: payments happen on a connected account (direct charges).
+    // Flag it so the webhook installs as a Connect endpoint and reads scope to
+    // the connected account. Only overwrite when explicitly provided.
+    if (typeof body.is_connect === "boolean") sourceConfig.is_connect = body.is_connect;
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();

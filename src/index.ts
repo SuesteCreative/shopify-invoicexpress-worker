@@ -185,14 +185,32 @@ app.post("/webhooks/stripe", async (c) => {
   }
 
   const adapter = getSourceAdapter("stripe");
-  const stripeAccount = c.req.header("Stripe-Account"); // present only for Connect platforms
+
+  // Parse early so we can route Connect events by their connected-account id.
+  // The signature is still verified below (against the resolved secret) before
+  // we trust or process anything. For Connect webhooks Stripe identifies the
+  // connected account via the `account` field on the *event payload* — it does
+  // NOT send a Stripe-Account HTTP header on deliveries. We keep the header as a
+  // secondary hint for any setup that does forward it.
+  // https://docs.stripe.com/connect/webhooks
+  let event: any;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return c.text("Invalid JSON", 400);
+  }
+  const stripeAccount: string | undefined =
+    (typeof event?.account === "string" ? event.account : undefined)
+    ?? c.req.header("Stripe-Account")
+    ?? undefined;
 
   // Resolve the owning connection. Two modes:
-  //   a) Stripe Connect — match by stripe_account_id from header.
-  //   b) Standalone — no header; try every active connection and use whichever
-  //      signature verifies. Bounded by # active stripe connections (small).
+  //   a) Stripe Connect — match by stripe_account_id == event.account.
+  //   b) Standalone / single platform row — scan active connections and use
+  //      whichever signature verifies. Bounded by # active stripe connections.
   let ownerRow: any | null = null;
   let secret: string | undefined;
+  let verified = false;
 
   if (stripeAccount) {
     ownerRow = await c.env.DB.prepare(
@@ -205,7 +223,12 @@ app.post("/webhooks/stripe", async (c) => {
       const cfg = ownerRow.source_config_json ? JSON.parse(ownerRow.source_config_json) : {};
       secret = cfg.webhook_secret || c.env.STRIPE_WEBHOOK_SECRET;
     }
-  } else {
+  }
+
+  // Fallback scan: standalone accounts (no event.account) and any Connect event
+  // whose account didn't match a per-account row (e.g. one platform-level
+  // connection). The scan verifies the signature while selecting the secret.
+  if (!ownerRow) {
     const rows = await c.env.DB.prepare(
       `SELECT id, user_id, source_config_json FROM connections
        WHERE source_kind = 'stripe' AND status = 'active'`
@@ -217,13 +240,14 @@ app.post("/webhooks/stripe", async (c) => {
       if (await adapter.verifyWebhook(rawBody, sig, candidateSecret)) {
         ownerRow = row;
         secret = candidateSecret;
+        verified = true;
         break;
       }
     }
   }
 
   if (!ownerRow) {
-    console.log(`[Stripe] No matching connection found (header=${stripeAccount ?? "none"})`);
+    console.log(`[Stripe] No matching connection found (account=${stripeAccount ?? "none"})`);
     return c.text("No connection found", 404);
   }
   if (!secret) {
@@ -231,23 +255,22 @@ app.post("/webhooks/stripe", async (c) => {
     return c.text("Secret not configured", 500);
   }
 
-  // For Connect (header) path we still need to verify signature now that we
-  // have the secret; the no-header path already verified during the scan.
-  if (stripeAccount && !await adapter.verifyWebhook(rawBody, sig, secret)) {
+  // Verify the account-matched path now that we have the secret; the scan path
+  // already verified while selecting the secret.
+  if (!verified && !await adapter.verifyWebhook(rawBody, sig, secret)) {
     console.error("[Stripe] Invalid signature");
     await reportIncident(c.env, {
       user_id: ownerRow.user_id,
       severity: "critical",
       kind: "webhook_invalid_signature",
-      summary: `Stripe webhook rejeitado por assinatura inválida (account=${stripeAccount})`,
-      detail: { stripeAccount },
+      summary: `Stripe webhook rejeitado por assinatura inválida (account=${stripeAccount ?? "none"})`,
+      detail: { stripeAccount: stripeAccount ?? null },
       connection_label: "stripe → invoicexpress",
       bucket: "daily",
     });
     return c.text("Invalid signature", 401);
   }
 
-  const event = JSON.parse(rawBody);
   const eventId: string = event.id ?? "";
   const canonical = stripeEventToCanonical(event.type ?? "");
   if (!canonical) {
@@ -270,7 +293,7 @@ app.post("/webhooks/stripe", async (c) => {
   // silently lost events). Events larger than the Cloudflare Queues 128KB limit
   // are spilled to KV and passed by reference.
   try {
-    const queueMsg: StripeQueueMessage = { topic: canonical, eventId, userId: ownerRow.user_id, body: event };
+    const queueMsg: StripeQueueMessage = { topic: canonical, eventId, userId: ownerRow.user_id, body: event, ...(stripeAccount ? { stripeAccount } : {}) };
     if (rawBody.length > 110_000) {
       const kvKey = `stripe-evt:${eventId}`;
       await c.env.INVOICE_KV.put(kvKey, rawBody, { expirationTtl: 7 * 24 * 60 * 60 });
@@ -1102,13 +1125,18 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
       const giveUpTransient = !permanent && kind !== "destination_reject" && attempts >= TRANSIENT_GIVEUP_ATTEMPTS;
       if (permanent || giveUpTransient) {
         try {
-          const externalId = String((message.body?.body as any)?.id ?? (message.body?.body as any)?.order_number ?? "unknown");
+          const orderBody = (message.body?.body as any) ?? {};
+          const externalId = String(orderBody.id ?? orderBody.order_number ?? "unknown");
+          // Friendly Shopify order number (#1234) for merchant-facing emails. The
+          // canonical order id stays the affected_id (processed_orders is keyed by
+          // it); the name is carried in detail.orderNames purely for display.
+          const orderName = String(orderBody.name ?? (orderBody.order_number != null ? `#${orderBody.order_number}` : externalId));
           await reportIncident(env, {
             user_id: undefined,
             severity,
             kind: permanent ? kind : "queue_retry_exhausted",
             summary: `${topic} ${externalId}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
-            detail: { message: (e as any)?.message, externalId, topic, shopDomain, attempts, permanent },
+            detail: { message: (e as any)?.message, externalId, orderNames: { [externalId]: orderName }, topic, shopDomain, attempts, permanent },
             affected_ids: [externalId],
             connection_label: "shopify → invoicexpress",
           });
@@ -1157,6 +1185,16 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         sourceConfig = connRow.source_config_json ? JSON.parse(connRow.source_config_json) : undefined;
       } catch {
         sourceConfig = undefined;
+      }
+
+      // Connect direct charges: pin the connected-account id the webhook routed
+      // on so the adapter scopes its Stripe reads (Customer.tax_ids expand) to
+      // the right account even if this user owns multiple stripe connections and
+      // the LIMIT 1 above picked a different row. The hydrated `body` also carries
+      // `account`, but the explicit message field is the source of truth.
+      const stripeAccount = message.body.stripeAccount;
+      if (stripeAccount) {
+        sourceConfig = { ...(sourceConfig ?? {}), stripe_account_id: stripeAccount };
       }
 
       // Destination credentials (Moloni OAuth, Vendus API key, etc.) live here.
@@ -1244,6 +1282,9 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
       : body?.shopDomain ? "shopifyordersqueue"
       : "unknown";
     const externalId: string = String(body?.eventId ?? body?.body?.id ?? body?.body?.order_number ?? "unknown");
+    // Friendly Shopify order number (#1234) for the merchant weekly digest. Falls
+    // back to the canonical id (Stripe events have no order name).
+    const orderName: string = String(body?.body?.name ?? (body?.body?.order_number != null ? `#${body.body.order_number}` : externalId));
     const topic: string = String(body?.topic ?? "unknown");
     const shopDomain: string | null = body?.shopDomain ?? null;
 
@@ -1269,7 +1310,7 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
         severity: "critical",
         kind: "queue_retry_exhausted",
         summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${externalId}. Encomenda NÃO foi facturada.`,
-        detail: { sourceQueue, topic, externalId, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
+        detail: { sourceQueue, topic, externalId, orderNames: { [externalId]: orderName }, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
         affected_ids: [externalId],
         connection_label: sourceQueue === "stripeeventsqueue" ? "stripe → invoicexpress" : "shopify → invoicexpress",
       });

@@ -302,6 +302,8 @@ export interface WeeklyDigestItem {
   severity?: Severity;
   /** Affected order/payment ids still missing an invoice (empty for account-level). */
   missingIds: string[];
+  /** Human Shopify order numbers (#1234) parallel to missingIds, for display. */
+  missingLabels: string[];
 }
 
 export interface WeeklyDigestResult {
@@ -317,6 +319,34 @@ function parseAffectedIds(json: string | null): string[] {
     return Array.isArray(arr) ? arr.map(String) : [];
   } catch {
     return [];
+  }
+}
+
+/** Pull the {orderId: "#1234"} display map the pipeline stows in detail_json. */
+function parseOrderNames(json: string | null): Record<string, string> {
+  if (!json) return {};
+  try {
+    const obj = JSON.parse(json)?.orderNames;
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Merchant-facing one-liner per incident. Deliberately drops the internal queue
+ * jargon ("Retries esgotadas em shopifyordersqueue …") that confused merchants —
+ * they only need to know a sale has no invoice and (when known) why.
+ */
+function merchantSummary(kind: IncidentKind): string {
+  switch (kind) {
+    case "nif_invalid": return "Venda sem fatura: NIF do cliente inválido.";
+    case "destination_reject": return "Venda sem fatura: dados rejeitados pelo sistema de faturação.";
+    case "currency_not_supported": return "Venda sem fatura: moeda não suportada.";
+    case "reconcile_drift": return "Venda sem fatura: total não coincide com o valor pago.";
+    case "subscription_inactive": return "Faturação pausada: subscrição inativa.";
+    case "normalize_fail": return "Venda recebida mas ainda não foi possível ler os dados.";
+    default: return "Venda recebida sem fatura emitida.";
   }
 }
 
@@ -376,14 +406,18 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
     // can't verify per order, so always keep it.
     const missing = affected.filter((id) => !processed.has(id));
     if (affected.length > 0 && missing.length === 0) continue; // fully resolved
+    const names = parseOrderNames(r.detail_json);
     const userId = String(r.user_id);
     if (!byUser.has(userId)) byUser.set(userId, []);
     byUser.get(userId)!.push({
       kind: r.kind,
-      summary: r.summary,
+      summary: merchantSummary(r.kind),
       lastSeenAt: r.last_seen_at,
       severity: r.severity,
       missingIds: missing,
+      // Show the Shopify order number when we captured it; fall back to the id
+      // for older incidents written before orderNames existed.
+      missingLabels: missing.map((id) => names[id] ?? id),
     });
   }
 
@@ -416,7 +450,12 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
     const missingCount = uniqueOrders.size + accountLevel;
 
     const merchantName = await resolveMerchantName(env, userId);
-    const tpl = tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount });
+    const tpl = tplWeeklyUnprocessed({
+      merchantName,
+      items,
+      totalMissing: missingCount,
+      dashboardUrl: env.BACKOFFICE_URL || undefined,
+    });
 
     const result = await sendEmail(env, {
       to: recipients,

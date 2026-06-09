@@ -15,6 +15,13 @@ export interface StripeQueueMessage {
   eventId: string;
   /** The user_id of the merchant owning the Stripe-source connection. */
   userId: string;
+  /**
+   * Connected account id (acct_…) for Stripe Connect direct charges, taken from
+   * the event payload's `account` field. Undefined for standalone accounts.
+   * Consumed downstream as the `Stripe-Account` header so API reads scope to the
+   * connected account that owns the charge/customer objects.
+   */
+  stripeAccount?: string;
   /** Stripe event payload (data.object etc.). Omitted when spilled to KV — see bodyRef. */
   body?: any;
   /**

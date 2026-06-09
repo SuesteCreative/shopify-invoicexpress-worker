@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Loader2, RefreshCcw, Search, ScrollText, FileDown, PauseCircle, Play } from "lucide-react";
 import { ReconciliationRow, type Row } from "./ReconciliationRow";
 import { DateRangePicker } from "./DateRangePicker";
@@ -23,12 +24,16 @@ const daysAgoISO = (n: number) => {
 };
 
 export function ReconciliationView({ shop }: { shop: string }) {
-    const [from, setFrom] = useState(daysAgoISO(30));
+    // Deep-link from the weekly "Faturas por emitir" email: ?order=1234 pre-fills
+    // the search and widens the window to 90d so the unbilled order (which can be
+    // up to the digest's 90-day lookback) is inside the loaded range.
+    const orderParam = useSearchParams().get("order");
+    const [from, setFrom] = useState(orderParam ? daysAgoISO(90) : daysAgoISO(30));
     const [to, setTo] = useState(todayISO());
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<Response | null>(null);
     const [filter, setFilter] = useState<FilterKey>("all");
-    const [search, setSearch] = useState("");
+    const [search, setSearch] = useState(orderParam ?? "");
     const [error, setError] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
     const [isPaused, setIsPaused] = useState<boolean | null>(null);

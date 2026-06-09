@@ -17,8 +17,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!targetUserId) return NextResponse.json({ error: "Missing targetUserId" }, { status: 400 });
 
     const shop = await resolveShopForUser(targetUserId);
-    if (!shop) return NextResponse.json({ error: "Target user has no shopify_domain" }, { status: 404 });
-
-    const { ok, status, data } = await callWorkerJson(`/admin/jobs/${id}?shop=${encodeURIComponent(shop)}`);
+    const qs = shop
+        ? `shop=${encodeURIComponent(shop)}`
+        : `user_id=${encodeURIComponent(targetUserId)}`;
+    const { ok, status, data } = await callWorkerJson(`/admin/jobs/${id}?${qs}`);
     return NextResponse.json(data, { status: ok ? 200 : status });
 }

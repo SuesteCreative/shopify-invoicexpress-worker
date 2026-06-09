@@ -201,7 +201,7 @@ Verificação autoritativa: 253 pagas (90d) · 222 com invoice_id · **213+ conf
 
 ### Critical
 - [x] **Phantom "Sem fatura"** — `getReconciliation` dispara 1 fetch/fatura via `Promise.all` sem cap (200+ GETs paralelos ao proxy `ix-proxy.kapta.app`); sob carga muitos devolvem null e faturas EMITIDAS são mostradas como "Sem fatura emitida". Fix: cap de concorrência (6) + retry, e **nunca** marcar "none" quando há `invoice_id` na BD (estado `meta_unavailable`). Worker `src/handlers/reconciliation.ts` + frontend `ReconciliationRow.tsx`.
-- [ ] **Erros IX engolidos** — `orders-created.ts:157` faz `console.log(ixCreateResponse)` (efémero) mas grava só "Failed to create invoice" na BD/incidente. Sem rasto de causa. Fix: persistir `ixCreateResponse.error` em `logs.response` + `incidents.detail_json`.
+- [x] **Erros IX engolidos** — `orders-created.ts:157` fazia `console.log(ixCreateResponse)` (efémero) mas gravava só "Failed to create invoice" na BD. Fix: persistir `ixCreateResponse.error` num log status=500 + embebê-lo no Error lançado (propaga ao log/incidente do consumer). orders/paid self-heal passa pelo mesmo ramo → coberto.
 - [ ] **26 PT‑6% por emitir** (3–8 jun) — [OPS] precisa erro real do IX (clique "Emitir" em #ZL1206 ou `ADMIN_API_KEY` atual) → corrigir raiz → reemitir as 26. Lista: 1037,1038,1039,1054,1056,1064,1066,1070,1072,1074,1090,1091,1098,1100,1102,1128,1133,1146,1149,1188,1189,1193,1206,1216,1218,1229.
 
 ### High

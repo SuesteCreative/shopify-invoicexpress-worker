@@ -99,8 +99,10 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
     return;
   }
 
-  // Email immediately on first occurrence of critical incidents.
-  if (input.severity === "critical" && wasNew) {
+  // Email immediately on first occurrence of critical incidents AND of any
+  // "order not invoiced" failure (even if a caller didn't mark it critical), so
+  // ops are alerted in real time instead of waiting for the Friday digest.
+  if (wasNew && (input.severity === "critical" || REALTIME_OPS_ALERT_KINDS.has(input.kind))) {
     // P3 suppression: when destination auth fails (expired Moloni/IX token),
     // every queued order in the next hour creates a NEW bucket → fresh critical
     // email. The merchant only needs one ping to re-auth. Suppress repeats
@@ -291,6 +293,17 @@ const INVOICE_FAILURE_KINDS: IncidentKind[] = [
   "reconcile_drift",
   "subscription_inactive",
 ];
+
+/** Failure kinds that mean "an order did NOT get invoiced". These fire an
+ * immediate alert to the Rioko/Kapta team (never merchants), not just the weekly
+ * Friday digest — the gap that let the zoolagos incident be discovered by the
+ * client first. Bucket dedup (one row per user:kind:hour) keeps it to one email
+ * per hour even during a 200-order outage. */
+const REALTIME_OPS_ALERT_KINDS = new Set<IncidentKind>([
+  "queue_retry_exhausted",
+  "destination_reject",
+  "nif_invalid",
+]);
 
 /** Only surface incidents seen within this window; older misses are noise. */
 const WEEKLY_LOOKBACK_DAYS = 90;

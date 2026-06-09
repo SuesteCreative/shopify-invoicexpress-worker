@@ -1105,7 +1105,10 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
           const externalId = String((message.body?.body as any)?.id ?? (message.body?.body as any)?.order_number ?? "unknown");
           await reportIncident(env, {
             user_id: undefined,
-            severity,
+            // A stuck transient that gives up = an order that will NOT be invoiced.
+            // Escalate to critical so it triggers the real-time ops alert, not just
+            // the Friday digest (the gap that let the client find the incident first).
+            severity: permanent ? severity : "critical",
             kind: permanent ? kind : "queue_retry_exhausted",
             summary: `${topic} ${externalId}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
             detail: { message: (e as any)?.message, externalId, topic, shopDomain, attempts, permanent },

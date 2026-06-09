@@ -303,6 +303,10 @@ const REALTIME_OPS_ALERT_KINDS = new Set<IncidentKind>([
   "queue_retry_exhausted",
   "destination_reject",
   "nif_invalid",
+  // An order whose line totals can't be reproduced exactly in IX is refused by
+  // the reconcile guard (never ship a wrong total) — alert immediately so it's
+  // fixed/handled, not left unbilled until Friday.
+  "reconcile_drift",
 ]);
 
 /** Only surface incidents seen within this window; older misses are noise. */

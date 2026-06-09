@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
+import { createIxInvoiceWithFallback } from "../ix/create-invoice";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
@@ -124,19 +125,14 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
   console.log(`[Rioko] Built follwoing invoice (reverseCharge=${reverseCharge})`);
   console.log(invoice);
 
-  const ixCreateResponse = await IxApi.v2.documents.post({
-    headers: ixHeaders,
-    body: {
-      data: invoice,
-      type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice"
-    },
-    query: {
-      resolvers: "on_tax_fallback_search_tax_by_value"
-    },
-  });
+  const { res: ixCreateResponse, via } = await createIxInvoiceWithFallback(
+    ixHeaders,
+    invoice,
+    config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+  );
 
   if (ixCreateResponse.data?.data?.id) {
-    console.log(`[Rioko] Invoice created for order ${orderId}`);
+    console.log(`[Rioko] Invoice created for order ${orderId}${via !== "none" ? ` (via ${via} fallback)` : ""}`);
 
     // Save processed invoice to database
     await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id));

@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
+import { createIxInvoiceWithFallback } from "../ix/create-invoice";
 import { sendDevModeEmail } from "./notify";
 
 interface ShopifyOrderSummary {
@@ -905,20 +906,16 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
     const ixBuilder = new IxBuilder(config);
     const { invoice } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
 
-    const ixCreateResponse = await IxApi.v2.documents.post({
-      headers: ixHeaders,
-      body: {
-        data: invoice,
-        type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
-      },
-      query: {
-        resolvers: "on_tax_fallback_search_tax_by_value",
-      },
-    });
+    const { res: ixCreateResponse, via } = await createIxInvoiceWithFallback(
+      ixHeaders,
+      invoice,
+      config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+    );
 
     if (ixCreateResponse.data?.data?.id) {
       await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id));
-      return { order_id: order.id, order_number: order.order_number, status: "created", message: `Invoice ${ixCreateResponse.data.data.id} created` };
+      const suffix = via !== "none" ? ` (cliente recriado via fallback: ${via})` : "";
+      return { order_id: order.id, order_number: order.order_number, status: "created", message: `Invoice ${ixCreateResponse.data.data.id} created${suffix}` };
     }
 
     return { order_id: order.id, order_number: order.order_number, status: "error", message: `IX API returned no id: ${JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data)}` };

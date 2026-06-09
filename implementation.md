@@ -211,4 +211,4 @@ Verificação autoritativa: 253 pagas (90d) · 222 com invoice_id · **213+ conf
 - [ ] **Corrigir ~111 estrangeiras antigas (settled) a 0%** — [OPS, sensível] nota de crédito + reemissão a 6% (~298€ IVA). Lista em `scripts/diag-foreign-0pct.mjs`. **Só com OK do contabilista** + confirmar treatment.
 
 ### Medium
-- [ ] **Sem cache de meta de fatura** — conciliação refaz todos os GETs ao IX a cada load. Guardar reference/total/date em `processed_orders` na emissão; conciliação lê da BD e só vai ao IX para os que faltam. Mata a causa-raiz da carga no proxy.
+- [x] **Cache de meta de fatura** — conciliação refazia todos os GETs ao IX a cada load (causa-raiz da carga no proxy → phantom). Feito via **KV** (sem migração, evitando o caos de migrations 0012): `getReconciliation` lê `ixmeta:{id}` do KV primeiro; em miss vai ao IX (capped+retry) e grava no KV (TTL 24h). Aquece sozinha; loads seguintes são proxy-free. `AppStorage.getCachedInvoiceMetas`/`cacheInvoiceMeta`. NB: migrations em estado sujo (0012_user_id_scoping pendente+uncommitted, colisão de nº 0012) — resolver à parte.

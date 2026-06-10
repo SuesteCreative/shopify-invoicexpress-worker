@@ -29,6 +29,10 @@ export type Severity = "info" | "warning" | "error" | "critical";
 export interface IncidentTemplateInput {
   merchantName?: string;
   connectionLabel?: string;            // e.g. "Stripe → InvoiceXpress"
+  /** Human order reference, e.g. "#1234" (shown above the technical id). */
+  orderRef?: string;
+  /** End-customer name on the would-be document, e.g. "João Silva". */
+  clientName?: string;
   occurrences: number;
   firstSeenAt: string;
   lastSeenAt: string;
@@ -276,6 +280,25 @@ function stepsList(steps: string[]): string {
   </ol>`;
 }
 
+// Order + client identity block. Renders a labeled 2-row table so the alert
+// names WHICH order and WHICH client it refers to, instead of leaving the
+// reader to dig the numeric id out of the technical detail. Omits any row whose
+// value is missing; renders nothing at all when both are absent.
+function orderClientBlock(orderRef?: string, clientName?: string): string {
+  const rows: string[] = [];
+  const row = (label: string, value: string) => `
+    <tr>
+      <td style="padding:4px 0;font-size:13px;color:${BRAND.muted};width:90px;vertical-align:top"><font color="${BRAND.muted}">${escapeHtml(label)}</font></td>
+      <td style="padding:4px 0;font-size:14px;color:${BRAND.text};font-weight:500"><font color="${BRAND.text}">${escapeHtml(value)}</font></td>
+    </tr>`;
+  if (orderRef) rows.push(row("Encomenda", orderRef));
+  if (clientName) rows.push(row("Cliente", clientName));
+  if (rows.length === 0) return "";
+  return `
+  ${sectionTitle("Encomenda")}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px">${rows.join("")}</table>`;
+}
+
 function affectedIdsBlock(ids?: string[]): string {
   if (!ids || ids.length === 0) return "";
   const shown = ids.slice(0, 10);
@@ -379,6 +402,7 @@ export function tplDestinationReject(input: IncidentTemplateInput): RenderedTemp
       "Corrija os dados do cliente ou do produto, conforme aplicável.",
       "Reexecute a encomenda em Dev Mode após a correcção.",
     ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
     ${ctaButton("Abrir Dev Mode", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/superadmin`)}
@@ -402,6 +426,7 @@ export function tplNormalizeFail(input: IncidentTemplateInput): RenderedTemplate
       "Aguarde alguns minutos e reexecute em Dev Mode.",
       "Se persistir, contacte o suporte com o ID da encomenda.",
     ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
@@ -444,6 +469,7 @@ export function tplNifInvalid(input: IncidentTemplateInput): RenderedTemplate {
       "Se o cliente for estrangeiro, considere desactivar a retenção/IVA para essa encomenda em Dev Mode.",
       "Reemita a factura após corrigir os dados do cliente.",
     ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
@@ -487,6 +513,7 @@ export function tplQueueRetryExhausted(input: IncidentTemplateInput): RenderedTe
       "Verifique o detalhe técnico abaixo.",
       "Após corrigir, reexecute manualmente em Dev Mode.",
     ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
     ${ctaButton("Abrir Dev Mode", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/superadmin`)}
@@ -533,6 +560,7 @@ export function tplReconcileDrift(input: IncidentTemplateInput): RenderedTemplat
       "Abrir Integrações → Gerir overrides e adicionar override para o SKU (tax_rate ou vat_inclusion).",
       "Reemitir a encomenda em Dev Mode.",
     ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
     ${ctaButton("Abrir overrides", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations/ix-overrides`)}
@@ -555,6 +583,7 @@ export function tplCurrencyNotSupported(input: IncidentTemplateInput): RenderedT
       "Verifique se o cliente pagou numa moeda inesperada.",
       "Se quer aceitar moedas múltiplas, contacte-nos para implementarmos conversão.",
     ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
   `;

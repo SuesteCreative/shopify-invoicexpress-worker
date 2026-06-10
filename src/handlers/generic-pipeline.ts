@@ -9,6 +9,7 @@ import type { IncidentKind } from "../services/email-templates";
 import { loadProductMappings } from "../services/product-mappings";
 import { loadProductOverrides } from "../services/product-overrides";
 import { makeViesChecker } from "../ix/vies";
+import { describeOrder } from "../services/order-label";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
 
@@ -181,14 +182,18 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     const isSelfHealingNormalize = kind === "normalize_fail" && severity === "info";
 
     if (!isSelfHealingNormalize) {
+      const { orderRef, clientName } = describeOrder(body);
+      const orderLabel = orderRef ?? externalId;
       await reportIncident(env, {
         user_id: config.user_id,
         severity,
         kind,
-        summary: `${logTopic} ${externalId}: ${(err as any)?.message ?? String(err)}`.slice(0, 500),
-        detail: { message: (err as any)?.message, externalId, topic, source, destination },
+        summary: `${logTopic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(err as any)?.message ?? String(err)}`.slice(0, 500),
+        detail: { message: (err as any)?.message, orderRef, clientName, externalId, topic, source, destination },
         affected_ids: [externalId],
         connection_label: connectionLabel,
+        order_ref: orderRef,
+        client_name: clientName,
       });
     }
 

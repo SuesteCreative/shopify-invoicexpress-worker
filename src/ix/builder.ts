@@ -145,23 +145,36 @@ export class IxBuilder {
       const allocations = Array.isArray(li?.discount_allocations) ? li.discount_allocations : [];
       const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
 
-      // Per-SKU overrides: tax_rate replaces both rate (used for VAT math)
-      // and tax (stamped on the IX line). vat_inclusion flips how we
-      // interpret grossUnit on a per-line basis.
+      // Per-SKU overrides: tax_rate replaces the effective rate; vat_inclusion
+      // flips how we interpret grossUnit on a per-line basis.
       const override = this.overrides?.get(this.overrideKeyForLine(li));
-      const rate = override?.tax_rate != null ? Number(override.tax_rate) : shopifyRate;
       const lineIncluded = override?.vat_inclusion === "inc"
         ? true
         : override?.vat_inclusion === "exc"
           ? false
           : undefined; // fall back to shopifyIncluded inside buildLine
 
-      const tax = forceZeroTax ? 0 : (override?.tax_rate != null ? Number(override.tax_rate) : (forceTaxProducts != null ? forceTaxProducts : rate));
+      // ONE effective rate must drive BOTH the VAT-inclusion extraction math and
+      // the rate stamped on the IX line — if they diverge the reconcile guard
+      // trips. Precedence: per-SKU override > merchant force_tax_rate > the rate
+      // Shopify actually collected.
+      //
+      // Bug fixed here: the math rate used `shopifyRate` while the stamped tax
+      // used `force_tax_rate`. On a tax-INCLUDED store that sets force_tax_rate
+      // but where Shopify collected no tax (empty tax_lines — e.g. a bilheteira
+      // priced gross at 17€ with 6% baked in), the math rate was 0 so the gross
+      // was kept as net while 6% was stamped on top → IX total 72.08 vs paid
+      // 68.00 → "Invoice total mismatch" drift, invoice never issued.
+      const effectiveRate = forceZeroTax
+        ? 0
+        : (override?.tax_rate != null
+          ? Number(override.tax_rate)
+          : (forceTaxProducts != null ? forceTaxProducts : shopifyRate));
       const variantTitle = li?.variant_title ? ` / ${li.variant_title}` : "";
       const defaultName = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
       const name = (override?.name_override ?? defaultName).slice(0, 200);
       const description = li?.sku ? `SKU: ${li.sku}`.slice(0, 200) : undefined;
-      const item = buildLine(grossUnit, quantity, grossLineDiscount, rate, tax, name, description, lineIncluded);
+      const item = buildLine(grossUnit, quantity, grossLineDiscount, effectiveRate, effectiveRate, name, description, lineIncluded);
       if (item) items.push(item);
     }
 
@@ -171,11 +184,14 @@ export class IxBuilder {
       // declared rate. Reverse-charge shipping reports rate but price=0.
       const shipTaxLines = Array.isArray(sl?.tax_lines) ? sl.tax_lines : [];
       const shipTaxCollected = shipTaxLines.reduce((acc: number, t: any) => acc + Number(t?.price ?? 0), 0);
-      const rate = shipTaxCollected > 0 ? Number(shipTaxLines[0]?.rate ?? 0) * 100 : 0;
+      const shipCollectedRate = shipTaxCollected > 0 ? Number(shipTaxLines[0]?.rate ?? 0) * 100 : 0;
       const grossUnit = Number(sl?.price ?? 0);
       const allocations = Array.isArray(sl?.discount_allocations) ? sl.discount_allocations : [];
       const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
-      const tax = forceZeroTax ? 0 : (forceTaxShipping != null ? forceTaxShipping : rate);
+      // Same effective-rate consistency as product lines: the rate used for the
+      // VAT-inclusion math must equal the rate stamped on the line, else the
+      // reconcile guard trips. force_shipping_tax_rate > collected shipping rate.
+      const shipEffectiveRate = forceZeroTax ? 0 : (forceTaxShipping != null ? forceTaxShipping : shipCollectedRate);
       const name = `Portes de envio${sl?.title ? ` — ${sl.title}` : ""}`.slice(0, 200);
       // Shipping overrides keyed by RIOKO-SHIPPING — same semantics
       const shipOverride = this.overrides?.get("RIOKO-SHIPPING");
@@ -184,7 +200,7 @@ export class IxBuilder {
         : shipOverride?.vat_inclusion === "exc"
           ? false
           : undefined;
-      const item = buildLine(grossUnit, 1, grossLineDiscount, rate, tax, name, undefined, shipIncluded);
+      const item = buildLine(grossUnit, 1, grossLineDiscount, shipEffectiveRate, shipEffectiveRate, name, undefined, shipIncluded);
       if (item) items.push(item);
     }
 

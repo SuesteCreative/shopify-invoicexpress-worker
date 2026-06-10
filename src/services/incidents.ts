@@ -19,6 +19,10 @@ export interface ReportIncidentInput {
   merchant_name?: string;
   /** Override the connection label for emails (e.g. "Stripe → InvoiceXpress"). */
   connection_label?: string;
+  /** Human order reference for the email (e.g. "#1234"). */
+  order_ref?: string;
+  /** End-customer name for the email (e.g. "João Silva"). */
+  client_name?: string;
 }
 
 export interface IncidentRow {
@@ -163,6 +167,8 @@ async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: st
     detail: input.detail,
     affectedIds: input.affected_ids?.map(String),
     severity: input.severity,
+    orderRef: input.order_ref,
+    clientName: input.client_name,
   });
 
   await sendEmail(env, { to: recipients, subject: tpl.subject, html: tpl.html });

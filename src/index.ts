@@ -6,6 +6,7 @@ import { verifyShopifyWebhook } from "./shopify";
 import { getSourceAdapter } from "./adapters/registry";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest } from "./services/incidents";
+import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
@@ -1102,18 +1103,34 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
       const giveUpTransient = !permanent && kind !== "destination_reject" && attempts >= TRANSIENT_GIVEUP_ATTEMPTS;
       if (permanent || giveUpTransient) {
         try {
-          const externalId = String((message.body?.body as any)?.id ?? (message.body?.body as any)?.order_number ?? "unknown");
+          const rawOrder = message.body?.body as any;
+          const externalId = String(rawOrder?.id ?? rawOrder?.order_number ?? "unknown");
+          // Name the order (#1234) and end-client in the alert, and resolve the
+          // owning merchant from shop_domain so the email isn't an anonymous id
+          // dump. (config from the try-block is out of scope here — re-resolve.)
+          const { orderRef, clientName } = describeOrder(rawOrder);
+          let userId: string | undefined;
+          let merchantName: string | undefined;
+          try {
+            const cfg = await new AppStorage(env, shopDomain).loadConfig();
+            userId = cfg?.user_id ?? undefined;
+          } catch { /* best-effort — email still goes to the ops team */ }
+          merchantName = shopDomain ?? undefined;
+          const orderLabel = orderRef ?? externalId;
           await reportIncident(env, {
-            user_id: undefined,
+            user_id: userId,
             // A stuck transient that gives up = an order that will NOT be invoiced.
             // Escalate to critical so it triggers the real-time ops alert, not just
             // the Friday digest (the gap that let the client find the incident first).
             severity: permanent ? severity : "critical",
             kind: permanent ? kind : "queue_retry_exhausted",
-            summary: `${topic} ${externalId}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
-            detail: { message: (e as any)?.message, externalId, topic, shopDomain, attempts, permanent },
+            summary: `${topic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
+            detail: { message: (e as any)?.message, orderRef, clientName, externalId, topic, shopDomain, attempts, permanent },
             affected_ids: [externalId],
             connection_label: "shopify → invoicexpress",
+            merchant_name: merchantName,
+            order_ref: orderRef,
+            client_name: clientName,
           });
         } catch (incErr) {
           console.error("[Rioko] Failed to emit failure incident:", incErr);
@@ -1266,15 +1283,20 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
 
     console.error(`[DLQ] Terminal failure — source=${sourceQueue} topic=${topic} externalId=${externalId} userId=${userId ?? "unknown"}`);
 
+    const { orderRef, clientName } = describeOrder(body?.body);
+    const orderLabel = orderRef ?? externalId;
     try {
       await reportIncident(env, {
         user_id: userId,
         severity: "critical",
         kind: "queue_retry_exhausted",
-        summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${externalId}. Encomenda NÃO foi facturada.`,
-        detail: { sourceQueue, topic, externalId, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
+        summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${orderLabel}${clientName ? ` — ${clientName}` : ""}. Encomenda NÃO foi facturada.`,
+        detail: { sourceQueue, topic, orderRef, clientName, externalId, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
         affected_ids: [externalId],
         connection_label: sourceQueue === "stripeeventsqueue" ? "stripe → invoicexpress" : "shopify → invoicexpress",
+        merchant_name: shopDomain ?? undefined,
+        order_ref: orderRef,
+        client_name: clientName,
       });
     } catch (e) {
       console.error("[DLQ] Failed to emit incident:", e);

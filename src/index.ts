@@ -5,7 +5,7 @@ import { AppStorage } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { getSourceAdapter } from "./adapters/registry";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
-import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest } from "./services/incidents";
+import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
@@ -656,6 +656,40 @@ app.post("/admin/finalize-drafts", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to finalize drafts");
+  }
+})
+
+// Admin: on-demand advisory AI diagnosis for an incident (Phase 4b). Reuses the
+// same redact + diagnose path as the real-time alert email. Advisory only.
+app.post("/admin/incidents/:id/explain", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "Missing incident id" }, 400);
+
+  try {
+    const result = await explainIncidentById(c.env, id);
+    return result.ok ? c.json(result) : c.json(result, 422);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to explain incident");
+  }
+})
+
+// Admin: re-send the real alert email for an incident (QA preview) — full live
+// path incl. AI diagnosis, to KAPTA_DEV_EMAILS. Does not touch the incident row.
+app.post("/admin/incidents/:id/test-email", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "Missing incident id" }, 400);
+
+  try {
+    const result = await sendIncidentTestEmail(c.env, id);
+    return result.ok ? c.json(result) : c.json(result, 422);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to send test email");
   }
 })
 
@@ -1335,6 +1369,16 @@ export default {
         }
       } else {
         console.log("[Cron] Weekly merchant digest disabled (WEEKLY_MERCHANT_DIGEST_ENABLED != 1)");
+      }
+      // Weekly AI cross-incident pattern report (ops-only). Independent flag so it
+      // ships dark; advisory and best-effort — never blocks the digest path.
+      if (env.AI_PATTERN_REPORT_ENABLED === "1") {
+        try {
+          const p = await runWeeklyPatternReport(env);
+          console.log(`[Cron] Weekly pattern report: ${p.patterns} pattern(s) over ${p.totalIncidents} incident(s)`);
+        } catch (e: any) {
+          console.error(`[Cron] Weekly pattern report failed: ${e.message}`);
+        }
       }
       return;
     }

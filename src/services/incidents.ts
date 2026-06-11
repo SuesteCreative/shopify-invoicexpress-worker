@@ -1,7 +1,8 @@
 import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
-import { renderIncidentTemplate, type IncidentKind } from "./email-templates";
+import { renderIncidentTemplate, tplPatternReport, type IncidentKind } from "./email-templates";
+import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type IncidentDiagnosis, type RedactedIncident } from "./anthropic";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -157,6 +158,22 @@ async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: st
   }
 
   const merchantName = input.merchant_name ?? await resolveMerchantName(env, input.user_id);
+
+  // Optional, advisory AI triage. Fail-open: any failure => undefined => the email
+  // renders exactly as before (static "Causa provável" only). Only order-level kinds,
+  // and only here (the wasNew real-time path) — so it's one paid call per
+  // user:kind:hour bucket; the diagnosis is KV-cached by bucketKey for retries.
+  let aiDiagnosis: string | undefined;
+  let aiSuggestedFix: string | undefined;
+  if (AI_TRIAGE_ORDER_KINDS.has(input.kind)) {
+    try {
+      const diag = await diagnoseIncident(env, redactIncident(input), bucketKey);
+      if (diag) { aiDiagnosis = diag.diagnosis; aiSuggestedFix = diag.suggested_fix; }
+    } catch (e: any) {
+      console.warn(`[incidents] AI triage failed (advisory, ignored): ${e?.message ?? e}`);
+    }
+  }
+
   const tpl = renderIncidentTemplate(input.kind, {
     merchantName,
     connectionLabel: input.connection_label,
@@ -169,9 +186,125 @@ async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: st
     severity: input.severity,
     orderRef: input.order_ref,
     clientName: input.client_name,
+    aiDiagnosis,
+    aiSuggestedFix,
   });
 
   await sendEmail(env, { to: recipients, subject: tpl.subject, html: tpl.html });
+}
+
+// Rebuild a triage input from a persisted incident row (kind + detail_json) so
+// redaction reads the same shape the live email path produced.
+function incidentRowToInput(row: any): ReportIncidentInput {
+  let detail: any = {};
+  try { detail = row.detail_json ? JSON.parse(row.detail_json) : {}; } catch { /* leave empty */ }
+  return {
+    user_id: row.user_id,
+    severity: (row.severity as Severity) ?? "critical",
+    kind: row.kind,
+    summary: row.summary,
+    detail,
+    connection_label: detail.source && detail.destination ? `${detail.source} → ${detail.destination}` : undefined,
+    order_ref: detail.orderRef,
+    client_name: detail.clientName,
+  };
+}
+
+/**
+ * On-demand advisory diagnosis for any incident by id (Phase 2 admin endpoint).
+ * Reconstructs the triage input from the persisted row and runs the same redact +
+ * diagnose path as the real-time email. Advisory only.
+ */
+export async function explainIncidentById(
+  env: Env,
+  id: string,
+): Promise<{ ok: true; diagnosis: IncidentDiagnosis } | { ok: false; error: string }> {
+  let row: any;
+  try {
+    row = await env.DB.prepare(
+      "SELECT id, user_id, kind, severity, summary, detail_json, bucket_key FROM incidents WHERE id = ?",
+    ).bind(id).first();
+  } catch (e: any) {
+    return { ok: false, error: `lookup failed: ${e?.message ?? e}` };
+  }
+  if (!row) return { ok: false, error: "incident not found" };
+
+  const diag = await diagnoseIncident(env, redactIncident(incidentRowToInput(row)), row.bucket_key ?? `explain:${id}`);
+  if (!diag) return { ok: false, error: "no diagnosis (feature disabled, hourly cap reached, or model error)" };
+  return { ok: true, diagnosis: diag };
+}
+
+/**
+ * Re-send the real alert email for an existing incident (QA/preview). Runs the
+ * full live path — AI triage + render + send to KAPTA_DEV_EMAILS — without
+ * touching the incident row. Lets ops eyeball the finished email (incl. the AI
+ * "Diagnóstico (IA)" block) on demand.
+ */
+export async function sendIncidentTestEmail(
+  env: Env,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  let row: any;
+  try {
+    row = await env.DB.prepare(
+      "SELECT id, user_id, kind, severity, summary, detail_json, bucket_key, first_seen_at, last_seen_at FROM incidents WHERE id = ?",
+    ).bind(id).first();
+  } catch (e: any) {
+    return { ok: false, error: `lookup failed: ${e?.message ?? e}` };
+  }
+  if (!row) return { ok: false, error: "incident not found" };
+  try {
+    await emailIncident(env, incidentRowToInput(row), row.bucket_key ?? `test:${id}`, row.first_seen_at, row.last_seen_at);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: `send failed: ${e?.message ?? e}` };
+  }
+}
+
+/**
+ * Weekly AI cross-incident pattern report (Phase 3). Collects the week's
+ * order-level incidents, redacts them, asks Claude for systemic patterns, and
+ * emails an ops summary to KAPTA_DEV_EMAILS. Gated by the caller. No-op (returns
+ * null result) when the feature key is unset or nothing is found.
+ */
+export async function runWeeklyPatternReport(
+  env: Env,
+): Promise<{ ok: boolean; totalIncidents: number; patterns: number }> {
+  const cutoffIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const kinds = [...AI_TRIAGE_ORDER_KINDS];
+  const placeholders = kinds.map(() => "?").join(",");
+
+  let rows: any[] = [];
+  try {
+    const result = await env.DB.prepare(
+      `SELECT id, user_id, kind, severity, summary, detail_json, bucket_key
+       FROM incidents
+       WHERE last_seen_at >= ? AND kind IN (${placeholders})
+       ORDER BY last_seen_at DESC LIMIT 300`,
+    ).bind(cutoffIso, ...kinds).all();
+    rows = (result.results ?? []) as any[];
+  } catch (e: any) {
+    console.error(`[pattern-report] incident query failed: ${e.message}`);
+    return { ok: false, totalIncidents: 0, patterns: 0 };
+  }
+  if (rows.length === 0) return { ok: true, totalIncidents: 0, patterns: 0 };
+
+  const redacted: RedactedIncident[] = rows.map((r) => redactIncident(incidentRowToInput(r)));
+  const report = await summarizeIncidentPatterns(env, redacted);
+  if (!report) return { ok: false, totalIncidents: rows.length, patterns: 0 };
+
+  const recipients = parseEmailList(env.KAPTA_DEV_EMAILS);
+  if (recipients.length > 0) {
+    const weekLabel = `${cutoffIso.slice(0, 10)} → ${new Date().toISOString().slice(0, 10)}`;
+    const tpl = tplPatternReport({
+      summary: report.summary,
+      patterns: report.patterns,
+      totalIncidents: rows.length,
+      weekLabel,
+    });
+    await sendEmail(env, { to: recipients, subject: tpl.subject, html: tpl.html });
+  }
+  return { ok: true, totalIncidents: rows.length, patterns: report.patterns.length };
 }
 
 async function resolveMerchantEmails(env: Env, userId?: string | null): Promise<string[]> {
@@ -313,6 +446,18 @@ const REALTIME_OPS_ALERT_KINDS = new Set<IncidentKind>([
   // the reconcile guard (never ship a wrong total) — alert immediately so it's
   // fixed/handled, not left unbilled until Friday.
   "reconcile_drift",
+]);
+
+// Order-level kinds eligible for advisory AI triage in the real-time alert email.
+// These carry a `detail` payload (error message / line math) the model can reason
+// over. Account-level kinds (auth_failure_*, subscription_inactive, webhook_*) are
+// excluded — there's nothing order-specific to diagnose.
+const AI_TRIAGE_ORDER_KINDS = new Set<IncidentKind>([
+  "reconcile_drift",
+  "destination_reject",
+  "queue_retry_exhausted",
+  "nif_invalid",
+  "currency_not_supported",
 ]);
 
 /** Only surface incidents seen within this window; older misses are noise. */

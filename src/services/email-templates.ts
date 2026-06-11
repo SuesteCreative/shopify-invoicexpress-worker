@@ -33,6 +33,10 @@ export interface IncidentTemplateInput {
   orderRef?: string;
   /** End-customer name on the would-be document, e.g. "João Silva". */
   clientName?: string;
+  /** Optional AI-generated advisory diagnosis (European Portuguese). */
+  aiDiagnosis?: string;
+  /** Optional AI-generated advisory fix to accompany the diagnosis. */
+  aiSuggestedFix?: string;
   occurrences: number;
   firstSeenAt: string;
   lastSeenAt: string;
@@ -272,6 +276,19 @@ function calloutBox(headingText: string, html: string, accent = BRAND.blue): str
   </table>`;
 }
 
+// Advisory order-specific diagnosis. Rendered in a distinct purple callout (vs the
+// blue/red static "Causa provável"). Per request, the email carries NO reference to
+// how it was generated — just a soft "indicativo" disclaimer. Renders nothing when
+// no diagnosis is present (fail-open path).
+function aiDiagnosisBlock(diagnosis?: string, fix?: string): string {
+  if (!diagnosis) return "";
+  const body =
+    `${escapeHtml(diagnosis)}` +
+    (fix ? `<div style="margin-top:8px"><strong>Correção sugerida:</strong> ${escapeHtml(fix)}</div>` : "") +
+    `<div style="margin-top:10px;font-size:11px;color:${BRAND.muted}">Indicativo · não substitui verificação humana</div>`;
+  return calloutBox("Diagnóstico", body, BRAND.purple);
+}
+
 function stepsList(steps: string[]): string {
   return `
   ${sectionTitle("O que tentar primeiro")}
@@ -397,6 +414,7 @@ export function tplDestinationReject(input: IncidentTemplateInput): RenderedTemp
   const body = `
     ${paragraph(escapeHtml(input.summary))}
     ${calloutBox("Causa provável", "Dados inválidos: NIF incorreto, código de imposto inexistente, sequência sem permissões, ou cliente em estado inconsistente.", BRAND.error)}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
       "Abra o documento no sistema de faturação e veja a mensagem de erro detalhada.",
       "Corrija os dados do cliente ou do produto, conforme aplicável.",
@@ -464,6 +482,7 @@ export function tplNifInvalid(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph(escapeHtml(input.summary))}
     ${calloutBox("Causa provável", "O NIF não passou na validação algorítmica portuguesa ou não existe no registo da AT.", BRAND.warning)}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
       "Confirme o NIF junto do cliente.",
       "Se o cliente for estrangeiro, considere desactivar a retenção/IVA para essa encomenda em Dev Mode.",
@@ -509,6 +528,7 @@ export function tplQueueRetryExhausted(input: IncidentTemplateInput): RenderedTe
   const body = `
     ${paragraph("Um webhook foi tentado várias vezes e continua a falhar. O Rioko 2.0 parou de tentar automaticamente.")}
     ${calloutBox("Causa provável", "Erro persistente do lado do sistema de destino ou dados da encomenda inconsistentes.", BRAND.error)}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
       "Verifique o detalhe técnico abaixo.",
       "Após corrigir, reexecute manualmente em Dev Mode.",
@@ -555,6 +575,7 @@ export function tplReconcileDrift(input: IncidentTemplateInput): RenderedTemplat
   const body = `
     ${paragraph("O total da factura que íamos emitir não coincidia com o valor pago. Abortámos a emissão antes de gerar um documento fiscal com valor errado.")}
     ${calloutBox("Causa provável", "Configuração incorrecta de IVA (incluído vs excluído) num produto específico, ou taxa de IVA reportada pela Shopify diferente da real. Pode ser corrigido com overrides por SKU em Integrações → InvoiceXpress → Gerir overrides.", BRAND.critical)}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
       "Verificar o detalhe abaixo para identificar o SKU.",
       "Abrir Integrações → Gerir overrides e adicionar override para o SKU (tax_rate ou vat_inclusion).",
@@ -579,6 +600,7 @@ export function tplReconcileDrift(input: IncidentTemplateInput): RenderedTemplat
 export function tplCurrencyNotSupported(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph("Recebemos um pagamento numa moeda diferente de EUR. A factura não foi emitida porque a contabilidade portuguesa deve ser em EUR.")}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
       "Verifique se o cliente pagou numa moeda inesperada.",
       "Se quer aceitar moedas múltiplas, contacte-nos para implementarmos conversão.",
@@ -698,6 +720,60 @@ export function tplDigest(input: {
   return {
     subject: `[Rioko 2.0] Resumo diário — ${input.incidents.length} incidente(s) em aberto`,
     html,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Weekly AI cross-incident pattern report (ops-facing)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface PatternReportItem {
+  title: string;
+  detail: string;
+  affected_count?: number;
+  suggested_action: string;
+}
+
+/**
+ * Ops-only weekly report of systemic patterns the AI found across the week's
+ * incidents. Clearly labelled AI-generated. Goes to KAPTA_DEV_EMAILS.
+ */
+export function tplPatternReport(input: {
+  summary: string;
+  patterns: PatternReportItem[];
+  totalIncidents: number;
+  weekLabel: string;
+  dashboardUrl?: string;
+}): RenderedTemplate {
+  const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
+  const cards = input.patterns.map((p) => `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.chipBg};border-left:3px solid ${BRAND.purple};border-radius:6px;margin:0 0 14px">
+      <tr><td style="padding:14px 18px">
+        <div style="font-size:15px;font-weight:600;color:${BRAND.text}">${escapeHtml(p.title)}${p.affected_count ? ` <span style="font-size:12px;color:${BRAND.muted};font-weight:500">· ${p.affected_count}×</span>` : ""}</div>
+        <div style="font-size:14px;line-height:1.6;color:${BRAND.text};margin-top:6px">${escapeHtml(p.detail)}</div>
+        ${p.suggested_action ? `<div style="font-size:13px;line-height:1.6;color:${BRAND.text};margin-top:8px"><strong>Ação:</strong> ${escapeHtml(p.suggested_action)}</div>` : ""}
+      </td></tr>
+    </table>`).join("");
+
+  const body = `
+    ${paragraph(escapeHtml(input.summary))}
+    ${sectionTitle(`Padrões (${input.patterns.length}) · ${input.totalIncidents} incidentes na semana`)}
+    ${cards || paragraph("Sem padrões sistémicos identificados esta semana.")}
+    <div style="margin-top:8px;font-size:11px;color:${BRAND.muted}">Gerado por IA · meramente indicativo · não substitui verificação humana</div>
+    ${ctaButton("Ver incidentes", `${dashboardUrl}/superadmin/incidents`)}
+  `;
+  return {
+    subject: `[Rioko 2.0] Relatório semanal de padrões — ${input.weekLabel}`,
+    html: shell({
+      title: "Relatório semanal de padrões (IA)",
+      preheader: input.summary.slice(0, 120),
+      bodyHtml: body,
+      helpUrl: DEFAULT_HELP_URL,
+      dashboardUrl,
+      firstSeenAt: input.weekLabel,
+      lastSeenAt: input.weekLabel,
+      occurrences: 1,
+    }),
   };
 }
 

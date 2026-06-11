@@ -16,3 +16,6 @@ backups/
 
 # Migration script output (contains PII)
 rioko-next/scripts/out/
+
+# Generated esbuild bundles + scratch diag for health-check harness
+scripts/.gen/

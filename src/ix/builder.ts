@@ -274,7 +274,11 @@ export class IxBuilder {
   }
 
   pickInvoiceAddress(normalized: Normalized) {
-    const customer = normalized.order.customer;
+    // Null-safe: guest / POS orders can arrive with customer = null. Reading
+    // customer.default_address on null throws a TypeError that aborts the whole
+    // invoice build (order never invoiced). Default to an empty object so the
+    // spreads below simply contribute nothing.
+    const customer = normalized.order.customer ?? ({} as NonNullable<Normalized["order"]["customer"]>);
 
     return {
       ...normalized.order.shipping_address ?? {},
@@ -320,7 +324,24 @@ export class IxBuilder {
     const requestTaxExemptionReason = this.shouldRequestTaxExemptionReason(items);
     const shopifyReverseCharge = usingRawPath && this.detectShopifyReverseCharge(normalized.raw_order);
 
-    if (usingRawPath) this.reconcileOrThrow(normalized.raw_order, items);
+    if (usingRawPath) {
+      this.reconcileOrThrow(normalized.raw_order, items);
+    } else {
+      // Non-raw fallback path (the raw Shopify fetch failed, so we lost discount
+      // enrichment). buildInvoiceItems emits items[].discount_amount, which IX
+      // SILENTLY IGNORES on POST — so a discounted order would ship with the
+      // discount dropped and a gross > amount paid, and until now this path had
+      // NO reconcile guard. Reconcile against the normalized paid total too:
+      // toReconcileLines does not carry discount_amount (it only honours the
+      // `discount` percentage), so computeExpectedGross matches exactly what IX
+      // will compute. A non-discounted order still passes (no regression); a
+      // discounted one throws → the queue retries (raw fetch usually recovers)
+      // instead of issuing a wrong invoice.
+      const paid = Number(normalized.order?.total ?? normalized.order?.total_calculated);
+      if (Number.isFinite(paid) && paid > 0) {
+        reconcileTotalOrThrow(paid, this.toReconcileLines(items), { context: "Shopify→IX (non-raw fallback)" });
+      }
+    }
 
     // Reverse-charge: prefer M16 (RITI art. 14.º) and stamp the mandatory
     // "IVA - autoliquidação" mention. Falls back to the merchant-configured

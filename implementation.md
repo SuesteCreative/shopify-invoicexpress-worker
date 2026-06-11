@@ -212,3 +212,42 @@ Verificação autoritativa: 253 pagas (90d) · 222 com invoice_id · **213+ conf
 
 ### Medium
 - [x] **Cache de meta de fatura** — conciliação refazia todos os GETs ao IX a cada load (causa-raiz da carga no proxy → phantom). Feito via **KV** (sem migração, evitando o caos de migrations 0012): `getReconciliation` lê `ixmeta:{id}` do KV primeiro; em miss vai ao IX (capped+retry) e grava no KV (TTL 24h). Aquece sozinha; loads seguintes são proxy-free. `AppStorage.getCachedInvoiceMetas`/`cacheInvoiceMeta`. NB: migrations em estado sujo (0012_user_id_scoping pendente+uncommitted, colisão de nº 0012) — resolver à parte.
+
+---
+
+## Audit — 2026-06-11 — Pre-onboarding health check (Shopify→IX)
+
+Ran the REAL bundled `IxBuilder` over ~2,180 real paid orders for the 4 live clients + 11 IX
+sandbox drafts (`ultramegasonico`, x-env dev). Harness: `scripts/healthcheck.mjs` (offline drift
+matrix, zero writes) + `scripts/draft-e2e.mjs` (sandbox drafts only). 3/4 clients clean (zoolagos,
+fabrica-coffee-roaster, mwi1cr-7t — 0 drift across ~1,800 orders incl. forced-tax/foreign/POS).
+**Only 2d0604-3 (OSS + reverse-charge, VAT-EXCLUDED) drifts: 15/385 orders blocked by the 1¢ reconcile
+guard** — confirmed in prod logs (real 422 "Invoice total mismatch" + 944× "Invoice not found" cascade).
+
+### Critical
+- [ ] **F-ROUND** — tax-EXCLUDED multi-line orders accumulate per-line rounding past the 1¢ reconcile
+  guard → invoice never issued. Fix: after building items, absorb the rounding residual into the
+  highest-gross line so the IX total equals Shopify `total_price` exactly (the amount actually paid);
+  only absorb pure rounding noise (`|residual| <= 0.01*nLines + 0.10`), leave larger structural gaps for
+  `reconcileOrThrow` to catch. Validate every drift order against IX sandbox (IX total == paid).
+
+### High
+- [x] **F1** — non-raw fallback (raw Shopify fetch failed) emitted IX-ignored `discount_amount` AND
+  skipped the reconcile guard -> silent over-invoice on discounted orders. Fix: reconcile the non-raw
+  path against `normalized.order.total` too (throws -> retry instead of issuing a wrong total).
+- [ ] **F-SHIP** — shipping line taxed entirely at `tax_lines[0].rate`; mixed-rate shipping (OSS basket
+  with items at 2 VAT rates -> Shopify splits the shipping tax) is mis-taxed (#4172: 0.50EUR). Fix: when a
+  shipping line carries >1 distinct non-zero rate (and no forced rate), split it into one IX sub-line
+  per rate. Single-rate shipping unchanged.
+- [ ] **F2** — refund->credit-note path has NO reconcile guard and uses the non-raw builder; the
+  `amountToRefund = amount - sum(subtotal)` extra line is unvalidated. Fix: reconcile the assembled
+  credit-note total against the actual refund amount before POST; abort on drift. (Verify amount
+  semantics against a real refund first.)
+
+### Medium
+- [x] **F3** — forced-tax explicit resolution covered products only -> a foreign client's shipping at
+  `force_shipping_tax_rate` fell back to Isento 0%. Fix: resolve the union of forced product+shipping
+  rates to explicit account-tax objects. Sandbox-proven (FR client, product@21% + shipping@6% kept).
+  Inert for all 4 current clients (none set `force_shipping_tax_rate`).
+- [x] **F-NULL** — `pickInvoiceAddress` NPE'd on `customer: null` (guest/POS) -> order never invoiced.
+  Fix: default null customer to `{}`.

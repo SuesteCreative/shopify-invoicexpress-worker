@@ -200,8 +200,32 @@ export class IxBuilder {
         : shipOverride?.vat_inclusion === "exc"
           ? false
           : undefined;
-      const item = buildLine(grossUnit, 1, grossLineDiscount, shipEffectiveRate, shipEffectiveRate, name, undefined, shipIncluded);
-      if (item) items.push(item);
+
+      // F-SHIP: mixed-rate shipping. On an OSS basket with items at >1 VAT rate,
+      // Shopify splits the shipping tax across those rates (e.g. a 12€ CTT line
+      // with tax_lines [21%:1.57, 10%:0.45]). The single-rate path above would
+      // stamp the WHOLE shipping at tax_lines[0].rate and over/under-tax it
+      // (#4172: +0.50€). When the collected shipping tax spans >1 distinct rate
+      // (and we're not forcing a rate or zero), emit one sub-line per rate, each
+      // sized from that rate's own tax basis, so each portion is taxed correctly.
+      const nonzeroShipTax = shipTaxLines.filter((t: any) => Number(t?.price ?? 0) > 0);
+      const distinctShipRates = new Set(nonzeroShipTax.map((t: any) => Number(t?.rate ?? 0)));
+      const effectiveShipIncluded = shipIncluded ?? shopifyIncluded;
+      if (!forceZeroTax && forceTaxShipping == null && grossLineDiscount === 0 && distinctShipRates.size > 1) {
+        for (const tl of nonzeroShipTax) {
+          const rate = Number(tl?.rate ?? 0) * 100;
+          const taxAmt = Number(tl?.price ?? 0);
+          if (rate <= 0 || taxAmt <= 0) continue;
+          const basisNet = taxAmt / (rate / 100);                                  // pre-tax portion for this rate
+          const portionGross = effectiveShipIncluded ? basisNet + taxAmt : basisNet; // buildLine wants gross when included, net when not
+          const subName = `${name} (${rate % 1 === 0 ? rate : rate.toFixed(2)}%)`.slice(0, 200);
+          const item = buildLine(portionGross, 1, 0, rate, rate, subName, undefined, effectiveShipIncluded);
+          if (item) items.push(item);
+        }
+      } else {
+        const item = buildLine(grossUnit, 1, grossLineDiscount, shipEffectiveRate, shipEffectiveRate, name, undefined, shipIncluded);
+        if (item) items.push(item);
+      }
     }
 
     this.absorbReconcileResidual(items, rawOrder, forceZeroTax, shopifyIncluded);

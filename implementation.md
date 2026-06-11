@@ -241,14 +241,20 @@ guard** — confirmed in prod logs (real 422 "Invoice total mismatch" + 944× "I
 - [x] **F1** — non-raw fallback (raw Shopify fetch failed) emitted IX-ignored `discount_amount` AND
   skipped the reconcile guard -> silent over-invoice on discounted orders. Fix: reconcile the non-raw
   path against `normalized.order.total` too (throws -> retry instead of issuing a wrong total).
-- [ ] **F-SHIP** — shipping line taxed entirely at `tax_lines[0].rate`; mixed-rate shipping (OSS basket
-  with items at 2 VAT rates -> Shopify splits the shipping tax) is mis-taxed (#4172: 0.50EUR). Fix: when a
-  shipping line carries >1 distinct non-zero rate (and no forced rate), split it into one IX sub-line
-  per rate. Single-rate shipping unchanged.
-- [ ] **F2** — refund->credit-note path has NO reconcile guard and uses the non-raw builder; the
-  `amountToRefund = amount - sum(subtotal)` extra line is unvalidated. Fix: reconcile the assembled
-  credit-note total against the actual refund amount before POST; abort on drift. (Verify amount
-  semantics against a real refund first.)
+- [x] **F-SHIP** — shipping line taxed entirely at `tax_lines[0].rate`; mixed-rate shipping (OSS basket
+  with items at 2 VAT rates -> Shopify splits the shipping tax across them) was mis-taxed (#4172: +0.50EUR).
+  Fix: when a shipping line's collected tax spans >1 distinct rate (and no forced rate / discount), split
+  it into one IX sub-line per rate, each sized from that rate's own tax basis. Single-rate shipping
+  unchanged. Validated: #4172 reconciles to paid exactly (74.19); synthetic 23%+6% split POSTed to IX
+  sandbox -> total exact, each portion taxed at its own rate. (#4172 only fails the PT *sandbox* because
+  that test account lacks a 10% tax; the prod OSS account has it.)
+- [x] **F2** — refund->credit-note path had NO reconcile guard and uses the non-raw builder; the
+  `amountToRefund = amount - sum(subtotal)` line can double-count tax on partial line-item refunds. Fix:
+  thread the gross refund `amount` through and reconcile the assembled credit-note total against it
+  (round-once `computeIxExpectedTotal`) before POST; abort on >1c drift -> queue retry + DLQ incident
+  instead of a fiscally-wrong credit note. Verified `amount` = gross refunded against a live refund;
+  regression: clean full + matched-partial refunds pass, double-counted-tax + dropped-discount notes
+  blocked.
 
 ### Medium
 - [x] **F3** — forced-tax explicit resolution covered products only -> a foreign client's shipping at

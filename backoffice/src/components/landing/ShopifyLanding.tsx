@@ -1319,22 +1319,28 @@ function LedgerRows() {
 // ─────────────────────────────────────────────────────────────
 // Receipt — pricing as a thermal receipt
 // ─────────────────────────────────────────────────────────────
+const ZIGZAG = {
+  height: 10,
+  backgroundImage: `linear-gradient(45deg, ${PAPER} 5px, transparent 0),
+                    linear-gradient(315deg, ${PAPER} 5px, transparent 0)`,
+  backgroundPosition: "left top",
+  backgroundRepeat: "repeat-x",
+  backgroundSize: "12px 12px",
+} as const;
+
 function Receipt() {
   const t = useTranslations("shopifyLanding.pricing");
 
-  const zigzag = (flip: boolean) => ({
-    height: 10,
-    backgroundImage: `linear-gradient(${flip ? 315 : 45}deg, ${PAPER} 5px, transparent 0),
-                      linear-gradient(${flip ? 45 : 315}deg, ${PAPER} 5px, transparent 0)`,
-    backgroundPosition: "left top",
-    backgroundRepeat: "repeat-x",
-    backgroundSize: "12px 12px",
-  });
+  const tiers = [
+    { key: "monthly", rotate: -1.6, highlight: false, href: "/sign-up", external: false },
+    { key: "yearly", rotate: 0, highlight: true, href: "/sign-up", external: false },
+    { key: "custom", rotate: 1.4, highlight: false, href: "https://kapta.pt/", external: true },
+  ] as const;
 
   return (
     <section id="preco" className="relative px-4 pt-28 md:pt-40">
-      <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-14 lg:grid-cols-12">
-        <div className="lg:col-span-6">
+      <div className="mx-auto w-full max-w-[1200px]">
+        <div className="max-w-[640px]">
           <Eyebrow>{t("eyebrow")}</Eyebrow>
           <h2
             className="mt-5"
@@ -1351,128 +1357,198 @@ function Receipt() {
           <p className="mt-6 max-w-[46ch] text-[15px] leading-[1.6]" style={{ color: DIM }}>
             {t("sub")}
           </p>
+        </div>
 
-          <div className="mt-10 flex flex-wrap items-center gap-5">
-            <Link
-              href="/sign-up"
-              className="group inline-flex items-center gap-3 px-6 py-3.5 text-[14px] font-medium transition-transform duration-300 active:scale-[0.97]"
-              style={{
-                background: CYAN_DEEP,
-                color: "#FFFFFF",
-                boxShadow:
-                  "inset 0 1px 0 rgba(255,255,255,0.2), 0 18px 40px -16px rgba(2,141,196,0.6)",
-              }}
-            >
-              {t("cta")}
-              <ArrowRight
-                className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1"
-                strokeWidth={1.75}
-              />
-            </Link>
-            <Link
-              href="/#preco"
-              className="text-[13px]"
-              style={{ color: DIM }}
-            >
-              <span className="border-b pb-0.5" style={{ borderColor: LINE }}>
-                {t("fullLink")} ↗
-              </span>
-            </Link>
-          </div>
+        <div className="mt-16 grid grid-cols-1 items-start gap-10 md:grid-cols-3 md:gap-6 lg:gap-8">
+          {tiers.map((tier, i) => (
+            <ReceiptCard key={tier.key} tier={tier} index={i} />
+          ))}
+        </div>
+
+        <div className="mt-12 flex flex-col items-center gap-4">
           <p
-            className="mt-5 text-[10px] uppercase tracking-[0.18em]"
+            className="text-center text-[10px] uppercase tracking-[0.18em]"
             style={{ color: FAINT, fontFamily: MONO }}
           >
             {t("notice")}
           </p>
-        </div>
-
-        <div className="lg:col-span-6">
-          <motion.div
-            initial={{ opacity: 0, y: 30, rotate: 0 }}
-            whileInView={{ opacity: 1, y: 0, rotate: -1.4 }}
-            viewport={{ once: true, margin: "-80px" }}
-            whileHover={{ rotate: 0 }}
-            transition={{ duration: 0.7, ease: EASE }}
-            className="mx-auto w-full max-w-[380px]"
-            style={{
-              filter: "drop-shadow(0 40px 60px rgba(0,0,0,0.6))",
-            }}
-          >
-            <div aria-hidden style={zigzag(false)} />
-            <div
-              className="px-7 py-8"
-              style={{ background: PAPER, color: INK, fontFamily: MONO }}
-            >
-              <div className="text-center">
-                <div className="text-[10px] uppercase tracking-[0.3em]" style={{ color: INK_FAINT }}>
-                  Rioko · Shopify
-                </div>
-                <div
-                  className="mt-4 text-[44px] leading-none tracking-tight"
-                  style={{ fontFamily: DISPLAY, fontWeight: 700 }}
-                >
-                  {t("price")}
-                </div>
-                <div className="mt-1 text-[11px]" style={{ color: INK_DIM }}>
-                  {t("period")}
-                </div>
-                <div className="mt-1 text-[10px]" style={{ color: INK_FAINT }}>
-                  {t("alt")}
-                </div>
-              </div>
-
-              <div
-                className="my-6 border-t border-dashed"
-                style={{ borderColor: "rgba(24,28,34,0.25)" }}
-              />
-
-              <div className="space-y-2.5">
-                {([1, 2, 3, 4, 5] as const).map((n) => (
-                  <div
-                    key={n}
-                    className="flex items-baseline justify-between gap-3 text-[11.5px]"
-                  >
-                    <span style={{ color: INK_DIM }}>{t(`b${n}`)}</span>
-                    <span
-                      className="shrink-0 text-[9px] uppercase tracking-[0.14em]"
-                      style={{ color: "#0E9F6E" }}
-                    >
-                      ✓ incl.
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div
-                className="my-6 border-t border-dashed"
-                style={{ borderColor: "rgba(24,28,34,0.25)" }}
-              />
-
-              {/* barcode */}
-              <div
-                aria-hidden
-                className="mx-auto h-10 w-[200px]"
-                style={{
-                  backgroundImage: `repeating-linear-gradient(90deg,
-                    ${INK} 0 2px, transparent 2px 5px,
-                    ${INK} 5px 6px, transparent 6px 11px,
-                    ${INK} 11px 14px, transparent 14px 16px,
-                    ${INK} 16px 17px, transparent 17px 21px)`,
-                }}
-              />
-              <div
-                className="mt-2 text-center text-[9px] tracking-[0.4em]"
-                style={{ color: INK_FAINT }}
-              >
-                RIOKO·SHOPIFY·PT
-              </div>
-            </div>
-            <div aria-hidden style={{ ...zigzag(true), transform: "scaleY(-1)" }} />
-          </motion.div>
+          <Link href="/#preco" className="text-[13px]" style={{ color: DIM }}>
+            <span className="border-b pb-0.5" style={{ borderColor: LINE }}>
+              {t("fullLink")} ↗
+            </span>
+          </Link>
         </div>
       </div>
     </section>
+  );
+}
+
+function ReceiptCard({
+  tier,
+  index,
+}: {
+  tier: {
+    key: "monthly" | "yearly" | "custom";
+    rotate: number;
+    highlight: boolean;
+    href: string;
+    external: boolean;
+  };
+  index: number;
+}) {
+  const t = useTranslations(`shopifyLanding.pricing.${tier.key}`);
+  const isCustom = tier.key === "custom";
+
+  const cta = tier.external ? (
+    <a
+      href={tier.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group mt-6 flex w-full items-center justify-center gap-2 border py-3 text-[12px] font-semibold uppercase tracking-[0.14em] transition-colors duration-300"
+      style={{ borderColor: INK, color: INK, fontFamily: MONO }}
+    >
+      {t("cta")}
+      <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={1.75} />
+    </a>
+  ) : (
+    <Link
+      href={tier.href}
+      className="group mt-6 flex w-full items-center justify-center gap-2 py-3 text-[12px] font-semibold uppercase tracking-[0.14em] transition-transform duration-300 active:scale-[0.98]"
+      style={{
+        background: tier.highlight ? CYAN_DEEP : INK,
+        color: "#FFFFFF",
+        fontFamily: MONO,
+        boxShadow: tier.highlight
+          ? "inset 0 1px 0 rgba(255,255,255,0.2), 0 14px 30px -12px rgba(2,141,196,0.55)"
+          : "inset 0 1px 0 rgba(255,255,255,0.12)",
+      }}
+    >
+      {t("cta")}
+      <ArrowRight
+        className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1"
+        strokeWidth={1.75}
+      />
+    </Link>
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30, rotate: 0 }}
+      whileInView={{ opacity: 1, y: tier.highlight ? -8 : 0, rotate: tier.rotate }}
+      viewport={{ once: true, margin: "-80px" }}
+      whileHover={{ rotate: 0, y: tier.highlight ? -12 : -4 }}
+      transition={{ duration: 0.65, ease: EASE, delay: index * 0.08 }}
+      className="relative mx-auto w-full max-w-[360px]"
+      style={{
+        filter: tier.highlight
+          ? "drop-shadow(0 40px 60px rgba(2,141,196,0.25))"
+          : "drop-shadow(0 32px 50px rgba(0,0,0,0.55))",
+        zIndex: tier.highlight ? 10 : 1,
+      }}
+    >
+      {/* recommended stamp */}
+      {tier.highlight && (
+        <div
+          className="absolute -top-3 left-1/2 z-20 -translate-x-1/2 rotate-[-4deg] border-2 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em]"
+          style={{
+            borderColor: CYAN_DEEP,
+            color: CYAN_DEEP,
+            background: PAPER,
+            fontFamily: MONO,
+          }}
+        >
+          {t("badge")}
+        </div>
+      )}
+
+      <div aria-hidden style={ZIGZAG} />
+      <div
+        className="px-6 py-7 sm:px-7"
+        style={{
+          background: PAPER,
+          color: INK,
+          fontFamily: MONO,
+          boxShadow: tier.highlight ? `inset 0 0 0 2px ${CYAN_DEEP}` : undefined,
+        }}
+      >
+        <div className="text-center">
+          <div
+            className="text-[10px] uppercase tracking-[0.3em]"
+            style={{ color: INK_FAINT }}
+          >
+            Rioko · Shopify · {t("name")}
+          </div>
+          <div
+            className={`mt-4 leading-none tracking-tight ${
+              isCustom ? "text-[26px] sm:text-[30px]" : "text-[40px] sm:text-[44px]"
+            }`}
+            style={{ fontFamily: DISPLAY, fontWeight: 700 }}
+          >
+            {t("price")}
+          </div>
+          <div className="mt-2 text-[11px]" style={{ color: INK_DIM }}>
+            {t("period")}
+          </div>
+          {tier.key === "yearly" && (
+            <div
+              className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "#0E9F6E" }}
+            >
+              {t("save")}
+            </div>
+          )}
+        </div>
+
+        <div
+          className="my-5 border-t border-dashed"
+          style={{ borderColor: "rgba(24,28,34,0.25)" }}
+        />
+
+        <div className="space-y-2.5">
+          {([1, 2, 3, 4] as const).map((n) => (
+            <div
+              key={n}
+              className="flex items-baseline justify-between gap-3 text-[11.5px]"
+            >
+              <span style={{ color: INK_DIM }}>{t(`b${n}`)}</span>
+              <span
+                className="shrink-0 text-[9px] uppercase tracking-[0.14em]"
+                style={{ color: "#0E9F6E" }}
+              >
+                ✓
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {cta}
+
+        <div
+          className="mt-6 border-t border-dashed pt-5"
+          style={{ borderColor: "rgba(24,28,34,0.25)" }}
+        />
+
+        {/* barcode */}
+        <div
+          aria-hidden
+          className="mx-auto h-8 w-[170px]"
+          style={{
+            backgroundImage: `repeating-linear-gradient(90deg,
+              ${INK} 0 2px, transparent 2px 5px,
+              ${INK} 5px 6px, transparent 6px 11px,
+              ${INK} 11px 14px, transparent 14px 16px,
+              ${INK} 16px 17px, transparent 17px 21px)`,
+          }}
+        />
+        <div
+          className="mt-2 text-center text-[9px] tracking-[0.4em]"
+          style={{ color: INK_FAINT }}
+        >
+          RIOKO·SHOPIFY·{t("name").toUpperCase()}
+        </div>
+      </div>
+      <div aria-hidden style={{ ...ZIGZAG, transform: "scaleY(-1)" }} />
+    </motion.div>
   );
 }
 

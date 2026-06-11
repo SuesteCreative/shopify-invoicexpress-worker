@@ -507,17 +507,40 @@
       "eyebrow": "Preço",
       "title": "Simples. <g>Por integração.</g>",
       "sub": "A integração Shopify custa o mesmo que qualquer outra do catálogo. Sem fees por documento, sem limites de volume.",
-      "price": "7,50 €",
-      "period": "/mês · + IVA",
-      "alt": "ou 75 € + IVA/ano · 2 meses grátis",
-      "b1": "Integração Shopify completa",
-      "b2": "Faturação automática em < 1s",
-      "b3": "NIF · IVA · isenções M01–M99",
-      "b4": "Reembolsos → notas de crédito",
-      "b5": "Suporte por email",
-      "cta": "Começar grátis",
-      "notice": "Sem cartão para começar · cancela quando quiseres",
-      "fullLink": "Ver todos os planos no hub"
+      "notice": "Preços sem IVA · sem cartão para começar · cancela quando quiseres",
+      "fullLink": "Ver todos os planos no hub",
+      "monthly": {
+        "name": "Mensal",
+        "price": "7,50 €",
+        "period": "/mês · + IVA",
+        "b1": "Integração Shopify completa",
+        "b2": "Faturação automática em < 1s",
+        "b3": "NIF · IVA · isenções M01–M99",
+        "b4": "Reembolsos → notas de crédito",
+        "cta": "Começar grátis"
+      },
+      "yearly": {
+        "name": "Anual",
+        "badge": "Recomendado",
+        "price": "75 €",
+        "period": "/ano · + IVA",
+        "save": "2 meses grátis · 75 € vs 90 €",
+        "b1": "Tudo no plano mensal",
+        "b2": "2 meses grátis",
+        "b3": "Prioridade no roadmap",
+        "b4": "Suporte por email · resposta < 24h",
+        "cta": "Começar grátis"
+      },
+      "custom": {
+        "name": "Personalizada",
+        "price": "Sob consulta",
+        "period": "à medida",
+        "b1": "Integração à medida · ERP, marketplaces",
+        "b2": "Múltiplas lojas / múltiplos NIFs",
+        "b3": "SLA dedicado",
+        "b4": "Onboarding técnico em videochamada",
+        "cta": "Pedir orçamento"
+      }
     },
     "faq": {
       "eyebrow": "FAQ",

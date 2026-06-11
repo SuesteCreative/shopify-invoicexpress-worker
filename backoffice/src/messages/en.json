@@ -507,17 +507,40 @@
       "eyebrow": "Pricing",
       "title": "Simple. <g>Per integration.</g>",
       "sub": "The Shopify integration costs the same as any other in the catalog. No per-document fees, no volume limits.",
-      "price": "€7.50",
-      "period": "/month · + VAT",
-      "alt": "or €75 + VAT/year · 2 months free",
-      "b1": "Full Shopify integration",
-      "b2": "Automatic invoicing in < 1s",
-      "b3": "VAT ID · VAT · M01–M99 exemptions",
-      "b4": "Refunds → credit notes",
-      "b5": "Email support",
-      "cta": "Start free",
-      "notice": "No card to start · cancel anytime",
-      "fullLink": "See all plans on the hub"
+      "notice": "Prices excl. VAT · no card to start · cancel anytime",
+      "fullLink": "See all plans on the hub",
+      "monthly": {
+        "name": "Monthly",
+        "price": "€7.50",
+        "period": "/month · + VAT",
+        "b1": "Full Shopify integration",
+        "b2": "Automatic invoicing in < 1s",
+        "b3": "VAT ID · VAT · M01–M99 exemptions",
+        "b4": "Refunds → credit notes",
+        "cta": "Start free"
+      },
+      "yearly": {
+        "name": "Yearly",
+        "badge": "Recommended",
+        "price": "€75",
+        "period": "/year · + VAT",
+        "save": "2 months free · €75 vs €90",
+        "b1": "Everything in monthly",
+        "b2": "2 months free",
+        "b3": "Roadmap priority",
+        "b4": "Email support · < 24h response",
+        "cta": "Start free"
+      },
+      "custom": {
+        "name": "Custom",
+        "price": "On request",
+        "period": "tailor-made",
+        "b1": "Tailor-made integration · ERP, marketplaces",
+        "b2": "Multiple stores / multiple VAT IDs",
+        "b3": "Dedicated SLA",
+        "b4": "Technical onboarding call",
+        "cta": "Request a quote"
+      }
     },
     "faq": {
       "eyebrow": "FAQ",

@@ -65,19 +65,29 @@ function bareConsumidorFinal(client: any): any {
 async function resolveExplicitForcedTax(
   ixHeaders: IxHeaders,
   data: any,
-  forceTaxRate: number,
+  forcedRates: number[],
 ): Promise<void> {
   const items: any[] = Array.isArray(data?.items) ? data.items : [];
-  if (!items.some((it) => typeof it?.tax === "number" && it.tax === forceTaxRate)) return;
+  // Every positive forced rate (product force_tax_rate AND shipping
+  // force_shipping_tax_rate) must be sent explicitly — otherwise a shipping line
+  // carrying a forced rate different from the product rate still falls back to
+  // Isento (0%) for foreign clients. Resolve the union of forced rates in ONE
+  // taxes fetch and rewrite every numeric line whose tax matches one of them.
+  const targets = Array.from(new Set(forcedRates.filter((r) => typeof r === "number" && r > 0)));
+  if (targets.length === 0) return;
+  if (!items.some((it) => typeof it?.tax === "number" && targets.includes(it.tax))) return;
   try {
     const { data: taxData, error } = await IxApi.v2.taxes.get({ headers: ixHeaders });
     if (error) return;
     const list: any[] = (taxData as any)?.taxes ?? (taxData as any)?.data?.taxes ?? (taxData as any)?.data ?? [];
-    const match = list.find((t: any) => Number(t?.value) === forceTaxRate);
-    if (!match?.id) return; // no matching account tax — leave numeric, let resolver try
-    const explicit = { id: Number(match.id), name: String(match.name), value: Number(match.value) };
+    const explicitByRate = new Map<number, { id: number; name: string; value: number }>();
+    for (const rate of targets) {
+      const match = list.find((t: any) => Number(t?.value) === rate);
+      if (match?.id) explicitByRate.set(rate, { id: Number(match.id), name: String(match.name), value: Number(match.value) });
+    }
+    if (explicitByRate.size === 0) return; // no matching account tax — leave numeric, let resolver try
     for (const it of items) {
-      if (typeof it?.tax === "number" && it.tax === forceTaxRate) it.tax = explicit;
+      if (typeof it?.tax === "number" && explicitByRate.has(it.tax)) it.tax = explicitByRate.get(it.tax);
     }
   } catch {
     // best-effort: on any failure leave the numeric tax (current behaviour)
@@ -100,14 +110,17 @@ export async function createIxInvoiceWithFallback(
   ixHeaders: IxHeaders,
   data: any,
   docType: "invoice" | "invoice_receipt",
-  opts?: { forceTaxRate?: number | null },
+  opts?: { forceTaxRate?: number | null; forceShippingTaxRate?: number | null },
 ): Promise<IxCreateOutcome> {
   const query = { resolvers: "on_tax_fallback_search_tax_by_value" as const };
 
-  // 0. Force a positive forced rate to be sent as an explicit account tax so IX
-  //    applies it to foreign clients too (instead of falling back to Isento).
-  if (typeof opts?.forceTaxRate === "number" && opts.forceTaxRate > 0) {
-    await resolveExplicitForcedTax(ixHeaders, data, opts.forceTaxRate);
+  // 0. Force every positive forced rate (product + shipping) to be sent as an
+  //    explicit account tax so IX applies it to foreign clients too (instead of
+  //    falling back to Isento).
+  const forcedRates = [opts?.forceTaxRate, opts?.forceShippingTaxRate]
+    .filter((r): r is number => typeof r === "number" && r > 0);
+  if (forcedRates.length > 0) {
+    await resolveExplicitForcedTax(ixHeaders, data, forcedRates);
   }
 
   // 1. Normal create, with transient retry.

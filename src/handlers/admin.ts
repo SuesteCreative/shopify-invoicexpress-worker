@@ -910,7 +910,7 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       ixHeaders,
       invoice,
       config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
-      { forceTaxRate: config.force_tax_rate },
+      { forceTaxRate: config.force_tax_rate, forceShippingTaxRate: config.force_shipping_tax_rate },
     );
 
     if (ixCreateResponse.data?.data?.id) {

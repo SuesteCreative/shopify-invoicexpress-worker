@@ -19,3 +19,18 @@ rioko-next/scripts/out/
 
 # Generated esbuild bundles + scratch diag for health-check harness
 scripts/.gen/
+
+# Scratch diagnostics / one-off reemit scripts (keep test-*.mjs + ops tooling)
+scripts/diag-*.mjs
+scripts/reemit-*.mjs
+
+# Local fixtures / PII order payloads
+clients/
+
+# Editor / OS / build junk
+.DS_Store
+*.tsbuildinfo
+
+# Stray binaries & DB dumps (belong in object storage, not git)
+*.ai
+backup-*.sql

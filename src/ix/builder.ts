@@ -4,7 +4,7 @@ import type { PostV2CreditNotesData, PostV2InvoicesData } from "../api/ix/client
 import { validatePTNIF } from "./nif";
 import { isCrossBorderEU } from "./eu-countries";
 import type { ViesChecker } from "./vies";
-import { computeExpectedGross, reconcileTotalOrThrow, type ReconcileLine } from "../adapters/reconcile";
+import { type ReconcileLine } from "../adapters/reconcile";
 import { format } from "date-fns";
 
 export type IxInvoice = NonNullable<PostV2InvoicesData["body"]>["invoice"];
@@ -204,7 +204,81 @@ export class IxBuilder {
       if (item) items.push(item);
     }
 
+    this.absorbReconcileResidual(items, rawOrder, forceZeroTax, shopifyIncluded);
     return items;
+  }
+
+  // Tax-EXCLUDED multi-line orders (OSS baskets with several low-value lines,
+  // often discounted) accumulate per-line 2dp rounding that drifts the summed IX
+  // gross a few cents from Shopify's `total_price` — the amount the customer
+  // actually PAID. Left alone this trips `reconcileOrThrow` (1¢) and the order is
+  // never invoiced (observed live on Angel Piercings / 2d0604-3). Shopify's
+  // total_price is the source of truth, so re-target the highest-gross line so the
+  // summed IX total lands on what was paid (the per-line VAT split shifts by cents
+  // on one line; the total and the total VAT stay correct).
+  //
+  // Scope is deliberately narrow: only the tax-EXCLUDED case (the 3 vat-included
+  // clients reconcile to the cent already, so they're skipped → zero risk to
+  // them), and only pure rounding noise — `|residual| <= 0.01·nLines + 0.10`,
+  // which grows with line count and per-line discounts. Anything larger is a real
+  // structural gap and is left to `reconcileOrThrow` to catch.
+  //
+  // The line is rebuilt with the SAME ceil2-unit + positive-discount mechanism
+  // `buildLine` uses, so IX rounds it predictably and the discount is never
+  // negative (which IX rejects).
+  private absorbReconcileResidual(items: IxInvoice["items"], rawOrder: any, forceZeroTax: boolean, shopifyIncluded: boolean): void {
+    if (forceZeroTax || shopifyIncluded || !Array.isArray(items) || items.length === 0) return;
+    const target = Number(rawOrder?.total_price);
+    if (!Number.isFinite(target) || target <= 0) return;
+    const round4 = (n: number) => Math.round(n * 10000) / 10000;
+    const ceil2 = (n: number) => Math.ceil(n * 100) / 100;
+    const rateOf = (it: any) => (typeof it.tax === "number" ? it.tax : Number(it.tax?.value ?? 0));
+    // IX sums FULL-PRECISION line grosses and rounds ONCE (verified live: returned
+    // tax_amount is unrounded, total == round2(Σ unit·qty·(1-d/100)·(1+r/100))).
+    // So compute the residual the same way and re-target the absorbing line in
+    // full precision — never per-line-rounded — so IX's total lands on `paid`.
+    const fullGross = (it: any) =>
+      Number(it.unit_price) * Number(it.quantity) * (1 - Number(it.discount ?? 0) / 100) * (1 + rateOf(it) / 100);
+    const expected = this.ixExpectedGross(items);
+    const residual = Math.round((target - expected) * 100) / 100;
+    if (residual === 0) return;
+    if (Math.abs(residual) > 0.01 * items.length + 0.10) return; // structural, not rounding — let reconcile catch it
+
+    // Highest-gross line absorbs the residual (smallest relative distortion).
+    let k = 0, best = -Infinity;
+    items.forEach((it, i) => { const g = fullGross(it); if (g > best) { best = g; k = i; } });
+    const it: any = items[k];
+    const rate = rateOf(it);
+    const factor = rate > 0 ? 1 + rate / 100 : 1;
+    const qty = Number(it.quantity);
+    if (qty <= 0) return;
+    let sumOthers = 0;
+    items.forEach((x, i) => { if (i !== k) sumOthers += fullGross(x); });
+    const targetKFull = target - sumOthers; // full gross line k must produce so round2(total) == paid
+    if (targetKFull <= 0) return;
+    const netNeeded = targetKFull / factor;      // pre-tax subtotal IX needs for line k
+    const unit = ceil2(netNeeded / qty);         // ceil so unit*qty >= netNeeded → discount stays positive
+    const base = unit * qty;
+    if (base <= 0) return;
+    const disc = round4(Math.max(0, (1 - netNeeded / base) * 100));
+    it.unit_price = unit;
+    if (disc > 0) it.discount = disc; else delete it.discount;
+  }
+
+  // The EXACT total InvoiceXpress computes from a set of items: sum the
+  // full-precision per-line gross and round once. IX does NOT round per line
+  // (verified live — returned `tax_amount` is unrounded), so the shared
+  // per-line `computeExpectedGross` mis-predicts IX by a few cents on multi-line
+  // orders. Every IX total prediction/reconciliation must use THIS model.
+  private ixExpectedGross(items: IxInvoice["items"]): number {
+    let total = 0;
+    for (const it of items as any[]) {
+      const rate = typeof it.tax === "number" ? it.tax : Number(it.tax?.value ?? 0);
+      const disc = Number(it.discount ?? 0);
+      const net = Number(it.unit_price) * Number(it.quantity) * (1 - disc / 100);
+      total += net * (1 + rate / 100);
+    }
+    return Math.round(total * 100) / 100;
   }
 
   /** Convert IX-shaped items to the shared ReconcileLine shape. */
@@ -219,22 +293,35 @@ export class IxBuilder {
   }
 
   // Compute the expected gross total that IX should arrive at from the items
-  // we're about to send. Thin wrapper over `computeExpectedGross` for the
-  // shared adapter helper.
+  // we're about to send. Uses IX's actual round-once model (see ixExpectedGross).
   computeIxExpectedTotal(items: IxInvoice["items"]): number {
-    return computeExpectedGross(this.toReconcileLines(items));
+    return this.ixExpectedGross(items);
   }
 
-  // Throws if our planned IX total drifts from Shopify total_price by more
+  // Throws if our planned IX total drifts from the amount actually paid by more
   // than one cent. Caller catches and aborts the IX call rather than ship a
-  // wrongly-totalled invoice.
+  // wrongly-totalled invoice. Uses IX's round-once model so the guard agrees with
+  // what IX will actually compute (the shared per-line `reconcileTotalOrThrow`
+  // mis-predicted IX and blocked good multi-line orders).
   reconcileOrThrow(rawOrder: any, items: IxInvoice["items"]): void {
     if (!rawOrder) return;
     const shopifyTotal = Number(rawOrder?.total_price);
     if (!Number.isFinite(shopifyTotal) || shopifyTotal <= 0) return;
-    reconcileTotalOrThrow(shopifyTotal, this.toReconcileLines(items), {
-      context: "Shopify→IX",
-    });
+    this.reconcileIxOrThrow(shopifyTotal, items, "Shopify→IX");
+  }
+
+  /** Round-once reconcile against the paid amount; throws the same
+   * "Invoice total mismatch" shape the alerting/incident path parses. */
+  reconcileIxOrThrow(paid: number, items: IxInvoice["items"], context: string): void {
+    if (!Number.isFinite(paid) || paid <= 0) return;
+    const expected = this.ixExpectedGross(items);
+    const drift = Math.abs(expected - paid);
+    if (drift > 0.01) {
+      const breakdown = this.toReconcileLines(items);
+      throw new Error(
+        `[${context}] Invoice total mismatch: paid=${paid.toFixed(2)} expected=${expected.toFixed(2)} drift=${drift.toFixed(2)}. Lines=${JSON.stringify(breakdown)}`,
+      );
+    }
   }
 
   buildInvoiceItems(normalizedItems: Normalized["order"]["items"], opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {
@@ -339,7 +426,7 @@ export class IxBuilder {
       // instead of issuing a wrong invoice.
       const paid = Number(normalized.order?.total ?? normalized.order?.total_calculated);
       if (Number.isFinite(paid) && paid > 0) {
-        reconcileTotalOrThrow(paid, this.toReconcileLines(items), { context: "Shopify→IX (non-raw fallback)" });
+        this.reconcileIxOrThrow(paid, items, "Shopify→IX (non-raw fallback)");
       }
     }
 

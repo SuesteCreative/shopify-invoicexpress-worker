@@ -225,11 +225,17 @@ fabrica-coffee-roaster, mwi1cr-7t — 0 drift across ~1,800 orders incl. forced-
 guard** — confirmed in prod logs (real 422 "Invoice total mismatch" + 944× "Invoice not found" cascade).
 
 ### Critical
-- [ ] **F-ROUND** — tax-EXCLUDED multi-line orders accumulate per-line rounding past the 1¢ reconcile
-  guard → invoice never issued. Fix: after building items, absorb the rounding residual into the
-  highest-gross line so the IX total equals Shopify `total_price` exactly (the amount actually paid);
-  only absorb pure rounding noise (`|residual| <= 0.01*nLines + 0.10`), leave larger structural gaps for
-  `reconcileOrThrow` to catch. Validate every drift order against IX sandbox (IX total == paid).
+- [x] **F-ROUND** — tax-EXCLUDED multi-line orders blocked by the 1¢ reconcile guard -> never invoiced.
+  Root cause (found via sandbox): **IX rounds the total ONCE** (`total = round2(Σ unit·qty·(1-d/100)·
+  (1+r/100))`, full-precision sum — returned `tax_amount` is unrounded), but the shared
+  `computeExpectedGross` rounds PER LINE, so it mis-predicted IX by a few cents on multi-line orders.
+  Fix: (1) new `ixExpectedGross` round-once model used by `computeIxExpectedTotal` + `reconcileOrThrow`
+  (round-once guard now agrees with IX); (2) `absorbReconcileResidual` re-targets the highest-gross line
+  in full precision so IX's total lands exactly on Shopify `total_price`; scoped to tax-EXCLUDED only
+  (vat-included clients skip it -> zero risk) and only pure rounding noise (`|residual| <= 0.01·nLines +
+  0.10`) — larger gaps fall through to reconcile. **Validated against IX sandbox: 11/11 drift orders now
+  total EXACTLY == paid (incl. a 137-line, 1194.60€ order); 3 clean clients unchanged; 2d0604-3 15->1
+  (the last is F-SHIP).**
 
 ### High
 - [x] **F1** — non-raw fallback (raw Shopify fetch failed) emitted IX-ignored `discount_amount` AND

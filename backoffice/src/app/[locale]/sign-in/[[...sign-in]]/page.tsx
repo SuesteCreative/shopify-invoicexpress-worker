@@ -15,7 +15,7 @@ export default async function Page({
     return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-6 bg-slate-950 p-4">
             <LangToggle variant="dark" />
-            <div className="w-full max-w-[440px]">
+            <div className="w-full max-w-[440px] flex justify-center">
                 <SignIn
                     path={`/${locale}/sign-in`}
                     signUpUrl={`/${locale}/sign-up`}

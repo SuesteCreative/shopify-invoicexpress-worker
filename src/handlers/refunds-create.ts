@@ -77,7 +77,10 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
       return {
         refundId: credit.refund_id,
         itemsIds: lineItems.map(item => item.id),
-        amountToRefund: amount - sum
+        amountToRefund: amount - sum,
+        // Carry the gross refund amount through so the credit-note total can be
+        // reconciled against it before POST (see guard below).
+        amount,
       };
     }).filter(credit =>
       !creditNotes.some(note => note.reference === `OrderRefund #${credit.refundId}`)
@@ -138,6 +141,26 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
             description: `Refund amount of ${credit.amountToRefund}`,
             name: `Refund amount (#${credit.refundId})`,
           });
+        }
+
+        // Guard: the credit-note total MUST equal the amount actually refunded
+        // (credit.amount = gross refunded, verified against live refunds). The
+        // invoice path reconciles; this path historically did not, so a wrong
+        // total — e.g. the `amountToRefund` line double-counting tax on a partial
+        // line-item refund, or a dropped discount (IX ignores items[].discount_amount)
+        // — would ship a fiscally-wrong credit note. Abort instead: the queue
+        // retries and the DLQ raises an incident, rather than issuing a bad doc.
+        // Uses IX's round-once model (computeIxExpectedTotal) so it agrees with
+        // what IX will actually compute.
+        const refundAmount = Number(credit.amount);
+        if (Number.isFinite(refundAmount) && refundAmount > 0) {
+          const expectedCredit = ixBuilder.computeIxExpectedTotal(items as any);
+          const creditDrift = Math.abs(expectedCredit - refundAmount);
+          if (creditDrift > 0.01) {
+            throw new Error(
+              `[Shopify→IX credit note #${credit.refundId}] total mismatch: refund=${refundAmount.toFixed(2)} expected=${expectedCredit.toFixed(2)} drift=${creditDrift.toFixed(2)}. Items=${JSON.stringify(items)}`,
+            );
+          }
         }
 
         const requireTaxExemption = items.some(item =>

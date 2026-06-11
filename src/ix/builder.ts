@@ -513,7 +513,28 @@ export class IxBuilder {
     const email = (order.customer?.email || "").trim();
     const address = this.pickInvoiceAddress(normalized);
 
-    const resolvedName = customerName || billingName;
+    // Shopify customer profiles are often first-name-only while the checkout
+    // addresses carry the full name. When the resolved name has no surname,
+    // graft it from billing/shipping — but only when that address's first
+    // token matches the bare name (accent/case-insensitive), so a gift
+    // recipient's surname is never borrowed. No match → keep the bare name.
+    const enrichWithSurname = (first: string): string => {
+      // strips combining diacritics (U+0300–U+036F) so "Érica" matches "Erica"
+      const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+      const sources = [order.billing_address, order.shipping_address, order.customer?.default_address];
+      for (const addr of sources) {
+        if (!addr) continue;
+        const full = String(addr.name || `${addr.first_name ?? ""} ${addr.last_name ?? ""}`).trim();
+        const tokens = full.split(/\s+/).filter(Boolean);
+        if (tokens.length >= 2 && fold(tokens[0]) === fold(first)) {
+          return [first, ...tokens.slice(1)].join(" ");
+        }
+      }
+      return first;
+    };
+
+    let resolvedName = customerName || billingName;
+    if (resolvedName && !/\s/.test(resolvedName)) resolvedName = enrichWithSurname(resolvedName);
     const isPosMode = this.config.pos_mode === 1;
 
     let name: string;
@@ -552,12 +573,18 @@ export class IxBuilder {
     // name IX requires — sending "PT" is rejected as "Country PT was not found".
     const rawCountry = String(order.billing_address?.country || order.billing_address?.country_code || "").trim();
 
+    // Billing zip first (same source as city/country), merged-address fallback.
+    // pickInvoiceAddress spreads can override a real zip with "" from a later
+    // empty address, so resolve here instead of trusting the merge order.
+    const postalCode = String(order.billing_address?.zip || address.zip || "").trim();
+
     return {
       name,
       email,
       fiscal_id: nif ?? undefined,
       code: String(order.customer?.id || order.id),
       address: address.address1,
+      postal_code: postalCode || undefined,
       city: order.billing_address?.city,
       country: toIxCountryName(rawCountry),
       phone: order.customer?.phone || order.billing_address?.phone

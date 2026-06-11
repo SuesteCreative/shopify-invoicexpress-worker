@@ -102,32 +102,50 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   return out;
 }
 
+// The IX proxy (ix-proxy.kapta.app) is shared hosting and stalls under load.
+// Earlier this used the generated SDK, but the SDK doesn't honour an abort
+// signal — so when a fetch hung, racing it with a timeout returned early yet left
+// the underlying request IN-FLIGHT, which kept the whole worker alive until it
+// hit the ~30s wall-clock limit and Cloudflare killed it (a 500 — the page
+// failing to load entirely). We now use raw `fetch` with a real AbortController
+// so a hung read is actually cancelled at `budget`, and the caller renders the
+// invoice as issued-but-detail-unavailable rather than "missing".
+const IX_PROXY_BASE = "https://ix-proxy.kapta.app";
+
 async function fetchInvoiceMeta(
   config: IRequestConfig,
   invoiceId: string,
-  orderId: string
+  orderId: string,
+  deadline?: number,
 ): Promise<InvoiceMeta | null> {
   const ixHeaders = {
     "x-account-name": config.ix_account_name!,
     "x-api-key": config.ix_api_key!,
-    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+    "x-env": config.ix_environment === "production" ? "prod" : "dev",
+    "Accept": "application/json",
   };
-  // Retry transient proxy failures (timeout / 5xx / 429) before giving up. A
-  // null return here no longer means "no invoice" — the caller knows the
-  // invoice_id exists and renders it as issued-but-unverified, never as missing.
+  const PER_ATTEMPT_MS = 5000;
   for (let attempt = 0; attempt < 3; attempt++) {
+    // Bounded-load: once the page's overall meta budget is spent, stop hitting
+    // the proxy entirely so the request always returns inside the worker limit.
+    if (deadline && Date.now() >= deadline) return null;
+    const budget = deadline ? Math.max(500, Math.min(PER_ATTEMPT_MS, deadline - Date.now())) : PER_ATTEMPT_MS;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budget);
     try {
-      const { data, error } = await IxApi.v2.documents.byId.get({
+      const res = await fetch(`${IX_PROXY_BASE}/v2/documents/${Number(invoiceId)}`, {
         headers: ixHeaders,
-        path: { id: Number(invoiceId) },
+        signal: controller.signal,
       });
-      if (error) {
-        if (attempt < 2) { await sleep(300 * (attempt + 1)); continue; }
-        console.error(`[Rioko] fetchInvoiceMeta error for ${invoiceId}:`, error);
+      clearTimeout(timer);
+      if (!res.ok) {
+        if (res.status === 404) return null; // genuine 404 — invoice not at IX
+        if (attempt < 2 && (!deadline || Date.now() < deadline)) { await sleep(300 * (attempt + 1)); continue; }
         return null;
       }
-      if (!data?.data) return null; // genuine 404/empty — invoice not at IX
-      const d: any = data.data;
+      const j: any = await res.json().catch(() => null);
+      const d: any = j?.data;
+      if (!d) return null;
       return {
         id: String(d.id ?? invoiceId),
         reference: d.reference ?? null,
@@ -140,8 +158,10 @@ async function fetchInvoiceMeta(
         order_id_link: orderId,
       };
     } catch (e) {
-      if (attempt < 2) { await sleep(300 * (attempt + 1)); continue; }
-      console.error(`[Rioko] fetchInvoiceMeta failed for ${invoiceId}:`, e);
+      clearTimeout(timer);
+      // AbortError (our timeout) or a network blip — retry within budget, else
+      // give up on the detail and keep the page responsive.
+      if (attempt < 2 && (!deadline || Date.now() < deadline)) { await sleep(200); continue; }
       return null;
     }
   }
@@ -171,6 +191,11 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
   //    the proxy and produced the phantom "Sem fatura"). On a cache miss we fetch
   //    from IX with bounded concurrency + retry (as before) and write the result
   //    back to KV, so the cache warms itself and subsequent loads are proxy-free.
+  // Overall budget for the cold (cache-miss) proxy reads. Cached invoices return
+  // instantly; only misses fetch. Once this deadline passes, remaining misses are
+  // skipped and rendered as "detalhe indisponível" so the page always returns
+  // well inside the worker's wall-clock limit instead of 500-ing on a slow proxy.
+  const metaDeadline = Date.now() + 12_000;
   const invoiceEntries = Array.from(orderToInvoice.entries());
   const cachedMetas = await appStorage.getCachedInvoiceMetas(invoiceEntries.map(([, invoiceId]) => invoiceId));
   const invoiceMetas = await mapWithConcurrency(
@@ -178,7 +203,7 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
     async ([orderId, invoiceId]) => {
       const cached = cachedMetas.get(String(invoiceId));
       if (cached) return { ...cached, order_id_link: orderId } as InvoiceMeta;
-      const meta = await fetchInvoiceMeta(config, invoiceId, orderId);
+      const meta = await fetchInvoiceMeta(config, invoiceId, orderId, metaDeadline);
       if (meta) {
         const { order_id_link, ...store } = meta;
         await appStorage.cacheInvoiceMeta(invoiceId, store);
@@ -332,23 +357,42 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
     };
     const refOf = (r: ReconciliationRow) => `Order #${r.order.order_number}`;
     const account = config.ix_account_name!;
+    const refDeadline = Date.now() + 8_000; // bound the recovery phase too
     const cachedRefs = await appStorage.getCachedRefLookups(account, noneRows.map(refOf));
     await mapWithConcurrency(noneRows, 4, async (row) => {
+      if (Date.now() >= refDeadline) return; // budget spent — leave as-is, don't hang the worker
       const ref = refOf(row);
       let invoiceId: string | null = null;
       const cached = cachedRefs.get(ref);
       if (cached === "MISS") return;
       if (cached) invoiceId = cached;
       else {
-        const res: any = await ixCall(
-          () => IxApi.v2.documents.reference.post({ headers: ixHeaders, body: { reference: ref } }),
-          { isOk: (r: any) => !r?.error, label: `ref ${ref}` },
-        );
-        invoiceId = res?.data?.data?.id ? String(res.data.data.id) : null;
-        await appStorage.cacheRefLookup(account, ref, invoiceId ?? "MISS");
+        // Raw fetch with a REAL AbortController. The old path used ixCall (SDK +
+        // timeout-race), which (a) doesn't abort, so a hung ref lookup orphaned a
+        // fetch and ran the worker into its limit, and (b) THREW on exhaustion —
+        // a single uninvoiced order with a slow proxy ref-lookup crashed the whole
+        // page (500). Now: bounded, single attempt, and a failure just leaves the
+        // row as "none" — the page always renders.
+        try {
+          const budget = Math.max(500, Math.min(4000, refDeadline - Date.now()));
+          const c = new AbortController();
+          const t = setTimeout(() => c.abort(), budget);
+          const r = await fetch(`${IX_PROXY_BASE}/v2/documents/reference`, {
+            method: "POST",
+            headers: { ...ixHeaders, "Accept": "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ reference: ref }),
+            signal: c.signal,
+          });
+          clearTimeout(t);
+          const j: any = r.ok ? await r.json().catch(() => null) : null;
+          invoiceId = j?.data?.data?.id ? String(j.data.data.id) : (j?.data?.id ? String(j.data.id) : null);
+          await appStorage.cacheRefLookup(account, ref, invoiceId ?? "MISS");
+        } catch {
+          return; // proxy slow/aborted — leave as "none", never crash the page
+        }
       }
       if (!invoiceId) return;
-      const meta = await fetchInvoiceMeta(config, invoiceId, row.order.id);
+      const meta = await fetchInvoiceMeta(config, invoiceId, row.order.id, refDeadline);
       if (!meta) return;
       const { order_id_link, ...store } = meta;
       await appStorage.cacheInvoiceMeta(invoiceId, store);

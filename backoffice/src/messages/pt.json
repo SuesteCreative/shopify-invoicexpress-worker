@@ -1,13 +1,13 @@
 {
   "metadata": {
-    "siteTitle": "Rioko — Faturação automática para Shopify e Stripe em Portugal",
-    "siteDescription": "Liga a Shopify e a Stripe ao InvoiceXpress, Moloni ou Vendus e emite faturas certificadas automaticamente — com ATCUD, séries, NIF e IVA. Configura uma vez, fatura para sempre.",
+    "siteTitle": "Rioko | Faturação automática para Shopify e Stripe em Portugal",
+    "siteDescription": "Liga a Shopify e a Stripe ao InvoiceXpress, Moloni ou Vendus e emite faturas certificadas automaticamente, com ATCUD, séries, NIF e IVA. Configura uma vez, fatura para sempre.",
     "privacyTitle": "Política de Privacidade | Rioko",
     "termsTitle": "Termos de Serviço | Rioko"
   },
   "consent": {
     "title": "Preferências de cookies",
-    "message": "Usamos cookies de análise para medir o tráfego e melhorar a experiência. Só carregam se aceitar — pode recusar sem afetar o site.",
+    "message": "Usamos cookies de análise para medir o tráfego e melhorar a experiência. Só carregam se aceitar; pode recusar sem afetar o site.",
     "learnMore": "Saber mais",
     "accept": "Aceitar",
     "reject": "Recusar"
@@ -210,7 +210,7 @@
     "hero": {
       "chip": "Hub de Integrações",
       "h1": "Uma <g>fatura</g>.<br></br>Para cada <g>encomenda</g>.<br></br>De cada <g>plataforma</g>.",
-      "body": "Rioko é o motor que conecta a sua loja, o seu gateway de pagamento e o seu programa de faturação. Webhook entra, <h>fatura sai</h> — em menos de um segundo, com NIF detectado, IVA calculado e isenção fiscal aplicada conforme o código M01–M99.",
+      "body": "Rioko é o motor que conecta a sua loja, o seu gateway de pagamento e o seu programa de faturação. Webhook entra, <h>fatura sai</h>: em menos de um segundo, com NIF detectado, IVA calculado e isenção fiscal aplicada conforme o código M01–M99.",
       "ctaCreate": "Criar conta grátis",
       "ctaSee": "Ver integrações disponíveis",
       "stat1Value": "< 1s",
@@ -254,7 +254,7 @@
       "eupago": { "note": "Multibanco, MB WAY e referências" },
       "easypay": { "note": "Captura imediata e diferida" },
       "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
-      "amazon": { "note": "Amazon Pay — checkout e subscrições" },
+      "amazon": { "note": "Amazon Pay: checkout e subscrições" },
       "paypal": { "note": "Pagamentos, assinaturas e refunds" },
       "invoicexpress": { "note": "Faturas, recibos, notas de crédito" },
       "moloni": { "note": "Sincronização total de documentos" },
@@ -287,7 +287,7 @@
       },
       "step2": {
         "title": "Define as regras fiscais",
-        "body": "IVA incluído ou separado? Razão de isenção por defeito? Série de faturação específica? Tudo no mesmo painel — sem código, sem ficheiros .env.",
+        "body": "IVA incluído ou separado? Razão de isenção por defeito? Série de faturação específica? Tudo no mesmo painel, sem código, sem ficheiros .env.",
         "pill1": "IVA incluído",
         "pill2": "M99 · Não sujeito",
         "pill3": "Série WEB",
@@ -307,13 +307,13 @@
     "fiscal": {
       "eyebrow": "Confiança",
       "title": "Feito para fiscalidade portuguesa.<br></br><muted><g>Não</g> traduzido dela.</muted>",
-      "sub": "A Rioko nasceu em Lisboa, num escritório fiscal. Não é uma SaaS americana com pacote PT — é o contrário.",
+      "sub": "A Rioko nasceu em Lisboa, num escritório fiscal. Não é uma SaaS americana com pacote PT; é o contrário.",
       "item1Title": "Conformidade AT",
       "item1Body": "Texto legal de todas as razões de isenção (M01–M99) injectado em observações da fatura.",
       "item2Title": "NIF inteligente",
       "item2Body": "Detecção de NIF em note_attributes, notas de encomenda e morada de faturação, com validação algorítmica PT.",
       "item3Title": "Idempotência dupla",
-      "item3Body": "Tabela atómica em D1 + cache KV. Webhooks duplicados, retries de gateway, race conditions — tudo neutralizado.",
+      "item3Body": "Tabela atómica em D1 + cache KV. Webhooks duplicados, retries de gateway, race conditions: tudo neutralizado.",
       "item4Title": "Encriptação em repouso",
       "item4Body": "Chaves de API Shopify e InvoiceXpress encriptadas antes de qualquer escrita."
     },
@@ -375,7 +375,7 @@
         },
         {
           "q": "As faturas emitidas são legais e certificadas em Portugal?",
-          "a": "Sim. O Rioko não emite faturas — envia os dados para o teu programa certificado pela Autoridade Tributária (InvoiceXpress, Moloni ou Vendus), que emite o documento com ATCUD, série comunicada e as isenções de IVA corretas (M01–M99). A certificação é a do programa de faturação."
+          "a": "Sim. O Rioko não emite faturas; envia os dados para o teu programa certificado pela Autoridade Tributária (InvoiceXpress, Moloni ou Vendus), que emite o documento com ATCUD, série comunicada e as isenções de IVA corretas (M01–M99). A certificação é a do programa de faturação."
         },
         {
           "q": "Preciso de instalar alguma extensão no checkout da Shopify?",
@@ -413,7 +413,7 @@
   "shopifyLanding": {
     "meta": {
       "title": "Faturação automática Shopify → InvoiceXpress, Moloni ou Vendus | Rioko",
-      "description": "Liga a tua loja Shopify ao InvoiceXpress, Moloni ou Vendus e emite faturas certificadas com ATCUD, NIF e IVA automaticamente — em menos de 1 segundo, sem extensões no checkout. Desde 7,50 €/mês."
+      "description": "Liga a tua loja Shopify ao InvoiceXpress, Moloni ou Vendus e emite faturas certificadas com ATCUD, NIF e IVA automaticamente, em menos de 1 segundo, sem extensões no checkout. Desde 7,50 €/mês."
     },
     "nav": {
       "chip": "Shopify → Faturação",
@@ -431,7 +431,7 @@
     "hero": {
       "chip": "Integração Shopify · Ativa",
       "h1": "A tua loja Shopify<br></br><g>fatura sozinha</g>.",
-      "body": "Encomenda paga na Shopify, fatura certificada no InvoiceXpress, Moloni ou Vendus — em menos de um segundo. NIF detetado, IVA correto, ATCUD incluído. <h>Sem extensões no checkout.</h>",
+      "body": "Encomenda paga na Shopify, fatura certificada no InvoiceXpress, Moloni ou Vendus, em menos de um segundo. NIF detetado, IVA correto, ATCUD incluído. <h>Sem extensões no checkout.</h>",
       "ctaCreate": "Ligar a minha loja",
       "ctaSee": "Ver como funciona",
       "stat1Value": "< 1s",
@@ -456,7 +456,7 @@
     "dest": {
       "eyebrow": "Os destinos",
       "title": "Escolhe o programa.<br></br><g>Nós tratamos do resto.</g>",
-      "sub": "A mesma integração Shopify emite no InvoiceXpress, no Moloni ou no Vendus. Escolhes o destino no painel — e podes mudar sem refazer a loja.",
+      "sub": "A mesma integração Shopify emite no InvoiceXpress, no Moloni ou no Vendus. Escolhes o destino no painel, e podes mudar sem refazer a loja.",
       "ix": "Faturas, recibos e notas de crédito na tua conta InvoiceXpress",
       "moloni": "Documentos emitidos e sincronizados na tua conta Moloni",
       "vendus": "POS e faturação certificada na cloud Vendus"
@@ -468,12 +468,12 @@
       "stepLabel": "Passo",
       "step1": {
         "title": "Liga a loja",
-        "body": "Cola o domínio da tua loja Shopify e a chave do teu programa de faturação. O assistente valida credenciais e regista os webhooks — sem tocar no tema, sem app no checkout.",
+        "body": "Cola o domínio da tua loja Shopify e a chave do teu programa de faturação. O assistente valida credenciais e regista os webhooks, sem tocar no tema, sem app no checkout.",
         "code4": "200 OK · webhooks registados"
       },
       "step2": {
         "title": "Define as regras fiscais",
-        "body": "IVA incluído ou separado? Isenção por defeito? Série de faturação própria? Tudo no mesmo painel — sem código, sem ficheiros .env.",
+        "body": "IVA incluído ou separado? Isenção por defeito? Série de faturação própria? Tudo no mesmo painel, sem código, sem ficheiros .env.",
         "pill1": "IVA incluído",
         "pill2": "M99 · Não sujeito",
         "pill3": "Série WEB",
@@ -493,13 +493,13 @@
     "fiscal": {
       "eyebrow": "Confiança",
       "title": "Feito para a fiscalidade portuguesa.<br></br><muted><g>Não</g> traduzido dela.</muted>",
-      "sub": "O Rioko nasceu em Portugal, para lojas portuguesas. Cada detalhe fiscal — do NIF ao arredondamento — é tratado como a AT espera.",
+      "sub": "O Rioko nasceu em Portugal, para lojas portuguesas. Cada detalhe fiscal, do NIF ao arredondamento, é tratado como a AT espera.",
       "item1Title": "NIF do checkout ao documento",
       "item1Body": "Deteção de NIF em note_attributes, notas de encomenda e morada de faturação, com validação algorítmica portuguesa. Sem NIF válido, o documento sai como Consumidor Final.",
       "item2Title": "Conformidade AT",
       "item2Body": "Emissão via software certificado, com ATCUD, série comunicada e texto legal das isenções M01–M99 nas observações da fatura.",
       "item3Title": "Total igual ao pago",
-      "item3Body": "A fatura fecha no cêntimo com o que o cliente pagou na Shopify — portes, descontos e arredondamentos reconciliados linha a linha.",
+      "item3Body": "A fatura fecha no cêntimo com o que o cliente pagou na Shopify: portes, descontos e arredondamentos reconciliados linha a linha.",
       "item4Title": "Idempotência dupla",
       "item4Body": "Webhooks duplicados, retries e race conditions neutralizados: 1 encomenda = 1 fatura, garantido por escrita atómica + cache."
     },
@@ -549,11 +549,11 @@
       "items": [
         {
           "q": "Como funciona a faturação automática na Shopify?",
-          "a": "Quando uma encomenda é paga, a Shopify envia um webhook ao Rioko. O Rioko valida os dados, deteta o NIF, calcula o IVA e envia tudo ao teu programa de faturação certificado (InvoiceXpress, Moloni ou Vendus), que emite a fatura — normalmente em menos de um segundo."
+          "a": "Quando uma encomenda é paga, a Shopify envia um webhook ao Rioko. O Rioko valida os dados, deteta o NIF, calcula o IVA e envia tudo ao teu programa de faturação certificado (InvoiceXpress, Moloni ou Vendus), que emite a fatura, normalmente em menos de um segundo."
         },
         {
           "q": "Preciso de instalar uma app ou extensão no checkout?",
-          "a": "Não. O Rioko liga-se por webhook e API — não instala nada no tema, não altera o checkout e não abranda a loja. Configuras uma vez no painel e fica a faturar sozinho."
+          "a": "Não. O Rioko liga-se por webhook e API: não instala nada no tema, não altera o checkout e não abranda a loja. Configuras uma vez no painel e fica a faturar sozinho."
         },
         {
           "q": "Funciona com InvoiceXpress, Moloni e Vendus?",
@@ -561,15 +561,15 @@
         },
         {
           "q": "As faturas têm ATCUD e são aceites pela AT?",
-          "a": "Sim. O Rioko não emite faturas — envia os dados ao teu programa certificado pela Autoridade Tributária, que emite o documento com ATCUD, série comunicada e isenções de IVA corretas (M01–M99). A certificação é a do programa de faturação."
+          "a": "Sim. O Rioko não emite faturas; envia os dados ao teu programa certificado pela Autoridade Tributária, que emite o documento com ATCUD, série comunicada e isenções de IVA corretas (M01–M99). A certificação é a do programa de faturação."
         },
         {
           "q": "Como é capturado o NIF do cliente?",
-          "a": "O Rioko procura o NIF nos note_attributes (apps de NIF no checkout), nas notas da encomenda e na morada de faturação, e valida-o algoritmicamente. Sem NIF válido, o documento é emitido como Consumidor Final — como a lei permite."
+          "a": "O Rioko procura o NIF nos note_attributes (apps de NIF no checkout), nas notas da encomenda e na morada de faturação, e valida-o algoritmicamente. Sem NIF válido, o documento é emitido como Consumidor Final, como a lei permite."
         },
         {
           "q": "E os reembolsos e encomendas canceladas?",
-          "a": "Um reembolso na Shopify gera automaticamente uma nota de crédito no teu programa de faturação, com os totais reconciliados com o valor devolvido — incluindo reembolsos parciais."
+          "a": "Um reembolso na Shopify gera automaticamente uma nota de crédito no teu programa de faturação, com os totais reconciliados com o valor devolvido, incluindo reembolsos parciais."
         },
         {
           "q": "Vendo com IVA incluído e também para fora de Portugal. Funciona?",
@@ -577,7 +577,7 @@
         },
         {
           "q": "Quanto custa e quanto tempo demora a configurar?",
-          "a": "7,50 € + IVA por mês ou 75 € + IVA por ano, por integração — sem fees por documento nem limites de volume. A configuração demora cerca de quatro minutos e não é preciso cartão para começar."
+          "a": "7,50 € + IVA por mês ou 75 € + IVA por ano, por integração, sem fees por documento nem limites de volume. A configuração demora cerca de quatro minutos e não é preciso cartão para começar."
         }
       ]
     },

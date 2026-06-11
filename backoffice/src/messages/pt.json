@@ -639,6 +639,8 @@
     "shopify": "Shopify",
     "ixApi": "IX API",
     "domain": "Domínio",
+    "storeLabelAdd": "+ nome da loja",
+    "storeLabelPlaceholder": "Nome da loja",
     "origin": "Origem",
     "originDirect": "Direto",
     "originNone": "Sem rasto",

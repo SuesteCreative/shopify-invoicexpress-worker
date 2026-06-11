@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
         const results = await db.prepare(`
       SELECT
         u.id, u.email, u.name, u.role, u.last_login, u.created_at,
-        u.nif, u.company_name, u.fiscal_address, u.phone, u.website, u.registration_completed,
+        u.nif, u.company_name, u.admin_label, u.fiscal_address, u.phone, u.website, u.registration_completed,
         u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
         i.ix_authorized, i.ix_error,
@@ -60,19 +60,29 @@ export async function PATCH(request: NextRequest) {
         }
 
         const callerRole = await getRole(userId);
-        const { targetId, role } = await request.json() as { targetId: string; role: string };
+        const body = await request.json() as { targetId: string; role?: string; admin_label?: string };
+        const { targetId, role } = body;
+        if (!targetId) return NextResponse.json({ error: "Missing targetId" }, { status: 400 });
+
+        const { env } = getRequestContext();
+        const db = (env as any).DB;
+
+        // Admin label edit — identification only, never touches fiscal company_name.
+        if (body.admin_label !== undefined) {
+            const label = body.admin_label.trim().slice(0, 80) || null;
+            await db.prepare("UPDATE users SET admin_label = ? WHERE id = ?").bind(label, targetId).run();
+            return NextResponse.json({ success: true });
+        }
 
         // Valid target roles depending on caller
         const hiperadminRoles = ["superadmin", "user"];
         const superadminRoles = ["user"];
         const allowedRoles = callerRole === "hiperadmin" ? hiperadminRoles : superadminRoles;
 
-        if (!targetId || !allowedRoles.includes(role)) {
+        if (!role || !allowedRoles.includes(role)) {
             return NextResponse.json({ error: `Role '${role}' not allowed for your level` }, { status: 400 });
         }
 
-        const { env } = getRequestContext();
-        const db = (env as any).DB;
         const target: any = await db.prepare("SELECT role FROM users WHERE id = ?").bind(targetId).first();
 
         // Only hiperadmin can act on hiperadmin or superadmin accounts

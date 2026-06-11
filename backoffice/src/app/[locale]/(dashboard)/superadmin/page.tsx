@@ -3,7 +3,7 @@
 export const runtime = "edge";
 
 import { useState, useEffect, useMemo } from "react";
-import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off } from "lucide-react";
+import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off, Pencil } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 import { Link } from "@/i18n/navigation";
@@ -58,6 +58,8 @@ export default function SuperadminPage() {
     const [callerRole, setCallerRole] = useState<Role>("user");
     const [viewerId, setViewerId] = useState<string | null>(null); // impersonation-aware self ID
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const [labelEditing, setLabelEditing] = useState<string | null>(null); // user id being labelled
+    const [labelDraft, setLabelDraft] = useState("");
 
     const toggleGroup = (key: string) => setCollapsed(p => ({ ...p, [key]: !p[key] }));
 
@@ -84,6 +86,8 @@ export default function SuperadminPage() {
                 return (
                     u.name?.toLowerCase().includes(q) ||
                     u.email?.toLowerCase().includes(q) ||
+                    u.admin_label?.toLowerCase().includes(q) ||
+                    u.company_name?.toLowerCase().includes(q) ||
                     u.shopify_domain?.toLowerCase().includes(q) ||
                     u.acq_utm_source?.toLowerCase().includes(q) ||
                     u.acq_referrer?.toLowerCase().includes(q) ||
@@ -131,6 +135,22 @@ export default function SuperadminPage() {
             });
             if (!res.ok) { const err = await res.json() as any; alert(t("errorPrefix", { error: err.error })); }
             else await fetchUsers();
+        } catch (err) { console.error(err); }
+        finally { setActing(null); }
+    };
+
+    const handleLabelSave = async (targetId: string) => {
+        const label = labelDraft.trim();
+        setActing(targetId);
+        try {
+            const res = await fetch("/api/admin/users", {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetId, admin_label: label })
+            });
+            if (res.ok) {
+                setUsers(prev => prev.map(u => u.id === targetId ? { ...u, admin_label: label || null } : u));
+                setLabelEditing(null);
+            } else { const err = await res.json() as any; alert(t("errorPrefix", { error: err.error })); }
         } catch (err) { console.error(err); }
         finally { setActing(null); }
     };
@@ -254,6 +274,31 @@ export default function SuperadminPage() {
                         <div className="flex flex-col items-center gap-1.5">
                             <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("domain")}</span>
                             <span className="text-xs font-bold text-fg">{user.shopify_domain || "---"}</span>
+                            {/* Admin store label — identification only, never fiscal */}
+                            {labelEditing === user.id ? (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <input
+                                        autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
+                                        onKeyDown={e => { if (e.key === "Enter") handleLabelSave(user.id); if (e.key === "Escape") setLabelEditing(null); }}
+                                        placeholder={t("storeLabelPlaceholder")}
+                                        className="bg-surface-2/60 border border-hairline rounded-lg px-2 py-1 text-[11px] w-32 focus:outline-none focus:border-accent transition-all"
+                                    />
+                                    <button onClick={() => handleLabelSave(user.id)} disabled={acting !== null} className="p-1 rounded-md bg-[rgba(2,141,196,0.15)] text-accent hover:bg-[rgba(2,141,196,0.25)] transition-all disabled:opacity-30">
+                                        {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                    </button>
+                                    <button onClick={() => setLabelEditing(null)} className="p-1 rounded-md bg-surface-2 text-fg-40 hover:text-fg transition-all"><X className="w-3 h-3" /></button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => { setLabelEditing(user.id); setLabelDraft(user.admin_label || ""); }}
+                                    className="group/lbl flex items-center gap-1.5 mt-0.5 transition-all"
+                                >
+                                    {user.admin_label
+                                        ? <span className="text-[11px] font-black text-accent uppercase tracking-wider">{user.admin_label}</span>
+                                        : <span className="text-[10px] font-bold text-fg-40/50 italic">{t("storeLabelAdd")}</span>}
+                                    <Pencil className="w-2.5 h-2.5 text-fg-40 opacity-0 group-hover/lbl:opacity-60 transition-opacity" />
+                                </button>
+                            )}
                         </div>
                     </div>
 

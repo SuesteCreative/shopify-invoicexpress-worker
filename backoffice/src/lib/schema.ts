@@ -176,15 +176,18 @@ export function faqSchema(items: Array<{ q: string; a: string }>) {
  */
 export function howToSchema(
     steps: Array<{ name: string; text: string }>,
-    opts: { locale: Locale }
+    opts: { locale: Locale; name?: string; anchor?: string }
 ) {
     const en = isEn(opts.locale);
+    const anchor = opts.anchor ?? "#how";
     return {
         "@context": "https://schema.org",
         "@type": "HowTo",
-        name: en
-            ? "How to set up automatic invoicing with Rioko"
-            : "Como configurar faturação automática com o Rioko",
+        name:
+            opts.name ??
+            (en
+                ? "How to set up automatic invoicing with Rioko"
+                : "Como configurar faturação automática com o Rioko"),
         description: pickDesc(opts.locale),
         totalTime: "PT4M",
         inLanguage: en ? "en" : "pt-PT",
@@ -193,7 +196,7 @@ export function howToSchema(
             position: i + 1,
             name: s.name,
             text: s.text,
-            url: `${SITE}/${en ? "en" : "pt"}#how`,
+            url: `${SITE}/${en ? "en" : "pt"}${anchor}`,
         })),
     };
 }

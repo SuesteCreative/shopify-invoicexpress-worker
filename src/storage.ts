@@ -38,6 +38,11 @@ export interface IRequestConfig {
   vat_included: number | null;
   // 0 or 1
   auto_finalize: number | null;
+  // 0 or 1. When 1 (default for all shops), hold invoice emission until Shopify
+  // confirms payment (financial_status = "paid"). Pending/authorized orders
+  // (e.g. Multibanco) are not invoiced at orders/created; orders/paid emits them
+  // on payment. Orthogonal to auto_finalize. Set to 0 to restore emit-at-create.
+  only_invoice_when_paid: number | null;
   // 0 or 1
   webhooks_active: number | null;
   // 0 or 1

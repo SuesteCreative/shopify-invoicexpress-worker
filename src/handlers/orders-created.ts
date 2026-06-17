@@ -47,6 +47,29 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     return;
   }
 
+  // Payment gate (opt-in per shop via only_invoice_when_paid). Hold emission for
+  // any order Shopify hasn't confirmed as paid — Multibanco "pending",
+  // bank-transfer "authorized", etc. Issuing a legal invoice for money that may
+  // never arrive is fiscally wrong. When the payment confirms, the orders/paid
+  // webhook re-runs THIS create flow (self-heal) with a paid order, so the
+  // invoice is emitted then — and finalized in the same cycle if auto_finalize
+  // is on. Orthogonal to auto_finalize: this gates whether an invoice is created
+  // at all. POS/ticket-office orders are "paid" at creation, so unaffected.
+  if (config.only_invoice_when_paid === 1 && String(order.financial_status) !== "paid") {
+    console.log(`[Rioko] Order ${orderId} held — financial_status=${order.financial_status} (only_invoice_when_paid on)`);
+    if (webhookId) {
+      await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+    }
+    await appStorage.saveLog({
+      shopify_domain: config.shopify_domain,
+      topic: webhookTopic,
+      payload: JSON.stringify({ orderId, financial_status: order.financial_status ?? null }),
+      response: "Held: payment pending — invoice suspended until Shopify confirms payment",
+      status: 200,
+    });
+    return;
+  }
+
   const ixRef = `Order #${order.order_number}`;
   const ixHeaders = {
     "x-account-name": config.ix_account_name!,

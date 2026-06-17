@@ -15,6 +15,19 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
   console.log(`[Rioko] Order received: ${orderId}`);
   console.log(order);
 
+  // Held-order guard: if the shop only invoices paid orders and this update is
+  // for an order Shopify still hasn't confirmed as paid, there is no invoice to
+  // update — it was intentionally held at orders/created. Skip gracefully
+  // instead of throwing "Invoice not found" into a retry storm. orders/paid
+  // emits it when payment confirms. (Only short-circuits when financial_status
+  // is explicitly present and not "paid"; absent/paid keeps the normal path.)
+  if (config.only_invoice_when_paid === 1 && order.financial_status && String(order.financial_status) !== "paid") {
+    console.log(`[Rioko] Update for held order ${orderId} (financial_status=${order.financial_status}) — nothing to update`);
+    if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, financial_status: order.financial_status }), response: "Held: order not paid — no invoice to update", status: 200 });
+    return;
+  }
+
   try {
     // Normalize order
     const shopify = new Shopify(env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config);

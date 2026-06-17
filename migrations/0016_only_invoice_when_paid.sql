@@ -1,0 +1,21 @@
+-- Emit invoice only after Shopify confirms payment (opt-in per shop).
+--
+-- When on, orders that Shopify has NOT marked `financial_status = "paid"`
+-- (e.g. Multibanco "pending", bank-transfer "authorized") are HELD: no IX
+-- document is created at orders/created. The orders/paid webhook re-runs the
+-- create flow once payment confirms, so the invoice is emitted (and finalized,
+-- if auto_finalize is on) only when money actually arrived. Issuing a legal
+-- invoice for a payment that may never complete is fiscally wrong.
+--
+-- Orthogonal to auto_finalize: this gates WHETHER an invoice is created;
+-- auto_finalize gates whether the created invoice is finalized on paid.
+--
+-- DEFAULT 1 = on for EVERY shop. SQLite/D1 `ADD COLUMN ... DEFAULT 1` backfills
+-- all existing integrations to 1 in this one statement, so no separate UPDATE is
+-- needed. POS / ticket-office shops are unaffected in practice: their orders are
+-- already `financial_status = "paid"` at creation, so the gate passes and the
+-- invoice is emitted immediately as before. Only genuinely unpaid orders
+-- (Multibanco/transfer "pending", "authorized") are held until payment.
+-- Reversible per shop via integrations.only_invoice_when_paid = 0.
+
+ALTER TABLE integrations ADD COLUMN only_invoice_when_paid INTEGER DEFAULT 1;

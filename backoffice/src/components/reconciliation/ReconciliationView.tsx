@@ -172,6 +172,7 @@ export function ReconciliationView({ shop }: { shop: string }) {
                         heuristic: data.summary.heuristic ?? 0,
                         none: data.summary.none ?? 0,
                         not_needed: data.summary.not_needed ?? 0,
+                        pending: data.summary.pending ?? 0,
                     }}
                 />
             )}

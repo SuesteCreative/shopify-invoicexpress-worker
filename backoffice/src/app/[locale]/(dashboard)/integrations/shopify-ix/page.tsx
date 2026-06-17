@@ -45,6 +45,7 @@ export default function ShopifyIXIntegration() {
     const [ixEnvironment, setIxEnvironment] = useState("production");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
+    const [onlyInvoiceWhenPaid, setOnlyInvoiceWhenPaid] = useState(true);
     const [exemptionReason, setExemptionReason] = useState("M01");
 
     const [ixDocumentType, setIxDocumentType] = useState("invoice_receipt");
@@ -119,6 +120,7 @@ export default function ShopifyIXIntegration() {
                 if (data.ix_exemption_reason) setExemptionReason(data.ix_exemption_reason);
                 if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
                 if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
+                if (data.only_invoice_when_paid !== undefined) setOnlyInvoiceWhenPaid(data.only_invoice_when_paid === 1);
                 if (data.shopify_authorized !== undefined) setShopifyAuthorized(data.shopify_authorized === 1);
                 if (data.ix_authorized !== undefined) setIxAuthorized(data.ix_authorized === 1);
                 if (data.ix_document_type) setIxDocumentType(data.ix_document_type);
@@ -165,6 +167,7 @@ export default function ShopifyIXIntegration() {
                     ix_exemption_reason: exemptionReason,
                     vat_included: vatIncluded,
                     auto_finalize: autoFinalize,
+                    only_invoice_when_paid: onlyInvoiceWhenPaid,
                     ix_document_type: ixDocumentType,
                     ix_payment_term: ixPaymentTerm,
                     ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
@@ -204,7 +207,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -237,7 +240,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -282,7 +285,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -330,7 +333,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -645,6 +648,13 @@ export default function ShopifyIXIntegration() {
                                                         <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                                                     </div>
                                                     <button onClick={() => setAutoFinalize(!autoFinalize)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", autoFinalize ? "bg-accent shadow-[0_0_15px_rgba(56,189,248,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", autoFinalize ? "left-7" : "left-1")} /></button>
+                                                </div>
+                                                <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
+                                                    <div>
+                                                        <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("onlyInvoiceWhenPaid")}</h3></div>
+                                                        <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{onlyInvoiceWhenPaid ? t("onlyInvoiceWhenPaidOn") : t("onlyInvoiceWhenPaidOff")}</p>
+                                                    </div>
+                                                    <button onClick={() => setOnlyInvoiceWhenPaid(!onlyInvoiceWhenPaid)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", onlyInvoiceWhenPaid ? "bg-accent shadow-[0_0_15px_rgba(56,189,248,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", onlyInvoiceWhenPaid ? "left-7" : "left-1")} /></button>
                                                 </div>
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-6">
                                                     <div className="flex items-center justify-between">

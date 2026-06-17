@@ -1,6 +1,6 @@
 "use client";
 
-export type FilterKey = "all" | "exact" | "approved" | "heuristic" | "none" | "not_needed";
+export type FilterKey = "all" | "exact" | "approved" | "heuristic" | "none" | "not_needed" | "pending";
 
 const LABELS: Record<FilterKey, string> = {
     all: "Todos",
@@ -9,6 +9,7 @@ const LABELS: Record<FilterKey, string> = {
     heuristic: "Heurístico",
     none: "Sem fatura",
     not_needed: "Não necessárias",
+    pending: "Aguarda pagamento",
 };
 
 const COLORS: Record<FilterKey, string> = {
@@ -18,6 +19,7 @@ const COLORS: Record<FilterKey, string> = {
     heuristic: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.30)]",
     none: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]",
     not_needed: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]",
+    pending: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]",
 };
 
 export function Filters({ current, setCurrent, counts }: {

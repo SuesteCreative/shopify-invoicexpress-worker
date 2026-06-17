@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
     ExternalLink, CheckCircle2, AlertCircle, FileText, Loader2,
-    Trash2, RotateCcw, FilePlus2, MinusCircle, ShoppingBag
+    Trash2, RotateCcw, FilePlus2, MinusCircle, ShoppingBag, Clock
 } from "lucide-react";
 
 export type Row = {
@@ -16,9 +16,10 @@ export type Row = {
         customer_name: string | null;
         email: string | null;
         permalink: string;
+        financial_status: string | null;
     };
     match: {
-        type: "exact" | "approved" | "heuristic" | "not_needed" | "none";
+        type: "exact" | "approved" | "heuristic" | "not_needed" | "none" | "pending";
         confidence: number;
         reason?: string;
     };
@@ -53,6 +54,7 @@ const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
     heuristic: { label: "Heurístico", cls: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.30)]" },
     not_needed: { label: "Não necessária", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
     none: { label: "Sem fatura", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
+    pending: { label: "Aguarda pagamento", cls: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]" },
 };
 
 const fmt = (n: number) => n.toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
@@ -143,7 +145,11 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                     <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">
                         <ShoppingBag className="w-3 h-3" /> Shopify
                     </span>
-                    <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
+                    {row.order.financial_status === "paid" ? (
+                        <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
+                    ) : (
+                        <span className="text-xs font-bold text-soon">Pendente · {fmt(row.order.total)}</span>
+                    )}
                 </div>
                 <div className="flex flex-wrap items-baseline gap-2">
                     <a href={row.order.permalink} target="_blank" rel="noopener noreferrer"
@@ -232,6 +238,15 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                             className="text-[10px] font-black uppercase tracking-widest text-fg-60 hover:text-fg px-2.5 py-1 rounded-lg border border-hairline hover:border-rule inline-flex items-center gap-1 mt-2 w-fit disabled:opacity-50">
                             {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Reverter
                         </button>
+                    </>
+                ) : row.match.type === "pending" ? (
+                    <>
+                        <p className="text-sm font-bold text-soon flex items-center gap-2">
+                            <Clock className="w-4 h-4" /> Fatura não por emitir
+                        </p>
+                        <p className="text-xs text-fg-40">
+                            A fatura é emitida automaticamente quando o pagamento for confirmado no Shopify. Até lá a encomenda fica em espera (ex.: Multibanco por pagar).
+                        </p>
                     </>
                 ) : (
                     <>

@@ -6,6 +6,7 @@ const MATCH_LABEL: Record<Row["match"]["type"], string> = {
     heuristic: "Heurístico",
     not_needed: "Não necessária",
     none: "Sem fatura",
+    pending: "Aguarda pagamento",
 };
 
 const MATCH_COLOR: Record<Row["match"]["type"], string> = {
@@ -14,6 +15,7 @@ const MATCH_COLOR: Record<Row["match"]["type"], string> = {
     heuristic: "FFF59E0B",   // amber
     not_needed: "FF94A3B8",  // slate
     none: "FFEF4444",        // red
+    pending: "FF64748B",     // slate-500 (held, awaiting payment)
 };
 
 export async function exportReconciliationToExcel(
@@ -48,7 +50,7 @@ export async function exportReconciliationToExcel(
     // Summary line
     const counts = summarize(rows);
     ws.mergeCells("A3:N3");
-    ws.getCell("A3").value = `Match exato: ${counts.exact} · Aprovados: ${counts.approved} · Heurístico: ${counts.heuristic} · Sem fatura: ${counts.none} · Não necessárias: ${counts.not_needed}`;
+    ws.getCell("A3").value = `Match exato: ${counts.exact} · Aprovados: ${counts.approved} · Heurístico: ${counts.heuristic} · Sem fatura: ${counts.none} · Não necessárias: ${counts.not_needed} · Aguarda pagamento: ${counts.pending}`;
     ws.getCell("A3").font = { size: 10, bold: true, color: { argb: "FF334155" } };
     ws.getCell("A3").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(3).height = 18;
@@ -162,5 +164,6 @@ function summarize(rows: Row[]) {
         heuristic: rows.filter(r => r.match.type === "heuristic").length,
         none: rows.filter(r => r.match.type === "none").length,
         not_needed: rows.filter(r => r.match.type === "not_needed").length,
+        pending: rows.filter(r => r.match.type === "pending").length,
     };
 }

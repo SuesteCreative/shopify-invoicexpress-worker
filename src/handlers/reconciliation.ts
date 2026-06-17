@@ -15,9 +15,12 @@ export interface ReconciliationRow {
     customer_name: string | null;
     email: string | null;
     permalink: string;
+    /** Shopify financial_status ("paid", "pending", "authorized", …). Lets the
+     * UI show a held pending order as "Pendente" instead of assuming "Pago". */
+    financial_status: string | null;
   };
   match: {
-    type: "exact" | "approved" | "heuristic" | "not_needed" | "none";
+    type: "exact" | "approved" | "heuristic" | "not_needed" | "none" | "pending";
     confidence: number;
     reason?: string;
   };
@@ -60,10 +63,19 @@ interface InvoiceMeta {
   order_id_link: string | null; // shopify order id this invoice maps to (from processed_orders)
 }
 
-async function fetchShopifyOrdersPaginated(config: IRequestConfig, from: string, to: string): Promise<any[]> {
+async function fetchShopifyOrdersPaginated(
+  config: IRequestConfig,
+  from: string,
+  to: string,
+  opts?: { financialStatus?: string; dateField?: "processed_at" | "created_at" },
+): Promise<any[]> {
   const all: any[] = [];
   const apiVersion = config.shopify_api_version ?? "2026-01";
-  let url: string | null = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?processed_at_min=${encodeURIComponent(from)}&processed_at_max=${encodeURIComponent(to)}&status=any&financial_status=paid&limit=250`;
+  const financialStatus = opts?.financialStatus ?? "paid";
+  // Paid orders carry a processed_at; pending (unpaid Multibanco/transfer) ones
+  // usually don't, so they must be windowed by created_at or they'd never match.
+  const dateField = opts?.dateField ?? "processed_at";
+  let url: string | null = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?${dateField}_min=${encodeURIComponent(from)}&${dateField}_max=${encodeURIComponent(to)}&status=any&financial_status=${encodeURIComponent(financialStatus)}&limit=250`;
   while (url) {
     const res = await fetch(url, { headers: { "X-Shopify-Access-Token": config.shopify_token!, "Accept": "application/json" } });
     if (!res.ok) throw new Error(`Shopify ${res.status}: ${await res.text()}`);
@@ -171,8 +183,18 @@ async function fetchInvoiceMeta(
 export async function getReconciliation(env: Env, config: IRequestConfig, from: string, to: string) {
   const appStorage = new AppStorage(env, config.shopify_domain!);
 
-  // 1. Paid orders from Shopify
-  const orders = await fetchShopifyOrdersPaginated(config, from, to);
+  // 1. Orders from Shopify. Always the paid set (matched against IX invoices).
+  //    When the shop holds invoices until payment (only_invoice_when_paid), also
+  //    pull pending orders so the operator sees what is deliberately NOT yet
+  //    invoiced ("fatura não por emitir"). Pending orders rarely carry a
+  //    processed_at, so that set is windowed by created_at instead.
+  const paidOrders = await fetchShopifyOrdersPaginated(config, from, to);
+  let orders = paidOrders;
+  if (config.only_invoice_when_paid === 1) {
+    const pendingOrders = await fetchShopifyOrdersPaginated(config, from, to, { financialStatus: "pending", dateField: "created_at" });
+    const seen = new Set(paidOrders.map(o => String(o.id)));
+    orders = paidOrders.concat(pendingOrders.filter(o => !seen.has(String(o.id))));
+  }
   const orderIds = orders.map(o => String(o.id));
 
   // 2. Map order → invoice_id from DB
@@ -238,6 +260,7 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
       customer_name: customerName,
       email: order.customer?.email ?? order.email ?? null,
       permalink: `https://${shopDomain.replace(".myshopify.com", "")}.myshopify.com/admin/orders/${orderId}`,
+      financial_status: order.financial_status ?? null,
     };
 
     // Decision override wins
@@ -304,6 +327,20 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
           client_name: null,
           meta_unavailable: true,
         },
+        candidates: [],
+      };
+    }
+
+    // Pending order with no invoice = intentionally held until payment confirms
+    // (only_invoice_when_paid). NOT an alarm ("Sem fatura") and NOT a heuristic
+    // candidate — it's correctly waiting. Give it its own state so the operator
+    // sees it's tracked, not lost. (Reached only when no invoice resolved above;
+    // a pending order that WAS invoiced still renders via the inv branch.)
+    if (String(order.financial_status) !== "paid") {
+      return {
+        order: orderBlock,
+        match: { type: "pending", confidence: 0, reason: "Aguarda confirmação de pagamento no Shopify — fatura não por emitir" },
+        invoice: null,
         candidates: [],
       };
     }
@@ -418,6 +455,7 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
       heuristic: rows.filter(r => r.match.type === "heuristic").length,
       none: rows.filter(r => r.match.type === "none").length,
       not_needed: rows.filter(r => r.match.type === "not_needed").length,
+      pending: rows.filter(r => r.match.type === "pending").length,
       // Issued invoices we couldn't read from IX this round (subset of exact/
       // approved). Lets ops see "verification degraded" vs trusting the page blindly.
       unverified: rows.filter(r => r.invoice?.meta_unavailable).length,

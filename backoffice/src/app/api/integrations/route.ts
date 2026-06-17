@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention } = body;
+        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid } = body;
 
         const clean_shopify_domain = shopify_domain ? shopify_domain.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
 
@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
             await db
                 .prepare(`
           UPDATE integrations
-          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, updated_at = CURRENT_TIMESTAMP
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 .bind(
@@ -154,6 +154,7 @@ export async function POST(request: NextRequest) {
                     ix_sequence_name || null,
                     retentionEnabledBit,
                     retentionValue,
+                    only_invoice_when_paid !== undefined ? (only_invoice_when_paid ? 1 : 0) : (existing.only_invoice_when_paid ?? 0),
                     targetUserId
                 )
                 .run();
@@ -161,8 +162,8 @@ export async function POST(request: NextRequest) {
             const id = crypto.randomUUID();
             await db
                 .prepare(`
-          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
                 .bind(
                     id,
@@ -183,7 +184,8 @@ export async function POST(request: NextRequest) {
                     ix_payment_term !== undefined ? parseInt(String(ix_payment_term)) : 0,
                     ix_sequence_name || null,
                     retentionEnabledBit,
-                    retentionValue
+                    retentionValue,
+                    only_invoice_when_paid ? 1 : 0
                 )
                 .run();
         }

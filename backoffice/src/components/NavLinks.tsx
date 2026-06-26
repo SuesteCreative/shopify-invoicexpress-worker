@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { Activity, ShieldCheck, Settings2, BookOpen, Zap, ScrollText, Receipt } from "lucide-react";
+import { Activity, ShieldCheck, Settings2, BookOpen, Zap, ScrollText, Receipt, Wrench } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -174,6 +174,14 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                                 href="/superadmin"
                                 icon={ShieldCheck}
                                 label={t("superadmin")}
+                                activeClass={ACTIVE_DANGER}
+                            />
+                        )}
+                        {canAccessAdmin && (
+                            <LinkItem
+                                href="/onboarding-helper"
+                                icon={Wrench}
+                                label={t("onboardingHelper")}
                                 activeClass={ACTIVE_DANGER}
                             />
                         )}

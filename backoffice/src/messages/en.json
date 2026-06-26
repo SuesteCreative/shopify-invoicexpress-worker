@@ -90,6 +90,7 @@
     "help": "General & Help",
     "superadmin": "Superadmin",
     "clientRules": "Client rules",
+    "onboardingHelper": "Client Onboarding",
     "tooltipNeedRegister": "Complete dashboard registration first"
   },
   "dashboardHome": {

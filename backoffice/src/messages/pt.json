@@ -90,6 +90,7 @@
     "help": "Geral & Ajuda",
     "superadmin": "Superadmin",
     "clientRules": "Regras de Clientes",
+    "onboardingHelper": "Onboarding Cliente",
     "tooltipNeedRegister": "Faça o registo no dashboard primeiro"
   },
   "dashboardHome": {

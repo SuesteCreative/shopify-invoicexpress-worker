@@ -23,12 +23,11 @@ const exemptionOptions = [
     { value: "M05", label: "Isento artigo 14.º do CIVA" },
     { value: "M06", label: "Isento artigo 15.º do CIVA" },
     { value: "M07", label: "Isento artigo 9.º do CIVA" },
-    { value: "M08", label: "Simples: Não confere direito a dedução" },
     { value: "M09", label: "IVA – não confere direito a dedução" },
     { value: "M10", label: "Regime especial de isenção artigo 53.º do CIVA" },
     { value: "M11", label: "Regime particular do tabaco" },
     { value: "M16", label: "Isento artigo 14.º do RITI" },
-    { value: "M20", label: "IVA - autoliquidação" },
+    { value: "M20", label: "IVA - regime forfetário" },
     { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
 ];
 

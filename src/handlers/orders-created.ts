@@ -5,6 +5,7 @@ import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
 import { createIxInvoiceWithFallback } from "../ix/create-invoice";
+import { maybeSendQuotaReachedAlert } from "../services/quota-alert";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
@@ -120,7 +121,8 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     // yet. The 15-min cron will pick this up.
     const nextRetryAt = new Date(Date.now() + 15 * 60_000).toISOString();
     await appStorage.enqueuePendingReverseCharge({
-      shopify_domain: config.shopify_domain!,
+      shopify_domain: config.shopify_domain ?? null,
+      user_id: config.user_id,
       order_id: String(orderId),
       vat_id: build.vatNumber,
       country_code: build.countryCode,
@@ -181,6 +183,10 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     // own error log / incident carries it too.
     const ixError = JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data ?? null).slice(0, 1500);
     console.log(`[Rioko] Failed to create invoice for order ${orderId}: ${ixError}`);
+
+    // If the failure is the IX plan's document-quota limit, alert the merchant
+    // (deduped per account+period) so they can upgrade and unblock invoicing.
+    await maybeSendQuotaReachedAlert(env, config, ixError);
 
     await appStorage.saveLog({
       shopify_domain: config.shopify_domain,

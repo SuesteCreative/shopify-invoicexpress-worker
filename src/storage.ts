@@ -74,7 +74,8 @@ export interface IRequestConfig {
 
 export interface PendingReverseChargeRow {
   id: string;
-  shopify_domain: string;
+  shopify_domain: string | null;
+  user_id: string | null;
   order_id: string;
   vat_id: string;
   country_code: string;
@@ -110,18 +111,26 @@ export class AppStorage {
   private db: D1Database;
   private kv: KVNamespace;
   private shopDomain: string | null;
+  private userId: string | null;
 
-  constructor(env: Env, shopDomain?: string) {
+  constructor(env: Env, shopDomain?: string | null, userId?: string | null) {
     this.db = env.DB;
     this.kv = env.INVOICE_KV;
     this.shopDomain = shopDomain ?? null;
+    this.userId = userId ?? null;
   }
 
   async loadConfig(): Promise<IRequestConfig | null> {
     const shopHeader = this.shopDomain;
     console.log(`[AppConfig] accessing shopify domain: ${shopHeader}`)
 
-    if (!shopHeader) return null;
+    if (!shopHeader) {
+      // Stripe-only users have no shopify_domain. If this AppStorage was
+      // constructed with a userId, fall back to the user-keyed lookup so the
+      // pipeline (and Dev Mode worker endpoints) still resolve a config row.
+      if (this.userId) return this.loadConfigByUser(this.userId);
+      return null;
+    }
 
     const integration = await this.db.prepare(
       "SELECT * FROM integrations WHERE shopify_domain = ?"
@@ -129,16 +138,31 @@ export class AppStorage {
 
     if (!integration) return null;
 
+    // Memoize the user_id on this instance so subsequent writes (webhook_info,
+    // logs, dev_jobs) populate it without each caller threading user_id through.
+    if (!this.userId) this.userId = (integration as any).user_id ?? null;
+
     return integration as unknown as IRequestConfig;
   }
 
-  async saveLog(data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number }) {
+  async loadConfigByUser(userId: string): Promise<IRequestConfig | null> {
+    const integration = await this.db.prepare(
+      "SELECT * FROM integrations WHERE user_id = ?"
+    ).bind(userId).first();
+    if (!integration) return null;
+    if (!this.userId) this.userId = userId;
+    if (!this.shopDomain) this.shopDomain = (integration as any).shopify_domain ?? null;
+    return integration as unknown as IRequestConfig;
+  }
+
+  async saveLog(data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number; user_id?: string | null }) {
     try {
       await this.db.prepare(
-        "INSERT INTO logs (id, shopify_domain, topic, payload, response, status) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO logs (id, shopify_domain, user_id, topic, payload, response, status) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).bind(
         crypto.randomUUID(),
         data.shopify_domain,
+        data.user_id ?? this.userId,
         data.topic,
         JSON.stringify(data.payload),
         JSON.stringify(data.response),
@@ -198,11 +222,12 @@ export class AppStorage {
     //    writes. Legacy rows with NULL are read as ("shopify","invoicexpress").
     try {
       await this.db.prepare(
-        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, created_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, user_id, created_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).bind(
         String(orderId),
         String(invoiceId),
         this.shopDomain,
+        this.userId,
         new Date().toISOString(),
         sourceKind,
         destinationKind,
@@ -294,6 +319,24 @@ export class AppStorage {
     }
   }
 
+  // Stripe-only equivalent of getLastProcessedDate — those rows have no
+  // shopify_domain, so they're keyed by user_id instead.
+  async getLastProcessedDateByUser(userId: string, sourceKind?: SourceKind): Promise<string | null> {
+    try {
+      const sql = sourceKind
+        ? "SELECT MAX(created_at) as last FROM processed_orders WHERE user_id = ? AND source_kind = ?"
+        : "SELECT MAX(created_at) as last FROM processed_orders WHERE user_id = ?";
+      const stmt = sourceKind
+        ? this.db.prepare(sql).bind(userId, sourceKind)
+        : this.db.prepare(sql).bind(userId);
+      const row: any = await stmt.first();
+      return row?.last ?? null;
+    } catch (e) {
+      console.error("[Rioko] Failed to get last processed date by user:", e);
+      return null;
+    }
+  }
+
   async listProcessedInvoices(limit = 500, order: "asc" | "desc" = "desc"): Promise<Array<{ id: string; invoice_id: string; created_at: string | null }>> {
     try {
       const sql = `SELECT id, invoice_id, created_at FROM processed_orders WHERE shopify_domain = ? ORDER BY rowid ${order === "asc" ? "ASC" : "DESC"} LIMIT ?`;
@@ -301,6 +344,24 @@ export class AppStorage {
       return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null }));
     } catch (e) {
       console.error("[Rioko] Failed to list processed invoices:", e);
+      return [];
+    }
+  }
+
+  // Stripe-only equivalent of listProcessedInvoices, keyed by user_id.
+  async listProcessedInvoicesByUser(userId: string, sourceKind: SourceKind | undefined, limit = 500, order: "asc" | "desc" = "desc"): Promise<Array<{ id: string; invoice_id: string; created_at: string | null; source_kind: string | null }>> {
+    try {
+      const orderClause = order === "asc" ? "ASC" : "DESC";
+      const sql = sourceKind
+        ? `SELECT id, invoice_id, created_at, source_kind FROM processed_orders WHERE user_id = ? AND source_kind = ? ORDER BY rowid ${orderClause} LIMIT ?`
+        : `SELECT id, invoice_id, created_at, source_kind FROM processed_orders WHERE user_id = ? ORDER BY rowid ${orderClause} LIMIT ?`;
+      const stmt = sourceKind
+        ? this.db.prepare(sql).bind(userId, sourceKind, limit)
+        : this.db.prepare(sql).bind(userId, limit);
+      const result = await stmt.all();
+      return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null, source_kind: r.source_kind ?? null }));
+    } catch (e) {
+      console.error("[Rioko] Failed to list processed invoices by user:", e);
       return [];
     }
   }
@@ -314,10 +375,11 @@ export class AppStorage {
   }) {
     try {
       await this.db.prepare(
-        "INSERT INTO dev_jobs (id, shopify_domain, type, params, status, triggered_by, reason, started_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)"
+        "INSERT INTO dev_jobs (id, shopify_domain, user_id, type, params, status, triggered_by, reason, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)"
       ).bind(
         params.id,
         this.shopDomain,
+        this.userId,
         params.type,
         JSON.stringify(params.params),
         params.triggered_by ?? null,
@@ -354,11 +416,37 @@ export class AppStorage {
     }
   }
 
+  // Stripe-only equivalent of getDevJobs, keyed by user_id.
+  async getDevJobsByUser(userId: string, limit = 50): Promise<any[]> {
+    try {
+      const result = await this.db.prepare(
+        "SELECT id, type, status, summary, triggered_by, reason, started_at, finished_at FROM dev_jobs WHERE user_id = ? ORDER BY started_at DESC LIMIT ?"
+      ).bind(userId, limit).all();
+      return (result.results as any[]).map(r => ({
+        ...r,
+        summary: r.summary ? JSON.parse(r.summary) : null,
+      }));
+    } catch (e) {
+      console.error("[Rioko] Failed to get dev jobs by user:", e);
+      return [];
+    }
+  }
+
   async getDevJob(id: string): Promise<any | null> {
     try {
-      const row: any = await this.db.prepare(
-        "SELECT * FROM dev_jobs WHERE id = ? AND shopify_domain = ?"
-      ).bind(id, this.shopDomain).first();
+      // Stripe-only callers have no shopDomain — fall back to user_id scoping,
+      // or bare id lookup when neither is set on this instance.
+      const sql = this.shopDomain
+        ? "SELECT * FROM dev_jobs WHERE id = ? AND shopify_domain = ?"
+        : this.userId
+          ? "SELECT * FROM dev_jobs WHERE id = ? AND user_id = ?"
+          : "SELECT * FROM dev_jobs WHERE id = ?";
+      const stmt = this.shopDomain
+        ? this.db.prepare(sql).bind(id, this.shopDomain)
+        : this.userId
+          ? this.db.prepare(sql).bind(id, this.userId)
+          : this.db.prepare(sql).bind(id);
+      const row: any = await stmt.first();
       if (!row) return null;
       return {
         ...row,
@@ -387,6 +475,22 @@ export class AppStorage {
     }
   }
 
+  // Stripe-only equivalent of getLogs, keyed by user_id.
+  async getLogsByUser(userId: string, limit = 100, statusFilter?: "errors" | "all"): Promise<any[]> {
+    try {
+      const where = statusFilter === "errors"
+        ? "WHERE user_id = ? AND status >= 400"
+        : "WHERE user_id = ?";
+      const result = await this.db.prepare(
+        `SELECT id, topic, payload, response, status FROM logs ${where} ORDER BY rowid DESC LIMIT ?`
+      ).bind(userId, limit).all();
+      return result.results as any[];
+    } catch (e) {
+      console.error("[Rioko] Failed to get logs by user:", e);
+      return [];
+    }
+  }
+
   async getWebhookEvents(limit = 100): Promise<any[]> {
     try {
       const result = await this.db.prepare(
@@ -395,6 +499,19 @@ export class AppStorage {
       return result.results as any[];
     } catch (e) {
       console.error("[Rioko] Failed to get webhook events:", e);
+      return [];
+    }
+  }
+
+  // Stripe-only equivalent of getWebhookEvents, keyed by user_id.
+  async getWebhookEventsByUser(userId: string, limit = 100): Promise<any[]> {
+    try {
+      const result = await this.db.prepare(
+        "SELECT webhook_id, topic, state, created_at FROM webhook_info WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+      ).bind(userId, limit).all();
+      return result.results as any[];
+    } catch (e) {
+      console.error("[Rioko] Failed to get webhook events by user:", e);
       return [];
     }
   }
@@ -473,7 +590,8 @@ export class AppStorage {
   }
 
   async enqueuePendingReverseCharge(input: {
-    shopify_domain: string;
+    shopify_domain: string | null;
+    user_id: string;
     order_id: string;
     vat_id: string;
     country_code: string;
@@ -486,11 +604,14 @@ export class AppStorage {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     try {
+      // Uniqueness pivoted from (shopify_domain, order_id) to (user_id, order_id)
+      // in migration 0012 so Stripe rows (no shopify_domain) still dedup per
+      // merchant.
       await this.db.prepare(
         `INSERT INTO pending_reverse_charge
-          (id, shopify_domain, order_id, vat_id, country_code, normalized_json, webhook_topic, webhook_id, attempts, status, next_retry_at, last_error, incident_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, NULL, ?, ?)
-         ON CONFLICT(shopify_domain, order_id) DO UPDATE SET
+          (id, shopify_domain, user_id, order_id, vat_id, country_code, normalized_json, webhook_topic, webhook_id, attempts, status, next_retry_at, last_error, incident_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, NULL, ?, ?)
+         ON CONFLICT(user_id, order_id) DO UPDATE SET
            vat_id = excluded.vat_id,
            country_code = excluded.country_code,
            normalized_json = excluded.normalized_json,
@@ -504,6 +625,7 @@ export class AppStorage {
       ).bind(
         id,
         input.shopify_domain,
+        input.user_id,
         String(input.order_id),
         input.vat_id,
         input.country_code,
@@ -600,6 +722,33 @@ export class AppStorage {
     } catch (e) {
       console.error("[Rioko] getPendingByOrderId failed:", e);
       return null;
+    }
+  }
+
+  // Stripe-only equivalent of getPendingByOrderId — those rows have no
+  // shopify_domain, so the dedup key is (user_id, order_id) per migration 0012.
+  async getPendingByUserOrder(userId: string, orderId: string): Promise<PendingReverseChargeRow | null> {
+    try {
+      const row = await this.db.prepare(
+        "SELECT * FROM pending_reverse_charge WHERE user_id = ? AND order_id = ?"
+      ).bind(userId, String(orderId)).first();
+      return (row as unknown as PendingReverseChargeRow) ?? null;
+    } catch (e) {
+      console.error("[Rioko] getPendingByUserOrder failed:", e);
+      return null;
+    }
+  }
+
+  async listPendingByUser(userId: string, status: "pending" | "all" = "pending", limit = 100): Promise<PendingReverseChargeRow[]> {
+    try {
+      const sql = status === "all"
+        ? "SELECT * FROM pending_reverse_charge WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+        : "SELECT * FROM pending_reverse_charge WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT ?";
+      const result = await this.db.prepare(sql).bind(userId, limit).all();
+      return (result.results as unknown as PendingReverseChargeRow[]) ?? [];
+    } catch (e) {
+      console.error("[Rioko] listPendingByUser failed:", e);
+      return [];
     }
   }
 
@@ -744,12 +893,13 @@ export class AppStorage {
 
   async markWebhookAsProcessing(webhookId: string, topic: string) {
     try {
-      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain) VALUES (?, ?, ?, ?, ?)").bind(
+      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain, user_id) VALUES (?, ?, ?, ?, ?, ?)").bind(
         webhookId,
         topic,
         "processing",
         new Date().toISOString(),
-        this.shopDomain
+        this.shopDomain,
+        this.userId,
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to mark webhook as processing:", e);
@@ -758,12 +908,13 @@ export class AppStorage {
 
   async markWebhookAsProcessed(webhookId: string, topic: string, state: string = "success") {
     try {
-      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain) VALUES (?, ?, ?, ?, ?)").bind(
+      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain, user_id) VALUES (?, ?, ?, ?, ?, ?)").bind(
         webhookId,
         topic,
         state,
         new Date().toISOString(),
-        this.shopDomain
+        this.shopDomain,
+        this.userId,
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to mark webhook as processed:", e);

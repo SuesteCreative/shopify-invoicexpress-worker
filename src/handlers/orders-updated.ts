@@ -59,7 +59,8 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
       // answer or a human approves/rejects.
       const nextRetryAt = new Date(Date.now() + 15 * 60_000).toISOString();
       await appStorage.enqueuePendingReverseCharge({
-        shopify_domain: config.shopify_domain!,
+        shopify_domain: config.shopify_domain ?? null,
+        user_id: config.user_id,
         order_id: String(normalizedOrderResponse.normalized.order.id),
         vat_id: build.vatNumber,
         country_code: build.countryCode,

@@ -237,7 +237,7 @@ export default function LodgifyVendusIntegration() {
             title: t("step1Title"),
             description: t("step1Desc"),
             icon: Hotel,
-            logo: "/images/lodgify-logo-black.svg",
+            logo: "/images/lodgify-logo-white.svg",
             logoWidth: 80,
             isAuthorized: lodgifySaved,
             errorMsg: lodgifyError,

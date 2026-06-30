@@ -67,7 +67,8 @@ export async function GET(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const sourceKind = (new URL(request.url).searchParams.get("source_kind") ?? "stripe") === "shopify" ? "shopify" : "stripe";
+    const rawSrc = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
+    const sourceKind = rawSrc === "shopify" ? "shopify" : rawSrc === "lodgify" ? "lodgify" : "stripe";
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -102,7 +103,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json() as MoloniBody;
 
-    const sourceKind = body.source_kind === "shopify" ? "shopify" : "stripe";
+    // lodgify must stay "lodgify" so the Lodgify webhook handler finds the
+    // destination config in the same row as the source config. All other
+    // non-shopify sources collapse to "stripe".
+    const sourceKind = body.source_kind === "shopify" ? "shopify" : body.source_kind === "lodgify" ? "lodgify" : "stripe";
     const status = ["draft", "active", "paused", "error"].includes(body.status || "") ? body.status! : "draft";
 
     const { env } = getRequestContext();
@@ -191,7 +195,8 @@ export async function DELETE(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const sourceKind = (new URL(request.url).searchParams.get("source_kind") ?? "stripe") === "shopify" ? "shopify" : "stripe";
+    const rawSrc2 = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
+    const sourceKind = rawSrc2 === "shopify" ? "shopify" : rawSrc2 === "lodgify" ? "lodgify" : "stripe";
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

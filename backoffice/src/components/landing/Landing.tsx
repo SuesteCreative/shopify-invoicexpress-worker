@@ -73,7 +73,7 @@ const INTEGRATIONS: Integration[] = [
   { id: "shopify", name: "Shopify", kind: "pagamentos", status: "live", logoSrc: "/images/shopify-logo.webp" },
   { id: "stripe", name: "Stripe", kind: "pagamentos", status: "live", logoSrc: "/images/stripe-logo.svg" },
   { id: "eupago", name: "EuPago", kind: "pagamentos", status: "soon", logoSrc: "/images/eupago-logo.svg" },
-  { id: "lodgify", name: "Lodgify", kind: "pagamentos", status: "soon", logoSrc: "/images/lodgify-logo-black.svg" },
+  { id: "lodgify", name: "Lodgify", kind: "pagamentos", status: "live", logoSrc: "/images/lodgify-logo-black.svg" },
   { id: "easypay", name: "Easypay", kind: "pagamentos", status: "soon", logoSrc: "/images/easypay-logo.svg" },
   { id: "ifthenpay", name: "Ifthenpay", kind: "pagamentos", status: "planned", logoSrc: "/images/ifthenpay-logo.svg" },
   { id: "amazon", name: "Amazon Pay", kind: "pagamentos", status: "planned", logoSrc: "/images/amazon-logo.svg" },

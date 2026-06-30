@@ -143,13 +143,26 @@ export class LodgifySource implements SourceAdapter {
       fulfillment_status: "fulfilled",
     };
 
+    // Populate note_attributes so tag routing rules can match on booking fields.
+    // Merchants route by property_id (multi-property) or booking source (channel).
+    const noteAttrs: Array<{ name: string; value: string }> = [];
+    if (booking.property_id != null) {
+      noteAttrs.push({ name: "property_id", value: String(booking.property_id) });
+    }
+    if (booking.source) {
+      noteAttrs.push({ name: "source", value: String(booking.source).toLowerCase() });
+    }
+    if (booking.room_type_id != null) {
+      noteAttrs.push({ name: "room_type_id", value: String(booking.room_type_id) });
+    }
+
     const order: Order = {
       id: orderNumeric,
       reference: refStr,
       order_number: orderNumeric,
       created_at: bookingDateIso,
       note: null,
-      note_attributes: [],
+      note_attributes: noteAttrs,
       metafields: null,
       tags: [],
       meta: {

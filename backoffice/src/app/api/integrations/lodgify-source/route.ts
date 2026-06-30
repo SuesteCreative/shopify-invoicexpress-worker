@@ -115,15 +115,21 @@ export async function POST(request: NextRequest) {
 
     if (status === "active" && apiKey) {
         try {
+            const ac = new AbortController();
+            const timeout = setTimeout(() => ac.abort(), 15_000);
+
             // 1. Validate API key against Lodgify
             const validateRes = await fetch(`${LODGIFY_API}/v2/properties?limit=1`, {
                 headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
+                signal: ac.signal,
             });
             console.log("[Lodgify] validate status:", validateRes.status);
             if (validateRes.status === 401 || validateRes.status === 403) {
+                clearTimeout(timeout);
                 return NextResponse.json({ error: "Lodgify API key inválida. Verifica em Settings → Public API." }, { status: 422 });
             }
             if (!validateRes.ok) {
+                clearTimeout(timeout);
                 return NextResponse.json({ error: `Lodgify API não respondeu (${validateRes.status}). Tenta novamente.` }, { status: 502 });
             }
 
@@ -135,6 +141,7 @@ export async function POST(request: NextRequest) {
                     await fetch(`${LODGIFY_API}/v2/webhooks/${previousCfg.webhook_id}`, {
                         method: "DELETE",
                         headers: { "X-ApiKey": apiKey },
+                        signal: ac.signal,
                     });
                 } catch {
                     // Best-effort — old webhook may already be gone
@@ -150,7 +157,9 @@ export async function POST(request: NextRequest) {
                     "Accept": "application/json",
                 },
                 body: JSON.stringify({ url: webhookUrl, event: "booking_new_booked", isActive: true }),
+                signal: ac.signal,
             });
+            clearTimeout(timeout);
 
             if (!regRes.ok) {
                 const errText = await regRes.text().catch(() => "");

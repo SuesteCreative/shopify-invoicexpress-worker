@@ -414,9 +414,8 @@ app.post("/webhooks/eupago/:userId", async (c) => {
 // ────────────────────────────────────────────────────────────────────────────
 app.post("/webhooks/lodgify/:userId", async (c) => {
   const userId = c.req.param("userId");
-  const sig = c.req.header("ms-signature") ?? c.req.header("x-lodgify-signature");
+  const sig = c.req.header("ms-signature") ?? c.req.header("x-lodgify-signature") ?? "";
   const rawBody = await c.req.text();
-  if (!sig) return c.text("Missing signature header", 400);
 
   const conn: any = await c.env.DB.prepare(
     `SELECT id, source_config_json, destination_kind, destination_config_json
@@ -428,6 +427,8 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     return c.text("No connection", 404);
   }
 
+  const lodgifyAdapter = getSourceAdapter("lodgify");
+
   let sourceCfg: Record<string, any> = {};
   try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
   const webhookSecret = sourceCfg.webhook_secret;
@@ -435,8 +436,7 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     // Secret missing when auto-registration failed; process without HMAC until user reconnects.
     console.warn(`[Lodgify] no webhook_secret for ${userId} — skipping HMAC verification`);
   } else {
-    const adapter = getSourceAdapter("lodgify");
-    if (!await adapter.verifyWebhook(rawBody, sig, webhookSecret)) {
+    if (!await lodgifyAdapter.verifyWebhook(rawBody, sig, webhookSecret)) {
       console.error(`[Lodgify] Invalid signature for user ${userId}`);
       await reportIncident(c.env, {
         user_id: userId,
@@ -457,7 +457,7 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
   // The adapter's toNormalized() re-checks booking.status from the API and
   // returns null if the booking isn't "Booked" (so no invoice on tentative).
   const externalId = (() => {
-    try { return adapter.externalId(body); } catch { return null; }
+    try { return lodgifyAdapter.externalId(body); } catch { return null; }
   })();
   if (!externalId) return c.text("Missing bookingId in payload", 400);
 
@@ -586,6 +586,54 @@ app.post("/admin/stripe/replay", async (c) => {
     return c.json({ ok: true, queued_count: queued.length, queued, skipped });
   } catch (e) {
     return errorResponse(c, e, "Failed to replay Stripe events");
+  }
+});
+
+// Admin: manually replay a Lodgify booking by ID (bypasses signature check).
+app.post("/admin/lodgify/replay", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ userId: string; bookingId: string | number }>();
+  if (!body.userId || !body.bookingId) return c.json({ error: "Missing userId or bookingId" }, 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT id, source_config_json, destination_kind, destination_config_json
+     FROM connections
+     WHERE user_id = ? AND source_kind = 'lodgify' AND status = 'active' LIMIT 1`
+  ).bind(body.userId).first();
+  if (!conn) return c.json({ error: "No active Lodgify connection for this user" }, 404);
+
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+  let destinationConfig: Record<string, any> | undefined;
+  try { destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined; } catch { /* ignore */ }
+
+  const legacy: any = await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(body.userId).first();
+  if (!legacy) return c.json({ error: "No integrations row for user" }, 404);
+
+  const fakeBody = { event: "booking_new_booked", data: { bookingId: Number(body.bookingId) } };
+  const externalId = String(body.bookingId);
+  const topic = "lodgify/created" as any;
+  const appStorage = new AppStorage(c.env, null, body.userId);
+  await appStorage.resetWebhookInfo(externalId, topic);
+
+  try {
+    await runAdapterPipeline({
+      env: c.env,
+      config: legacy,
+      source: "lodgify",
+      destination: (conn.destination_kind as any) ?? "moloni",
+      topic: "created",
+      webhookId: externalId,
+      body: fakeBody,
+      sourceConfig: sourceCfg,
+      destinationConfig,
+    });
+    await appStorage.markWebhookAsProcessed(externalId, topic, "success");
+    return c.json({ ok: true, bookingId: externalId });
+  } catch (e: any) {
+    await appStorage.markWebhookAsProcessed(externalId, topic, "failed");
+    return c.json({ ok: false, error: e?.message ?? "Unknown error" }, 500);
   }
 });
 

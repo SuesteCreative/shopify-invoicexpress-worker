@@ -64,9 +64,13 @@ export default function IntegrationsPage() {
         (selectedPayment === "shopify" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
         || (selectedPayment === "stripe" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
         || (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress")
-        || (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress");
+        || (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress")
+        || (selectedPayment === "lodgify" && selectedInvoicing === "moloni")
+        || (selectedPayment === "lodgify" && selectedInvoicing === "vendus");
     const configuratorHref = (() => {
         if (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress") return "/integrations/lodgify-ix";
+        if (selectedPayment === "lodgify" && selectedInvoicing === "moloni") return "/integrations/lodgify-moloni";
+        if (selectedPayment === "lodgify" && selectedInvoicing === "vendus") return "/integrations/lodgify-vendus";
         if (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress") return "/integrations/eupago-ix";
         if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
         if (selectedPayment === "stripe" && selectedInvoicing === "vendus") return "/integrations/stripe-vendus";

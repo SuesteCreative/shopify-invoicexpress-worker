@@ -189,8 +189,10 @@ export default function LodgifyMoloniIntegration() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ source_kind: "lodgify", company_name: companyName.trim(), document_set_name: documentSetName.trim() }),
             });
-            const resolved: any = await resolveRes.json().catch(() => ({}));
-            if (!resolveRes.ok) { setGlobalError(resolved.error ?? `HTTP ${resolveRes.status}`); return; }
+            const resolveText = await resolveRes.text().catch(() => "");
+            let resolved: any = {};
+            try { resolved = JSON.parse(resolveText); } catch { /* HTML error from CF */ }
+            if (!resolveRes.ok) { setGlobalError(resolved.error ?? `HTTP ${resolveRes.status}: ${resolveText.slice(0, 120)}`); return; }
             const res = await fetch("/api/integrations/moloni-destination", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

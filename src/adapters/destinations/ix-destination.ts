@@ -33,7 +33,9 @@ async function resolveSequenceId(ctx: AdapterCtx, seriesName: string): Promise<n
       if (!res.ok) return null;
       const data = await res.json() as { sequences?: Array<{ id: number; serie: string }> };
       sequences = data.sequences ?? [];
-      sequencesCache.set(cacheKey, sequences);
+      // Only cache a non-empty result. An empty list on first fetch (transient
+      // network hiccup) must not freeze future lookups for the isolate lifetime.
+      if (sequences.length > 0) sequencesCache.set(cacheKey, sequences);
     } catch {
       return null;
     }

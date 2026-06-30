@@ -66,7 +66,7 @@ export default function TagRoutingPage() {
     async function loadSequences() {
         if (sequencesLoaded) return;
         try {
-            const res = await fetch("/api/integrations/sequences");
+            const res = await fetch("/api/integrations/sequences-user");
             if (!res.ok) return;
             const data = await res.json() as Sequence[];
             setSequences(data);

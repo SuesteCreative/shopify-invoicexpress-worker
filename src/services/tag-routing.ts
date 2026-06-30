@@ -49,10 +49,17 @@ export function matchTagRouting(
 
   const candidates = new Set<string>();
 
-  // Shopify order tags
+  // Shopify order tags. The normalize API returns an array, but the raw
+  // Shopify payload is comma-separated — handle both to be safe.
   if (Array.isArray(order.tags)) {
     for (const tag of order.tags) {
-      if (tag != null) candidates.add(String(tag).trim());
+      if (tag == null) continue;
+      const s = String(tag).trim();
+      if (s.includes(",")) {
+        for (const t of s.split(",")) { const tt = t.trim(); if (tt) candidates.add(tt); }
+      } else if (s) {
+        candidates.add(s);
+      }
     }
   }
 

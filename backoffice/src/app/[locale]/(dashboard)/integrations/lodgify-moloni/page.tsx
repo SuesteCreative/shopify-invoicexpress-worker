@@ -68,7 +68,7 @@ export default function LodgifyMoloniIntegration() {
 
     const lodgifySaved = hasSavedApiKey && lodgifyStatus === "active";
     const moloniCredsSaved = !!clientId && hasSavedSecret && !!username && hasSavedPassword;
-    const settingsSaved = !!companyId && !!documentSetId;
+    const settingsSaved = (!!companyId && !!documentSetId) || (!!companyName && !!documentSetName);
     const allComplete = connectionStatus === "active";
 
     useEffect(() => {
@@ -106,7 +106,7 @@ export default function LodgifyMoloniIntegration() {
                 if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
                 setConnectionStatus(mConn.status ?? "");
                 credsOk = !!cfg.moloni_client_id && !!cfg.has_client_secret && !!cfg.moloni_username && !!cfg.has_password;
-                setOk = !!cfg.moloni_company_id && !!cfg.moloni_document_set_id;
+                setOk = (!!cfg.moloni_company_id && !!cfg.moloni_document_set_id) || (!!cfg.moloni_company_name && !!cfg.moloni_document_set_name);
                 mStatus = mConn.status ?? "";
             }
 
@@ -184,24 +184,16 @@ export default function LodgifyMoloniIntegration() {
         setSaving(true);
         setGlobalError("");
         try {
-            const resolveRes = await fetch("/api/integrations/moloni-destination/resolve", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source_kind: "lodgify", company_name: companyName.trim(), document_set_name: documentSetName.trim() }),
-            });
-            const resolveText = await resolveRes.text().catch(() => "");
-            let resolved: any = {};
-            try { resolved = JSON.parse(resolveText); } catch { /* HTML error from CF */ }
-            if (!resolveRes.ok) { setGlobalError(resolved.error ?? `HTTP ${resolveRes.status}: ${resolveText.slice(0, 120)}`); return; }
+            // Save names directly — IDs are resolved lazily by the Worker queue
+            // consumer when the first invoice is created. No Moloni API call here
+            // avoids CF edge timeout issues.
             const res = await fetch("/api/integrations/moloni-destination", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     source_kind: "lodgify",
-                    moloni_company_id: resolved.company_id,
-                    moloni_company_name: resolved.company_name,
-                    moloni_document_set_id: resolved.document_set_id,
-                    moloni_document_set_name: resolved.document_set_name,
+                    moloni_company_name: companyName.trim(),
+                    moloni_document_set_name: documentSetName.trim(),
                     vat_included: vatIncluded,
                     auto_finalize: autoFinalize,
                     exemption_reason: exemptionReason,
@@ -209,8 +201,6 @@ export default function LodgifyMoloniIntegration() {
                 }),
             });
             if (!res.ok) { const json: any = await res.json().catch(() => ({})); setGlobalError(json.error ?? `HTTP ${res.status}`); return; }
-            setCompanyId(String(resolved.company_id));
-            setDocumentSetId(String(resolved.document_set_id));
             setStep(4);
         } catch (e: any) {
             setGlobalError(e?.message ?? "Unknown error");

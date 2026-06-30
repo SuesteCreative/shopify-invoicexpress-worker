@@ -130,15 +130,21 @@ export async function POST(request: NextRequest) {
     };
 
     // Require full credentials for active status; drafts allow partial save.
+    // company_id + document_set_id are optional when names are present — the
+    // Worker queue consumer resolves names → IDs lazily on first invoice.
     if (status === "active") {
-        const required: Array<keyof typeof merged> = [
-            "moloni_client_id", "moloni_client_secret", "moloni_username",
-            "moloni_password", "moloni_company_id", "moloni_document_set_id",
+        const credFields: Array<keyof typeof merged> = [
+            "moloni_client_id", "moloni_client_secret", "moloni_username", "moloni_password",
         ];
-        for (const field of required) {
+        for (const field of credFields) {
             if (merged[field] === undefined || merged[field] === "" || merged[field] === null) {
                 return NextResponse.json({ error: `Missing ${field}` }, { status: 400 });
             }
+        }
+        const hasIds = merged.moloni_company_id && merged.moloni_document_set_id;
+        const hasNames = merged.moloni_company_name && merged.moloni_document_set_name;
+        if (!hasIds && !hasNames) {
+            return NextResponse.json({ error: "Missing company and document set — provide either IDs or names" }, { status: 400 });
         }
     }
 

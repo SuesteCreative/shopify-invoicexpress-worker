@@ -68,6 +68,9 @@ type MoloniCfg = {
   // Moloni account tax rule ID for the standard VAT rate (e.g. "IVA 23%").
   // 0 = exempt/no-tax fallback. Set moloni_default_tax_id in destinationConfig.
   defaultTaxId: number;
+  // Human-readable names used for lazy ID resolution when IDs are absent.
+  companyName?: string;
+  documentSetName?: string;
 };
 
 const DEFAULT_PAYMENT_METHOD_ID = 0; // 0 = unset; finalize accepts no method
@@ -77,6 +80,9 @@ const MOLONI_PT_COUNTRY_ID = 1; // Portugal is always 1 in Moloni's fixed seed d
 // Module-level caches: survive within a single Worker isolate, flushed on cold start.
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 const countryCache = new Map<number, Map<string, number>>(); // companyId → ISO-2 → country_id
+// Resolved IDs cache: avoids repeated company/document-set listing when IDs
+// are absent from DB but names are stored (lazy-resolution path).
+const resolvedIdCache = new Map<string, { companyId: number; documentSetId: number }>();
 
 function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   // Credentials live in `connections.destination_config_json` (Phase 5 storage).
@@ -97,19 +103,66 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   const password = String(c.moloni_password ?? "").trim();
   const companyId = Number(c.moloni_company_id ?? 0);
   const documentSetId = Number(c.moloni_document_set_id ?? 0);
+  const companyName = String(c.moloni_company_name ?? "").trim() || undefined;
+  const documentSetName = String(c.moloni_document_set_name ?? "").trim() || undefined;
 
   if (!clientId || !clientSecret || !username || !password) {
     throw new Error("Moloni create failed: missing OAuth credentials (client_id/client_secret/username/password)");
   }
-  if (!companyId) {
-    throw new Error("Moloni create failed: missing moloni_company_id");
-  }
-  if (!documentSetId) {
-    throw new Error("Moloni create failed: missing moloni_document_set_id");
-  }
 
   const defaultTaxId = Number(c.moloni_default_tax_id ?? 0);
-  return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId, defaultTaxId };
+  return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId, companyName, documentSetName, defaultTaxId };
+}
+
+// Resolves company/document-set names → IDs via Moloni API when IDs are absent.
+// Uses module-level cache so resolution only happens once per cold start.
+async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
+  const raw = readMoloniCfg(ctx);
+  if (raw.companyId && raw.documentSetId) return raw;
+
+  const cacheKey = `${raw.clientId}:${raw.username}`;
+  const cached = resolvedIdCache.get(cacheKey);
+  if (cached) return { ...raw, ...cached };
+
+  let { companyId, documentSetId } = raw;
+
+  const token = await getAccessToken(raw);
+
+  if (!companyId) {
+    if (!raw.companyName) throw new Error("Moloni: missing moloni_company_id and moloni_company_name");
+    const companiesRes = await fetch(
+      `${raw.baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
+      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "" },
+    );
+    const companiesData: unknown[] = await safeJson(companiesRes) as unknown[];
+    const list = Array.isArray(companiesData) ? companiesData : [];
+    const match = list.find((c: any) => String(c.name ?? c.company_name ?? "").toLowerCase() === raw.companyName!.toLowerCase());
+    if (!match) {
+      const names = list.map((c: any) => `"${c.name ?? c.company_name}"`).join(", ");
+      throw new Error(`Moloni: company "${raw.companyName}" not found. Available: ${names || "(none)"}`);
+    }
+    companyId = Number((match as any).id);
+  }
+
+  if (!documentSetId) {
+    if (!raw.documentSetName) throw new Error("Moloni: missing moloni_document_set_id and moloni_document_set_name");
+    const dsBody = new URLSearchParams({ company_id: String(companyId) }).toString();
+    const dsRes = await fetch(
+      `${raw.baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
+      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: dsBody },
+    );
+    const dsData: unknown[] = await safeJson(dsRes) as unknown[];
+    const dsList = Array.isArray(dsData) ? dsData : [];
+    const dsMatch = dsList.find((d: any) => String(d.name ?? d.document_set_name ?? "").toLowerCase() === raw.documentSetName!.toLowerCase());
+    if (!dsMatch) {
+      const names = dsList.map((d: any) => `"${d.name ?? d.document_set_name}"`).join(", ");
+      throw new Error(`Moloni: document set "${raw.documentSetName}" not found. Available: ${names || "(none)"}`);
+    }
+    documentSetId = Number((dsMatch as any).id);
+  }
+
+  resolvedIdCache.set(cacheKey, { companyId, documentSetId });
+  return { ...raw, companyId, documentSetId };
 }
 
 async function getAccessToken(cfg: MoloniCfg): Promise<string> {
@@ -632,7 +685,7 @@ export class MoloniDestination implements DestinationAdapter {
   readonly kind = "moloni" as const;
 
   async findByReference(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null> {
-    const cfg = readMoloniCfg(ctx);
+    const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
     try {
       // `our_reference` is the field Moloni indexes for free-text lookup on
@@ -657,7 +710,7 @@ export class MoloniDestination implements DestinationAdapter {
   }
 
   async createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult> {
-    const cfg = readMoloniCfg(ctx);
+    const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
     const [customerId, productIds] = await Promise.all([
@@ -711,7 +764,7 @@ export class MoloniDestination implements DestinationAdapter {
   }
 
   async finalize(invoiceId: string, ctx: AdapterCtx): Promise<void> {
-    const cfg = readMoloniCfg(ctx);
+    const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
     // Moloni's `invoices/update` flips status from 0 (draft) to 1 (closed).
@@ -730,7 +783,7 @@ export class MoloniDestination implements DestinationAdapter {
     normalized: Normalized,
     ctx: AdapterCtx,
   ): Promise<DestinationCreditResult> {
-    const cfg = readMoloniCfg(ctx);
+    const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
     // Build refund lines from the items actually being refunded.
@@ -823,7 +876,7 @@ export class MoloniDestination implements DestinationAdapter {
   }
 
   async emailDocument(invoiceId: string, ctx: AdapterCtx): Promise<void> {
-    const cfg = readMoloniCfg(ctx);
+    const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
     // Fetch document to discover client email.

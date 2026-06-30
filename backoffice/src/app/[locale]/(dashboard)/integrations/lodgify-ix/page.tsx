@@ -5,6 +5,7 @@ export const runtime = "edge";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Hotel, ClipboardList, Loader2, Check, AlertTriangle, ChevronRight, Settings2, Zap, Info, ShieldCheck, Copy } from "lucide-react";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 
@@ -454,6 +455,16 @@ export default function LodgifyIxIntegration() {
                                 <option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>
                             ))}
                         </select>
+                    </div>
+                    <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 bg-[rgba(2,141,196,0.10)] rounded-xl shrink-0"><Zap className="w-4 h-4 text-accent" /></div>
+                            <div className="min-w-0">
+                                <h3 className="font-bold text-sm">{t("tagRoutingTitle")}</h3>
+                                <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("tagRoutingDesc")}</p>
+                            </div>
+                        </div>
+                        <Link href="/integrations/tag-routing?source_kind=lodgify" className="px-5 py-2.5 rounded-xl border border-hairline hover:border-rule text-[10px] font-black uppercase tracking-[0.18em] transition-colors shrink-0">{t("manageTagRouting")}</Link>
                     </div>
                     <div className="md:col-span-2 pt-4 flex items-center gap-4">
                         <button onClick={() => setStep(2)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>

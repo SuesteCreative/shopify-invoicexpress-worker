@@ -120,7 +120,7 @@ async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
   const raw = readMoloniCfg(ctx);
   if (raw.companyId && raw.documentSetId) return raw;
 
-  const cacheKey = `${raw.clientId}:${raw.username}`;
+  const cacheKey = `${raw.clientId}:${raw.username}:${raw.documentSetName ?? raw.documentSetId}`;
   const cached = resolvedIdCache.get(cacheKey);
   if (cached) return { ...raw, ...cached };
 
@@ -473,27 +473,35 @@ async function resolveOrCreateCustomer(
   const countryIsPT = isPortugal(billing?.country_code);
   const vat = countryIsPT && ptNif ? ptNif : NON_PT_GENERIC_VAT;
 
-  // 1. Lookup by VAT.
-  try {
-    const found = await moloniCall<MoloniCustomerLookup[] | MoloniCustomerLookup>(
-      cfg, token, "/customers/getByVat/", { vat }, "lookup",
-    );
-    const first = Array.isArray(found) ? found[0] : found;
-    if (first && typeof first === "object" && "customer_id" in first && first.customer_id) {
-      return Number(first.customer_id);
+  // Compute name early so we can decide whether to skip the VAT lookup.
+  const customerName = (order.customer?.name?.trim() || billing?.name?.trim() || "Consumidor Final").slice(0, 200);
+
+  // 1. Lookup by VAT — but skip when using the generic consumer VAT and we have
+  // a real guest name. The generic VAT matches the shared "Consumidor Final"
+  // account and we'd return that record instead of creating a named customer.
+  const skipVatLookup = vat === NON_PT_GENERIC_VAT && customerName !== "Consumidor Final";
+  if (!skipVatLookup) {
+    try {
+      const found = await moloniCall<MoloniCustomerLookup[] | MoloniCustomerLookup>(
+        cfg, token, "/customers/getByVat/", { vat }, "lookup",
+      );
+      const first = Array.isArray(found) ? found[0] : found;
+      if (first && typeof first === "object" && "customer_id" in first && first.customer_id) {
+        return Number(first.customer_id);
+      }
+    } catch (e) {
+      // Re-throw transient (5xx, network) so the queue retries instead of
+      // silently inserting a duplicate customer. Genuine misses fall through.
+      if (isMoloniTransient(e)) throw e;
     }
-  } catch (e) {
-    // Re-throw transient (5xx, network) so the queue retries instead of
-    // silently inserting a duplicate customer. Genuine misses fall through.
-    if (isMoloniTransient(e)) throw e;
   }
 
   // 2. Insert a new customer record.
-  const customerName = (order.customer?.name?.trim() || billing?.name?.trim() || "Consumidor Final").slice(0, 200);
   const countryId = await resolveCountryId(cfg, token, billing?.country_code);
   const inserted = await moloniCall<{ customer_id?: number }>(
     cfg, token, "/customers/insert/",
     {
+      number: 0,
       vat,
       name: customerName,
       language_id: 1,
@@ -504,8 +512,11 @@ async function resolveOrCreateCustomer(
       email: (order.customer?.email ?? "").slice(0, 200),
       phone: ((order.customer as { phone?: string | null } | undefined)?.phone ?? billing?.phone ?? "").toString().slice(0, 50),
       maturity_date_id: 0,
+      payment_day: 0,
       payment_method_id: DEFAULT_PAYMENT_METHOD_ID,
       delivery_method_id: 0,
+      discount: 0,
+      credit_limit: 0,
       salesman_id: 0,
       field_notes: "",
     },

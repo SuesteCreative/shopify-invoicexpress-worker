@@ -966,7 +966,11 @@
     "cancel": "Cancelar",
     "empty": "Sem regras de routing. Adiciona uma regra para encaminhar encomendas para séries específicas.",
     "tagNameRequired": "O nome da tag é obrigatório.",
-    "atLeastOne": "Define pelo menos o tipo de fatura ou a série."
+    "atLeastOne": "Define pelo menos o tipo de fatura ou a série.",
+    "colDocSet": "Conjunto de documentos",
+    "docSetDefault": "Predefinição",
+    "docSetPlaceholder": "ex: FR2026",
+    "docSetRequired": "O nome do conjunto de documentos é obrigatório."
   },
   "eupagoIxSetup": {
     "title": "EuPago + InvoiceXpress",
@@ -1129,7 +1133,10 @@
     "errorIxRequired": "Preenche Nome da Conta e Chave API InvoiceXpress.",
     "errorSequenceRequired": "Preenche a série de faturação.",
     "errorSaveIx": "Erro ao guardar credenciais InvoiceXpress.",
-    "errorNetwork": "Erro de rede: {message}"
+    "errorNetwork": "Erro de rede: {message}",
+    "tagRoutingTitle": "Routing por tags",
+    "tagRoutingDesc": "Encaminhar reservas para séries ou tipo de documento específico com base em tags Lodgify",
+    "manageTagRouting": "Gerir routing"
   },
   "stripeVendusSetup": {
     "title": "Stripe + Vendus",
@@ -1940,7 +1947,10 @@
     "errorMissingPassword": "Falta a password Moloni.",
     "errorSettingsRequired": "Preenche Company ID e Document Set ID.",
     "errorActivate": "Erro ao ativar.",
-    "errorNetwork": "Erro de rede: {message}"
+    "errorNetwork": "Erro de rede: {message}",
+    "tagRoutingTitle": "Routing por tags",
+    "tagRoutingDesc": "Encaminhar reservas para conjuntos de documentos Moloni específicos com base em tags Lodgify",
+    "manageTagRouting": "Gerir routing"
   },
   "lodgifyVendusSetup": {
     "pageTitle": "Lodgify + Vendus",

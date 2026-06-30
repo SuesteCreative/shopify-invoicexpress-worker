@@ -132,7 +132,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     destination === "invoicexpress" && config.user_id
       ? loadProductOverrides(env, config.user_id, source, destination)
       : Promise.resolve(undefined),
-    destination === "invoicexpress" && config.user_id
+    (destination === "invoicexpress" || destination === "moloni") && config.user_id
       ? loadTagRoutingRules(env, config.user_id, source, destination)
       : Promise.resolve([]),
   ]);
@@ -252,18 +252,32 @@ async function runPipelineCore(
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
 
-      // Tag routing: override ix_document_type / ix_sequence_name when the order
-      // carries a tag that matches a merchant-configured routing rule.
+      // Tag routing: override destination-specific settings when the order carries
+      // a tag matching a merchant-configured routing rule.
+      // IX: overrides ix_document_type / ix_sequence_name in config.
+      // Moloni: overrides moloni_document_set_name in destinationConfig (clears
+      //   the numeric id so getMoloniCfg re-resolves via name).
       const tagMatch = matchTagRouting(normalized.order, tagRoutingRules);
       if (tagMatch) {
-        ctx = {
-          ...ctx,
-          config: {
-            ...ctx.config,
-            ...(tagMatch.document_type ? { ix_document_type: tagMatch.document_type } : {}),
-            ...(tagMatch.series_name ? { ix_sequence_name: tagMatch.series_name } : {}),
-          },
-        };
+        if (destination === "invoicexpress") {
+          ctx = {
+            ...ctx,
+            config: {
+              ...ctx.config,
+              ...(tagMatch.document_type ? { ix_document_type: tagMatch.document_type } : {}),
+              ...(tagMatch.series_name ? { ix_sequence_name: tagMatch.series_name } : {}),
+            },
+          };
+        } else if (destination === "moloni" && tagMatch.series_name) {
+          ctx = {
+            ...ctx,
+            destinationConfig: {
+              ...ctx.destinationConfig,
+              moloni_document_set_id: null,
+              moloni_document_set_name: tagMatch.series_name,
+            },
+          };
+        }
       }
 
       // Currency guard: PT accounting must be in EUR. Reject non-EUR payments

@@ -30,7 +30,7 @@ async function resolveTargetUser(request: NextRequest) {
 }
 
 type MoloniBody = {
-    source_kind?: "stripe" | "shopify";
+    source_kind?: "stripe" | "shopify" | "lodgify";
     moloni_client_id?: string;
     moloni_client_secret?: string;
     moloni_username?: string;

@@ -921,12 +921,23 @@ export class AppStorage {
     }
   }
 
-  /** Drop a webhook_info row so an admin replay isn't short-circuited by dedup. */
+  /** Drop dedup state so an admin replay isn't short-circuited. */
   async resetWebhookInfo(webhookId: string, topic: string) {
     try {
       await this.db.prepare("DELETE FROM webhook_info WHERE webhook_id = ? AND topic = ?").bind(webhookId, topic).run();
     } catch (e) {
       console.warn("[Rioko] Failed to reset webhook_info:", e);
+    }
+    try {
+      await this.db.prepare("DELETE FROM processed_orders WHERE id = ?").bind(String(webhookId)).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to reset processed_orders:", e);
+    }
+    try {
+      await this.kv.delete(`lodgify_order:${webhookId}`);
+      await this.kv.delete(`shopify_order:${webhookId}`);
+    } catch (e) {
+      console.warn("[Rioko] Failed to reset KV dedup keys:", e);
     }
   }
 

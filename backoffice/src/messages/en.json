@@ -966,7 +966,11 @@
     "cancel": "Cancel",
     "empty": "No routing rules yet. Add a rule to start routing orders to specific series.",
     "tagNameRequired": "Tag name is required.",
-    "atLeastOne": "Set at least invoice type or series."
+    "atLeastOne": "Set at least invoice type or series.",
+    "colDocSet": "Document Set",
+    "docSetDefault": "Default",
+    "docSetPlaceholder": "e.g. FR2026",
+    "docSetRequired": "Document set name is required."
   },
   "eupagoIxSetup": {
     "title": "EuPago + InvoiceXpress",
@@ -1129,7 +1133,10 @@
     "errorIxRequired": "Fill in Account name and InvoiceXpress API key.",
     "errorSequenceRequired": "Invoice series is required.",
     "errorSaveIx": "Failed to save InvoiceXpress credentials.",
-    "errorNetwork": "Network error: {message}"
+    "errorNetwork": "Network error: {message}",
+    "tagRoutingTitle": "Tag-based series routing",
+    "tagRoutingDesc": "Route bookings to specific IX series or document type based on Lodgify booking tags",
+    "manageTagRouting": "Manage routing"
   },
   "stripeVendusSetup": {
     "title": "Stripe + Vendus",
@@ -1938,7 +1945,10 @@
     "errorMissingPassword": "Moloni password missing.",
     "errorSettingsRequired": "Fill in Company ID and Document Set ID.",
     "errorActivate": "Failed to activate.",
-    "errorNetwork": "Network error: {message}"
+    "errorNetwork": "Network error: {message}",
+    "tagRoutingTitle": "Tag-based document set routing",
+    "tagRoutingDesc": "Route bookings to specific Moloni document sets based on Lodgify booking tags",
+    "manageTagRouting": "Manage routing"
   },
   "lodgifyVendusSetup": {
     "pageTitle": "Lodgify + Vendus",

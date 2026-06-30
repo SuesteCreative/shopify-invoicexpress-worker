@@ -2,8 +2,11 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { RIOKO_CONFIG } from "@/lib/config";
 
 export const runtime = "edge";
+
+const WORKER_BASE = RIOKO_CONFIG.workerUrl.replace(/\/$/, "");
 
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
@@ -24,8 +27,6 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    // Credentials may be stored under source_kind='stripe' (route normalisation)
-    // regardless of the actual wizard (lodgify/stripe). Mirror the same lookup.
     const rawSource = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
     const sourceKind = rawSource === "shopify" ? "shopify" : "stripe";
 
@@ -39,49 +40,24 @@ export async function GET(request: NextRequest) {
     }
 
     const cfg = JSON.parse(row.destination_config_json);
-    const baseUrl = cfg.moloni_environment === "sandbox"
-        ? "https://apidemo.moloni.pt/v1"
-        : "https://api.moloni.pt/v1";
 
-    try {
-        const ac = new AbortController();
-        const tId = setTimeout(() => ac.abort(), 10_000);
+    // Proxy through the Worker — CF Pages edge functions cannot reliably reach
+    // external APIs. The Worker runtime has no such restriction.
+    const workerRes = await fetch(`${WORKER_BASE}/moloni-proxy/companies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+            client_id: cfg.moloni_client_id,
+            client_secret: cfg.moloni_client_secret,
+            username: cfg.moloni_username,
+            password: cfg.moloni_password,
+            environment: cfg.moloni_environment ?? "production",
+        }),
+    });
 
-        const tokenUrl = new URL(`${baseUrl}/grant/`);
-        tokenUrl.searchParams.set("grant_type", "password");
-        tokenUrl.searchParams.set("client_id", String(cfg.moloni_client_id ?? ""));
-        tokenUrl.searchParams.set("client_secret", String(cfg.moloni_client_secret ?? ""));
-        tokenUrl.searchParams.set("username", String(cfg.moloni_username ?? ""));
-        tokenUrl.searchParams.set("password", String(cfg.moloni_password ?? ""));
-
-        const tokenRes = await fetch(tokenUrl.toString(), {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            signal: ac.signal,
-        });
-        if (!tokenRes.ok) {
-            clearTimeout(tId);
-            const err: any = await tokenRes.json().catch(() => ({}));
-            return NextResponse.json({ error: `Moloni auth failed (${tokenRes.status}): ${err?.error_description ?? err?.message ?? "check credentials"}` }, { status: 502 });
-        }
-        const tokenData: any = await tokenRes.json();
-        const token = tokenData?.access_token;
-        if (!token) { clearTimeout(tId); return NextResponse.json({ error: "Moloni auth returned no token" }, { status: 502 }); }
-
-        const companiesRes = await fetch(
-            `${baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-            { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "", signal: ac.signal }
-        );
-        clearTimeout(tId);
-        const data: any = await companiesRes.json().catch(() => []);
-        const companies = Array.isArray(data)
-            ? data.map((c: any) => ({ id: String(c.id), name: String(c.name ?? c.company_name ?? c.id) }))
-            : [];
-
-        return NextResponse.json({ companies });
-    } catch (e: any) {
-        const msg = e?.name === "AbortError" ? "Moloni API timeout — try again" : (e?.message ?? "unknown");
-        console.error("[Moloni companies]", msg);
-        return NextResponse.json({ error: msg }, { status: 502 });
+    const data: any = await workerRes.json().catch(() => ({}));
+    if (!workerRes.ok) {
+        return NextResponse.json({ error: data?.error ?? `Worker error ${workerRes.status}` }, { status: 502 });
     }
+    return NextResponse.json(data);
 }

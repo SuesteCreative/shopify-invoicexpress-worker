@@ -57,18 +57,12 @@ export default function LodgifyMoloniIntegration() {
 
     // Settings
     const [companyId, setCompanyId] = useState("");
+    const [companyName, setCompanyName] = useState("");
     const [documentSetId, setDocumentSetId] = useState("");
+    const [documentSetName, setDocumentSetName] = useState("");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
     const [exemptionReason, setExemptionReason] = useState("M01");
-
-    // Company / document-set dropdowns
-    type NamedOption = { id: string; name: string };
-    const [companies, setCompanies] = useState<NamedOption[]>([]);
-    const [documentSets, setDocumentSets] = useState<NamedOption[]>([]);
-    const [companiesLoading, setCompaniesLoading] = useState(false);
-    const [docSetsLoading, setDocSetsLoading] = useState(false);
-    const [companiesError, setCompaniesError] = useState("");
 
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
 
@@ -103,7 +97,9 @@ export default function LodgifyMoloniIntegration() {
                 setUsername(String(cfg.moloni_username ?? ""));
                 setHasSavedPassword(!!cfg.has_password);
                 setCompanyId(cfg.moloni_company_id != null ? String(cfg.moloni_company_id) : "");
+                setCompanyName(cfg.moloni_company_name ? String(cfg.moloni_company_name) : "");
                 setDocumentSetId(cfg.moloni_document_set_id != null ? String(cfg.moloni_document_set_id) : "");
+                setDocumentSetName(cfg.moloni_document_set_name ? String(cfg.moloni_document_set_name) : "");
                 setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
                 if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
                 if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
@@ -184,17 +180,26 @@ export default function LodgifyMoloniIntegration() {
     };
 
     const handleSaveSettings = async () => {
-        if (!companyId || !documentSetId) { setGlobalError(t("errorSettingsRequired")); return; }
+        if (!companyName.trim() || !documentSetName.trim()) { setGlobalError(t("errorSettingsRequired")); return; }
         setSaving(true);
         setGlobalError("");
         try {
+            const resolveRes = await fetch("/api/integrations/moloni-destination/resolve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ source_kind: "lodgify", company_name: companyName.trim(), document_set_name: documentSetName.trim() }),
+            });
+            const resolved: any = await resolveRes.json().catch(() => ({}));
+            if (!resolveRes.ok) { setGlobalError(resolved.error ?? `HTTP ${resolveRes.status}`); return; }
             const res = await fetch("/api/integrations/moloni-destination", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     source_kind: "lodgify",
-                    moloni_company_id: companyId,
-                    moloni_document_set_id: documentSetId,
+                    moloni_company_id: resolved.company_id,
+                    moloni_company_name: resolved.company_name,
+                    moloni_document_set_id: resolved.document_set_id,
+                    moloni_document_set_name: resolved.document_set_name,
                     vat_included: vatIncluded,
                     auto_finalize: autoFinalize,
                     exemption_reason: exemptionReason,
@@ -202,6 +207,8 @@ export default function LodgifyMoloniIntegration() {
                 }),
             });
             if (!res.ok) { const json: any = await res.json().catch(() => ({})); setGlobalError(json.error ?? `HTTP ${res.status}`); return; }
+            setCompanyId(String(resolved.company_id));
+            setDocumentSetId(String(resolved.document_set_id));
             setStep(4);
         } catch (e: any) {
             setGlobalError(e?.message ?? "Unknown error");
@@ -228,44 +235,6 @@ export default function LodgifyMoloniIntegration() {
             setSaving(false);
         }
     };
-
-    const fetchCompanies = async (force = false) => {
-        if (companiesLoading || (companies.length > 0 && !force)) return;
-        setCompanies([]);
-        setCompaniesLoading(true);
-        setCompaniesError("");
-        try {
-            const res = await fetch("/api/integrations/moloni-destination/companies?source_kind=lodgify");
-            const json: any = await res.json().catch(() => ({}));
-            if (!res.ok) { setCompaniesError(json.error ?? `HTTP ${res.status}`); return; }
-            setCompanies(json.companies ?? []);
-        } catch (e: any) {
-            setCompaniesError(e?.message ?? "Failed to load companies");
-        } finally {
-            setCompaniesLoading(false);
-        }
-    };
-
-    const fetchDocumentSets = async (cId: string) => {
-        if (!cId) return;
-        setDocSetsLoading(true);
-        setDocumentSets([]);
-        try {
-            const res = await fetch(`/api/integrations/moloni-destination/document-sets?source_kind=lodgify&company_id=${encodeURIComponent(cId)}`);
-            const json: any = await res.json().catch(() => ({}));
-            if (res.ok) setDocumentSets(json.documentSets ?? []);
-        } finally {
-            setDocSetsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        if (step === 3) {
-            fetchCompanies();
-            if (companyId) fetchDocumentSets(companyId);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [step]);
 
     const copyWebhookUrl = () => {
         if (!webhookUrl) return;
@@ -415,13 +384,13 @@ export default function LodgifyMoloniIntegration() {
                 <div className="grid md:grid-cols-2 gap-8">
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("companyIdLabel")}</label>
-                        <input type="text" value={companyId} onChange={(e) => setCompanyId(e.target.value)} placeholder="12345" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
-                        <p className="text-[10px] text-fg-40 ml-1">{t("companyIdHint")}</p>
+                        <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Minha Empresa Lda" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("companyNameHint")}</p>
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("documentSetIdLabel")}</label>
-                        <input type="text" value={documentSetId} onChange={(e) => setDocumentSetId(e.target.value)} placeholder="67890" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
-                        <p className="text-[10px] text-fg-40 ml-1">{t("documentSetIdHint")}</p>
+                        <input type="text" value={documentSetName} onChange={(e) => setDocumentSetName(e.target.value)} placeholder="FR2026" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("documentSetNameHint")}</p>
                     </div>
                     <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                         <div>

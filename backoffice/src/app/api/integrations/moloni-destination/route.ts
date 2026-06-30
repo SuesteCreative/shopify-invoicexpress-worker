@@ -36,7 +36,9 @@ type MoloniBody = {
     moloni_username?: string;
     moloni_password?: string;
     moloni_company_id?: number | string;
+    moloni_company_name?: string;
     moloni_document_set_id?: number | string;
+    moloni_document_set_name?: string;
     moloni_environment?: "production" | "sandbox";
     vat_included?: boolean;
     auto_finalize?: boolean;
@@ -51,7 +53,9 @@ function redactConfig(cfg: Record<string, unknown>) {
         moloni_username: cfg.moloni_username ?? null,
         has_password: !!cfg.moloni_password,
         moloni_company_id: cfg.moloni_company_id ?? null,
+        moloni_company_name: cfg.moloni_company_name ?? null,
         moloni_document_set_id: cfg.moloni_document_set_id ?? null,
+        moloni_document_set_name: cfg.moloni_document_set_name ?? null,
         moloni_environment: cfg.moloni_environment ?? "production",
         vat_included: cfg.vat_included !== false,
         auto_finalize: cfg.auto_finalize === true,
@@ -119,7 +123,9 @@ export async function POST(request: NextRequest) {
         moloni_username: body.moloni_username ?? previousCfg.moloni_username,
         moloni_password: body.moloni_password ?? previousCfg.moloni_password,
         moloni_company_id: body.moloni_company_id ?? previousCfg.moloni_company_id,
+        moloni_company_name: body.moloni_company_name ?? previousCfg.moloni_company_name,
         moloni_document_set_id: body.moloni_document_set_id ?? previousCfg.moloni_document_set_id,
+        moloni_document_set_name: body.moloni_document_set_name ?? previousCfg.moloni_document_set_name,
         moloni_environment: body.moloni_environment ?? previousCfg.moloni_environment,
     };
 
@@ -144,7 +150,9 @@ export async function POST(request: NextRequest) {
         moloni_username: merged.moloni_username ? String(merged.moloni_username) : undefined,
         moloni_password: merged.moloni_password ? String(merged.moloni_password) : undefined,
         moloni_company_id: merged.moloni_company_id !== undefined && merged.moloni_company_id !== null && merged.moloni_company_id !== "" ? Number(merged.moloni_company_id) : undefined,
+        moloni_company_name: merged.moloni_company_name ? String(merged.moloni_company_name) : undefined,
         moloni_document_set_id: merged.moloni_document_set_id !== undefined && merged.moloni_document_set_id !== null && merged.moloni_document_set_id !== "" ? Number(merged.moloni_document_set_id) : undefined,
+        moloni_document_set_name: merged.moloni_document_set_name ? String(merged.moloni_document_set_name) : undefined,
         moloni_environment: env_,
         vat_included: body.vat_included !== undefined ? body.vat_included : (previousCfg.vat_included !== false),
         auto_finalize: body.auto_finalize !== undefined ? body.auto_finalize === true : (previousCfg.auto_finalize === true),

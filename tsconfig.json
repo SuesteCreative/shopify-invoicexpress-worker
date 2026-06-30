@@ -20,7 +20,9 @@
     "src/.old/invoicexpress.ts",
     "src/.old/storage.ts",
     "src/.old/nif.ts",
-    "src/.old/shopify.ts",
+    "src/.old/shopify.ts"
+  ],
+  "exclude": [
     "src/.old/vat.ts"
   ]
 }

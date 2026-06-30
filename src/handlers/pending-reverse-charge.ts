@@ -20,7 +20,7 @@ export async function submitInvoiceForPendingRow(
   row: PendingReverseChargeRow,
   disposition: DispositionFor,
 ): Promise<{ ok: boolean; invoiceId?: string; error?: string }> {
-  const appStorage = new AppStorage(env, row.shopify_domain);
+  const appStorage = new AppStorage(env, row.shopify_domain, row.user_id);
   const config = await appStorage.loadConfig();
   if (!config) return { ok: false, error: "No config for shop" };
 
@@ -103,7 +103,7 @@ export async function runViesRetry(env: Env): Promise<{ retried: number; resolve
         const nextAttempt = row.attempts + 1;
         const backoffIdx = Math.min(nextAttempt - 1, RETRY_BACKOFF_MS.length - 1);
         const nextRetryAt = new Date(Date.now() + RETRY_BACKOFF_MS[backoffIdx]).toISOString();
-        const storage = new AppStorage(env, row.shopify_domain);
+        const storage = new AppStorage(env, row.shopify_domain, row.user_id);
         await storage.markPendingAttempt(row.id, nextAttempt, nextRetryAt, "VIES unknown (timeout/5xx)");
         summary.deferred++;
       }
@@ -113,7 +113,7 @@ export async function runViesRetry(env: Env): Promise<{ retried: number; resolve
   // Pass 2: rows that have exhausted retries but haven't opened an incident yet.
   const needsIncident = await rootStorage.getPendingNeedingIncident(50);
   for (const row of needsIncident) {
-    const storage = new AppStorage(env, row.shopify_domain);
+    const storage = new AppStorage(env, row.shopify_domain, row.user_id);
     const config = await storage.loadConfig();
     if (!config) continue;
     let orderNumber: string | number = row.order_id;
@@ -147,7 +147,7 @@ export async function runViesRetry(env: Env): Promise<{ retried: number; resolve
 }
 
 async function markRowError(env: Env, row: PendingReverseChargeRow, err: string) {
-  const storage = new AppStorage(env, row.shopify_domain);
+  const storage = new AppStorage(env, row.shopify_domain, row.user_id);
   const nextAttempt = row.attempts + 1;
   const backoffIdx = Math.min(nextAttempt - 1, RETRY_BACKOFF_MS.length - 1);
   const nextRetryAt = new Date(Date.now() + RETRY_BACKOFF_MS[backoffIdx]).toISOString();

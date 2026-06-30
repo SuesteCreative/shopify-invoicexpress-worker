@@ -20,6 +20,7 @@ export function determineVATRate(item: LineItem): number {
     }
 
     // 2. Explicitly non-taxable in Shopify
+    // @ts-ignore — archived code, item.taxable typed as literal `true` in newer normalize types
     if (item.taxable === false) {
         return 0;
     }

@@ -101,7 +101,8 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
       // via the orders/updated re-emission.)
       const nextRetryAt = new Date(Date.now() + 15 * 60_000).toISOString();
       await appStorage.enqueuePendingReverseCharge({
-        shopify_domain: config.shopify_domain!,
+        shopify_domain: config.shopify_domain ?? null,
+        user_id: config.user_id,
         order_id: String(normalizedOrderResponse.normalized.order.id),
         vat_id: build.vatNumber,
         country_code: build.countryCode,

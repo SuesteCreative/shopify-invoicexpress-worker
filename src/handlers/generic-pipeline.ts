@@ -8,6 +8,7 @@ import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 import { loadProductMappings } from "../services/product-mappings";
 import { loadProductOverrides } from "../services/product-overrides";
+import { loadTagRoutingRules, matchTagRouting } from "../services/tag-routing";
 import { makeViesChecker } from "../ix/vies";
 import { describeOrder } from "../services/order-label";
 
@@ -122,15 +123,18 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const externalId = sourceAdapter.externalId(body);
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined);
 
-  // Pre-fetch explicit product mappings (Moloni) + per-SKU overrides (IX).
-  // Both are one D1 round-trip with empty-Map fallback when nothing's set.
-  const [productMappings, productOverrides] = await Promise.all([
+  // Pre-fetch explicit product mappings (Moloni) + per-SKU overrides (IX) +
+  // tag routing rules (IX). All are one D1 round-trip with empty fallbacks.
+  const [productMappings, productOverrides, tagRoutingRules] = await Promise.all([
     destination === "moloni" && config.user_id
       ? loadProductMappings(env, config.user_id, source)
       : Promise.resolve(undefined),
     destination === "invoicexpress" && config.user_id
       ? loadProductOverrides(env, config.user_id, source, destination)
       : Promise.resolve(undefined),
+    destination === "invoicexpress" && config.user_id
+      ? loadTagRoutingRules(env, config.user_id, source, destination)
+      : Promise.resolve([]),
   ]);
 
   // Build VIES checker once per pipeline run when reverse-charge is enabled.
@@ -172,7 +176,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   }
 
   try {
-    await runPipelineCore(input, sourceAdapter, destAdapter, externalId, appStorage, ctx, logTopic, connectionLabel);
+    await runPipelineCore(input, sourceAdapter, destAdapter, externalId, appStorage, ctx, logTopic, connectionLabel, tagRoutingRules ?? []);
   } catch (err) {
     const { kind, severity, permanent } = classifyPipelineError(err);
 
@@ -223,6 +227,7 @@ async function runPipelineCore(
   ctx: { apiKey: string; config: IRequestConfig; sourceConfig?: Record<string, any>; destinationConfig?: Record<string, any> },
   logTopic: string,
   connectionLabel: string,
+  tagRoutingRules: import("../services/tag-routing").TagRoutingRule[],
 ): Promise<void> {
   const { env, config, source, destination, topic, webhookId, body } = input;
 
@@ -246,6 +251,20 @@ async function runPipelineCore(
 
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
+
+      // Tag routing: override ix_document_type / ix_sequence_name when the order
+      // carries a tag that matches a merchant-configured routing rule.
+      const tagMatch = matchTagRouting(normalized.order, tagRoutingRules);
+      if (tagMatch) {
+        ctx = {
+          ...ctx,
+          config: {
+            ...ctx.config,
+            ...(tagMatch.document_type ? { ix_document_type: tagMatch.document_type } : {}),
+            ...(tagMatch.series_name ? { ix_sequence_name: tagMatch.series_name } : {}),
+          },
+        };
+      }
 
       // Currency guard: PT accounting must be in EUR. Reject non-EUR payments
       // explicitly rather than silently issuing a misvalued invoice. (Future

@@ -1,7 +1,7 @@
 import type { Normalized } from "../api/normalize-shopify";
 import type { IRequestConfig } from "../storage";
 
-export type SourceKind = "shopify" | "stripe" | "eupago";
+export type SourceKind = "shopify" | "stripe" | "eupago" | "lodgify";
 export type DestinationKind = "invoicexpress" | "moloni" | "vendus";
 
 export interface AdapterCtx {

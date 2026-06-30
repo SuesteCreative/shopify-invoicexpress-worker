@@ -12,6 +12,7 @@ import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
 import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
+import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
 import {
   getReconciliation,
@@ -399,6 +400,101 @@ app.post("/webhooks/eupago/:userId", async (c) => {
     console.error(`[EuPago] Pipeline error for ${externalId}:`, e);
     await appStorage.markWebhookAsProcessed(externalId, `eupago/${canonical}` as any, "failed");
     // Return 500 so EuPago retries (2min×3 then hourly×24h).
+    return errorResponse(c, e, "Pipeline error");
+  }
+});
+
+// ── Lodgify webhooks ──────────────────────────────────────────────────────────
+//   POST /webhooks/lodgify/<user_id>
+//   Headers: ms-signature: sha256=<hex_hmac_sha256> (fallback: x-lodgify-signature)
+//   Body: { "event": "booking_new_booked", "data": { "bookingId": 12345 } }
+//
+//   Thin envelope — the actual booking is fetched inside LodgifySource.toNormalized()
+//   via GET /v2/reservations/{bookingId} using the stored api_key.
+// ────────────────────────────────────────────────────────────────────────────
+app.post("/webhooks/lodgify/:userId", async (c) => {
+  const userId = c.req.param("userId");
+  const sig = c.req.header("ms-signature") ?? c.req.header("x-lodgify-signature");
+  const rawBody = await c.req.text();
+  if (!sig) return c.text("Missing signature header", 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT id, source_config_json, destination_kind, destination_config_json
+     FROM connections
+     WHERE user_id = ? AND source_kind = 'lodgify' AND status = 'active' LIMIT 1`
+  ).bind(userId).first();
+  if (!conn) {
+    console.log(`[Lodgify] No active connection for user ${userId}`);
+    return c.text("No connection", 404);
+  }
+
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+  const webhookSecret = sourceCfg.webhook_secret;
+  if (!webhookSecret) {
+    console.error(`[Lodgify] webhook_secret missing for user ${userId}`);
+    return c.text("Secret not configured", 500);
+  }
+
+  const adapter = getSourceAdapter("lodgify");
+  if (!await adapter.verifyWebhook(rawBody, sig, webhookSecret)) {
+    console.error(`[Lodgify] Invalid signature for user ${userId}`);
+    await reportIncident(c.env, {
+      user_id: userId,
+      severity: "critical",
+      kind: "webhook_invalid_signature",
+      summary: "Lodgify webhook rejeitado por assinatura inválida.",
+      connection_label: `lodgify → ${conn.destination_kind ?? "invoicexpress"}`,
+      bucket: "daily",
+    });
+    return c.text("Invalid signature", 401);
+  }
+
+  let body: any;
+  try { body = JSON.parse(rawBody); } catch { return c.text("Invalid JSON", 400); }
+
+  // All registered events (booking_new_booked) produce invoices.
+  // The adapter's toNormalized() re-checks booking.status from the API and
+  // returns null if the booking isn't "Booked" (so no invoice on tentative).
+  const externalId = (() => {
+    try { return adapter.externalId(body); } catch { return null; }
+  })();
+  if (!externalId) return c.text("Missing bookingId in payload", 400);
+
+  const topic = "lodgify/created" as any;
+  const appStorage = new AppStorage(c.env, null, userId);
+  const { isProcessed, state } = await appStorage.isWebhookProcessed(externalId, topic);
+  if (isProcessed && state !== "failed") return c.text("Already processed", 200);
+  await appStorage.markWebhookAsProcessing(externalId, topic);
+
+  const legacy: any = await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(userId).first();
+  if (!legacy) {
+    console.error(`[Lodgify] No integrations row for user ${userId}`);
+    return c.text("Integration not configured", 500);
+  }
+
+  let destinationConfig: Record<string, any> | undefined;
+  try {
+    destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined;
+  } catch { destinationConfig = undefined; }
+
+  try {
+    await runAdapterPipeline({
+      env: c.env,
+      config: legacy,
+      source: "lodgify",
+      destination: (conn.destination_kind as any) ?? "invoicexpress",
+      topic: "created",
+      webhookId: externalId,
+      body,
+      sourceConfig: sourceCfg,
+      destinationConfig,
+    });
+    await appStorage.markWebhookAsProcessed(externalId, topic, "success");
+    return c.text("OK", 200);
+  } catch (e: any) {
+    console.error(`[Lodgify] Pipeline error for booking ${externalId}:`, e);
+    await appStorage.markWebhookAsProcessed(externalId, topic, "failed");
     return errorResponse(c, e, "Pipeline error");
   }
 });
@@ -799,6 +895,160 @@ app.post("/admin/issue-credit-note", async (c) => {
   }
 })
 
+// ────────────────────────────────────────────────────────────────────────────
+// Admin: Stripe Dev Mode parity. Stripe-only users have no shopify_domain, so
+// these routes key off `user_id` and resolve the IRequestConfig via
+// AppStorage.loadConfigByUser instead of the shop-keyed loadConfig().
+// ────────────────────────────────────────────────────────────────────────────
+
+async function loadConfigForUser(c: Context<{ Bindings: Env }>, userId: string) {
+  const storage = new AppStorage(c.env, undefined, userId);
+  return storage.loadConfigByUser(userId);
+}
+
+app.post("/admin/stripe/backfill", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    user_id: string;
+    from?: string;
+    to?: string;
+    dry_run?: boolean;
+    since_last_processed?: boolean;
+    notify_emails?: string[];
+    triggered_by?: string;
+    reason?: string;
+  }>();
+  if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
+  const config = await loadConfigForUser(c, body.user_id);
+  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  try {
+    const result = await processStripeBackfill(c.env, config, {
+      from: body.from,
+      to: body.to,
+      dry_run: body.dry_run,
+      since_last_processed: body.since_last_processed,
+      notify_emails: body.notify_emails,
+      triggered_by: body.triggered_by ?? null,
+      reason: body.reason ?? null,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to run Stripe backfill");
+  }
+})
+
+app.post("/admin/stripe/reemit", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    user_id: string;
+    stripe_id: string;
+    force?: boolean;
+    reason?: string;
+    triggered_by?: string;
+    notify_emails?: string[];
+  }>();
+  if (!body.user_id || !body.stripe_id) return c.json({ error: "Missing user_id or stripe_id" }, 400);
+  const config = await loadConfigForUser(c, body.user_id);
+  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  try {
+    const result = await reemitStripeOrder(c.env, config, body.stripe_id, {
+      force: body.force,
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to re-emit Stripe order");
+  }
+})
+
+app.post("/admin/stripe/delete-draft", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    user_id: string;
+    stripe_id: string;
+    reason?: string;
+    triggered_by?: string;
+    notify_emails?: string[];
+  }>();
+  if (!body.user_id || !body.stripe_id) return c.json({ error: "Missing user_id or stripe_id" }, 400);
+  const config = await loadConfigForUser(c, body.user_id);
+  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  try {
+    const result = await deleteStripeDraft(c.env, config, body.stripe_id, {
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to delete Stripe draft");
+  }
+})
+
+app.post("/admin/stripe/issue-credit-note", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    user_id: string;
+    stripe_id: string;
+    reason?: string;
+    triggered_by?: string;
+    notify_emails?: string[];
+  }>();
+  if (!body.user_id || !body.stripe_id) return c.json({ error: "Missing user_id or stripe_id" }, 400);
+  const config = await loadConfigForUser(c, body.user_id);
+  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  try {
+    const result = await issueStripeCreditNote(c.env, config, body.stripe_id, {
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to issue Stripe credit note");
+  }
+})
+
+app.post("/admin/stripe/finalize-drafts", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    user_id: string;
+    dry_run?: boolean;
+    limit?: number;
+    reason?: string;
+    triggered_by?: string;
+    notify_emails?: string[];
+    date_strategy?: "today" | "closest_available";
+    from_date?: string | null;
+    to_date?: string | null;
+  }>();
+  if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
+  const config = await loadConfigForUser(c, body.user_id);
+  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  try {
+    const result = await finalizeStripeDrafts(c.env, config, {
+      dry_run: body.dry_run,
+      limit: body.limit,
+      reason: body.reason ?? null,
+      triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+      date_strategy: body.date_strategy,
+      from_date: body.from_date,
+      to_date: body.to_date,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to finalize Stripe drafts");
+  }
+})
+
 // Admin: get/set per-account tax override
 app.get("/admin/tax-override", async (c) => {
   const unauth = await requireAdmin(c);
@@ -960,10 +1210,29 @@ app.get("/admin/user-shop", async (c) => {
 app.post("/admin/notify", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ recipients: string[]; subject: string; body: string }>();
+  const body = await c.req.json<{ recipients: string[]; subject: string; body?: string; html?: string }>();
   if (!body.recipients?.length) return c.json({ error: "Missing recipients" }, 400);
-  const res = await sendDevModeEmail({ recipients: body.recipients, subject: body.subject, body: body.body });
+  const res = await sendDevModeEmail({ recipients: body.recipients, subject: body.subject, body: body.body ?? "", html: body.html, env: c.env });
   return c.json(res, res.ok ? 200 : 500);
+})
+
+// Admin: render + send a quota email (warning|reached) for QA / preview.
+app.post("/admin/test-quota-email", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ recipient: string; kind?: "warning" | "reached"; merchantName?: string; ixAccount?: string }>();
+  if (!body.recipient) return c.json({ error: "Missing recipient" }, 400);
+  const { renderQuotaEmail } = await import("./services/email-templates");
+  const { sendEmail } = await import("./services/email");
+  const tpl = renderQuotaEmail({
+    kind: body.kind === "warning" ? "warning" : "reached",
+    merchantName: body.merchantName ?? "Zoo de Lagos",
+    ixAccount: body.ixAccount ?? "pelicanzooparquez",
+    periodStart: "30/05/2026",
+    periodEnd: "30/06/2026",
+  });
+  const res = await sendEmail(c.env, { to: body.recipient, subject: `[TEST] ${tpl.subject}`, html: tpl.html });
+  return c.json({ ok: res.ok, provider: res.provider, id: res.id, kind: body.kind ?? "reached" }, res.ok ? 200 : 500);
 })
 
 // Admin: render an incident template and send it via Resend. Bypasses the

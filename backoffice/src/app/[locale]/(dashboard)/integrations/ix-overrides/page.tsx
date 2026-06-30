@@ -56,8 +56,8 @@ export default function IxOverridesPage() {
                     fetch(`/api/integrations/ix-overrides?source_kind=${sourceKind}`),
                 ]);
                 if (cancelled) return;
-                if (!srcRes.ok) throw new Error((await srcRes.json().catch(() => ({} as any))).error ?? "Source products failed");
-                if (!ovRes.ok) throw new Error((await ovRes.json().catch(() => ({} as any))).error ?? "Overrides failed");
+                if (!srcRes.ok) throw new Error((await (srcRes.json() as Promise<any>).catch(() => ({}))).error ?? "Source products failed");
+                if (!ovRes.ok) throw new Error((await (ovRes.json() as Promise<any>).catch(() => ({}))).error ?? "Overrides failed");
                 const src = await srcRes.json() as { products: SourceProduct[] };
                 const ov = await ovRes.json() as { overrides: Override[] };
                 setSourceProducts(src.products);
@@ -112,7 +112,7 @@ export default function IxOverridesPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
-            if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error ?? `HTTP ${res.status}`);
+            if (!res.ok) throw new Error((await (res.json() as Promise<any>).catch(() => ({}))).error ?? `HTTP ${res.status}`);
             const next = new Map(overrides);
             next.set(src.source_reference, {
                 id: overrides.get(src.source_reference)?.id ?? "",
@@ -134,7 +134,7 @@ export default function IxOverridesPage() {
         setSaving(true); setError("");
         try {
             const res = await fetch(`/api/integrations/ix-overrides?source_kind=${sourceKind}&source_reference=${encodeURIComponent(src.source_reference)}`, { method: "DELETE" });
-            if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error ?? `HTTP ${res.status}`);
+            if (!res.ok) throw new Error((await (res.json() as Promise<any>).catch(() => ({}))).error ?? `HTTP ${res.status}`);
             const next = new Map(overrides); next.delete(src.source_reference); setOverrides(next);
             setEditingRef(null);
         } catch (e: any) { setError(e.message ?? "Delete failed"); }

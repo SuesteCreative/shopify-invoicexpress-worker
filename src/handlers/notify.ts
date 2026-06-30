@@ -5,6 +5,9 @@ interface SendDevModeEmailParams {
   recipients: string[];
   subject: string;
   body: string;
+  /** Pre-rendered HTML. When set, sent as-is (the plain `body` is used only for
+   * the text/preview part); otherwise `body` is wrapped in a <pre> block. */
+  html?: string;
   fromEmail?: string;
   fromName?: string;
   /** When provided, allows the sender to choose Resend over MailChannels. */
@@ -17,7 +20,7 @@ interface SendDevModeEmailParams {
  * (Resend needs an API key from env). All new code should pass `env`.
  */
 export async function sendDevModeEmail(params: SendDevModeEmailParams): Promise<{ ok: boolean; status: number; detail?: string }> {
-  const html = `<pre style="font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap">${escapeHtml(params.body)}</pre>`;
+  const html = params.html ?? `<pre style="font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap">${escapeHtml(params.body)}</pre>`;
   const result = await sendEmail(
     params.env ?? ({} as Env),
     {

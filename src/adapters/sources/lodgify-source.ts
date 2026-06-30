@@ -58,13 +58,19 @@ export class LodgifySource implements SourceAdapter {
     const apiKey = ctx.sourceConfig?.api_key;
     if (!apiKey) throw new Error("Lodgify api_key missing from sourceConfig");
 
-    const res = await fetch(`https://api.lodgify.com/v2/reservations/${bookingId}`, {
-      headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
-    });
-    if (!res.ok) {
-      throw new Error(`Lodgify GET /v2/reservations/${bookingId} → ${res.status} ${res.statusText}`);
+    // Allow admin replay to inject pre-fetched booking data, bypassing v2 when rate-limited.
+    let booking: any;
+    if (parsedBody._preloaded_booking) {
+      booking = parsedBody._preloaded_booking;
+    } else {
+      const res = await fetch(`https://api.lodgify.com/v2/reservations/${bookingId}`, {
+        headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
+      });
+      if (!res.ok) {
+        throw new Error(`Lodgify GET /v2/reservations/${bookingId} → ${res.status} ${res.statusText}`);
+      }
+      booking = await res.json();
     }
-    const booking: any = await res.json();
 
     const status = String(booking.status ?? "").toLowerCase();
     if (status !== "booked") {

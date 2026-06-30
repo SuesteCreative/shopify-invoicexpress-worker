@@ -597,7 +597,7 @@ app.post("/admin/stripe/replay", async (c) => {
 app.post("/admin/lodgify/replay", async (c) => {
   const unauth = await requireAdminAuth(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ userId: string; bookingId: string | number }>();
+  const body = await c.req.json<{ userId: string; bookingId: string | number; booking?: Record<string, unknown> }>();
   if (!body.userId || !body.bookingId) return c.json({ error: "Missing userId or bookingId" }, 400);
 
   const conn: any = await c.env.DB.prepare(
@@ -620,7 +620,8 @@ app.post("/admin/lodgify/replay", async (c) => {
     ix_send_email: 0,
   };
 
-  const fakeBody = { event: "booking_new_booked", data: { bookingId: Number(body.bookingId) } };
+  const fakeBody: any = { event: "booking_new_booked", data: { bookingId: Number(body.bookingId) } };
+  if (body.booking) fakeBody._preloaded_booking = body.booking;
   const externalId = String(body.bookingId);
   const topic = "lodgify/created" as any;
   const appStorage = new AppStorage(c.env, null, body.userId);

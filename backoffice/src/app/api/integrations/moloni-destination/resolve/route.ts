@@ -16,13 +16,15 @@ async function resolveTargetUser(request: NextRequest) {
     return { userId, targetUserId };
 }
 
-function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
-    return Promise.race([
-        fetch(url, init),
-        new Promise<Response>((_, reject) =>
-            setTimeout(() => reject(new Error(`Moloni API timeout after ${ms / 1000}s`)), ms)
-        ),
-    ]);
+async function moloniFetch(url: string, init: RequestInit): Promise<Response> {
+    return fetch(url, {
+        ...init,
+        // AbortSignal.timeout is handled at the native fetch layer — survives
+        // even if the JS event loop is blocked. 10s is generous given Moloni
+        // responds in <100ms from a normal network; if this fires it means CF
+        // edge IPs are filtered by Moloni's firewall.
+        signal: AbortSignal.timeout(10_000),
+    });
 }
 
 export async function POST(request: NextRequest) {
@@ -71,7 +73,6 @@ export async function POST(request: NextRequest) {
             ? "https://apidemo.moloni.pt/v1"
             : "https://api.moloni.pt/v1";
 
-        // Step 1: get Moloni access token
         const tokenUrl = new URL(`${baseUrl}/grant/`);
         tokenUrl.searchParams.set("grant_type", "password");
         tokenUrl.searchParams.set("client_id", String(cfg.moloni_client_id));
@@ -79,14 +80,18 @@ export async function POST(request: NextRequest) {
         tokenUrl.searchParams.set("username", String(cfg.moloni_username));
         tokenUrl.searchParams.set("password", String(cfg.moloni_password));
 
+        // Step 1: auth
         let tokenRes: Response;
         try {
-            tokenRes = await fetchWithTimeout(tokenUrl.toString(), {
+            tokenRes = await moloniFetch(tokenUrl.toString(), {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            }, 20_000);
+            });
         } catch (e: any) {
-            return NextResponse.json({ error: `Moloni auth request failed: ${e?.message ?? "timeout"}` }, { status: 502 });
+            const msg = e?.name === "AbortError" || e?.name === "TimeoutError"
+                ? "Moloni API did not respond in 10s — Cloudflare edge IPs may be blocked by Moloni. Contact Moloni support or use a reverse proxy."
+                : `Moloni auth unreachable: ${e?.message ?? "network error"}`;
+            return NextResponse.json({ error: msg }, { status: 502 });
         }
 
         if (!tokenRes.ok) {
@@ -99,19 +104,18 @@ export async function POST(request: NextRequest) {
         const tokenData: any = await tokenRes.json().catch(() => ({}));
         const token = tokenData?.access_token;
         if (!token) {
-            return NextResponse.json({ error: "Moloni auth succeeded but returned no token" }, { status: 502 });
+            return NextResponse.json({ error: "Moloni auth returned no token" }, { status: 502 });
         }
 
-        // Step 2: fetch companies
+        // Step 2: list companies
         let companiesRes: Response;
         try {
-            companiesRes = await fetchWithTimeout(
+            companiesRes = await moloniFetch(
                 `${baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
                 { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "" },
-                15_000,
             );
         } catch (e: any) {
-            return NextResponse.json({ error: `Moloni companies request failed: ${e?.message ?? "timeout"}` }, { status: 502 });
+            return NextResponse.json({ error: `Moloni companies request timed out: ${e?.message ?? "network error"}` }, { status: 502 });
         }
 
         const companiesData: any = await companiesRes.json().catch(() => []);
@@ -127,20 +131,19 @@ export async function POST(request: NextRequest) {
             }, { status: 404 });
         }
 
-        // Step 3: fetch document sets
+        // Step 3: list document sets for that company
         let dsRes: Response;
         try {
-            dsRes = await fetchWithTimeout(
+            dsRes = await moloniFetch(
                 `${baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
                     body: new URLSearchParams({ company_id: company.id }).toString(),
                 },
-                15_000,
             );
         } catch (e: any) {
-            return NextResponse.json({ error: `Moloni document-sets request failed: ${e?.message ?? "timeout"}` }, { status: 502 });
+            return NextResponse.json({ error: `Moloni document-sets request timed out: ${e?.message ?? "network error"}` }, { status: 502 });
         }
 
         const dsData: any = await dsRes.json().catch(() => []);

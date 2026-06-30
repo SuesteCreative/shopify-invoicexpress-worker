@@ -467,23 +467,27 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
   if (isProcessed && state !== "failed") return c.text("Already processed", 200);
   await appStorage.markWebhookAsProcessing(externalId, topic);
 
-  const legacy: any = await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(userId).first();
-  if (!legacy) {
-    console.error(`[Lodgify] No integrations row for user ${userId}`);
-    return c.text("Integration not configured", 500);
-  }
-
   let destinationConfig: Record<string, any> | undefined;
   try {
     destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined;
   } catch { destinationConfig = undefined; }
+
+  // Lodgify users may not have an integrations row (no Shopify-IX setup).
+  // Synthesize a minimal config so the pipeline can run.
+  const legacy: any = (await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(userId).first()) ?? {
+    user_id: userId,
+    shopify_domain: null,
+    auto_finalize: destinationConfig?.auto_finalize ? 1 : 0,
+    b2b_reverse_charge: 0,
+    ix_send_email: 0,
+  };
 
   try {
     await runAdapterPipeline({
       env: c.env,
       config: legacy,
       source: "lodgify",
-      destination: (conn.destination_kind as any) ?? "invoicexpress",
+      destination: (conn.destination_kind as any) ?? "moloni",
       topic: "created",
       webhookId: externalId,
       body,
@@ -608,8 +612,13 @@ app.post("/admin/lodgify/replay", async (c) => {
   let destinationConfig: Record<string, any> | undefined;
   try { destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined; } catch { /* ignore */ }
 
-  const legacy: any = await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(body.userId).first();
-  if (!legacy) return c.json({ error: "No integrations row for user" }, 404);
+  const legacy: any = (await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(body.userId).first()) ?? {
+    user_id: body.userId,
+    shopify_domain: null,
+    auto_finalize: destinationConfig?.auto_finalize ? 1 : 0,
+    b2b_reverse_charge: 0,
+    ix_send_email: 0,
+  };
 
   const fakeBody = { event: "booking_new_booked", data: { bookingId: Number(body.bookingId) } };
   const externalId = String(body.bookingId);
@@ -1352,21 +1361,24 @@ app.post("/moloni-proxy/companies", async (c) => {
     tokenUrl.searchParams.set("client_secret", body.client_secret);
     tokenUrl.searchParams.set("username", body.username);
     tokenUrl.searchParams.set("password", body.password);
-    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, signal });
+    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Accept": "application/json" }, signal });
     if (!tokenRes.ok) {
-      const err: any = await tokenRes.json().catch(() => ({}));
-      return c.json({ error: `Moloni auth failed (${tokenRes.status}): ${err?.error_description ?? err?.message ?? "check credentials"}` }, 502);
+      const rawText = await tokenRes.text().catch(() => "");
+      let err: any = {};
+      try { err = JSON.parse(rawText); } catch { /* html or plain-text */ }
+      const desc = err?.error_description ?? err?.message ?? (rawText.slice(0, 120) || "check credentials");
+      return c.json({ error: `Moloni auth failed (${tokenRes.status}): ${desc}`, raw: rawText.slice(0, 500) }, 502);
     }
     const tokenData: any = await tokenRes.json();
     const token = tokenData?.access_token;
     if (!token) return c.json({ error: "Moloni auth returned no token" }, 502);
     const companiesRes = await fetch(
       `${baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "", signal }
+      { method: "POST", headers: { "Accept": "application/json" }, signal }
     );
     const data: any = await companiesRes.json().catch(() => []);
     const companies = Array.isArray(data)
-      ? data.map((c: any) => ({ id: String(c.id), name: String(c.name ?? c.company_name ?? c.id) }))
+      ? data.map((c: any) => ({ id: String(c.company_id ?? c.id), name: String(c.name ?? c.company_name ?? c.company_id ?? c.id) }))
       : [];
     return c.json({ companies });
   } catch (e: any) {
@@ -1393,22 +1405,24 @@ app.post("/moloni-proxy/document-sets", async (c) => {
     tokenUrl.searchParams.set("client_secret", body.client_secret);
     tokenUrl.searchParams.set("username", body.username);
     tokenUrl.searchParams.set("password", body.password);
-    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, signal });
+    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Accept": "application/json" }, signal });
     if (!tokenRes.ok) {
-      const err: any = await tokenRes.json().catch(() => ({}));
-      return c.json({ error: `Moloni auth failed (${tokenRes.status}): ${err?.error_description ?? err?.message ?? "check credentials"}` }, 502);
+      const rawText2 = await tokenRes.text().catch(() => "");
+      let err2: any = {};
+      try { err2 = JSON.parse(rawText2); } catch { /* html */ }
+      const desc2 = err2?.error_description ?? err2?.message ?? (rawText2.slice(0, 120) || "check credentials");
+      return c.json({ error: `Moloni auth failed (${tokenRes.status}): ${desc2}`, raw: rawText2.slice(0, 500) }, 502);
     }
     const tokenData: any = await tokenRes.json();
     const token = tokenData?.access_token;
     if (!token) return c.json({ error: "Moloni auth returned no token" }, 502);
-    const dsBody = new URLSearchParams({ company_id: body.company_id }).toString();
     const dsRes = await fetch(
       `${baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: dsBody, signal }
+      { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ company_id: Number(body.company_id) }), signal }
     );
     const data: any = await dsRes.json().catch(() => []);
     const documentSets = Array.isArray(data)
-      ? data.map((d: any) => ({ id: String(d.id), name: String(d.name ?? d.document_set_name ?? d.id) }))
+      ? data.map((d: any) => ({ id: String(d.document_set_id ?? d.id), name: String(d.name ?? d.document_set_name ?? d.id) }))
       : [];
     return c.json({ documentSets });
   } catch (e: any) {

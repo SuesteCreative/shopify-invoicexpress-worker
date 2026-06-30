@@ -130,9 +130,10 @@ async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
 
   if (!companyId) {
     if (!raw.companyName) throw new Error("Moloni: missing moloni_company_id and moloni_company_name");
+    // companies/getAll requires POST with no body; Content-Type must be absent/empty or Apache 400s.
     const companiesRes = await fetch(
       `${raw.baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "" },
+      { method: "POST", headers: { "Accept": "application/json" } },
     );
     const companiesData: unknown[] = await safeJson(companiesRes) as unknown[];
     const list = Array.isArray(companiesData) ? companiesData : [];
@@ -141,15 +142,15 @@ async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
       const names = list.map((c: any) => `"${c.name ?? c.company_name}"`).join(", ");
       throw new Error(`Moloni: company "${raw.companyName}" not found. Available: ${names || "(none)"}`);
     }
-    companyId = Number((match as any).id);
+    companyId = Number((match as any).company_id ?? (match as any).id);
   }
 
   if (!documentSetId) {
     if (!raw.documentSetName) throw new Error("Moloni: missing moloni_document_set_id and moloni_document_set_name");
-    const dsBody = new URLSearchParams({ company_id: String(companyId) }).toString();
+    // documentSets/getAll requires company_id as JSON body; form-encoded is ignored.
     const dsRes = await fetch(
       `${raw.baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: dsBody },
+      { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ company_id: companyId }) },
     );
     const dsData: unknown[] = await safeJson(dsRes) as unknown[];
     const dsList = Array.isArray(dsData) ? dsData : [];
@@ -158,7 +159,7 @@ async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
       const names = dsList.map((d: any) => `"${d.name ?? d.document_set_name}"`).join(", ");
       throw new Error(`Moloni: document set "${raw.documentSetName}" not found. Available: ${names || "(none)"}`);
     }
-    documentSetId = Number((dsMatch as any).id);
+    documentSetId = Number((dsMatch as any).document_set_id ?? (dsMatch as any).id);
   }
 
   resolvedIdCache.set(cacheKey, { companyId, documentSetId });
@@ -180,7 +181,7 @@ async function getAccessToken(cfg: MoloniCfg): Promise<string> {
 
   const res = await fetch(url.toString(), {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    headers: { "Accept": "application/json" },
   });
   const body = await safeJson(res);
   if (!res.ok) {

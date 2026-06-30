@@ -415,40 +415,13 @@ export default function LodgifyMoloniIntegration() {
                 <div className="grid md:grid-cols-2 gap-8">
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("companyIdLabel")}</label>
-                        {companiesLoading ? (
-                            <div className="flex items-center gap-2 px-5 py-4"><Loader2 className="w-4 h-4 animate-spin text-fg-40" /><span className="text-xs text-fg-40">{t("loadingCompanies")}</span></div>
-                        ) : (
-                            <select
-                                value={companyId}
-                                onChange={(e) => { setCompanyId(e.target.value); setDocumentSetId(""); fetchDocumentSets(e.target.value); }}
-                                className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all text-fg cursor-pointer"
-                            >
-                                <option value="">{t("selectCompany")}</option>
-                                {companies.map(c => <option key={c.id} value={c.id} className="bg-surface-2">{c.name}</option>)}
-                            </select>
-                        )}
-                        {companiesError && (
-                            <div className="flex items-center gap-2 mt-1">
-                                <p className="text-[10px] text-destructive ml-1">{companiesError}</p>
-                                <button type="button" onClick={() => fetchCompanies(true)} className="text-[10px] text-accent font-bold uppercase tracking-widest hover:underline ml-1">Retry</button>
-                            </div>
-                        )}
+                        <input type="text" value={companyId} onChange={(e) => setCompanyId(e.target.value)} placeholder="12345" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("companyIdHint")}</p>
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("documentSetIdLabel")}</label>
-                        {docSetsLoading ? (
-                            <div className="flex items-center gap-2 px-5 py-4"><Loader2 className="w-4 h-4 animate-spin text-fg-40" /><span className="text-xs text-fg-40">{t("loadingDocumentSets")}</span></div>
-                        ) : (
-                            <select
-                                value={documentSetId}
-                                onChange={(e) => setDocumentSetId(e.target.value)}
-                                disabled={!companyId || documentSets.length === 0}
-                                className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all text-fg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <option value="">{companyId ? t("selectDocumentSet") : t("selectCompanyFirst")}</option>
-                                {documentSets.map(d => <option key={d.id} value={d.id} className="bg-surface-2">{d.name}</option>)}
-                            </select>
-                        )}
+                        <input type="text" value={documentSetId} onChange={(e) => setDocumentSetId(e.target.value)} placeholder="67890" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("documentSetIdHint")}</p>
                     </div>
                     <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                         <div>

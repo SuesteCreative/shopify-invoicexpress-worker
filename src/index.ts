@@ -432,22 +432,22 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
   try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
   const webhookSecret = sourceCfg.webhook_secret;
   if (!webhookSecret) {
-    console.error(`[Lodgify] webhook_secret missing for user ${userId}`);
-    return c.text("Secret not configured", 500);
-  }
-
-  const adapter = getSourceAdapter("lodgify");
-  if (!await adapter.verifyWebhook(rawBody, sig, webhookSecret)) {
-    console.error(`[Lodgify] Invalid signature for user ${userId}`);
-    await reportIncident(c.env, {
-      user_id: userId,
-      severity: "critical",
-      kind: "webhook_invalid_signature",
-      summary: "Lodgify webhook rejeitado por assinatura inválida.",
-      connection_label: `lodgify → ${conn.destination_kind ?? "invoicexpress"}`,
-      bucket: "daily",
-    });
-    return c.text("Invalid signature", 401);
+    // Secret missing when auto-registration failed; process without HMAC until user reconnects.
+    console.warn(`[Lodgify] no webhook_secret for ${userId} — skipping HMAC verification`);
+  } else {
+    const adapter = getSourceAdapter("lodgify");
+    if (!await adapter.verifyWebhook(rawBody, sig, webhookSecret)) {
+      console.error(`[Lodgify] Invalid signature for user ${userId}`);
+      await reportIncident(c.env, {
+        user_id: userId,
+        severity: "critical",
+        kind: "webhook_invalid_signature",
+        summary: "Lodgify webhook rejeitado por assinatura inválida.",
+        connection_label: `lodgify → ${conn.destination_kind ?? "invoicexpress"}`,
+        bucket: "daily",
+      });
+      return c.text("Invalid signature", 401);
+    }
   }
 
   let body: any;

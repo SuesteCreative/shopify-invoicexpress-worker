@@ -41,6 +41,7 @@ export default function LodgifyVendusIntegration() {
     const [lodgifyStatus, setLodgifyStatus] = useState<ConnectionStatus>("");
     const [lodgifyError, setLodgifyError] = useState("");
     const [webhookUrl, setWebhookUrl] = useState("");
+    const [webhookManual, setWebhookManual] = useState(false);
     const [copied, setCopied] = useState(false);
 
     // Vendus creds
@@ -120,6 +121,7 @@ export default function LodgifyVendusIntegration() {
             const json: any = await res.json().catch(() => ({}));
             if (!res.ok) { setLodgifyError(json.error ?? `HTTP ${res.status}`); return; }
             if (json.webhook_url) setWebhookUrl(json.webhook_url);
+            if (json.needs_manual_webhook) setWebhookManual(true);
             setHasSavedLodgifyKey(true);
             setLodgifyStatus("active");
             setLodgifyKey("");
@@ -273,6 +275,9 @@ export default function LodgifyVendusIntegration() {
                                     {copied ? <Check className="w-4 h-4 text-accent-hot" /> : <Copy className="w-4 h-4 text-fg-60" />}
                                 </button>
                             </div>
+                            {webhookManual && (
+                                <p className="text-[10px] text-amber-400 ml-1 mt-1">{t("webhookManualNote")}</p>
+                            )}
                         </div>
                     )}
                     <div className="md:col-span-2 pt-4">

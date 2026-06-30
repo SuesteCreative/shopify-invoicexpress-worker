@@ -80,118 +80,93 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-    const authResult = await resolveTargetUser(request);
-    if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+    try {
+        const authResult = await resolveTargetUser(request);
+        if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const body = await request.json() as {
-        api_key?: string;
-        destination_kind?: "invoicexpress" | "moloni" | "vendus";
-        status?: "draft" | "active" | "paused" | "error";
-    };
+        const body = await request.json() as {
+            api_key?: string;
+            destination_kind?: "invoicexpress" | "moloni" | "vendus";
+            status?: "draft" | "active" | "paused" | "error";
+        };
 
-    const destinationKind = ["invoicexpress", "moloni", "vendus"].includes(body.destination_kind || "")
-        ? body.destination_kind!
-        : "invoicexpress";
+        const destinationKind = ["invoicexpress", "moloni", "vendus"].includes(body.destination_kind || "")
+            ? body.destination_kind!
+            : "invoicexpress";
 
-    const status = ["draft", "active", "paused", "error"].includes(body.status || "") ? body.status! : "active";
+        const status = ["draft", "active", "paused", "error"].includes(body.status || "") ? body.status! : "active";
 
-    const { env } = getRequestContext();
-    const db = (env as any).DB;
-    if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+        const { env } = getRequestContext();
+        const db = (env as any).DB;
+        if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    // Load existing config to preserve api_key if not re-submitted
-    const existing: any = await db.prepare(
-        `SELECT source_config_json FROM connections
-         WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ? LIMIT 1`
-    ).bind(authResult.targetUserId, destinationKind).first();
-    const previousCfg: Record<string, any> = existing?.source_config_json
-        ? JSON.parse(existing.source_config_json)
-        : {};
+        // Load existing config to preserve api_key if not re-submitted
+        const existing: any = await db.prepare(
+            `SELECT source_config_json FROM connections
+             WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ? LIMIT 1`
+        ).bind(authResult.targetUserId, destinationKind).first();
+        const previousCfg: Record<string, any> = existing?.source_config_json
+            ? JSON.parse(existing.source_config_json)
+            : {};
 
-    const apiKey = body.api_key || previousCfg.api_key;
-    if (status === "active" && !apiKey) {
-        return NextResponse.json({ error: "api_key is required to activate the connection" }, { status: 400 });
-    }
+        const apiKey = body.api_key || previousCfg.api_key;
+        if (status === "active" && !apiKey) {
+            return NextResponse.json({ error: "api_key is required to activate the connection" }, { status: 400 });
+        }
 
-    if (status === "active" && apiKey) {
-        try {
-            const ac = new AbortController();
-            const timeout = setTimeout(() => ac.abort(), 15_000);
-
-            // 1. Validate API key against Lodgify
-            const validateRes = await fetch(`${LODGIFY_API}/v2/properties?limit=1`, {
-                headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
-                signal: ac.signal,
-            });
-            console.log("[Lodgify] validate status:", validateRes.status);
-            if (validateRes.status === 401 || validateRes.status === 403) {
-                clearTimeout(timeout);
-                return NextResponse.json({ error: "Lodgify API key inválida. Verifica em Settings → Public API." }, { status: 422 });
-            }
-            if (!validateRes.ok) {
-                clearTimeout(timeout);
-                return NextResponse.json({ error: `Lodgify API não respondeu (${validateRes.status}). Tenta novamente.` }, { status: 502 });
-            }
-
+        if (status === "active" && apiKey) {
             const webhookUrl = `${WORKER_BASE}/webhooks/lodgify/${authResult.targetUserId}`;
 
-            // 2. Delete previous webhook if exists
-            if (previousCfg.webhook_id) {
-                try {
+            // Attempt webhook registration best-effort — never block the response on this
+            let webhookSecret: string | null = null;
+            let webhookId = "";
+            let needsManualWebhook = false;
+
+            try {
+                const ac = new AbortController();
+                const tId = setTimeout(() => ac.abort(), 8_000);
+
+                if (previousCfg.webhook_id) {
                     await fetch(`${LODGIFY_API}/v2/webhooks/${previousCfg.webhook_id}`, {
                         method: "DELETE",
                         headers: { "X-ApiKey": apiKey },
                         signal: ac.signal,
-                    });
-                } catch {
-                    // Best-effort — old webhook may already be gone
+                    }).catch(() => null);
                 }
-            }
 
-            // 3. Register new webhook for booking_new_booked
-            const regRes = await fetch(`${LODGIFY_API}/v2/webhooks`, {
-                method: "POST",
-                headers: {
-                    "X-ApiKey": apiKey,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                body: JSON.stringify({ url: webhookUrl, event: "booking_new_booked", isActive: true }),
-                signal: ac.signal,
-            });
-            clearTimeout(timeout);
-
-            if (!regRes.ok) {
-                const errText = await regRes.text().catch(() => "");
-                console.log("[Lodgify] webhook reg failed:", regRes.status, errText);
-                return NextResponse.json(
-                    { error: `Falha ao registar webhook no Lodgify (${regRes.status}): ${errText}` },
-                    { status: 502 },
-                );
-            }
-
-            const regData: any = await regRes.json().catch(() => ({}));
-            console.log("[Lodgify] webhook registration response:", JSON.stringify(regData));
-
-            // Lodgify may call this field "secret", "signing_secret", or "key" depending on API version.
-            const webhookSecret = regData.secret ?? regData.signing_secret ?? regData.key ?? null;
-            const webhookId = String(regData.id ?? regData.webhook_id ?? "");
-
-            if (!webhookSecret) {
-                return NextResponse.json(
-                    {
-                        error: "Lodgify não devolveu o webhook secret.",
-                        debug_keys: Object.keys(regData),
+                const regRes = await fetch(`${LODGIFY_API}/v2/webhooks`, {
+                    method: "POST",
+                    headers: {
+                        "X-ApiKey": apiKey,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
                     },
-                    { status: 502 },
-                );
+                    body: JSON.stringify({ url: webhookUrl, event: "booking_new_booked", isActive: true }),
+                    signal: ac.signal,
+                });
+                clearTimeout(tId);
+
+                if (regRes.ok) {
+                    const regData: any = await regRes.json().catch(() => ({}));
+                    console.log("[Lodgify] webhook reg:", JSON.stringify(regData));
+                    webhookSecret = regData.secret ?? regData.signing_secret ?? regData.key ?? null;
+                    webhookId = String(regData.id ?? regData.webhook_id ?? "");
+                } else {
+                    console.warn("[Lodgify] webhook reg failed:", regRes.status, await regRes.text().catch(() => ""));
+                    needsManualWebhook = true;
+                }
+            } catch (e: any) {
+                console.warn("[Lodgify] webhook reg exception:", e?.message ?? e);
+                needsManualWebhook = true;
             }
 
-            const sourceCfg: Record<string, any> = {
-                api_key: apiKey,
-                webhook_secret: webhookSecret,
-                webhook_id: webhookId,
-            };
+            if (!webhookSecret) needsManualWebhook = true;
+
+            const sourceCfg: Record<string, any> = { api_key: apiKey };
+            if (webhookSecret) {
+                sourceCfg.webhook_secret = webhookSecret;
+                sourceCfg.webhook_id = webhookId;
+            }
 
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
@@ -206,28 +181,21 @@ export async function POST(request: NextRequest) {
                    updated_at = excluded.updated_at`
             ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceCfg), now, now).run();
 
-            return NextResponse.json({
-                ok: true,
-                webhook_url: webhookUrl,
-                webhook_id: webhookId,
-            });
-        } catch (e: any) {
-            console.error("[Lodgify] unhandled error in activation:", e?.message ?? e);
-            return NextResponse.json(
-                { error: `Erro interno ao ligar Lodgify: ${e?.message ?? "unknown error"}` },
-                { status: 502 },
-            );
+            return NextResponse.json({ ok: true, webhook_url: webhookUrl, needs_manual_webhook: needsManualWebhook });
         }
+
+        // Non-active status update (pause/draft) — just update status, preserve config
+        const now = new Date().toISOString();
+        await db.prepare(
+            `UPDATE connections SET status = ?, updated_at = ?
+             WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ?`
+        ).bind(status, now, authResult.targetUserId, destinationKind).run();
+
+        return NextResponse.json({ ok: true });
+    } catch (e: any) {
+        console.error("[Lodgify POST] fatal:", e?.message ?? e);
+        return NextResponse.json({ error: `Erro interno: ${e?.message ?? "unknown"}` }, { status: 500 });
     }
-
-    // Non-active status update (pause/draft) — just update status, preserve config
-    const now = new Date().toISOString();
-    await db.prepare(
-        `UPDATE connections SET status = ?, updated_at = ?
-         WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ?`
-    ).bind(status, now, authResult.targetUserId, destinationKind).run();
-
-    return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(request: NextRequest) {

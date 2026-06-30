@@ -40,6 +40,7 @@ export default function LodgifyIxIntegration() {
     const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
     const [lodgifyError, setLodgifyError] = useState("");
     const [webhookUrl, setWebhookUrl] = useState("");
+    const [webhookManual, setWebhookManual] = useState(false);
     const [copied, setCopied] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
 
@@ -146,6 +147,7 @@ export default function LodgifyIxIntegration() {
                 return;
             }
             if (json.webhook_url) setWebhookUrl(json.webhook_url);
+            if (json.needs_manual_webhook) setWebhookManual(true);
             setHasSavedApiKey(true);
             setConnectionStatus("active");
             setApiKey("");
@@ -291,6 +293,9 @@ export default function LodgifyIxIntegration() {
                                     {copied ? <Check className="w-4 h-4 text-accent-hot" /> : <Copy className="w-4 h-4 text-fg-60" />}
                                 </button>
                             </div>
+                            {webhookManual && (
+                                <p className="text-[10px] text-amber-400 ml-1 mt-1">{t("webhookManualNote")}</p>
+                            )}
                         </div>
                     )}
                     <div className="md:col-span-2 pt-4">

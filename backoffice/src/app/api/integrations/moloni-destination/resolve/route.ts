@@ -2,8 +2,11 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { RIOKO_CONFIG } from "@/lib/config";
 
 export const runtime = "edge";
+
+const WORKER_BASE = RIOKO_CONFIG.workerUrl.replace(/\/$/, "");
 
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
@@ -14,17 +17,6 @@ async function resolveTargetUser(request: NextRequest) {
         if (impersonationId) targetUserId = impersonationId;
     }
     return { userId, targetUserId };
-}
-
-async function moloniFetch(url: string, init: RequestInit): Promise<Response> {
-    return fetch(url, {
-        ...init,
-        // AbortSignal.timeout is handled at the native fetch layer — survives
-        // even if the JS event loop is blocked. 10s is generous given Moloni
-        // responds in <100ms from a normal network; if this fires it means CF
-        // edge IPs are filtered by Moloni's firewall.
-        signal: AbortSignal.timeout(10_000),
-    });
 }
 
 export async function POST(request: NextRequest) {
@@ -69,94 +61,68 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Moloni credentials incomplete — re-save Step 2 with all fields." }, { status: 400 });
         }
 
-        const baseUrl = cfg.moloni_environment === "sandbox"
-            ? "https://apidemo.moloni.pt/v1"
-            : "https://api.moloni.pt/v1";
+        // Credentials forwarded to the Worker proxy (field names the Worker expects).
+        const creds = {
+            client_id: String(cfg.moloni_client_id),
+            client_secret: String(cfg.moloni_client_secret),
+            username: String(cfg.moloni_username),
+            password: String(cfg.moloni_password),
+            environment: cfg.moloni_environment ?? "production",
+        };
 
-        const tokenUrl = new URL(`${baseUrl}/grant/`);
-        tokenUrl.searchParams.set("grant_type", "password");
-        tokenUrl.searchParams.set("client_id", String(cfg.moloni_client_id));
-        tokenUrl.searchParams.set("client_secret", String(cfg.moloni_client_secret));
-        tokenUrl.searchParams.set("username", String(cfg.moloni_username));
-        tokenUrl.searchParams.set("password", String(cfg.moloni_password));
-
-        // Step 1: auth
-        let tokenRes: Response;
-        try {
-            tokenRes = await moloniFetch(tokenUrl.toString(), {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            });
-        } catch (e: any) {
-            const msg = e?.name === "AbortError" || e?.name === "TimeoutError"
-                ? "Moloni API did not respond in 10s — Cloudflare edge IPs may be blocked by Moloni. Contact Moloni support or use a reverse proxy."
-                : `Moloni auth unreachable: ${e?.message ?? "network error"}`;
-            return NextResponse.json({ error: msg }, { status: 502 });
-        }
-
-        if (!tokenRes.ok) {
-            const errBody: any = await tokenRes.json().catch(() => ({}));
-            return NextResponse.json({
-                error: `Moloni auth failed (${tokenRes.status}): ${errBody?.error_description ?? errBody?.message ?? "check credentials"}`,
-            }, { status: 502 });
-        }
-
-        const tokenData: any = await tokenRes.json().catch(() => ({}));
-        const token = tokenData?.access_token;
-        if (!token) {
-            return NextResponse.json({ error: "Moloni auth returned no token" }, { status: 502 });
-        }
-
-        // Step 2: list companies
-        let companiesRes: Response;
-        try {
-            companiesRes = await moloniFetch(
-                `${baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-                { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "" },
+        // Step 1: fetch companies via Worker (AbortSignal.timeout is supported in CF Workers,
+        // not in Next.js edge runtime — this is why we proxy through the Worker).
+        const companiesRes = await fetch(`${WORKER_BASE}/moloni-proxy/companies`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(creds),
+        });
+        const companiesData: any = await companiesRes.json().catch(() => ({}));
+        if (!companiesRes.ok) {
+            return NextResponse.json(
+                { error: companiesData?.error ?? `Moloni company lookup failed (Worker ${companiesRes.status})` },
+                { status: 502 },
             );
-        } catch (e: any) {
-            return NextResponse.json({ error: `Moloni companies request timed out: ${e?.message ?? "network error"}` }, { status: 502 });
         }
 
-        const companiesData: any = await companiesRes.json().catch(() => []);
-        const companies: Array<{ id: string; name: string }> = Array.isArray(companiesData)
-            ? companiesData.map((c: any) => ({ id: String(c.id), name: String(c.name ?? c.company_name ?? c.id) }))
+        const companies: Array<{ id: string; name: string }> = Array.isArray(companiesData?.companies)
+            ? companiesData.companies
             : [];
 
         const company = companies.find(c => c.name.toLowerCase() === companyName.toLowerCase());
         if (!company) {
             const names = companies.map(c => `"${c.name}"`).join(", ");
-            return NextResponse.json({
-                error: `Company "${companyName}" not found. Available: ${names || "(none)"}`,
-            }, { status: 404 });
-        }
-
-        // Step 3: list document sets for that company
-        let dsRes: Response;
-        try {
-            dsRes = await moloniFetch(
-                `${baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
-                    body: new URLSearchParams({ company_id: company.id }).toString(),
-                },
+            return NextResponse.json(
+                { error: `Company "${companyName}" not found. Available: ${names || "(none)"}` },
+                { status: 404 },
             );
-        } catch (e: any) {
-            return NextResponse.json({ error: `Moloni document-sets request timed out: ${e?.message ?? "network error"}` }, { status: 502 });
         }
 
-        const dsData: any = await dsRes.json().catch(() => []);
-        const documentSets: Array<{ id: string; name: string }> = Array.isArray(dsData)
-            ? dsData.map((d: any) => ({ id: String(d.id), name: String(d.name ?? d.document_set_name ?? d.id) }))
+        // Step 2: fetch document sets via Worker.
+        const dsRes = await fetch(`${WORKER_BASE}/moloni-proxy/document-sets`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...creds, company_id: company.id }),
+        });
+        const dsData: any = await dsRes.json().catch(() => ({}));
+        if (!dsRes.ok) {
+            return NextResponse.json(
+                { error: dsData?.error ?? `Moloni document-set lookup failed (Worker ${dsRes.status})` },
+                { status: 502 },
+            );
+        }
+
+        const documentSets: Array<{ id: string; name: string }> = Array.isArray(dsData?.documentSets)
+            ? dsData.documentSets
             : [];
 
         const documentSet = documentSets.find(d => d.name.toLowerCase() === documentSetName.toLowerCase());
         if (!documentSet) {
             const names = documentSets.map(d => `"${d.name}"`).join(", ");
-            return NextResponse.json({
-                error: `Document set "${documentSetName}" not found. Available: ${names || "(none)"}`,
-            }, { status: 404 });
+            return NextResponse.json(
+                { error: `Document set "${documentSetName}" not found. Available: ${names || "(none)"}` },
+                { status: 404 },
+            );
         }
 
         return NextResponse.json({

@@ -253,6 +253,7 @@
       "shopify": { "note": "Encomendas pagas → fatura em < 1s" },
       "stripe": { "note": "Assinaturas, charges e refunds via webhook" },
       "eupago": { "note": "Multibanco, MB WAY e referências" },
+      "lodgify": { "note": "Reservas de alojamento local → fatura" },
       "easypay": { "note": "Captura imediata e diferida" },
       "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
       "amazon": { "note": "Amazon Pay: checkout e subscrições" },

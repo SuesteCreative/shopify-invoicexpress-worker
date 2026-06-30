@@ -253,6 +253,7 @@
       "shopify": { "note": "Paid orders → invoice in < 1s" },
       "stripe": { "note": "Subscriptions, charges and refunds via webhook" },
       "eupago": { "note": "Multibanco, MB WAY and references" },
+      "lodgify": { "note": "Short-term rental bookings → invoice" },
       "easypay": { "note": "Immediate and deferred capture" },
       "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
       "amazon": { "note": "Amazon Pay: checkout and subscriptions" },

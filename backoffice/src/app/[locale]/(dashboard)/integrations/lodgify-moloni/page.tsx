@@ -229,8 +229,9 @@ export default function LodgifyMoloniIntegration() {
         }
     };
 
-    const fetchCompanies = async () => {
-        if (companiesLoading || companies.length > 0) return;
+    const fetchCompanies = async (force = false) => {
+        if (companiesLoading || (companies.length > 0 && !force)) return;
+        setCompanies([]);
         setCompaniesLoading(true);
         setCompaniesError("");
         try {
@@ -426,7 +427,12 @@ export default function LodgifyMoloniIntegration() {
                                 {companies.map(c => <option key={c.id} value={c.id} className="bg-surface-2">{c.name}</option>)}
                             </select>
                         )}
-                        {companiesError && <p className="text-[10px] text-destructive ml-1">{companiesError}</p>}
+                        {companiesError && (
+                            <div className="flex items-center gap-2 mt-1">
+                                <p className="text-[10px] text-destructive ml-1">{companiesError}</p>
+                                <button type="button" onClick={() => fetchCompanies(true)} className="text-[10px] text-accent font-bold uppercase tracking-widest hover:underline ml-1">Retry</button>
+                            </div>
+                        )}
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("documentSetIdLabel")}</label>

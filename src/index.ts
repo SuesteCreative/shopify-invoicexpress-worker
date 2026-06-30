@@ -1295,6 +1295,8 @@ app.post("/moloni-proxy/companies", async (c) => {
     return c.json({ error: "Missing Moloni credentials" }, 400);
   }
   const baseUrl = body.environment === "sandbox" ? "https://apidemo.moloni.pt/v1" : "https://api.moloni.pt/v1";
+  const ac = new AbortController();
+  const tId = setTimeout(() => ac.abort(), 15_000);
   try {
     const tokenUrl = new URL(`${baseUrl}/grant/`);
     tokenUrl.searchParams.set("grant_type", "password");
@@ -1302,25 +1304,31 @@ app.post("/moloni-proxy/companies", async (c) => {
     tokenUrl.searchParams.set("client_secret", body.client_secret);
     tokenUrl.searchParams.set("username", body.username);
     tokenUrl.searchParams.set("password", body.password);
-    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" } });
+    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, signal: ac.signal });
     if (!tokenRes.ok) {
+      clearTimeout(tId);
       const err: any = await tokenRes.json().catch(() => ({}));
       return c.json({ error: `Moloni auth failed (${tokenRes.status}): ${err?.error_description ?? err?.message ?? "check credentials"}` }, 502);
     }
     const tokenData: any = await tokenRes.json();
     const token = tokenData?.access_token;
-    if (!token) return c.json({ error: "Moloni auth returned no token" }, 502);
+    if (!token) { clearTimeout(tId); return c.json({ error: "Moloni auth returned no token" }, 502); }
     const companiesRes = await fetch(
       `${baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "" }
+      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "", signal: ac.signal }
     );
+    clearTimeout(tId);
     const data: any = await companiesRes.json().catch(() => []);
     const companies = Array.isArray(data)
       ? data.map((c: any) => ({ id: String(c.id), name: String(c.name ?? c.company_name ?? c.id) }))
       : [];
     return c.json({ companies });
   } catch (e: any) {
-    return c.json({ error: `Moloni proxy error: ${e?.message ?? "unknown"}` }, 502);
+    clearTimeout(tId);
+    const msg = (e as any)?.name === "AbortError"
+      ? "Moloni API did not respond in 15s — check credentials and try again."
+      : `Moloni proxy error: ${(e as any)?.message ?? "unknown"}`;
+    return c.json({ error: msg }, 502);
   }
 });
 
@@ -1332,6 +1340,8 @@ app.post("/moloni-proxy/document-sets", async (c) => {
     return c.json({ error: "Missing Moloni credentials or company_id" }, 400);
   }
   const baseUrl = body.environment === "sandbox" ? "https://apidemo.moloni.pt/v1" : "https://api.moloni.pt/v1";
+  const ac = new AbortController();
+  const tId = setTimeout(() => ac.abort(), 15_000);
   try {
     const tokenUrl = new URL(`${baseUrl}/grant/`);
     tokenUrl.searchParams.set("grant_type", "password");
@@ -1339,26 +1349,32 @@ app.post("/moloni-proxy/document-sets", async (c) => {
     tokenUrl.searchParams.set("client_secret", body.client_secret);
     tokenUrl.searchParams.set("username", body.username);
     tokenUrl.searchParams.set("password", body.password);
-    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" } });
+    const tokenRes = await fetch(tokenUrl.toString(), { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, signal: ac.signal });
     if (!tokenRes.ok) {
+      clearTimeout(tId);
       const err: any = await tokenRes.json().catch(() => ({}));
       return c.json({ error: `Moloni auth failed (${tokenRes.status}): ${err?.error_description ?? err?.message ?? "check credentials"}` }, 502);
     }
     const tokenData: any = await tokenRes.json();
     const token = tokenData?.access_token;
-    if (!token) return c.json({ error: "Moloni auth returned no token" }, 502);
+    if (!token) { clearTimeout(tId); return c.json({ error: "Moloni auth returned no token" }, 502); }
     const dsBody = new URLSearchParams({ company_id: body.company_id }).toString();
     const dsRes = await fetch(
       `${baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: dsBody }
+      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: dsBody, signal: ac.signal }
     );
+    clearTimeout(tId);
     const data: any = await dsRes.json().catch(() => []);
     const documentSets = Array.isArray(data)
       ? data.map((d: any) => ({ id: String(d.id), name: String(d.name ?? d.document_set_name ?? d.id) }))
       : [];
     return c.json({ documentSets });
   } catch (e: any) {
-    return c.json({ error: `Moloni proxy error: ${e?.message ?? "unknown"}` }, 502);
+    clearTimeout(tId);
+    const msg = (e as any)?.name === "AbortError"
+      ? "Moloni API did not respond in 15s — check credentials and try again."
+      : `Moloni proxy error: ${(e as any)?.message ?? "unknown"}`;
+    return c.json({ error: msg }, 502);
   }
 });
 

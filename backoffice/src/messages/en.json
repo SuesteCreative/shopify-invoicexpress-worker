@@ -1,13 +1,13 @@
 {
   "metadata": {
-    "siteTitle": "Rioko — Automatic invoicing for Shopify and Stripe in Portugal",
-    "siteDescription": "Connect Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issue certified invoices automatically — with ATCUD, series, NIF and VAT. Set it up once, invoice forever.",
+    "siteTitle": "Rioko | Automatic invoicing for Shopify and Stripe in Portugal",
+    "siteDescription": "Connect Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issue certified invoices automatically, with ATCUD, series, NIF and VAT. Set it up once, invoice forever.",
     "privacyTitle": "Privacy Policy | Rioko",
     "termsTitle": "Terms of Service | Rioko"
   },
   "consent": {
     "title": "Cookie preferences",
-    "message": "We use analytics cookies to measure traffic and improve your experience. They load only if you accept — you can reject without affecting the site.",
+    "message": "We use analytics cookies to measure traffic and improve your experience. They load only if you accept; you can reject without affecting the site.",
     "learnMore": "Learn more",
     "accept": "Accept",
     "reject": "Reject"
@@ -211,7 +211,7 @@
     "hero": {
       "chip": "Integrations Hub",
       "h1": "One <g>invoice</g>.<br></br>For every <g>order</g>.<br></br>From every <g>platform</g>.",
-      "body": "Rioko is the engine that connects your store, your payment gateway and your invoicing software. Webhook in, <h>invoice out</h> — in under a second, with VAT ID detected, VAT calculated and tax exemption applied per code M01–M99.",
+      "body": "Rioko is the engine that connects your store, your payment gateway and your invoicing software. Webhook in, <h>invoice out</h>: in under a second, with VAT ID detected, VAT calculated and tax exemption applied per code M01–M99.",
       "ctaCreate": "Create free account",
       "ctaSee": "See available integrations",
       "stat1Value": "< 1s",
@@ -255,7 +255,7 @@
       "eupago": { "note": "Multibanco, MB WAY and references" },
       "easypay": { "note": "Immediate and deferred capture" },
       "ifthenpay": { "note": "MB WAY, Multibanco, Payshop" },
-      "amazon": { "note": "Amazon Pay — checkout and subscriptions" },
+      "amazon": { "note": "Amazon Pay: checkout and subscriptions" },
       "paypal": { "note": "Payments, subscriptions and refunds" },
       "invoicexpress": { "note": "Invoices, receipts, credit notes" },
       "moloni": { "note": "Full document synchronization" },
@@ -288,7 +288,7 @@
       },
       "step2": {
         "title": "Set your tax rules",
-        "body": "VAT included or separate? Default exemption reason? Specific invoice series? All in one panel — no code, no .env files.",
+        "body": "VAT included or separate? Default exemption reason? Specific invoice series? All in one panel, no code, no .env files.",
         "pill1": "VAT included",
         "pill2": "M99 · Not subject",
         "pill3": "WEB series",
@@ -308,13 +308,13 @@
     "fiscal": {
       "eyebrow": "Trust",
       "title": "Built for Portuguese tax rules.<br></br><muted><g>Not</g> translated from them.</muted>",
-      "sub": "Rioko was born in Lisbon, inside a tax office. It is not an American SaaS with a PT pack — it's the other way around.",
+      "sub": "Rioko was born in Lisbon, inside a tax office. It is not an American SaaS with a PT pack; it's the other way around.",
       "item1Title": "AT compliance",
       "item1Body": "Legal text for every exemption reason (M01–M99) injected into invoice notes.",
       "item2Title": "Smart VAT ID",
       "item2Body": "VAT ID detection across note_attributes, order notes and billing address, with PT algorithmic validation.",
       "item3Title": "Double idempotency",
-      "item3Body": "Atomic table in D1 + KV cache. Duplicate webhooks, gateway retries, race conditions — all neutralized.",
+      "item3Body": "Atomic table in D1 + KV cache. Duplicate webhooks, gateway retries, race conditions: all neutralized.",
       "item4Title": "Encryption at rest",
       "item4Body": "Shopify and InvoiceXpress API keys are encrypted before any write."
     },
@@ -376,7 +376,7 @@
         },
         {
           "q": "Are the invoices legal and certified in Portugal?",
-          "a": "Yes. Rioko doesn't issue invoices itself — it sends the data to your AT-certified software (InvoiceXpress, Moloni or Vendus), which issues the document with ATCUD, a reported series and the correct VAT exemptions (M01–M99). The certification is the invoicing software's."
+          "a": "Yes. Rioko doesn't issue invoices itself; it sends the data to your AT-certified software (InvoiceXpress, Moloni or Vendus), which issues the document with ATCUD, a reported series and the correct VAT exemptions (M01–M99). The certification is the invoicing software's."
         },
         {
           "q": "Do I need to install a checkout extension on Shopify?",
@@ -409,6 +409,185 @@
       "terms": "Terms",
       "cookies": "Cookie settings",
       "developedBy": "Developed by"
+    }
+  },
+  "shopifyLanding": {
+    "meta": {
+      "title": "Shopify automatic invoicing → InvoiceXpress, Moloni or Vendus | Rioko",
+      "description": "Connect your Shopify store to InvoiceXpress, Moloni or Vendus and issue certified Portuguese invoices with ATCUD, VAT ID and correct VAT automatically, in under 1 second, no checkout extensions. From €7.50/month."
+    },
+    "nav": {
+      "chip": "Shopify → Invoicing",
+      "how": "How it works",
+      "destinations": "Programs",
+      "compliance": "Compliance",
+      "pricing": "Pricing",
+      "faq": "FAQ",
+      "hub": "Integrations Hub"
+    },
+    "breadcrumb": {
+      "home": "Home",
+      "page": "Shopify integration"
+    },
+    "hero": {
+      "chip": "Shopify integration · Live",
+      "h1": "Your Shopify store<br></br><g>invoices itself</g>.",
+      "body": "Order paid on Shopify, certified invoice in InvoiceXpress, Moloni or Vendus, in under a second. VAT ID detected, correct VAT, ATCUD included. <h>No checkout extensions.</h>",
+      "ctaCreate": "Connect my store",
+      "ctaSee": "See how it works",
+      "stat1Value": "< 1s",
+      "stat1Label": "order → invoice",
+      "stat2Value": "0",
+      "stat2Label": "checkout extensions",
+      "stat3Value": "3",
+      "stat3Label": "certified programs"
+    },
+    "showcase": {
+      "originLabel": "Origin",
+      "originTitle": "Shopify",
+      "originSub": "orders/paid · #1042",
+      "flowDest": "Destination",
+      "emitted": "issued",
+      "live": "real flow · live",
+      "timeAgo": "yesterday · 2:27pm",
+      "engineTitle": "Rioko · Fiscal engine",
+      "engineSub": "webhook → invoice · edge runtime",
+      "tagline": "1 order · 1 invoice · zero errors"
+    },
+    "dest": {
+      "eyebrow": "The destinations",
+      "title": "Pick the program.<br></br><g>We handle the rest.</g>",
+      "sub": "The same Shopify integration issues into InvoiceXpress, Moloni or Vendus. You choose the destination in the panel, and can switch without rebuilding the store connection.",
+      "ix": "Invoices, receipts and credit notes in your InvoiceXpress account",
+      "moloni": "Documents issued and synced in your Moloni account",
+      "vendus": "POS and certified cloud invoicing with Vendus"
+    },
+    "how": {
+      "eyebrow": "The flow",
+      "title": "Three steps. <g>Once.</g>",
+      "sub": "Setup takes about four minutes. After that, every sale invoices itself.",
+      "stepLabel": "Step",
+      "step1": {
+        "title": "Connect the store",
+        "body": "Paste your Shopify store domain and your invoicing program key. The wizard validates credentials and registers webhooks, with no theme changes and no checkout app.",
+        "code4": "200 OK · webhooks registered"
+      },
+      "step2": {
+        "title": "Set the tax rules",
+        "body": "VAT included or on top? Default exemption? Dedicated invoice series? All in one panel, no code, no .env files.",
+        "pill1": "VAT included",
+        "pill2": "M99 · Not subject",
+        "pill3": "Series WEB",
+        "pill4": "Auto-finalize"
+      },
+      "step3": {
+        "title": "Forget it. Every sale becomes an invoice.",
+        "body": "Every paid order generates the document in the program you chose, with the customer's VAT ID, the right VAT rate and the legal AT wording. Refunds become credit notes. Automatic.",
+        "tick1": "1 order = 1 invoice, no duplicates",
+        "tick2": "Refunds → automatic credit notes",
+        "tick3": "Auditable per-event logs",
+        "tagD1": "atomic",
+        "tagKV": "fast",
+        "tagHMAC": "verified"
+      }
+    },
+    "fiscal": {
+      "eyebrow": "Trust",
+      "title": "Built for Portuguese tax rules.<br></br><muted><g>Not</g> translated into them.</muted>",
+      "sub": "Rioko was born in Portugal, for Portuguese stores. Every fiscal detail, from VAT IDs to rounding, is handled the way the tax authority expects.",
+      "item1Title": "VAT ID from checkout to document",
+      "item1Body": "VAT ID detection in note_attributes, order notes and the billing address, with Portuguese algorithmic validation. Without a valid VAT ID, the document is issued as final consumer.",
+      "item2Title": "AT compliance",
+      "item2Body": "Issued via certified software, with ATCUD, reported series and the legal wording for M01–M99 exemptions in the invoice notes.",
+      "item3Title": "Total equals what was paid",
+      "item3Body": "The invoice closes to the cent with what the customer paid on Shopify: shipping, discounts and rounding reconciled line by line.",
+      "item4Title": "Double idempotency",
+      "item4Body": "Duplicate webhooks, retries and race conditions neutralized: 1 order = 1 invoice, guaranteed by atomic writes + cache."
+    },
+    "pricing": {
+      "eyebrow": "Pricing",
+      "title": "Simple. <g>Per integration.</g>",
+      "sub": "The Shopify integration costs the same as any other in the catalog. No per-document fees, no volume limits.",
+      "notice": "Prices excl. VAT · no card to start · cancel anytime",
+      "fullLink": "See all plans on the hub",
+      "monthly": {
+        "name": "Monthly",
+        "price": "€7.50",
+        "period": "/month · + VAT",
+        "b1": "Full Shopify integration",
+        "b2": "Automatic invoicing in < 1s",
+        "b3": "VAT ID · VAT · M01–M99 exemptions",
+        "b4": "Refunds → credit notes",
+        "cta": "Start free"
+      },
+      "yearly": {
+        "name": "Yearly",
+        "badge": "Recommended",
+        "price": "€75",
+        "period": "/year · + VAT",
+        "save": "2 months free · €75 vs €90",
+        "b1": "Everything in monthly",
+        "b2": "2 months free",
+        "b3": "Roadmap priority",
+        "b4": "Email support · < 24h response",
+        "cta": "Start free"
+      },
+      "custom": {
+        "name": "Custom",
+        "price": "On request",
+        "period": "tailor-made",
+        "b1": "Tailor-made integration · ERP, marketplaces",
+        "b2": "Multiple stores / multiple VAT IDs",
+        "b3": "Dedicated SLA",
+        "b4": "Technical onboarding call",
+        "cta": "Request a quote"
+      }
+    },
+    "faq": {
+      "eyebrow": "FAQ",
+      "title": "Frequently asked <g>questions</g>.",
+      "sub": "Everything you need to know before connecting your Shopify store. Can't find the answer? Talk to us.",
+      "items": [
+        {
+          "q": "How does automatic invoicing work on Shopify?",
+          "a": "When an order is paid, Shopify sends a webhook to Rioko. Rioko validates the data, detects the VAT ID, calculates VAT and sends everything to your certified invoicing program (InvoiceXpress, Moloni or Vendus), which issues the invoice, usually in under a second."
+        },
+        {
+          "q": "Do I need to install an app or checkout extension?",
+          "a": "No. Rioko connects via webhook and API: it installs nothing in your theme, doesn't touch the checkout and doesn't slow the store down. You configure it once in the panel and it keeps invoicing on its own."
+        },
+        {
+          "q": "Does it work with InvoiceXpress, Moloni and Vendus?",
+          "a": "Yes, all three. You pick the destination program when configuring the integration and can switch later without rebuilding the Shopify connection."
+        },
+        {
+          "q": "Do invoices carry ATCUD and are they accepted by the Portuguese tax authority?",
+          "a": "Yes. Rioko doesn't issue invoices itself; it sends the data to your program certified by the tax authority (AT), which issues the document with ATCUD, a reported series and the correct VAT exemptions (M01–M99). The certification is the invoicing program's."
+        },
+        {
+          "q": "How is the customer's VAT ID captured?",
+          "a": "Rioko looks for the VAT ID in note_attributes (checkout VAT apps), order notes and the billing address, and validates it algorithmically. Without a valid VAT ID, the document is issued as final consumer, as the law allows."
+        },
+        {
+          "q": "What about refunds and cancelled orders?",
+          "a": "A refund on Shopify automatically generates a credit note in your invoicing program, with totals reconciled against the refunded amount, including partial refunds."
+        },
+        {
+          "q": "I sell with VAT included and also outside Portugal. Does it work?",
+          "a": "Yes. Rioko supports VAT-included or VAT-on-top pricing, applies the right rate per country, and handles exemptions, reverse charge and OSS for intra-EU sales."
+        },
+        {
+          "q": "How much does it cost and how long does setup take?",
+          "a": "€7.50 + VAT per month or €75 + VAT per year, per integration, with no per-document fees and no volume limits. Setup takes about four minutes and no card is needed to start."
+        }
+      ]
+    },
+    "cta": {
+      "eyebrow": "Ready?",
+      "title": "Connect your Shopify store in <g>four</g> minutes.",
+      "body": "No card. No install. No checkout extensions. Set it up once, invoice forever.",
+      "start": "Start free",
+      "signIn": "I already have an account"
     }
   },
   "privacy": {
@@ -763,7 +942,30 @@
     "confirmSequenceMissing": "The invoice series \"{name}\" was not found in InvoiceXpress. Continue anyway? (Rioko will fall back to the default series)",
     "overridesTitle": "Per-product overrides",
     "overridesDesc": "Force VAT rate, inclusion (inc/exc) or exemption per SKU",
-    "manageOverrides": "Manage overrides"
+    "manageOverrides": "Manage overrides",
+    "tagRoutingTitle": "Tag-based series routing",
+    "tagRoutingDesc": "Route orders to specific IX series or document type based on Shopify tags or Stripe metadata",
+    "manageTagRouting": "Manage routing"
+  },
+  "tagRouting": {
+    "title": "Tag-Based Series Routing → InvoiceXpress",
+    "subtitle": "Match Shopify order tags or Stripe metadata key:value pairs to a specific invoice series and document type. First matching rule wins.",
+    "back": "Back to {source}",
+    "colTag": "Tag name",
+    "colType": "Invoice type",
+    "colSeries": "Series",
+    "typeDefault": "Default",
+    "typeInvoice": "Invoice (FT)",
+    "typeReceipt": "Invoice Receipt (FR)",
+    "seriesDefault": "Default",
+    "tagPlaceholder": "e.g. property_id:686585",
+    "seriesPlaceholder": "e.g. RVFR",
+    "addRule": "Add rule",
+    "save": "Save",
+    "cancel": "Cancel",
+    "empty": "No routing rules yet. Add a rule to start routing orders to specific series.",
+    "tagNameRequired": "Tag name is required.",
+    "atLeastOne": "Set at least invoice type or series."
   },
   "eupagoIxSetup": {
     "title": "EuPago + InvoiceXpress",
@@ -852,6 +1054,79 @@
     "errorSequenceRequired": "Invoice series is required.",
     "errorSaveIx": "Failed to save InvoiceXpress credentials.",
     "errorActivate": "Failed to activate.",
+    "errorNetwork": "Network error: {message}"
+  },
+  "lodgifyIxSetup": {
+    "pageTitle": "Lodgify + InvoiceXpress",
+    "engineSubtitle": "Tax automation setup.",
+    "backToIntegrations": "Back to integrations",
+    "noteTitle": "How it works",
+    "noteBody": "Each confirmed booking (status 'Booked') in Lodgify automatically generates a certified invoice in InvoiceXpress. The webhook is registered directly in Lodgify using your API key — no manual copy-paste needed. Default VAT: 6% (PT accommodation rate). Override via Dev Mode if needed.",
+    "apiKeyLabel": "Lodgify API Key",
+    "apiKeyPlaceholder": "Paste your Lodgify API key",
+    "apiKeyHint": "In Lodgify, go to Settings → Public API and copy your API key. The webhook is registered automatically.",
+    "apiKeyStoredHint": "API key stored. Enter a new one to reconnect the webhook.",
+    "webhookSection": "Registered webhook URL",
+    "webhookBody": "This URL was automatically registered in your Lodgify account. For reference only.",
+    "connectLodgify": "Connect Lodgify",
+    "reconnectLodgify": "Reconnect Lodgify",
+    "step1Title": "Step 1: Lodgify",
+    "step1Desc": "Enter your Lodgify API key. The webhook is auto-registered.",
+    "step2Title": "Step 2: InvoiceXpress",
+    "step2Desc": "Enter your InvoiceXpress account details to issue invoices.",
+    "step3Title": "Step 3: Invoice settings",
+    "step3Desc": "Series, VAT, document type and exemption.",
+    "doneTitle": "Integration active",
+    "doneDesc": "Lodgify → InvoiceXpress running.",
+    "vatNote": "Accommodation invoices default to 6% VAT (Lista I, Verba 2.17 CIVA — taxa reduzida). To use a different rate (e.g. 0% for rural tourism exempt), enable Dev Mode and set force_tax_rate.",
+    "sequenceLabel": "Invoice series",
+    "sequencePlaceholder": "Empty = default series",
+    "sequenceHint": "InvoiceXpress series where invoices are issued. Leave empty to use the account default.",
+    "vatIncluded": "VAT included",
+    "vatIncludedOn": "Prices already include VAT",
+    "vatIncludedOff": "Adds VAT on top of the booking total",
+    "autoFinalize": "Auto-finalize",
+    "autoFinalizeDesc": "Issue documents immediately",
+    "docType": "Document type",
+    "docTypeReceipt": "Invoice-receipt (paid at issue)",
+    "docTypeInvoice": "Invoice (deferred payment)",
+    "docTypeReceiptShort": "Invoice-receipt",
+    "docTypeInvoiceShort": "Invoice",
+    "paymentTerm": "Payment term (days)",
+    "exemptionTitle": "Exemption reason (VAT 0%)",
+    "exemptionDesc": "Applied when the invoice has 0% VAT (exemption, reverse charge, etc).",
+    "saveSettings": "Save settings",
+    "doneWarning": "Rioko is now processing Lodgify bookings and issuing InvoiceXpress invoices in real time. You can pause anytime from the integrations page.",
+    "integrationDoneTitle": "Integration complete",
+    "integrationDoneSub": "Lodgify → InvoiceXpress on Rioko 2.0",
+    "onlineRealtime": "ONLINE • REAL-TIME",
+    "configured": "Configured",
+    "ixLabel": "InvoiceXpress",
+    "settingsLabel": "Settings",
+    "ixAccountLabel": "Account name",
+    "ixAccountPlaceholder": "ultramegasonico",
+    "ixApiKeyLabel": "API key",
+    "ixApiKeyPlaceholder": "••••••••••••••••••••",
+    "ixEnvLabel": "Environment",
+    "verifyConnection": "Verify connection",
+    "syncState": "Sync state",
+    "realtimeOn": "Real-time ACTIVE",
+    "waitingConnection": "Waiting for connection...",
+    "update": "Update",
+    "back": "Back",
+    "statusAuthorized": "Authorized",
+    "statusPending": "Pending",
+    "diagnostic": "Diagnostic",
+    "diagnosticSub": "Rioko Engine",
+    "diagnosticDefault": "Awaiting technical verification...",
+    "forceAuth": "Force authorize",
+    "areYouSure": "Are you sure? Click to confirm",
+    "cancelAction": "Cancel",
+    "alertForceAuthError": "Force-authorize failed.",
+    "errorMissingApiKey": "Lodgify API key is required to connect.",
+    "errorIxRequired": "Fill in Account name and InvoiceXpress API key.",
+    "errorSequenceRequired": "Invoice series is required.",
+    "errorSaveIx": "Failed to save InvoiceXpress credentials.",
     "errorNetwork": "Network error: {message}"
   },
   "stripeVendusSetup": {
@@ -1275,7 +1550,10 @@
     "confirmSequenceMissing": "The invoice series \"{name}\" was not found in InvoiceXpress. Continue anyway? (Rioko will fall back to the default series)",
     "overridesTitle": "Per-product overrides",
     "overridesDesc": "Force VAT rate, inclusion (inc/exc) or exemption per SKU",
-    "manageOverrides": "Manage overrides"
+    "manageOverrides": "Manage overrides",
+    "tagRoutingTitle": "Tag-based series routing",
+    "tagRoutingDesc": "Route payments to specific IX series or document type based on Stripe metadata",
+    "manageTagRouting": "Manage routing"
   },
   "devMode": {
     "back": "Back",

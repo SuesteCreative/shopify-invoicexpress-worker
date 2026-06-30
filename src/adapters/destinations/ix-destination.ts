@@ -10,6 +10,40 @@ import { IxApi } from "../../api/ix";
 import { IxBuilder, type IxCreditNote } from "../../ix/builder";
 import { reconcileTotalOrThrow } from "../reconcile";
 
+// Sequences cache: accountName → [{id, serie}]. Survives within a Worker isolate,
+// flushed on cold start. The sequences list changes rarely so this is safe.
+const sequencesCache = new Map<string, Array<{ id: number; serie: string }>>();
+
+// Resolve the IX numeric sequence_id for a named series (e.g. "RVFR").
+// Falls back to null (IX uses its default series) if the name isn't found or
+// the sequences API call fails.
+async function resolveSequenceId(ctx: AdapterCtx, seriesName: string): Promise<number | null> {
+  const account = ctx.config.ix_account_name;
+  const apiKey = ctx.config.ix_api_key;
+  if (!account || !apiKey) return null;
+
+  const cacheKey = `${account}:${ctx.config.ix_environment ?? "production"}`;
+  let sequences = sequencesCache.get(cacheKey);
+
+  if (!sequences) {
+    try {
+      const isTest = ctx.config.ix_environment !== "production";
+      const suffix = isTest ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
+      const res = await fetch(`https://${account}${suffix}/sequences.json?api_key=${encodeURIComponent(apiKey)}`);
+      if (!res.ok) return null;
+      const data = await res.json() as { sequences?: Array<{ id: number; serie: string }> };
+      sequences = data.sequences ?? [];
+      sequencesCache.set(cacheKey, sequences);
+    } catch {
+      return null;
+    }
+  }
+
+  const target = seriesName.trim().toUpperCase();
+  const match = sequences.find(s => s.serie.trim().toUpperCase() === target);
+  return match?.id ?? null;
+}
+
 function ixHeadersFromCtx(ctx: AdapterCtx) {
   return {
     "x-account-name": ctx.config.ix_account_name!,
@@ -54,6 +88,14 @@ export class InvoiceXpressDestination implements DestinationAdapter {
         })),
         { context: `→IX order#${normalized.order.order_number}` },
       );
+    }
+
+    // Inject sequence_id when a series override is configured (tag routing or
+    // global ix_sequence_name). IX v2 accepts this field even though it is not
+    // captured in the generated TypeScript types.
+    if (ctx.config.ix_sequence_name) {
+      const sequenceId = await resolveSequenceId(ctx, ctx.config.ix_sequence_name);
+      if (sequenceId) (invoice as any).sequence_id = sequenceId;
     }
 
     const res = await IxApi.v2.documents.post({

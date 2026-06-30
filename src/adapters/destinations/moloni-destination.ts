@@ -65,14 +65,18 @@ type MoloniCfg = {
   password: string;
   companyId: number;
   documentSetId: number;
+  // Moloni account tax rule ID for the standard VAT rate (e.g. "IVA 23%").
+  // 0 = exempt/no-tax fallback. Set moloni_default_tax_id in destinationConfig.
+  defaultTaxId: number;
 };
 
-// Hardcoded fallback IDs. Real numbers must come from the user's Moloni
-// account setup (see coordinator TODO). They are passed in via ctx.config
-// where present and only fall back when absent so dev/sandbox can still ship.
-const DEFAULT_TAX_ID = 0;            // 0 = "no tax / exempt", per Moloni docs
 const DEFAULT_PAYMENT_METHOD_ID = 0; // 0 = unset; finalize accepts no method
 const NON_PT_GENERIC_VAT = "999999990";
+const MOLONI_PT_COUNTRY_ID = 1; // Portugal is always 1 in Moloni's fixed seed data
+
+// Module-level caches: survive within a single Worker isolate, flushed on cold start.
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+const countryCache = new Map<number, Map<string, number>>(); // companyId → ISO-2 → country_id
 
 function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   // Credentials live in `connections.destination_config_json` (Phase 5 storage).
@@ -104,11 +108,16 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
     throw new Error("Moloni create failed: missing moloni_document_set_id");
   }
 
-  return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId };
+  const defaultTaxId = Number(c.moloni_default_tax_id ?? 0);
+  return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId, defaultTaxId };
 }
 
 async function getAccessToken(cfg: MoloniCfg): Promise<string> {
-  // Moloni grant endpoint accepts query-string params on POST.
+  const cacheKey = `${cfg.clientId}:${cfg.username}`;
+  const cached = tokenCache.get(cacheKey);
+  // Evict 60 s before actual expiry to avoid races at the token boundary.
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
   const url = new URL(`${cfg.baseUrl}/grant/`);
   url.searchParams.set("grant_type", "password");
   url.searchParams.set("client_id", cfg.clientId);
@@ -128,6 +137,8 @@ async function getAccessToken(cfg: MoloniCfg): Promise<string> {
   if (!token) {
     throw new Error(`Moloni create failed: auth returned no access_token — ${safeErrorJson(body)}`);
   }
+  const expiresIn = (body as MoloniTokenResponse)?.expires_in ?? 3600;
+  tokenCache.set(cacheKey, { token, expiresAt: Date.now() + expiresIn * 1000 });
   return token;
 }
 
@@ -289,6 +300,43 @@ function extractPtNif(normalized: Normalized): string | null {
   return null;
 }
 
+// Resolve Moloni's internal country_id from an ISO-3166-1-alpha-2 code.
+// PT is always 1 in Moloni's seed. Other codes are lazily fetched from
+// /countries/getAll/ and cached per companyId for the Worker isolate lifetime.
+// Falls back to PT if absent or not found.
+async function resolveCountryId(
+  cfg: MoloniCfg,
+  token: string,
+  isoCode: string | null | undefined,
+): Promise<number> {
+  const iso = String(isoCode ?? "").trim().toUpperCase();
+  if (!iso || iso === "PT") return MOLONI_PT_COUNTRY_ID;
+
+  let companyCountries = countryCache.get(cfg.companyId);
+  if (!companyCountries) {
+    companyCountries = new Map<string, number>();
+    countryCache.set(cfg.companyId, companyCountries);
+  }
+  if (companyCountries.has(iso)) return companyCountries.get(iso)!;
+
+  // Populate cache by fetching the full country list once per Worker lifetime.
+  try {
+    const list = await moloniCall<Array<{ country_id?: number; iso_3166_1?: string }>>(
+      cfg, token, "/countries/getAll/", {}, "lookup",
+    );
+    if (Array.isArray(list)) {
+      for (const entry of list) {
+        const code = String(entry.iso_3166_1 ?? "").trim().toUpperCase();
+        if (code && entry.country_id) companyCountries.set(code, Number(entry.country_id));
+      }
+    }
+  } catch {
+    // Non-fatal: unknown code falls back to PT.
+  }
+
+  return companyCountries.get(iso) ?? MOLONI_PT_COUNTRY_ID;
+}
+
 function taxRateForItem(
   item: Normalized["order"]["items"][number],
   ctx: AdapterCtx,
@@ -309,6 +357,7 @@ function buildMoloniLineItems(
   normalized: Normalized,
   ctx: AdapterCtx,
   productIds: Map<string, number>,
+  cfg: MoloniCfg,
 ): MoloniProductLine[] {
   return normalized.order.items.map((item, idx): MoloniProductLine => {
     const reference = deriveProductReference(item);
@@ -345,7 +394,7 @@ function buildMoloniLineItems(
 
     if (taxRate > 0) {
       line.taxes = [{
-        tax_id: DEFAULT_TAX_ID,
+        tax_id: cfg.defaultTaxId,
         value: taxRate,
         order: 1,
         cumulative: 0,
@@ -387,6 +436,7 @@ async function resolveOrCreateCustomer(
 
   // 2. Insert a new customer record.
   const customerName = (order.customer?.name?.trim() || billing?.name?.trim() || "Consumidor Final").slice(0, 200);
+  const countryId = await resolveCountryId(cfg, token, billing?.country_code);
   const inserted = await moloniCall<{ customer_id?: number }>(
     cfg, token, "/customers/insert/",
     {
@@ -396,7 +446,7 @@ async function resolveOrCreateCustomer(
       address: (billing?.address1 ?? "").slice(0, 200),
       city: (billing?.city ?? "").slice(0, 50),
       zip_code: (billing?.zip ?? "").slice(0, 20),
-      country_id: countryIsPT ? 1 : 0, // Moloni country IDs vary per account; 1 = PT in default seed.
+      country_id: countryId,
       email: (order.customer?.email ?? "").slice(0, 200),
       phone: ((order.customer as { phone?: string | null } | undefined)?.phone ?? billing?.phone ?? "").toString().slice(0, 50),
       maturity_date_id: 0,
@@ -516,7 +566,7 @@ async function ensureMoloniProduct(
     has_stock: 0,
   };
   if (taxRate > 0) {
-    insertBody.taxes = [{ tax_id: DEFAULT_TAX_ID, value: taxRate, order: 0, cumulative: 0 }];
+    insertBody.taxes = [{ tax_id: cfg.defaultTaxId, value: taxRate, order: 0, cumulative: 0 }];
   } else {
     insertBody.exemption_reason = "M01";
   }
@@ -614,7 +664,7 @@ export class MoloniDestination implements DestinationAdapter {
       resolveOrCreateCustomer(cfg, token, normalized),
       resolveProductIds(cfg, token, normalized.order.items, (it) => taxRateForItem(it, ctx), ctx.productMappings),
     ]);
-    const products = buildMoloniLineItems(normalized, ctx, productIds);
+    const products = buildMoloniLineItems(normalized, ctx, productIds, cfg);
     if (products.length === 0) {
       throw new Error("Moloni create failed: no line items derived from normalized order");
     }
@@ -695,7 +745,7 @@ export class MoloniDestination implements DestinationAdapter {
       resolveProductIds(cfg, token, refundItems, (it) => taxRateForItem(it, ctx), ctx.productMappings),
     ]);
 
-    const products = buildMoloniLineItems(subset, ctx, productIds);
+    const products = buildMoloniLineItems(subset, ctx, productIds, cfg);
 
     // Free-form refund delta when Shopify reports an amount beyond the line
     // items (e.g. partial cash refund). Mirrors IX adapter's behaviour.
@@ -722,7 +772,7 @@ export class MoloniDestination implements DestinationAdapter {
         order,
       };
       if (maxTax > 0) {
-        line.taxes = [{ tax_id: DEFAULT_TAX_ID, value: maxTax, order: 1, cumulative: 0 }];
+        line.taxes = [{ tax_id: cfg.defaultTaxId, value: maxTax, order: 1, cumulative: 0 }];
       } else {
         line.exemption_reason = (ctx.config.ix_exemption_reason ?? "M01").trim() || "M01";
       }

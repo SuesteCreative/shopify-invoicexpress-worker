@@ -46,6 +46,9 @@ export async function GET(request: NextRequest) {
         : "https://api.moloni.pt/v1";
 
     try {
+        const ac = new AbortController();
+        const tId = setTimeout(() => ac.abort(), 10_000);
+
         const tokenUrl = new URL(`${baseUrl}/grant/`);
         tokenUrl.searchParams.set("grant_type", "password");
         tokenUrl.searchParams.set("client_id", String(cfg.moloni_client_id ?? ""));
@@ -56,20 +59,23 @@ export async function GET(request: NextRequest) {
         const tokenRes = await fetch(tokenUrl.toString(), {
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            signal: ac.signal,
         });
         if (!tokenRes.ok) {
+            clearTimeout(tId);
             const err: any = await tokenRes.json().catch(() => ({}));
             return NextResponse.json({ error: `Moloni auth failed (${tokenRes.status}): ${err?.error_description ?? err?.message ?? "check credentials"}` }, { status: 502 });
         }
         const tokenData: any = await tokenRes.json();
         const token = tokenData?.access_token;
-        if (!token) return NextResponse.json({ error: "Moloni auth returned no token" }, { status: 502 });
+        if (!token) { clearTimeout(tId); return NextResponse.json({ error: "Moloni auth returned no token" }, { status: 502 }); }
 
-        const body = new URLSearchParams({ company_id: companyId }).toString();
+        const dsBody = new URLSearchParams({ company_id: companyId }).toString();
         const dsRes = await fetch(
             `${baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-            { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body }
+            { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: dsBody, signal: ac.signal }
         );
+        clearTimeout(tId);
         const data: any = await dsRes.json().catch(() => []);
         const documentSets = Array.isArray(data)
             ? data.map((d: any) => ({ id: String(d.id), name: String(d.name ?? d.document_set_name ?? d.id) }))
@@ -77,7 +83,8 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ documentSets });
     } catch (e: any) {
-        console.error("[Moloni document-sets]", e?.message);
-        return NextResponse.json({ error: `Failed to fetch document sets: ${e?.message ?? "unknown"}` }, { status: 502 });
+        const msg = e?.name === "AbortError" ? "Moloni API timeout — try again" : (e?.message ?? "unknown");
+        console.error("[Moloni document-sets]", msg);
+        return NextResponse.json({ error: msg }, { status: 502 });
     }
 }

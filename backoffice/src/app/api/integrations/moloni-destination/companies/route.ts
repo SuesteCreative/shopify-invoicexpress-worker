@@ -44,6 +44,9 @@ export async function GET(request: NextRequest) {
         : "https://api.moloni.pt/v1";
 
     try {
+        const ac = new AbortController();
+        const tId = setTimeout(() => ac.abort(), 10_000);
+
         const tokenUrl = new URL(`${baseUrl}/grant/`);
         tokenUrl.searchParams.set("grant_type", "password");
         tokenUrl.searchParams.set("client_id", String(cfg.moloni_client_id ?? ""));
@@ -54,19 +57,22 @@ export async function GET(request: NextRequest) {
         const tokenRes = await fetch(tokenUrl.toString(), {
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            signal: ac.signal,
         });
         if (!tokenRes.ok) {
+            clearTimeout(tId);
             const err: any = await tokenRes.json().catch(() => ({}));
             return NextResponse.json({ error: `Moloni auth failed (${tokenRes.status}): ${err?.error_description ?? err?.message ?? "check credentials"}` }, { status: 502 });
         }
         const tokenData: any = await tokenRes.json();
         const token = tokenData?.access_token;
-        if (!token) return NextResponse.json({ error: "Moloni auth returned no token" }, { status: 502 });
+        if (!token) { clearTimeout(tId); return NextResponse.json({ error: "Moloni auth returned no token" }, { status: 502 }); }
 
         const companiesRes = await fetch(
             `${baseUrl}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
-            { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "" }
+            { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body: "", signal: ac.signal }
         );
+        clearTimeout(tId);
         const data: any = await companiesRes.json().catch(() => []);
         const companies = Array.isArray(data)
             ? data.map((c: any) => ({ id: String(c.id), name: String(c.name ?? c.company_name ?? c.id) }))
@@ -74,7 +80,8 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ companies });
     } catch (e: any) {
-        console.error("[Moloni companies]", e?.message);
-        return NextResponse.json({ error: `Failed to fetch companies: ${e?.message ?? "unknown"}` }, { status: 502 });
+        const msg = e?.name === "AbortError" ? "Moloni API timeout — try again" : (e?.message ?? "unknown");
+        console.error("[Moloni companies]", msg);
+        return NextResponse.json({ error: msg }, { status: 502 });
     }
 }

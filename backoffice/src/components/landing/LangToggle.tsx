@@ -3,7 +3,6 @@
 import * as React from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import { useParams } from "next/navigation";
 import { routing } from "@/i18n/routing";
 
 type Props = {
@@ -15,14 +14,11 @@ export function LangToggle({ variant = "dark" }: Props) {
   const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
-  const params = useParams();
 
   function switchTo(next: string) {
     if (next === locale) return;
-    router.replace(
-      { pathname, params: params as Record<string, string | string[]> },
-      { locale: next }
-    );
+    // usePathname() already resolves dynamic segments, so pass as-is
+    router.replace(pathname as any, { locale: next });
   }
 
   const isDark = variant === "dark";

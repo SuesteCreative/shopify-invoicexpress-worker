@@ -636,6 +636,124 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// InvoiceXpress document-quota emails (own design — NOT the incident shell).
+// "warning" = 90% of the plan limit; "reached" = limit hit, invoicing blocked.
+// Dark-mode-safe: force-* / *-bg classes survive Gmail mobile's colour rewrite.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface QuotaEmailInput {
+  kind: "warning" | "reached";
+  merchantName: string;
+  ixAccount: string;
+  periodStart: string;          // "DD/MM/YYYY"
+  periodEnd: string;
+  /** When both > 0, exact counts are shown; otherwise an honest label. */
+  used?: number;
+  limit?: number;
+  upgradeUrl?: string;          // defaults to the InvoiceXpress pricing page
+  dashboardUrl?: string;
+}
+
+export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
+  const Q = { boxBg: "#0b1220", track: "#1e293b", btnA: "#8dc63f", btnB: "#4f9d2c", btn: "#5fae31", red: "#ef4444", amber: "#fbbf24" };
+  const reached = input.kind === "reached";
+  const accent = reached ? Q.red : Q.amber;
+  const fAccent = reached ? "f-red" : "f-amber";
+  const barClass = reached ? "bar-red" : "bar-amber";
+  const chip = reached ? "LIMITE ATINGIDO" : "AVISO";
+  const title = reached ? "Limite de faturas atingido — emissão bloqueada" : "Limite de faturas quase atingido";
+  const subject = reached
+    ? `🔴 Faturação bloqueada — limite InvoiceXpress atingido (${input.merchantName})`
+    : `🟠 90% do limite de faturas InvoiceXpress (${input.merchantName})`;
+  const upgradeUrl = input.upgradeUrl || "https://invoicexpress.com/planos-precos/";
+  const dashboardUrl = input.dashboardUrl || DEFAULT_DASHBOARD;
+  const known = (input.limit ?? 0) > 0;
+  const used = input.used ?? 0, limit = input.limit ?? 0;
+  const pct = known ? Math.round((used / limit) * 100) : (reached ? 100 : 90);
+  const remaining = known ? Math.max(0, limit - used) : 0;
+  const countLabel = known ? `${used} / ${limit}` : (reached ? "Limite atingido" : "Quase no limite");
+  const f = Math.max(2, Math.min(100, pct));
+
+  const style = `<style>
+    [data-ogsc] .f-white,[data-ogsc] .f-white *{color:#fefefe!important}
+    [data-ogsc] .f-text,[data-ogsc] .f-text *{color:${BRAND.text}!important}
+    [data-ogsc] .f-muted,[data-ogsc] .f-muted *{color:${BRAND.muted}!important}
+    [data-ogsc] .f-blue,[data-ogsc] .f-blue *{color:${BRAND.blue}!important}
+    [data-ogsc] .f-red,[data-ogsc] .f-red *{color:${Q.red}!important}
+    [data-ogsc] .f-amber,[data-ogsc] .f-amber *{color:${Q.amber}!important}
+    [data-ogsc] .f-btn,[data-ogsc] .f-btn *{color:#ffffff!important}
+    [data-ogsb] .header-bg{background-color:#1e1b4b!important;background-image:${BRAND.bgGradient}!important}
+    [data-ogsb] .card-bg{background-color:${BRAND.cardBg}!important}
+    [data-ogsb] .footer-bg{background-color:${BRAND.cardBgAlt}!important}
+    [data-ogsb] .box-bg{background-color:${Q.boxBg}!important}
+    [data-ogsb] .track-bg{background-color:${Q.track}!important}
+    [data-ogsb] .btn-bg{background-color:${Q.btn}!important;background-image:linear-gradient(90deg,${Q.btnA},${Q.btnB})!important}
+    [data-ogsb] .bar-red{background-color:${Q.red}!important}[data-ogsb] .bar-amber{background-color:${Q.amber}!important}
+    @media (prefers-color-scheme: dark){
+      .f-white,.f-white *{color:#fefefe!important}.f-text,.f-text *{color:${BRAND.text}!important}
+      .f-muted,.f-muted *{color:${BRAND.muted}!important}.f-blue,.f-blue *{color:${BRAND.blue}!important}
+      .f-red,.f-red *{color:${Q.red}!important}.f-amber,.f-amber *{color:${Q.amber}!important}.f-btn,.f-btn *{color:#ffffff!important}
+      .header-bg{background-color:#1e1b4b!important}.card-bg{background-color:${BRAND.cardBg}!important}
+      .footer-bg{background-color:${BRAND.cardBgAlt}!important}.box-bg{background-color:${Q.boxBg}!important}
+      .track-bg{background-color:${Q.track}!important}.btn-bg{background-color:${Q.btn}!important}
+      .bar-red{background-color:${Q.red}!important}.bar-amber{background-color:${Q.amber}!important}
+    }
+  </style>`;
+
+  const lead = reached
+    ? `A conta InvoiceXpress associada a <b class="f-white" style="color:#fefefe">${escapeHtml(input.merchantName)}</b> atingiu o <b class="f-red" style="color:${Q.red}">limite de documentos</b> do plano para o período atual. <b class="f-white" style="color:#fefefe">Novas faturas não estão a ser emitidas.</b>`
+    : `A conta InvoiceXpress associada a <b class="f-white" style="color:#fefefe">${escapeHtml(input.merchantName)}</b> já usou <b class="f-amber" style="color:${Q.amber}">${pct}%</b> do limite de documentos do plano para o período atual. Quando o limite for atingido, a emissão de faturas pára automaticamente.`;
+  const action = reached
+    ? `Para <b class="f-white" style="color:#fefefe">retomar a faturação imediatamente</b>, aumente o plano InvoiceXpress. Em alternativa, o limite reinicia no início do próximo período (${escapeHtml(input.periodEnd)}) — mas até lá as vendas ficam por faturar.`
+    : `Recomendamos aumentar o plano InvoiceXpress antes de atingir o limite, para não interromper a emissão de faturas.`;
+
+  const usageBar = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 0"><tr>
+    <td class="track-bg" bgcolor="${Q.track}" style="background-color:${Q.track};border-radius:8px;padding:4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td class="${barClass}" width="${f}%" bgcolor="${accent}" style="background-color:${accent};height:14px;border-radius:6px;font-size:0;line-height:0">&nbsp;</td>
+      <td width="${100 - f}%" style="font-size:0;line-height:0">&nbsp;</td></tr></table></td></tr></table>`;
+
+  const body = `
+  <p class="f-text" style="margin:0 0 18px;font-size:15px;line-height:1.65;color:${BRAND.text}">${lead}</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="box-bg" bgcolor="${Q.boxBg}" style="background-color:${Q.boxBg};border:1px solid ${BRAND.border};border-radius:12px;margin:0 0 22px"><tr><td style="padding:18px 20px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td class="f-muted" style="font-size:13px;color:${BRAND.muted}"><font color="${BRAND.muted}">Documentos usados neste período</font></td>
+      <td class="${fAccent}" align="right" style="font-size:13px;color:${accent};font-weight:700"><font color="${accent}">${countLabel}</font></td></tr></table>
+    ${usageBar}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px"><tr>
+      <td class="f-muted" style="font-size:12px;color:${BRAND.muted}"><font color="${BRAND.muted}">Período: </font><span class="f-text" style="font-family:ui-monospace,Menlo,monospace;color:${BRAND.text}"><font color="${BRAND.text}">${escapeHtml(input.periodStart)} → ${escapeHtml(input.periodEnd)}</font></span></td>
+      <td align="right" style="font-size:12px">${reached ? `<span class="f-red" style="color:${Q.red};font-weight:600"><font color="${Q.red}">0 restantes</font></span>` : (known ? `<span class="f-muted" style="color:${BRAND.muted}"><font color="${BRAND.muted}">${remaining} restantes</font></span>` : "")}</td></tr></table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px"><tr>
+      <td class="f-muted" style="font-size:12px;color:${BRAND.muted}"><font color="${BRAND.muted}">Conta InvoiceXpress: </font><span class="f-text" style="font-family:ui-monospace,Menlo,monospace;color:${BRAND.text}"><font color="${BRAND.text}">${escapeHtml(input.ixAccount)}</font></span></td></tr></table>
+  </td></tr></table>
+  <p class="f-text" style="margin:0 0 24px;font-size:14px;line-height:1.65;color:${BRAND.text}">${action}</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto"><tr>
+    <td class="btn-bg" align="center" bgcolor="${Q.btn}" style="background-color:${Q.btn};background-image:linear-gradient(90deg,${Q.btnA},${Q.btnB});border-radius:10px">
+      <a href="${escapeHtml(upgradeUrl)}" class="f-btn" style="display:inline-block;padding:13px 26px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none"><font color="#ffffff">Aumentar plano InvoiceXpress →</font></a>
+    </td></tr></table>
+  <p style="margin:14px 0 0;text-align:center;font-size:13px"><a href="${escapeHtml(dashboardUrl)}" class="f-blue" style="color:${BRAND.blue};text-decoration:none;font-weight:500"><font color="${BRAND.blue}">Ver no painel Rioko</font></a></p>`;
+
+  const html = `<!doctype html><html lang="pt-PT"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark only"><meta name="supported-color-schemes" content="dark only"><title>${escapeHtml(title)}</title>${style}</head>
+<body style="margin:0;padding:0;background:${BRAND.pageBg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:${BRAND.text};-webkit-font-smoothing:antialiased">
+<div style="display:none;max-height:0;overflow:hidden">${reached ? "Faturação bloqueada: a conta InvoiceXpress atingiu o limite de documentos do plano." : "A conta InvoiceXpress está a 90% do limite de documentos do plano."}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${BRAND.pageBg}" style="background-color:${BRAND.pageBg};padding:32px 16px"><tr><td align="center">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="card-bg" bgcolor="${BRAND.cardBg}" style="max-width:600px;width:100%;background-color:${BRAND.cardBg};border-radius:14px;overflow:hidden">
+    <tr><td class="header-bg" bgcolor="#1e1b4b" style="background-color:#1e1b4b;background-image:${BRAND.bgGradient};padding:28px 32px 24px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td valign="middle"><img src="${LOGO_WHITE}" alt="Rioko 2.0" width="140" style="display:block;border:0;max-width:140px;height:auto"></td>
+        <td valign="middle" align="right"><span style="display:inline-block;background:${accent};color:#1a1206;font-size:11px;font-weight:700;letter-spacing:0.5px;padding:4px 11px;border-radius:12px"><font color="#1a1206">${chip}</font></span></td></tr></table>
+      <div style="margin-top:20px"><h1 class="f-white" style="margin:0;color:#fefefe;font-size:22px;font-weight:600;letter-spacing:-0.3px;line-height:1.3"><span style="color:#fefefe">${escapeHtml(title)}</span></h1>
+        <p class="f-muted" style="margin:6px 0 0;color:${BRAND.muted};font-size:13px"><font color="${BRAND.muted}">${escapeHtml(input.merchantName)} · Shopify → InvoiceXpress</font></p></div>
+      <div style="height:3px;width:100%;background-color:${BRAND.blue};background-image:linear-gradient(90deg, ${BRAND.blue}, ${BRAND.purple});margin-top:24px"></div></td></tr>
+    <tr><td class="card-bg" bgcolor="${BRAND.cardBg}" style="background-color:${BRAND.cardBg};padding:32px">${body}</td></tr>
+    <tr><td class="footer-bg" bgcolor="${BRAND.cardBgAlt}" style="background-color:${BRAND.cardBgAlt};padding:24px 32px;border-top:1px solid ${BRAND.border};text-align:center">
+      <p class="f-muted" style="margin:0;font-size:13px;color:${BRAND.muted};line-height:1.6"><font color="${BRAND.muted}">Precisa de ajuda? </font><a href="${escapeHtml(DEFAULT_HELP_URL)}" class="f-blue" style="color:${BRAND.blue};text-decoration:none;font-weight:500"><font color="${BRAND.blue}">Contacte a equipa Rioko 2.0</font></a></p>
+      <p class="f-muted" style="margin:12px 0 0;font-size:11px;color:${BRAND.muted}"><font color="${BRAND.muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${BRAND.muted}"><font color="${BRAND.muted}">Kapta</font></a> · Notificação automática · Não responda a este email</font></p></td></tr>
+  </table></td></tr></table></body></html>`;
+
+  return { subject, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Daily digest
 // ──────────────────────────────────────────────────────────────────────────
 

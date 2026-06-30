@@ -17,11 +17,22 @@ export type IxCreditNote = NonNullable<PostV2CreditNotesData["body"]>["credit_no
  * Fiscal is invalid". Shopify already provides the full name in `billing_address.country`;
  * Stripe-source only has the ISO code, so map any bare 2-letter code to its English name.
  */
+// IX validates the country against its own list of English names and rejects
+// anything it doesn't recognise ("Country Macao was not found" → 422 → the whole
+// document fails). A few names from Intl.DisplayNames don't match IX's list, so
+// we override those specific ISO codes. Add new entries here as IX rejections
+// surface (verified live: MO must be "Macau", not the Intl "Macao").
+const IX_COUNTRY_OVERRIDE: Record<string, string> = {
+  MO: "Macau",
+};
+
 function toIxCountryName(value: string): string {
   const v = (value || "").trim();
   if (v.length !== 2) return v; // already a full name (or empty)
+  const cc = v.toUpperCase();
+  if (IX_COUNTRY_OVERRIDE[cc]) return IX_COUNTRY_OVERRIDE[cc];
   try {
-    return new Intl.DisplayNames(["en"], { type: "region" }).of(v.toUpperCase()) || v;
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || v;
   } catch {
     return v;
   }
@@ -587,7 +598,7 @@ export class IxBuilder {
       postal_code: postalCode || undefined,
       city: order.billing_address?.city,
       country: toIxCountryName(rawCountry),
-      phone: order.customer?.phone || order.billing_address?.phone
+      phone: (order.customer?.phone ?? order.billing_address?.phone) ?? undefined
     };
   }
 

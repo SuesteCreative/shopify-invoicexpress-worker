@@ -53,6 +53,7 @@ export interface Customer {
   id: number
   email: string
   name: string
+  phone?: string | null
   created_at: string
   default_address: DefaultAddress
   address: DefaultAddress

@@ -66,7 +66,7 @@ async function postDraft(invoice, docType) {
 const PLAN = {
   "zoolagos.myshopify.com": { numbers: [] },               // auto-pick (force 6%, foreign tests F3)
   "fabrica-coffee-roaster.myshopify.com": { numbers: [] },
-  "2d0604-3.myshopify.com": { numbers: [4172, 4228, 4209] }, // multi-rate shipping + drift + clean
+  "2d0604-3.myshopify.com": { numbers: [4135, 4129, 4083] }, // ex-drift orders (round-once) — sandbox-resolvable rates
   "mwi1cr-7t.myshopify.com": { numbers: [] },                // POS (customer null)
 };
 

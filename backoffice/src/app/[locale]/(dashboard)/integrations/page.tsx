@@ -19,6 +19,7 @@ const PAYMENT_PLATFORMS = [
     { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
     { id: "stripe", name: "Stripe", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
     { id: "eupago", name: "EuPago", icon: Wallet, logo: "/images/eupago-logo.svg", logoW: 30, logoH: 30, active: true },
+    { id: "lodgify", name: "Lodgify", icon: Wallet, logo: "/images/lodgify-logo-black.svg", logoW: 44, logoH: 12, active: true },
     { id: "easypay", name: "Easypay", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
     { id: "ifthenpay", name: "Ifthenpay", icon: Landmark, logo: null, logoW: 0, logoH: 0, active: false },
 ];
@@ -62,8 +63,10 @@ export default function IntegrationsPage() {
     const canConnect =
         (selectedPayment === "shopify" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
         || (selectedPayment === "stripe" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
-        || (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress");
+        || (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress")
+        || (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress");
     const configuratorHref = (() => {
+        if (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress") return "/integrations/lodgify-ix";
         if (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress") return "/integrations/eupago-ix";
         if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
         if (selectedPayment === "stripe" && selectedInvoicing === "vendus") return "/integrations/stripe-vendus";
@@ -228,11 +231,17 @@ export default function IntegrationsPage() {
                                     }
                                 >
                                     <div className="flex -space-x-4">
-                                        <div className="w-20 h-20 rounded-[1.8rem] bg-white text-surface flex items-center justify-center ring-8 ring-surface">
-                                            {selectedPayment === "shopify" ? <Store className="w-10 h-10" /> : <CreditCard className="w-10 h-10" />}
+                                        <div className="w-20 h-20 rounded-[1.8rem] bg-white text-surface flex items-center justify-center ring-8 ring-surface p-3">
+                                            {selectedPayment === "shopify" ? <Store className="w-10 h-10" />
+                                                : selectedPayment === "lodgify" ? <Image src="/images/lodgify-logo-black.svg" alt="Lodgify" width={56} height={15} className="object-contain" />
+                                                : selectedPayment === "eupago" ? <Image src="/images/eupago-logo.svg" alt="EuPago" width={40} height={40} className="object-contain" />
+                                                : <CreditCard className="w-10 h-10" />}
                                         </div>
-                                        <div className="w-20 h-20 rounded-[1.8rem] bg-surface-2 text-fg flex items-center justify-center ring-8 ring-surface border border-hairline">
-                                            <ClipboardList className="w-10 h-10" />
+                                        <div className="w-20 h-20 rounded-[1.8rem] bg-surface-2 text-fg flex items-center justify-center ring-8 ring-surface border border-hairline p-3">
+                                            {selectedInvoicing === "invoicexpress" ? <Image src="/images/invoicexpress_logo2.png" alt="InvoiceXpress" width={40} height={40} className="object-contain" />
+                                                : selectedInvoicing === "moloni" ? <Image src="/images/moloni-logo.svg" alt="Moloni" width={40} height={40} className="object-contain" />
+                                                : selectedInvoicing === "vendus" ? <Image src="/images/vendus-logo.svg" alt="Vendus" width={40} height={40} className="object-contain" />
+                                                : <ClipboardList className="w-10 h-10" />}
                                         </div>
                                     </div>
                                     <div className="space-y-2">

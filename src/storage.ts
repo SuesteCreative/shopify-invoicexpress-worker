@@ -91,7 +91,7 @@ export interface PendingReverseChargeRow {
   updated_at: string;
 }
 
-export type SourceKind = "shopify" | "stripe" | "eupago";
+export type SourceKind = "shopify" | "stripe" | "eupago" | "lodgify";
 export type DestinationKind = "invoicexpress" | "moloni" | "vendus";
 
 export interface ConnectionRow {

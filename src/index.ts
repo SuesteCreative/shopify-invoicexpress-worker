@@ -404,6 +404,101 @@ app.post("/webhooks/eupago/:userId", async (c) => {
   }
 });
 
+// ── Lodgify webhooks ──────────────────────────────────────────────────────────
+//   POST /webhooks/lodgify/<user_id>
+//   Headers: ms-signature: sha256=<hex_hmac_sha256> (fallback: x-lodgify-signature)
+//   Body: { "event": "booking_new_booked", "data": { "bookingId": 12345 } }
+//
+//   Thin envelope — the actual booking is fetched inside LodgifySource.toNormalized()
+//   via GET /v2/reservations/{bookingId} using the stored api_key.
+// ────────────────────────────────────────────────────────────────────────────
+app.post("/webhooks/lodgify/:userId", async (c) => {
+  const userId = c.req.param("userId");
+  const sig = c.req.header("ms-signature") ?? c.req.header("x-lodgify-signature");
+  const rawBody = await c.req.text();
+  if (!sig) return c.text("Missing signature header", 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT id, source_config_json, destination_kind, destination_config_json
+     FROM connections
+     WHERE user_id = ? AND source_kind = 'lodgify' AND status = 'active' LIMIT 1`
+  ).bind(userId).first();
+  if (!conn) {
+    console.log(`[Lodgify] No active connection for user ${userId}`);
+    return c.text("No connection", 404);
+  }
+
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+  const webhookSecret = sourceCfg.webhook_secret;
+  if (!webhookSecret) {
+    console.error(`[Lodgify] webhook_secret missing for user ${userId}`);
+    return c.text("Secret not configured", 500);
+  }
+
+  const adapter = getSourceAdapter("lodgify");
+  if (!await adapter.verifyWebhook(rawBody, sig, webhookSecret)) {
+    console.error(`[Lodgify] Invalid signature for user ${userId}`);
+    await reportIncident(c.env, {
+      user_id: userId,
+      severity: "critical",
+      kind: "webhook_invalid_signature",
+      summary: "Lodgify webhook rejeitado por assinatura inválida.",
+      connection_label: `lodgify → ${conn.destination_kind ?? "invoicexpress"}`,
+      bucket: "daily",
+    });
+    return c.text("Invalid signature", 401);
+  }
+
+  let body: any;
+  try { body = JSON.parse(rawBody); } catch { return c.text("Invalid JSON", 400); }
+
+  // All registered events (booking_new_booked) produce invoices.
+  // The adapter's toNormalized() re-checks booking.status from the API and
+  // returns null if the booking isn't "Booked" (so no invoice on tentative).
+  const externalId = (() => {
+    try { return adapter.externalId(body); } catch { return null; }
+  })();
+  if (!externalId) return c.text("Missing bookingId in payload", 400);
+
+  const topic = "lodgify/created" as any;
+  const appStorage = new AppStorage(c.env, null, userId);
+  const { isProcessed, state } = await appStorage.isWebhookProcessed(externalId, topic);
+  if (isProcessed && state !== "failed") return c.text("Already processed", 200);
+  await appStorage.markWebhookAsProcessing(externalId, topic);
+
+  const legacy: any = await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(userId).first();
+  if (!legacy) {
+    console.error(`[Lodgify] No integrations row for user ${userId}`);
+    return c.text("Integration not configured", 500);
+  }
+
+  let destinationConfig: Record<string, any> | undefined;
+  try {
+    destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined;
+  } catch { destinationConfig = undefined; }
+
+  try {
+    await runAdapterPipeline({
+      env: c.env,
+      config: legacy,
+      source: "lodgify",
+      destination: (conn.destination_kind as any) ?? "invoicexpress",
+      topic: "created",
+      webhookId: externalId,
+      body,
+      sourceConfig: sourceCfg,
+      destinationConfig,
+    });
+    await appStorage.markWebhookAsProcessed(externalId, topic, "success");
+    return c.text("OK", 200);
+  } catch (e: any) {
+    console.error(`[Lodgify] Pipeline error for booking ${externalId}:`, e);
+    await appStorage.markWebhookAsProcessed(externalId, topic, "failed");
+    return errorResponse(c, e, "Pipeline error");
+  }
+});
+
 // ── Admin: Stripe webhook + event recovery (Phase 3 ops tooling) ──────────────
 // All operate on the Stripe-source connection for ?userId / body.userId, using
 // the connection's stored restricted_key.

@@ -13,6 +13,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // Static pages — duplicate per locale with hreflang
     const staticPaths = [
         { path: "", priority: 1.0, changeFrequency: "weekly" as const },
+        { path: "/shopify", priority: 0.9, changeFrequency: "weekly" as const },
         { path: "/privacy", priority: 0.3, changeFrequency: "yearly" as const },
         { path: "/terms", priority: 0.3, changeFrequency: "yearly" as const },
         { path: "/blog", priority: 0.8, changeFrequency: "weekly" as const },

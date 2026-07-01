@@ -30,13 +30,15 @@ export async function POST(req: NextRequest) {
         if (!targetEmail) return NextResponse.json({ error: "No email for target user" }, { status: 400 });
         const email = targetEmail;
 
-        const body = (await req.json().catch(() => ({}))) as { plan?: "monthly" | "annual" };
+        const body = (await req.json().catch(() => ({}))) as { plan?: "monthly" | "annual"; source?: string };
         const plan = body.plan === "annual" ? "annual" : "monthly";
+        const source = body.source ?? "";
 
         const stripe = getStripe();
+        const isLodgify = source.startsWith("lodgify");
         const lookupOrId = plan === "annual"
-            ? getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP")
-            : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP");
+            ? (isLodgify ? getStripeEnv("STRIPE_PRICE_LODGIFY_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP"))
+            : (isLodgify ? getStripeEnv("STRIPE_PRICE_LODGIFY_MONTHLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP"));
 
         // Accept any of: real price ID (price_xxx), custom ID, or lookup_key.
         // Try retrieve first (works for any valid Stripe ID), then fall back to lookup_keys.
@@ -72,8 +74,14 @@ export async function POST(req: NextRequest) {
         const isEarlyBird = !!sub?.early_bird;
         const useTrial = isEarlyBird && trialEndUnix > nowUnix;
 
-        const successUrl = getStripeEnv("SUCCESS_REDIRECT_URL");
-        const cancelUrl = getStripeEnv("CANCEL_REDIRECT_URL");
+        const SOURCE_PATHS: Record<string, { ok: string; cancel: string }> = {
+            "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
+            "faturacao":      { ok: "/faturacao?stripe=success",                   cancel: "/faturacao?stripe=cancel" },
+        };
+        const appBaseUrl = new URL(getStripeEnv("SUCCESS_REDIRECT_URL")).origin;
+        const paths = SOURCE_PATHS[source] ?? null;
+        const successUrl = paths ? `${appBaseUrl}${paths.ok}` : getStripeEnv("SUCCESS_REDIRECT_URL");
+        const cancelUrl  = paths ? `${appBaseUrl}${paths.cancel}` : getStripeEnv("CANCEL_REDIRECT_URL");
         const taxRateId = getStripeEnvOptional("STRIPE_TAX_RATE_ID");
 
         const session = await stripe.checkout.sessions.create({

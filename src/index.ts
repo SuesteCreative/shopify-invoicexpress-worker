@@ -12,6 +12,7 @@ import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
 import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
+import { checkSubscriptionGate } from "./services/subscription-gate";
 import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
 import {
@@ -492,6 +493,21 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     b2b_reverse_charge: 0,
     ix_send_email: 0,
   };
+
+  const gate = await checkSubscriptionGate(c.env, legacy);
+  if (!gate.allowed) {
+    console.warn(`[Lodgify] Subscription gate blocked for ${userId}: ${gate.reason}`);
+    await reportIncident(c.env, {
+      user_id: userId,
+      severity: "warn",
+      kind: "subscription_inactive",
+      summary: `Lodgify webhook bloqueado: subscrição inativa (${gate.reason}).`,
+      connection_label: `lodgify → ${conn.destination_kind ?? "moloni"}`,
+      bucket: "daily",
+    });
+    await appStorage.markWebhookAsProcessed(externalId, storageTopic, "failed");
+    return c.text("Subscription inactive", 402);
+  }
 
   try {
     await runAdapterPipeline({

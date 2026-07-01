@@ -3,8 +3,9 @@
 export const runtime = "edge";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw } from "lucide-react";
+import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw, CheckCheck, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -71,10 +72,13 @@ function StatusBadge({ status, type, t }: { status: string; type: string; t: (k:
 
 export default function FaturacaoPage() {
     const t = useTranslations("faturacao");
+    const searchParams = useSearchParams();
+    const stripeResult = searchParams.get("stripe");
     const [sub, setSub] = useState<any>(null);
     const [events, setEvents] = useState<BillingEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [acting, setActing] = useState<string | null>(null);
+    const [subscribing, setSubscribing] = useState<"monthly" | "annual" | null>(null);
 
     const load = async () => {
         try {
@@ -130,6 +134,22 @@ export default function FaturacaoPage() {
         }
     };
 
+    const handleSubscribe = async (plan: "monthly" | "annual") => {
+        setSubscribing(plan);
+        try {
+            const r = await fetch("/api/billing/checkout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plan, source: "faturacao" }),
+            });
+            const d: any = await r.json();
+            if (d.url) window.location.href = d.url;
+            else alert(d.error || t("genericError"));
+        } finally {
+            setSubscribing(null);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -141,9 +161,16 @@ export default function FaturacaoPage() {
     const s = sub?.subscription;
     const uiState = sub?.ui_state;
     const hasSubscription = !!s?.stripe_subscription_id;
+    const showSubscribeCta = !hasSubscription && uiState !== "exempt" && uiState !== "trialing_earlybird" && uiState !== "trialing";
 
     return (
         <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
+            {stripeResult === "success" && (
+                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.30)] text-accent-hot">
+                    <CheckCheck className="w-5 h-5 shrink-0" />
+                    <p className="font-mono text-xs uppercase tracking-[0.18em]">{t("stripeSuccess")}</p>
+                </motion.div>
+            )}
             <div className="space-y-4">
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-medium tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
                     {t("title")}
@@ -209,6 +236,46 @@ export default function FaturacaoPage() {
                     )}
                 </div>
             </motion.div>
+
+            {/* Subscribe CTA — shown only when user has no active subscription */}
+            {showSubscribeCta && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                    <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{t("subscribeHeading")}</h2>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="glass rounded-[2rem] p-6 sm:p-8 flex flex-col gap-6 border border-hairline">
+                            <div>
+                                <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-2">{t("monthlyPlan")}</p>
+                                <p className="text-3xl font-medium tracking-tight">{t("monthlyPrice")}</p>
+                            </div>
+                            <button
+                                onClick={() => handleSubscribe("monthly")}
+                                disabled={!!subscribing}
+                                className="w-full py-4 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] bg-white/5 border border-hairline hover:border-rule hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {subscribing === "monthly" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                                {t("btnSubscribeMonthly")}
+                            </button>
+                        </div>
+                        <div className="glass rounded-[2rem] p-6 sm:p-8 flex flex-col gap-6 border border-accent/30 bg-[rgba(2,141,196,0.04)]">
+                            <div>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{t("annualPlan")}</p>
+                                    <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-[rgba(94,234,212,0.15)] text-accent-hot border border-[rgba(94,234,212,0.25)]">{t("annualSaving")}</span>
+                                </div>
+                                <p className="text-3xl font-medium tracking-tight">{t("annualPrice")}</p>
+                            </div>
+                            <button
+                                onClick={() => handleSubscribe("annual")}
+                                disabled={!!subscribing}
+                                className="w-full py-4 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] bg-accent text-surface font-bold hover:bg-accent-hot transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {subscribing === "annual" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                                {t("btnSubscribeAnnual")}
+                            </button>
+                        </div>
+                    </div>
+                </motion.div>
+            )}
 
             {/* Events table */}
             <section className="space-y-4">

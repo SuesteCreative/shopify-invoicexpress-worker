@@ -709,10 +709,17 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
     try {
-      // `our_reference` is the field Moloni indexes for free-text lookup on
-      // invoices. We mirror IX's "reference" field in createDraft below.
+      // CRITICAL: query the SAME document type createDraft writes to. When
+      // documentType is "invoice_receipt", drafts live under /invoiceReceipts/,
+      // and /invoices/getAll/ returns 0 for them — making this dedup blind and
+      // producing a duplicate on every webhook re-delivery. `our_reference` is
+      // the field Moloni indexes for free-text lookup and it matches draft
+      // documents (status 0, number -1) too.
+      const getAllPath = cfg.documentType === "invoice_receipt"
+        ? "/invoiceReceipts/getAll/"
+        : "/invoices/getAll/";
       const found = await moloniCall<Array<{ document_id?: number }>>(
-        cfg, token, "/invoices/getAll/", {
+        cfg, token, getAllPath, {
           document_set_id: cfg.documentSetId,
           our_reference: reference,
         },

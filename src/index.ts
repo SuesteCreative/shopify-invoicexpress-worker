@@ -431,13 +431,20 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
 
   let sourceCfg: Record<string, any> = {};
   try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
-  const webhookSecret = sourceCfg.webhook_secret;
+
+  // Each registered Lodgify webhook has its own secret (Lodgify requirement: unique URL per event).
+  // Select the correct secret based on the URL query param injected at registration time.
+  const eventParam = new URL(c.req.url).searchParams.get("e") ?? "";
+  const webhookSecret: string | undefined =
+    eventParam === "declined" ? sourceCfg.webhook_secret_declined :
+    eventParam === "change"   ? sourceCfg.webhook_secret_change :
+    sourceCfg.webhook_secret;
+
   if (!webhookSecret) {
-    // Secret missing when auto-registration failed; process without HMAC until user reconnects.
-    console.warn(`[Lodgify] no webhook_secret for ${userId} — skipping HMAC verification`);
+    console.warn(`[Lodgify] no webhook_secret for ${userId} (e=${eventParam}) — skipping HMAC verification`);
   } else {
     if (!await lodgifyAdapter.verifyWebhook(rawBody, sig, webhookSecret)) {
-      console.error(`[Lodgify] Invalid signature for user ${userId}`);
+      console.error(`[Lodgify] Invalid signature for user ${userId} (e=${eventParam})`);
       await reportIncident(c.env, {
         user_id: userId,
         severity: "critical",
@@ -453,19 +460,23 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
   let body: any;
   try { body = JSON.parse(rawBody); } catch { return c.text("Invalid JSON", 400); }
 
-  // All registered events (booking_new_booked) produce invoices.
-  // The adapter's toNormalized() re-checks booking.status from the API and
-  // returns null if the booking isn't "Booked" (so no invoice on tentative).
+  // Determine pipeline topic from the event type:
+  // booking_status_change_declined → "refund" (issue credit note if booking was paid)
+  // booking_change / booking_new_status_booked → "created" (invoice when fully paid)
+  const isDeclined = eventParam === "declined"
+    || String(body?.action ?? body?.event ?? "").includes("declined");
+  const pipelineTopic = isDeclined ? "refund" : "created";
+
   const externalId = (() => {
     try { return lodgifyAdapter.externalId(body); } catch { return null; }
   })();
   if (!externalId) return c.text("Missing bookingId in payload", 400);
 
-  const topic = "lodgify/created" as any;
+  const storageTopic = `lodgify/${pipelineTopic}` as any;
   const appStorage = new AppStorage(c.env, null, userId);
-  const { isProcessed, state } = await appStorage.isWebhookProcessed(externalId, topic);
+  const { isProcessed, state } = await appStorage.isWebhookProcessed(externalId, storageTopic);
   if (isProcessed && state !== "failed") return c.text("Already processed", 200);
-  await appStorage.markWebhookAsProcessing(externalId, topic);
+  await appStorage.markWebhookAsProcessing(externalId, storageTopic);
 
   let destinationConfig: Record<string, any> | undefined;
   try {
@@ -488,17 +499,17 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
       config: legacy,
       source: "lodgify",
       destination: (conn.destination_kind as any) ?? "moloni",
-      topic: "created",
+      topic: pipelineTopic as any,
       webhookId: externalId,
       body,
       sourceConfig: sourceCfg,
       destinationConfig,
     });
-    await appStorage.markWebhookAsProcessed(externalId, topic, "success");
+    await appStorage.markWebhookAsProcessed(externalId, storageTopic, "success");
     return c.text("OK", 200);
   } catch (e: any) {
-    console.error(`[Lodgify] Pipeline error for booking ${externalId}:`, e);
-    await appStorage.markWebhookAsProcessed(externalId, topic, "failed");
+    console.error(`[Lodgify] Pipeline error for booking ${externalId} (${pipelineTopic}):`, e);
+    await appStorage.markWebhookAsProcessed(externalId, storageTopic, "failed");
     return errorResponse(c, e, "Pipeline error");
   }
 });

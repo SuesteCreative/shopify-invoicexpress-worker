@@ -108,19 +108,30 @@ export class LodgifySource implements SourceAdapter {
     }
 
     const status = String(booking.status ?? "").toLowerCase();
-    if (status !== "booked") {
+    // Detect refund path: booking_status_change_declined event
+    const isDeclined = status === "declined"
+      || String(parsedBody?.action ?? parsedBody?.event ?? "").includes("declined");
+
+    if (!isDeclined && status !== "booked") {
       console.log(`[Lodgify] Booking ${bookingId} status="${booking.status}" — skipping invoice`);
       return null;
     }
 
-    // Payment gate: only invoice when fully paid (balance_due === 0).
-    // For thin envelopes and _preloaded_booking without payment info, assume paid.
-    if (balanceDue !== null && balanceDue > 0) {
+    // Payment gate (invoice path only): only invoice when fully paid.
+    if (!isDeclined && balanceDue !== null && balanceDue > 0) {
       console.log(`[Lodgify] Booking ${bookingId} balance_due=${balanceDue} — not yet fully paid, skipping`);
       return null;
     }
 
-    const grossTotal = Number(booking.total ?? 0);
+    // Refund path: only issue credit note when something was actually paid.
+    const amountPaid = totalTransactions ?? Number(booking.total ?? 0);
+    if (isDeclined && amountPaid <= 0) {
+      console.log(`[Lodgify] Booking ${bookingId} declined but no payments recorded — skipping credit note`);
+      return null;
+    }
+
+    // For refunds, use the amount paid (total_transactions.amount) as the gross to credit.
+    const grossTotal = isDeclined ? amountPaid : Number(booking.total ?? 0);
     const currency = String(booking.currency_code ?? "EUR").toUpperCase();
 
     // PT default: 6% IVA (alojamento local, Lista I Verba 2.17 CIVA).
@@ -237,11 +248,26 @@ export class LodgifySource implements SourceAdapter {
       global_discount: { name: "", percent: 0, amount: 0 },
     };
 
+    // For declined bookings, build a credit entry covering the full paid amount.
+    // The pipeline's "refund" topic reads credits[] and calls issueCredit() per entry.
+    // amountToRefund = credit.amount - sum(line_items.subtotal) is the delta passed
+    // to issueCredit; we keep both equal so no extra delta line is added.
+    const credits = isDeclined ? [{
+      refund_id: orderNumeric,
+      amount: netUnit, // net so delta = 0; tax handled by Moloni product settings
+      line_items: [{
+        id: lineItem.id,
+        quantity: 1,
+        subtotal: netUnit,
+        total_tax: Math.round((grossTotal - netUnit) * 100) / 100,
+      }],
+    }] : [];
+
     return {
       order,
       refunds: [],
       exchanges: [],
-      credits: [],
+      credits,
       debits: [],
     };
   }

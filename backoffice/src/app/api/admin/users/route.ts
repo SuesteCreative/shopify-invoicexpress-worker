@@ -29,9 +29,16 @@ export async function GET(request: NextRequest) {
         u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
         i.ix_authorized, i.ix_error,
-        CASE WHEN i.shopify_token IS NOT NULL AND i.ix_api_key IS NOT NULL THEN 1 ELSE 0 END as is_connected
+        CASE WHEN i.shopify_token IS NOT NULL AND i.ix_api_key IS NOT NULL THEN 1 ELSE 0 END as is_connected,
+        conn.active_connections
       FROM users u
       LEFT JOIN integrations i ON u.id = i.user_id
+      LEFT JOIN (
+        SELECT user_id, GROUP_CONCAT(source_kind || ':' || destination_kind) as active_connections
+        FROM connections
+        WHERE status = 'active'
+        GROUP BY user_id
+      ) conn ON u.id = conn.user_id
       ORDER BY u.created_at DESC
     `).all();
 

@@ -3,7 +3,7 @@
 export const runtime = "edge";
 
 import { useState, useEffect, useMemo } from "react";
-import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off, Pencil } from "lucide-react";
+import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldPlus, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off, Pencil, Building2, Store } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 import { Link } from "@/i18n/navigation";
@@ -108,11 +108,28 @@ export default function SuperadminPage() {
         for (const u of filtered) {
             const role = u.role as Role;
             if (role === "hiperadmin" || role === "superadmin") admins.push(u);
-            else if (u.shopify_authorized && u.ix_authorized) integrated.push(u);
+            else if ((u.shopify_authorized && u.ix_authorized) || u.active_connections) integrated.push(u);
             else pending.push(u);
         }
         return { admins, integrated, pending };
     }, [filtered]);
+
+    /** Parse active_connections string into [{source, dest}] pairs */
+    const parseConnections = (raw: string | null | undefined): Array<{ source: string; dest: string }> => {
+        if (!raw) return [];
+        return raw.split(",").map(s => {
+            const [source, dest] = s.split(":");
+            return { source: source ?? "", dest: dest ?? "" };
+        });
+    };
+
+    const connLabel = (kind: string) =>
+        kind === "invoicexpress" ? "IX API"
+        : kind === "moloni" ? "Moloni"
+        : kind === "vendus" ? "Vendus"
+        : kind === "lodgify" ? "Lodgify"
+        : kind === "shopify" ? "Shopify"
+        : kind;
 
     const handleImpersonate = async (targetId: string | null) => {
         setActing(targetId || "clear");
@@ -277,23 +294,38 @@ export default function SuperadminPage() {
                         <div className="flex flex-col items-center gap-1.5">
                             <span className="text-[10px] font-black text-fg-40 uppercase tracking-widest leading-none">{t("status")}</span>
                             <div className="flex items-center gap-4">
-                                {[t("shopify"), t("ixApi")].map((label, i) => {
-                                    const ok = i === 0 ? user.shopify_authorized : user.ix_authorized;
-                                    const err = i === 0 ? user.shopify_error : user.ix_error;
-                                    return (
-                                        <div key={label} className="flex flex-col items-center group/tip relative">
-                                            <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
-                                            {ok ? <div className="text-accent-hot text-[10px] font-bold">● OK</div>
-                                                : <div className="text-soon text-[10px] font-bold flex items-center gap-1">
-                                                    ● {(i === 0 ? user.shopify_domain : true) ? "ERR" : "OFF"}
-                                                    {err && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
+                                {/* Shopify-IX status (when present) */}
+                                {(user.shopify_domain || user.shopify_authorized || user.ix_authorized) && (
+                                    <>
+                                        {[{ label: t("shopify"), ok: user.shopify_authorized, err: user.shopify_error, off: !user.shopify_domain },
+                                          { label: t("ixApi"), ok: user.ix_authorized, err: user.ix_error, off: false }
+                                        ].map(({ label, ok, err, off }) => (
+                                            <div key={label} className="flex flex-col items-center group/tip relative">
+                                                <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
+                                                {ok ? <div className="text-accent-hot text-[10px] font-bold">● OK</div>
+                                                    : <div className="text-soon text-[10px] font-bold flex items-center gap-1">
+                                                        ● {off ? "OFF" : "ERR"}
+                                                        {err && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
+                                                    </div>}
+                                                {err && <div className="absolute bottom-full mb-2 w-48 p-3 bg-surface-2 border border-hairline rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
+                                                    <p className="text-[10px] text-soon/80 font-medium leading-tight">{err}</p>
                                                 </div>}
-                                            {err && <div className="absolute bottom-full mb-2 w-48 p-3 bg-surface-2 border border-hairline rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
-                                                <p className="text-[10px] text-soon/80 font-medium leading-tight">{err}</p>
-                                            </div>}
-                                        </div>
-                                    );
-                                })}
+                                            </div>
+                                        ))}
+                                    </>
+                                )}
+                                {/* Active connections (Lodgify etc.) */}
+                                {parseConnections(user.active_connections).map(({ source, dest }) => (
+                                    <div key={`${source}:${dest}`} className="flex flex-col items-center">
+                                        <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{connLabel(source)}</span>
+                                        <div className="text-accent-hot text-[10px] font-bold">● OK</div>
+                                        <span className="text-[9px] text-fg-40 uppercase opacity-50 mt-0.5">{connLabel(dest)}</span>
+                                    </div>
+                                ))}
+                                {/* No integration at all */}
+                                {!user.shopify_domain && !user.shopify_authorized && !user.ix_authorized && !user.active_connections && (
+                                    <div className="text-soon/60 text-[10px] font-bold">● OFF</div>
+                                )}
                             </div>
                         </div>
                         <div className="flex flex-col items-center gap-1.5">

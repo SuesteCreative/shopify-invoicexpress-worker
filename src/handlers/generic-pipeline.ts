@@ -337,7 +337,7 @@ async function runPipelineCore(
       // charge.succeeded event is also the payment confirmation. If the user
       // has auto_finalize on, finalize (and optionally email) in the same flow.
       // Shopify's separate orders/paid webhook is unaffected.
-      const finalizeInSameFlow = source !== "shopify" && config.auto_finalize === 1;
+      const finalizeInSameFlow = source !== "shopify" && ctx.config.auto_finalize === 1;
       let response = "Created";
       if (finalizeInSameFlow) {
         await destAdapter.finalize(invoiceId, ctx);
@@ -362,7 +362,7 @@ async function runPipelineCore(
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for ${logTopic} ${externalId}`);
 
-      if (config.auto_finalize !== 1) {
+      if (ctx.config.auto_finalize !== 1) {
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Auto-finalize disabled", status: 200 });
         return;
       }

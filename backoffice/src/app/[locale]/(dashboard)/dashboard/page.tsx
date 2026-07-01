@@ -23,7 +23,7 @@ export default function WelcomeDashboard() {
   const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
   const [loading, setLoading] = useState(true);
   const [integrationStatus, setIntegrationStatus] = useState<any>(null);
-  const [lodgifyConnections, setLodgifyConnections] = useState<any[]>([]);
+  const [activeConnections, setActiveConnections] = useState<any[]>([]);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<any[] | null>(null);
   const [recentLogs, setRecentLogs] = useState<any[] | null>(null);
@@ -47,16 +47,13 @@ export default function WelcomeDashboard() {
       })
       .finally(() => setLoading(false));
 
-    Promise.all(
-      ["moloni", "invoicexpress", "vendus"].map(dest =>
-        fetch(`/api/integrations/lodgify-source?destination_kind=${dest}`)
-          .then(r => r.ok ? r.json() : { connection: null })
-          .then((d: any) => d.connection)
-          .catch(() => null)
-      )
-    ).then(results => {
-      setLodgifyConnections(results.filter((c: any) => c && c.status === "active"));
-    });
+    fetch("/api/connections")
+      .then(r => r.ok ? r.json() : { connections: [] })
+      .then((d: any) => {
+        const active = (d.connections || []).filter((c: any) => c.status === "active");
+        setActiveConnections(active);
+      })
+      .catch(() => setActiveConnections([]));
 
     fetch("/api/dashboard/recent-invoices")
       .then(r => r.ok ? r.json() : { invoices: [] })
@@ -67,6 +64,24 @@ export default function WelcomeDashboard() {
       .then((d: any) => setRecentLogs(d.logs || []))
       .catch(() => setRecentLogs([]));
   }, []);
+
+  const connLabel = (kind: string) =>
+    kind === "invoicexpress" ? "InvoiceXpress"
+    : kind === "moloni" ? "Moloni"
+    : kind === "vendus" ? "Vendus"
+    : kind === "lodgify" ? "Lodgify"
+    : kind === "shopify" ? "Shopify"
+    : kind === "stripe" ? "Stripe"
+    : kind === "eupago" ? "EuPago"
+    : kind;
+
+  const connHref = (source: string, dest: string) => {
+    const d = dest === "invoicexpress" ? "ix" : dest;
+    if (source === "lodgify") return `/integrations/lodgify-${d}`;
+    if (source === "stripe") return `/integrations/stripe-${d}`;
+    if (source === "shopify") return `/integrations/shopify-${d}`;
+    return "/integrations";
+  };
 
   const logTone = (status: number): "ok" | "warn" | "err" | "info" => {
     if (status >= 500) return "err";
@@ -278,7 +293,7 @@ export default function WelcomeDashboard() {
       <div className="space-y-6">
         <h2 className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em] ml-2">{t("yourIntegrations")}</h2>
 
-        {(integrationStatus || lodgifyConnections.length > 0) ? (
+        {(integrationStatus || activeConnections.length > 0) ? (
           <div className="grid gap-6">
             {integrationStatus && (
               <Link
@@ -317,12 +332,13 @@ export default function WelcomeDashboard() {
               </Link>
             )}
 
-            {lodgifyConnections.map((conn: any) => {
-              const destLabel = conn.destination_kind === "invoicexpress" ? "InvoiceXpress"
-                : conn.destination_kind === "moloni" ? "Moloni"
-                : conn.destination_kind === "vendus" ? "Vendus"
-                : conn.destination_kind;
-              const href = `/integrations/lodgify-${conn.destination_kind === "invoicexpress" ? "ix" : conn.destination_kind}`;
+            {activeConnections.map((conn: any) => {
+              const srcLabel = connLabel(conn.source_kind);
+              const dstLabel = connLabel(conn.destination_kind);
+              const href = connHref(conn.source_kind, conn.destination_kind);
+              const icon = conn.source_kind === "shopify" ? <Store className="w-10 h-10 text-accent-hot" />
+                : conn.source_kind === "lodgify" ? <Building2 className="w-10 h-10 text-accent-hot" />
+                : <Zap className="w-10 h-10 text-accent-hot" />;
               return (
                 <Link
                   key={conn.id}
@@ -334,13 +350,18 @@ export default function WelcomeDashboard() {
                   </div>
                   <div className="flex items-center gap-8 relative z-10 w-full md:w-auto">
                     <div className="w-20 h-20 rounded-[1.8rem] bg-[rgba(94,234,212,0.10)] flex items-center justify-center border border-[rgba(94,234,212,0.20)] shrink-0">
-                      <Building2 className="w-10 h-10 text-accent-hot" />
+                      {icon}
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-2xl font-medium tracking-tight group-hover:text-accent-hot transition-colors">Lodgify + {destLabel}</h3>
+                      <h3 className="text-2xl font-medium tracking-tight group-hover:text-accent-hot transition-colors">{srcLabel} + {dstLabel}</h3>
                       <div className="flex items-center gap-3">
-                        <span className="px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
-                          {t("activeAuthorized")}
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border",
+                          conn.status === "active"
+                            ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
+                            : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                        )}>
+                          {conn.status === "active" ? t("activeAuthorized") : t("configPending")}
                         </span>
                       </div>
                     </div>

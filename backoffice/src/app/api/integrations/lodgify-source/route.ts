@@ -134,14 +134,14 @@ export async function POST(request: NextRequest) {
                     }).catch(() => null);
                 }
 
-                const regRes = await fetch(`${LODGIFY_API}/v2/webhooks`, {
+                const regRes = await fetch(`${LODGIFY_API}/webhooks/v1/subscribe`, {
                     method: "POST",
                     headers: {
                         "X-ApiKey": apiKey,
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                     },
-                    body: JSON.stringify({ url: webhookUrl, event: "booking_new_booked", isActive: true }),
+                    body: JSON.stringify({ target_url: webhookUrl, event: "booking_new_status_booked" }),
                     signal: ac.signal,
                 });
                 clearTimeout(tId);
@@ -218,9 +218,9 @@ export async function DELETE(request: NextRequest) {
         try {
             const cfg = JSON.parse(row.source_config_json);
             if (cfg.webhook_id && cfg.api_key) {
-                await fetch(`${LODGIFY_API}/v2/webhooks/${cfg.webhook_id}`, {
+                await fetch(`${LODGIFY_API}/webhooks/v1/unsubscribe/${cfg.webhook_id}`, {
                     method: "DELETE",
-                    headers: { "X-ApiKey": cfg.api_key },
+                    headers: { "X-ApiKey": cfg.api_key, "Accept": "application/json" },
                 });
             }
         } catch {

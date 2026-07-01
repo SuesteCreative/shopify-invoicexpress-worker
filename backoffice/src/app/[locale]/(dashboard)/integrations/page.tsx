@@ -34,21 +34,34 @@ export default function IntegrationsPage() {
     const t = useTranslations("integrationsIndex");
     const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
     const [selectedInvoicing, setSelectedInvoicing] = useState<string | null>(null);
-    const [activeIntegration, setActiveIntegration] = useState<any>(null);
+    const [activeIntegrations, setActiveIntegrations] = useState<any[]>([]);
 
     useEffect(() => {
-        fetch("/api/integrations")
-            .then(res => res.json())
-            .then((data: any) => {
-                if (data.shopify_domain && data.ix_account_name) {
-                    setActiveIntegration({
-                        id: "shopify-ix",
-                        payment: "shopify",
-                        invoicing: "invoicexpress",
-                        status: data.shopify_authorized && data.ix_authorized && data.webhooks_active ? "authorized" : "pending"
-                    });
-                }
-            });
+        Promise.all([
+            fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
+            fetch("/api/connections").then(r => r.json()).catch(() => ({ connections: [] })),
+        ]).then(([data, connData]: [any, any]) => {
+            const list: any[] = [];
+            if (data.shopify_domain && data.ix_account_name) {
+                list.push({
+                    id: "shopify-ix", payment: "shopify", invoicing: "invoicexpress",
+                    href: "/integrations/shopify-ix",
+                    status: data.shopify_authorized && data.ix_authorized && data.webhooks_active ? "authorized" : "pending"
+                });
+            }
+            const active = (connData.connections || []).filter((c: any) => c.status === "active");
+            for (const conn of active) {
+                const id = `${conn.source_kind}-${conn.destination_kind}`;
+                if (list.find(i => i.id === id)) continue;
+                const dest = conn.destination_kind === "invoicexpress" ? "ix" : conn.destination_kind;
+                list.push({
+                    id, payment: conn.source_kind, invoicing: conn.destination_kind,
+                    href: `/integrations/${conn.source_kind}-${dest}`,
+                    status: "authorized"
+                });
+            }
+            setActiveIntegrations(list);
+        });
     }, []);
 
     // Active combinations:
@@ -91,45 +104,56 @@ export default function IntegrationsPage() {
                 </p>
             </div>
 
-            {activeIntegration && (
+            {activeIntegrations.length > 0 && (
                 <section className="space-y-6">
                     <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">{t("activeSection")}</h2>
-                    <div className="glass rounded-[2.5rem] p-5 sm:p-8 relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-5">
-                            <CheckCircle2 className="w-32 h-32 text-accent-hot" />
-                        </div>
-                        <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
-                            <div className="flex items-center gap-8">
-                                <div className="flex -space-x-4">
-                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
-                                        <Image src="/images/shopify-logo.webp" alt="Shopify" width={36} height={36} className="object-contain" />
+                    <div className="space-y-4">
+                        {activeIntegrations.map(ai => {
+                            const payP = PAYMENT_PLATFORMS.find(p => p.id === ai.payment);
+                            const invP = INVOICING_PLATFORMS.find(p => p.id === ai.invoicing);
+                            const PayIcon = payP?.icon ?? Store;
+                            const InvIcon = invP?.icon ?? ClipboardList;
+                            const title = `${payP?.name ?? ai.payment} + ${invP?.name ?? ai.invoicing}`;
+                            return (
+                                <div key={ai.id} className="glass rounded-[2.5rem] p-5 sm:p-8 relative overflow-hidden group">
+                                    <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-5">
+                                        <CheckCircle2 className="w-32 h-32 text-accent-hot" />
                                     </div>
-                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
-                                        <Image src="/images/invoicexpress_logo2.png" alt="InvoiceXpress" width={36} height={36} className="object-contain" />
+                                    <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
+                                        <div className="flex items-center gap-8">
+                                            <div className="flex -space-x-4">
+                                                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
+                                                    {payP?.logo ? <Image src={payP.logo} alt={payP.name} width={36} height={36} className="object-contain" /> : <PayIcon className="w-8 h-8 text-fg" />}
+                                                </div>
+                                                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
+                                                    {invP?.logo ? <Image src={invP.logo} alt={invP.name} width={36} height={36} className="object-contain" /> : <InvIcon className="w-8 h-8 text-fg" />}
+                                                </div>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <h3 className="text-2xl font-medium tracking-tight">{title}</h3>
+                                                <div className="flex items-center gap-3">
+                                                    <span className={cn(
+                                                        "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border",
+                                                        ai.status === "authorized"
+                                                            ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
+                                                            : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                                                    )}>
+                                                        {ai.status === "authorized" ? t("statusAuthorized") : t("statusPending")}
+                                                    </span>
+                                                    <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("realtimeSync")}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <Link
+                                            href={ai.href}
+                                            className="px-5 sm:px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+                                        >
+                                            {t("manageSettings")} <ArrowRight className="w-4 h-4" />
+                                        </Link>
                                     </div>
                                 </div>
-                                <div className="space-y-1">
-                                    <h3 className="text-2xl font-medium tracking-tight">{t("shopifyPlusIx")}</h3>
-                                    <div className="flex items-center gap-3">
-                                        <span className={cn(
-                                            "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border",
-                                            activeIntegration.status === "authorized"
-                                                ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
-                                                : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
-                                        )}>
-                                            {activeIntegration.status === "authorized" ? t("statusAuthorized") : t("statusPending")}
-                                        </span>
-                                        <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("realtimeSync")}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <Link
-                                href="/integrations/shopify-ix"
-                                className="px-5 sm:px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
-                            >
-                                {t("manageSettings")} <ArrowRight className="w-4 h-4" />
-                            </Link>
-                        </div>
+                            );
+                        })}
                     </div>
                 </section>
             )}

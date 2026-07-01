@@ -38,7 +38,8 @@ type Mapping = {
 export default function MoloniMappingsPage() {
     const t = useTranslations("moloniMappings");
     const searchParams = useSearchParams();
-    const sourceKind = (searchParams?.get("source_kind") === "stripe" ? "stripe" : "shopify") as "shopify" | "stripe";
+    const rawSource = searchParams?.get("source_kind") ?? "shopify";
+    const sourceKind = (["shopify", "stripe", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "lodgify" | "eupago";
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<string | null>(null); // source_reference being saved
@@ -189,7 +190,8 @@ export default function MoloniMappingsPage() {
         );
     }
 
-    const backHref = sourceKind === "stripe" ? "/integrations/stripe-moloni" : "/integrations/shopify-moloni";
+    const srcLabel = sourceKind === "stripe" ? "Stripe" : sourceKind === "lodgify" ? "Lodgify" : sourceKind === "eupago" ? "EuPago" : "Shopify";
+    const backHref = `/integrations/${sourceKind}-moloni`;
     const mappedCount = mappings.size;
     const unmappedCount = sourceProducts.filter(p => !mappings.has(p.source_reference)).length;
     const autoMatchableCount = sourceProducts.filter(p =>
@@ -200,7 +202,7 @@ export default function MoloniMappingsPage() {
         <div className="space-y-10 animate-in fade-in duration-700">
             <div className="space-y-2">
                 <Link href={backHref} className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
-                    <ArrowLeft className="w-3 h-3" /> {t("backToIntegration", { source: sourceKind === "stripe" ? "Stripe + Moloni" : "Shopify + Moloni" })}
+                    <ArrowLeft className="w-3 h-3" /> {t("backToIntegration", { source: `${srcLabel} + Moloni` })}
                 </Link>
                 <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{t("title")}</h1>
                 <p className="text-fg-60 font-medium max-w-2xl">{t("subtitle", { source: sourceKind })}</p>

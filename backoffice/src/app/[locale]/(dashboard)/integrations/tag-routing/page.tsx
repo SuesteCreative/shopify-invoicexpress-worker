@@ -32,7 +32,7 @@ export default function TagRoutingPage() {
     const searchParams = useSearchParams();
 
     const rawSource = searchParams?.get("source_kind") ?? "shopify";
-    const sourceKind = (["shopify", "stripe", "lodgify"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "lodgify";
+    const sourceKind = (["shopify", "stripe", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "lodgify" | "eupago";
     const destinationKind = (searchParams?.get("destination_kind") === "moloni" ? "moloni" : "invoicexpress") as "invoicexpress" | "moloni";
     const isMoloni = destinationKind === "moloni";
 
@@ -145,21 +145,11 @@ export default function TagRoutingPage() {
         return dt === "invoice_receipt" ? t("typeReceipt") : t("typeInvoice");
     }
 
-    const backHref = isMoloni
-        ? "/integrations/lodgify-moloni"
-        : sourceKind === "stripe"
-            ? "/integrations/stripe-ix"
-            : sourceKind === "lodgify"
-                ? "/integrations/lodgify-ix"
-                : "/integrations/shopify-ix";
-
-    const backConnectionLabel = isMoloni
-        ? "Lodgify + Moloni"
-        : sourceKind === "stripe"
-            ? "Stripe + InvoiceXpress"
-            : sourceKind === "lodgify"
-                ? "Lodgify + InvoiceXpress"
-                : "Shopify + InvoiceXpress";
+    const srcLabel = sourceKind === "stripe" ? "Stripe" : sourceKind === "lodgify" ? "Lodgify" : sourceKind === "eupago" ? "EuPago" : "Shopify";
+    const destShort = isMoloni ? "moloni" : "ix";
+    const destLabel = isMoloni ? "Moloni" : "InvoiceXpress";
+    const backHref = `/integrations/${sourceKind}-${destShort}`;
+    const backConnectionLabel = `${srcLabel} + ${destLabel}`;
 
     const seriesColLabel = isMoloni ? t("colDocSet") : t("colSeries");
 

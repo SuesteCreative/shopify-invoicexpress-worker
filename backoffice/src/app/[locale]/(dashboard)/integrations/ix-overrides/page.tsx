@@ -35,7 +35,8 @@ const EXEMPTION_PRESETS = ["", "M01", "M07", "M11", "M16", "M40", "M99"];
 export default function IxOverridesPage() {
     const t = useTranslations("ixOverrides");
     const searchParams = useSearchParams();
-    const sourceKind = (searchParams?.get("source_kind") === "stripe" ? "stripe" : "shopify") as "shopify" | "stripe";
+    const rawSource = searchParams?.get("source_kind") ?? "shopify";
+    const sourceKind = (["shopify", "stripe", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "lodgify" | "eupago";
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -145,14 +146,15 @@ export default function IxOverridesPage() {
         return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" /></div>;
     }
 
-    const backHref = sourceKind === "stripe" ? "/integrations/stripe-ix" : "/integrations/shopify-ix";
+    const srcLabel = sourceKind === "stripe" ? "Stripe" : sourceKind === "lodgify" ? "Lodgify" : sourceKind === "eupago" ? "EuPago" : "Shopify";
+    const backHref = `/integrations/${sourceKind}-ix`;
     const overrideCount = overrides.size;
 
     return (
         <div className="space-y-10 animate-in fade-in duration-700">
             <div className="space-y-2">
                 <Link href={backHref} className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
-                    <ArrowLeft className="w-3 h-3" /> {t("backToIntegration", { source: sourceKind === "stripe" ? "Stripe + InvoiceXpress" : "Shopify + InvoiceXpress" })}
+                    <ArrowLeft className="w-3 h-3" /> {t("backToIntegration", { source: `${srcLabel} + InvoiceXpress` })}
                 </Link>
                 <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{t("title")}</h1>
                 <p className="text-fg-60 font-medium max-w-2xl">{t("subtitle")}</p>

@@ -178,7 +178,7 @@
     "bodyEarlyBird": "Free trial until August 1, 2026 ({days} days left). Add payment details whenever — automatic charge from Aug 1.",
     "bodyTrial": "Trial ends on {date} ({days} days left). Automatic charge.",
     "bodyBlocked": "Automatic invoice issuance to InvoiceXpress is paused. Reactivate to resume the integration.",
-    "bodyNone": "No active subscription. The Shopify → InvoiceXpress integration requires a subscription.",
+    "bodyNone": "No active subscription. Invoicing automation requires an active subscription.",
     "manageBilling": "Manage billing",
     "tabMonthly": "Monthly",
     "tabAnnual": "Annual",

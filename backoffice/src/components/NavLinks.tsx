@@ -36,22 +36,43 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
     const [isRegistered, setIsRegistered] = useState<boolean>(true);
 
     useEffect(() => {
-        fetch("/api/integrations")
-            .then(res => res.json())
-            .then((data: any) => {
-                setIsRegistered(data._registration_completed);
-                const integrations: ActiveIntegration[] = [];
-                if (data.shopify_domain && data.ix_account_name) {
-                    integrations.push({
-                        id: "shopify-ix",
-                        label: "Shopify + IX",
-                        href: "/integrations/shopify-ix",
-                        iconLetter: "S",
-                    });
-                }
-                setActiveIntegrations(integrations.slice(0, 3));
-            })
-            .catch(() => { });
+        Promise.all([
+            fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
+            fetch("/api/connections").then(r => r.json()).catch(() => ({ connections: [] })),
+        ]).then(([intData, connData]: [any, any]) => {
+            setIsRegistered(intData._registration_completed ?? true);
+            const integrations: ActiveIntegration[] = [];
+
+            // Legacy shopify-ix (integrations table)
+            if (intData.shopify_domain && intData.ix_account_name) {
+                integrations.push({ id: "shopify-ix", label: "Shopify + IX", href: "/integrations/shopify-ix", iconLetter: "S" });
+            }
+
+            // All active connections (connections table)
+            const active = (connData.connections || []).filter((c: any) => c.status === "active");
+            for (const conn of active) {
+                const id = `${conn.source_kind}-${conn.destination_kind}`;
+                if (integrations.find(i => i.id === id)) continue;
+                const srcLabel = conn.source_kind === "lodgify" ? "Lodgify"
+                    : conn.source_kind === "stripe" ? "Stripe"
+                    : conn.source_kind === "shopify" ? "Shopify"
+                    : conn.source_kind === "eupago" ? "EuPago"
+                    : conn.source_kind;
+                const destLabel = conn.destination_kind === "invoicexpress" ? "IX"
+                    : conn.destination_kind === "moloni" ? "Moloni"
+                    : conn.destination_kind === "vendus" ? "Vendus"
+                    : conn.destination_kind;
+                const dest = conn.destination_kind === "invoicexpress" ? "ix" : conn.destination_kind;
+                integrations.push({
+                    id,
+                    label: `${srcLabel} + ${destLabel}`,
+                    href: `/integrations/${conn.source_kind}-${dest}`,
+                    iconLetter: srcLabel[0].toUpperCase(),
+                });
+            }
+
+            setActiveIntegrations(integrations.slice(0, 3));
+        });
     }, []);
 
     const LinkItem = ({

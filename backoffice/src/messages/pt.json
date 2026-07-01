@@ -178,7 +178,7 @@
     "bodyEarlyBird": "Trial gratuito até 1 de Agosto de 2026 ({days} dias restantes). Adiciona dados de pagamento quando quiseres — cobrança automática a partir de 1 Ago.",
     "bodyTrial": "Trial termina a {date} ({days} dias restantes). Cobrança automática.",
     "bodyBlocked": "A emissão automática de faturas para o InvoiceXpress está suspensa. Reativa para retomar a integração.",
-    "bodyNone": "Sem subscrição ativa. A integração Shopify → InvoiceXpress requer subscrição.",
+    "bodyNone": "Sem subscrição ativa. A automatização de faturação requer uma subscrição.",
     "manageBilling": "Gerir Faturação",
     "tabMonthly": "Mensal",
     "tabAnnual": "Anual",

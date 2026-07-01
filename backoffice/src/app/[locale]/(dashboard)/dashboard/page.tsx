@@ -3,7 +3,7 @@
 export const runtime = "edge";
 
 import { useState, useEffect } from "react";
-import { Activity, ClipboardList, Settings2, BookOpen, Plus, Store, Zap, ArrowRight, ExternalLink, FileText, ScrollText, Inbox } from "lucide-react";
+import { Activity, ClipboardList, Settings2, BookOpen, Plus, Store, Zap, ArrowRight, ExternalLink, FileText, ScrollText, Inbox, Building2 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useUser } from "@clerk/nextjs";
@@ -23,6 +23,7 @@ export default function WelcomeDashboard() {
   const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
   const [loading, setLoading] = useState(true);
   const [integrationStatus, setIntegrationStatus] = useState<any>(null);
+  const [lodgifyConnections, setLodgifyConnections] = useState<any[]>([]);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<any[] | null>(null);
   const [recentLogs, setRecentLogs] = useState<any[] | null>(null);
@@ -45,6 +46,17 @@ export default function WelcomeDashboard() {
         }
       })
       .finally(() => setLoading(false));
+
+    Promise.all(
+      ["moloni", "invoicexpress", "vendus"].map(dest =>
+        fetch(`/api/integrations/lodgify-source?destination_kind=${dest}`)
+          .then(r => r.ok ? r.json() : { connection: null })
+          .then((d: any) => d.connection)
+          .catch(() => null)
+      )
+    ).then(results => {
+      setLodgifyConnections(results.filter((c: any) => c && c.status === "active"));
+    });
 
     fetch("/api/dashboard/recent-invoices")
       .then(r => r.ok ? r.json() : { invoices: [] })
@@ -266,43 +278,79 @@ export default function WelcomeDashboard() {
       <div className="space-y-6">
         <h2 className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em] ml-2">{t("yourIntegrations")}</h2>
 
-        {integrationStatus ? (
+        {(integrationStatus || lodgifyConnections.length > 0) ? (
           <div className="grid gap-6">
-            <Link
-              href="/integrations/shopify-ix"
-              className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-[rgba(94,234,212,0.30)] transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
-            >
-              <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-0 group-hover:opacity-5 transition-all">
-                <Settings2 className="w-32 h-32 text-accent-hot" />
-              </div>
-              <div className="flex items-center gap-8 relative z-10 w-full md:w-auto">
-                <div className="w-20 h-20 rounded-[1.8rem] bg-[rgba(94,234,212,0.10)] flex items-center justify-center border border-[rgba(94,234,212,0.20)] shrink-0">
-                  <Store className="w-10 h-10 text-accent-hot" />
+            {integrationStatus && (
+              <Link
+                href="/integrations/shopify-ix"
+                className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-[rgba(94,234,212,0.30)] transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
+              >
+                <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-0 group-hover:opacity-5 transition-all">
+                  <Settings2 className="w-32 h-32 text-accent-hot" />
                 </div>
-                <div className="space-y-1">
-                  <h3 className="text-2xl font-medium tracking-tight group-hover:text-accent-hot transition-colors">Shopify + InvoiceXpress</h3>
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      "px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border",
-                      integrationStatus.isAllComplete
-                        ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
-                        : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
-                    )}>
-                      {integrationStatus.isAllComplete ? t("activeAuthorized") : t("configPending")}
-                    </span>
-                    <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] hidden sm:inline">{t("since", { date: "2026-03-02" })}</span>
+                <div className="flex items-center gap-8 relative z-10 w-full md:w-auto">
+                  <div className="w-20 h-20 rounded-[1.8rem] bg-[rgba(94,234,212,0.10)] flex items-center justify-center border border-[rgba(94,234,212,0.20)] shrink-0">
+                    <Store className="w-10 h-10 text-accent-hot" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-2xl font-medium tracking-tight group-hover:text-accent-hot transition-colors">Shopify + InvoiceXpress</h3>
+                    <div className="flex items-center gap-3">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border",
+                        integrationStatus.isAllComplete
+                          ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
+                          : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                      )}>
+                        {integrationStatus.isAllComplete ? t("activeAuthorized") : t("configPending")}
+                      </span>
+                      <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] hidden sm:inline">{t("since", { date: "2026-03-02" })}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-6 relative z-10 ml-auto md:ml-0">
-                <div className="hidden xl:flex items-center -space-x-2">
-                  <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.shopifyAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot" : "bg-surface-2 text-fg-40")}><Store className="w-3 h-3" /></div>
-                  <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.ixAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot" : "bg-surface-2 text-fg-40")}><ClipboardList className="w-3 h-3" /></div>
+                <div className="flex items-center gap-6 relative z-10 ml-auto md:ml-0">
+                  <div className="hidden xl:flex items-center -space-x-2">
+                    <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.shopifyAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot" : "bg-surface-2 text-fg-40")}><Store className="w-3 h-3" /></div>
+                    <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.ixAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot" : "bg-surface-2 text-fg-40")}><ClipboardList className="w-3 h-3" /></div>
+                  </div>
+                  <ArrowRight className="w-6 h-6 text-fg-40 group-hover:text-accent-hot group-hover:translate-x-2 transition-all" />
                 </div>
-                <ArrowRight className="w-6 h-6 text-fg-40 group-hover:text-accent-hot group-hover:translate-x-2 transition-all" />
-              </div>
-            </Link>
+              </Link>
+            )}
+
+            {lodgifyConnections.map((conn: any) => {
+              const destLabel = conn.destination_kind === "invoicexpress" ? "InvoiceXpress"
+                : conn.destination_kind === "moloni" ? "Moloni"
+                : conn.destination_kind === "vendus" ? "Vendus"
+                : conn.destination_kind;
+              const href = `/integrations/lodgify-${conn.destination_kind === "invoicexpress" ? "ix" : conn.destination_kind}`;
+              return (
+                <Link
+                  key={conn.id}
+                  href={href}
+                  className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-[rgba(94,234,212,0.30)] transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-0 group-hover:opacity-5 transition-all">
+                    <Settings2 className="w-32 h-32 text-accent-hot" />
+                  </div>
+                  <div className="flex items-center gap-8 relative z-10 w-full md:w-auto">
+                    <div className="w-20 h-20 rounded-[1.8rem] bg-[rgba(94,234,212,0.10)] flex items-center justify-center border border-[rgba(94,234,212,0.20)] shrink-0">
+                      <Building2 className="w-10 h-10 text-accent-hot" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-2xl font-medium tracking-tight group-hover:text-accent-hot transition-colors">Lodgify + {destLabel}</h3>
+                      <div className="flex items-center gap-3">
+                        <span className="px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
+                          {t("activeAuthorized")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6 relative z-10 ml-auto md:ml-0">
+                    <ArrowRight className="w-6 h-6 text-fg-40 group-hover:text-accent-hot group-hover:translate-x-2 transition-all" />
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         ) : (
           <div className="glass p-6 sm:p-12 rounded-[3rem] border-dashed flex flex-col items-center gap-6 text-center">

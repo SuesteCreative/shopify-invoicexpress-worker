@@ -499,7 +499,7 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     console.warn(`[Lodgify] Subscription gate blocked for ${userId}: ${gate.reason}`);
     await reportIncident(c.env, {
       user_id: userId,
-      severity: "warn",
+      severity: "warning",
       kind: "subscription_inactive",
       summary: `Lodgify webhook bloqueado: subscrição inativa (${gate.reason}).`,
       connection_label: `lodgify → ${conn.destination_kind ?? "moloni"}`,
@@ -672,6 +672,70 @@ app.post("/admin/lodgify/replay", async (c) => {
     await appStorage.markWebhookAsProcessed(externalId, topic, "failed");
     return c.json({ ok: false, error: e?.message ?? "Unknown error" }, 500);
   }
+});
+
+// Admin: re-register Lodgify webhooks and store secrets in DB
+app.post("/admin/lodgify/reregister-webhooks", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ userId: string }>();
+  if (!body.userId) return c.json({ error: "Missing userId" }, 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT id, source_config_json FROM connections WHERE user_id = ? AND source_kind = 'lodgify' AND status = 'active' LIMIT 1`
+  ).bind(body.userId).first();
+  if (!conn) return c.json({ error: "No active Lodgify connection" }, 404);
+
+  let cfg: Record<string, any> = {};
+  try { cfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /**/ }
+  const apiKey = cfg.api_key;
+  if (!apiKey) return c.json({ error: "No api_key in source_config" }, 400);
+
+  const LODGIFY = "https://api.lodgify.com";
+  const workerBase = (c.env as any).WORKER_URL ?? "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev";
+  const baseUrl = `${workerBase}/webhooks/lodgify/${body.userId}`;
+
+  const toRegister = [
+    { event: "booking_new_status_booked", url: baseUrl,               secretKey: "webhook_secret",          idKey: "webhook_id" },
+    { event: "booking_change",             url: `${baseUrl}?e=change`, secretKey: "webhook_secret_change",   idKey: "webhook_id_change" },
+    { event: "booking_status_change_declined", url: `${baseUrl}?e=declined`, secretKey: "webhook_secret_declined", idKey: "webhook_id_declined" },
+  ];
+
+  const results: Record<string, any> = {};
+
+  for (const { event, url, secretKey, idKey } of toRegister) {
+    // Delete existing if we have an ID stored
+    const existingId = cfg[idKey];
+    if (existingId) {
+      await fetch(`${LODGIFY}/webhooks/v1/unsubscribe/${existingId}`, {
+        method: "DELETE",
+        headers: { "X-ApiKey": apiKey },
+      }).catch(() => null);
+    }
+
+    // Register new
+    const res = await fetch(`${LODGIFY}/webhooks/v1/subscribe`, {
+      method: "POST",
+      headers: { "X-ApiKey": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ target_url: url, event }),
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      results[event] = { ok: false, status: res.status, error: data };
+      continue;
+    }
+    const secret = data.secret ?? data.signing_secret ?? data.key ?? null;
+    const id = String(data.id ?? data.webhook_id ?? "");
+    cfg[secretKey] = secret;
+    cfg[idKey] = id;
+    results[event] = { ok: true, id, hasSecret: !!secret };
+  }
+
+  await c.env.DB.prepare(
+    `UPDATE connections SET source_config_json = ? WHERE user_id = ? AND source_kind = 'lodgify'`
+  ).bind(JSON.stringify(cfg), body.userId).run();
+
+  return c.json({ ok: true, results });
 });
 
 // Admin: list unprocessed orders

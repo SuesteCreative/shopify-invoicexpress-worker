@@ -500,11 +500,17 @@ async function resolveOrCreateCustomer(
   }
 
   // 2. Insert a new customer record.
+  // Moloni rejects number=0; fetch the next auto-assigned sequential number.
+  const nextNumRes = await moloniCall<{ number?: string | number }>(
+    cfg, token, "/customers/getNextNumber/", {}, "lookup",
+  );
+  const nextNumber = Number(nextNumRes?.number ?? 1);
+
   const countryId = await resolveCountryId(cfg, token, billing?.country_code);
   const inserted = await moloniCall<{ customer_id?: number }>(
     cfg, token, "/customers/insert/",
     {
-      number: 0,
+      number: nextNumber,
       vat,
       name: customerName,
       language_id: 1,

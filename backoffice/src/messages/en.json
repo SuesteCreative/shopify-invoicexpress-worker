@@ -745,7 +745,16 @@
     "viewCreditNote": "View credit note",
     "viewInvoice": "View invoice",
     "heuristicTooltip": "Heuristic match · score {score}",
-    "processing": "Processing"
+    "processing": "Processing",
+    "stripeSuccess": "Subscription activated",
+    "subscribeHeading": "Activate subscription",
+    "monthlyPlan": "Monthly",
+    "monthlyPrice": "€7.50/month + VAT",
+    "annualPlan": "Annual",
+    "annualPrice": "€75/year + VAT",
+    "annualSaving": "Save 17%",
+    "btnSubscribeMonthly": "Subscribe monthly",
+    "btnSubscribeAnnual": "Subscribe annually"
   },
   "invoices": {
     "title": "Invoices",
@@ -1689,7 +1698,7 @@
     "backToDashboard": "Back to dashboard",
     "pageTitle": "Integration guides",
     "pageSubtitle": "Rioko 2.0 · How to get credentials for each platform",
-    "pageIntro": "Pick a platform to see how to get the required credentials. Rioko connects a <strong>source</strong> (Shopify or Stripe) to an invoicing <strong>destination</strong> (InvoiceXpress or Moloni). Each platform has its own credentials — open the matching tab.",
+    "pageIntro": "Pick a platform to see how to get the required credentials. Rioko connects a <strong>source</strong> (Shopify, Stripe, EuPago, or Lodgify) to an invoicing <strong>destination</strong> (InvoiceXpress, Moloni, or Vendus). Each platform has its own credentials — open the matching tab.",
     "preview": "Preview",
     "thisStepByKapta": "This step is handled by Kapta",
     "thisStepByKaptaBody": "The Shopify Access Token is generated and installed by the Kapta technical team during initial setup. Never share this token with anyone other than Kapta.",

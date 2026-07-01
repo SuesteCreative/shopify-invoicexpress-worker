@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import {
     ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText,
     Percent, Zap, Tag, Info, X, Search, Settings2, Copy, CreditCard,
-    ClipboardList, ChevronDown, Calendar
+    ClipboardList, ChevronDown, Calendar, Wallet, Hotel, Receipt
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -143,7 +143,7 @@ function ContactBox({ subject = "Rioko - Suporte" }: { subject?: string }) {
 
 // ─── Platform tabs ────────────────────────────────────────────────────────
 
-type Platform = "shopify" | "stripe" | "invoicexpress" | "moloni";
+type Platform = "shopify" | "stripe" | "eupago" | "lodgify" | "invoicexpress" | "moloni" | "vendus";
 
 type Accent = "emerald" | "violet" | "sky" | "amber";
 
@@ -152,8 +152,11 @@ function usePlatforms() {
     const PLATFORMS: { id: Platform; label: string; sub: string; icon: React.ComponentType<any>; accent: Accent; group: "payment" | "invoicing" }[] = [
         { id: "shopify", label: "Shopify", sub: t("platformShopifySub"), icon: Store, accent: "emerald", group: "payment" },
         { id: "stripe", label: "Stripe", sub: t("platformStripeSub"), icon: CreditCard, accent: "violet", group: "payment" },
+        { id: "eupago", label: "EuPago", sub: t("platformEupagoSub"), icon: Wallet, accent: "amber", group: "payment" },
+        { id: "lodgify", label: "Lodgify", sub: t("platformLodgifySub"), icon: Hotel, accent: "emerald", group: "payment" },
         { id: "invoicexpress", label: "InvoiceXpress", sub: t("platformIxSub"), icon: FileText, accent: "sky", group: "invoicing" },
         { id: "moloni", label: "Moloni", sub: t("platformMoloniSub"), icon: ClipboardList, accent: "amber", group: "invoicing" },
+        { id: "vendus", label: "Vendus", sub: t("platformVendusSub"), icon: Receipt, accent: "violet", group: "invoicing" },
     ];
     return PLATFORMS;
 }
@@ -480,6 +483,106 @@ function MoloniGuide({ onZoom }: { onZoom: (src: string) => void }) {
     );
 }
 
+function EuPagoGuide({ onZoom }: { onZoom: (src: string) => void }) {
+    const t = useTranslations("help");
+    return (
+        <div className="space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="eupago-hmac" icon={<Key className="w-5 h-5" />} title={t("eupagoHmacTitle")} step={t("credentialTotal2a")} accent="amber">
+                    <HtmlInfoBox html={t("eupagoHmacInfo")} />
+                    <Steps accent="amber" items={[
+                        t("eupagoHmacStep1"),
+                        t("eupagoHmacStep2"),
+                        t("eupagoHmacStep3"),
+                        t("eupagoHmacStep4"),
+                    ]} />
+                    <HtmlWarningBox html={t("eupagoHmacWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="eupago-webhook" icon={<Webhook className="w-5 h-5" />} title={t("eupagoWebhookTitle")} accent="amber">
+                    <HtmlInfoBox html={t("eupagoWebhookInfo")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="eupago-apikey" icon={<Settings2 className="w-5 h-5" />} title={t("eupagoApiKeyTitle")} step={t("credentialTotal2b")} accent="amber">
+                    <HtmlInfoBox html={t("eupagoApiKeyInfo")} />
+                    <HtmlWarningBox html={t("eupagoApiKeyHint")} />
+                </Section>
+            </div>
+        </div>
+    );
+}
+
+function LodgifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
+    const t = useTranslations("help");
+    return (
+        <div className="space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="lodgify-apikey" icon={<Key className="w-5 h-5" />} title={t("lodgifyApiKeyTitle")} step={t("credentialTotal2a")} accent="emerald">
+                    <HtmlInfoBox html={t("lodgifyApiKeyInfo")} />
+                    <Steps accent="emerald" items={[
+                        t("lodgifyApiKeyStep1"),
+                        t("lodgifyApiKeyStep2"),
+                        t("lodgifyApiKeyStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("lodgifyApiKeyWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="lodgify-webhook" icon={<Webhook className="w-5 h-5" />} title={t("lodgifyWebhookTitle")} step={t("advancedOptional")} accent="emerald">
+                    <HtmlInfoBox html={t("lodgifyWebhookInfo")} />
+                    <HtmlWarningBox html={t("lodgifyWebhookWarn")} />
+                </Section>
+            </div>
+        </div>
+    );
+}
+
+function VendusGuide({ onZoom }: { onZoom: (src: string) => void }) {
+    const t = useTranslations("help");
+    return (
+        <div className="space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="vendus-apikey" icon={<Key className="w-5 h-5" />} title={t("vendusApiKeyTitle")} step={t("credentialTotal3")} accent="violet">
+                    <HtmlInfoBox html={t("vendusApiKeyInfo")} />
+                    <Steps accent="violet" items={[
+                        t("vendusApiKeyStep1"),
+                        t("vendusApiKeyStep2"),
+                        t("vendusApiKeyStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("vendusApiKeyWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="vendus-ids" icon={<Settings2 className="w-5 h-5" />} title={t("vendusIdsTitle")} step={t("credentialTotal3b")} accent="violet">
+                    <HtmlInfoBox html={t("vendusIdsInfo")} />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl p-5">
+                            <div className="text-accent font-black text-sm mb-2">Register ID</div>
+                            <p className="text-fg-60 text-sm">{t("vendusRegisterIdHint")}</p>
+                        </div>
+                        <div className="bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl p-5">
+                            <div className="text-accent font-black text-sm mb-2">Series ID</div>
+                            <p className="text-fg-60 text-sm">{t("vendusSeriesIdHint")}</p>
+                        </div>
+                    </div>
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="vendus-env" icon={<Globe className="w-5 h-5" />} title={t("vendusEnvTitle")} step={t("credentialTotal3c")} accent="violet">
+                    <HtmlInfoBox html={t("vendusEnvInfo")} />
+                </Section>
+            </div>
+        </div>
+    );
+}
+
 // ─── FAQ ──────────────────────────────────────────────────────────────────
 
 type FAQItem = { q: string; a: string };
@@ -502,6 +605,18 @@ function useFaqs(): Record<Platform, FAQItem[]> {
             { q: t("faqStripeQ4"), a: t("faqStripeA4") },
             { q: t("faqStripeQ5"), a: t("faqStripeA5") },
         ],
+        eupago: [
+            { q: t("faqEupagoQ1"), a: t("faqEupagoA1") },
+            { q: t("faqEupagoQ2"), a: t("faqEupagoA2") },
+            { q: t("faqEupagoQ3"), a: t("faqEupagoA3") },
+            { q: t("faqEupagoQ4"), a: t("faqEupagoA4") },
+        ],
+        lodgify: [
+            { q: t("faqLodgifyQ1"), a: t("faqLodgifyA1") },
+            { q: t("faqLodgifyQ2"), a: t("faqLodgifyA2") },
+            { q: t("faqLodgifyQ3"), a: t("faqLodgifyA3") },
+            { q: t("faqLodgifyQ4"), a: t("faqLodgifyA4") },
+        ],
         invoicexpress: [
             { q: t("faqIxQ1"), a: t("faqIxA1") },
             { q: t("faqIxQ2"), a: t("faqIxA2") },
@@ -515,6 +630,12 @@ function useFaqs(): Record<Platform, FAQItem[]> {
             { q: t("faqMoloniQ3"), a: t("faqMoloniA3") },
             { q: t("faqMoloniQ4"), a: t("faqMoloniA4") },
             { q: t("faqMoloniQ5"), a: t("faqMoloniA5") },
+        ],
+        vendus: [
+            { q: t("faqVendusQ1"), a: t("faqVendusA1") },
+            { q: t("faqVendusQ2"), a: t("faqVendusA2") },
+            { q: t("faqVendusQ3"), a: t("faqVendusA3") },
+            { q: t("faqVendusQ4"), a: t("faqVendusA4") },
         ],
     };
 }
@@ -684,8 +805,11 @@ export default function HelpPage() {
                 >
                     {tab === "shopify" && <ShopifyGuide onZoom={setZoomImage} />}
                     {tab === "stripe" && <StripeGuide onZoom={setZoomImage} />}
+                    {tab === "eupago" && <EuPagoGuide onZoom={setZoomImage} />}
+                    {tab === "lodgify" && <LodgifyGuide onZoom={setZoomImage} />}
                     {tab === "invoicexpress" && <InvoiceXpressGuide onZoom={setZoomImage} />}
                     {tab === "moloni" && <MoloniGuide onZoom={setZoomImage} />}
+                    {tab === "vendus" && <VendusGuide onZoom={setZoomImage} />}
                 </motion.div>
             </AnimatePresence>
 

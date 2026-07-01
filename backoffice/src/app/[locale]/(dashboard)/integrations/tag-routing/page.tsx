@@ -132,6 +132,19 @@ export default function TagRoutingPage() {
         return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" /></div>;
     }
 
+    function typeLabel(dt: string, moloni: boolean): string {
+        if (moloni) {
+            switch (dt) {
+                case "invoice": return t("typeMoloniInvoice");
+                case "invoice_receipt": return t("typeMoloniReceipt");
+                case "invoice_draft": return t("typeMoloniInvoiceDraft");
+                case "invoice_receipt_draft": return t("typeMoloniReceiptDraft");
+                default: return dt;
+            }
+        }
+        return dt === "invoice_receipt" ? t("typeReceipt") : t("typeInvoice");
+    }
+
     const backHref = isMoloni
         ? "/integrations/lodgify-moloni"
         : sourceKind === "stripe"
@@ -184,7 +197,7 @@ export default function TagRoutingPage() {
                         <span className="font-mono text-sm truncate">{rule.tag_name}</span>
                         <span className="w-36 text-center">
                             {rule.document_type
-                                ? <Badge label={rule.document_type === "invoice_receipt" ? t("typeReceipt") : t("typeInvoice")} color="accent" />
+                                ? <Badge label={typeLabel(rule.document_type, isMoloni)} color="accent" />
                                 : <span className="text-[10px] text-fg-40 uppercase tracking-wider">{t("typeDefault")}</span>
                             }
                         </span>
@@ -229,9 +242,21 @@ export default function TagRoutingPage() {
                                     onChange={(e) => setDraft({ ...draft, document_type: e.target.value })}
                                     className="w-full bg-surface-2 border border-hairline rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
                                 >
-                                    <option value="">{t("typeDefault")}</option>
-                                    <option value="invoice">{t("typeInvoice")}</option>
-                                    <option value="invoice_receipt">{t("typeReceipt")}</option>
+                                    {isMoloni ? (
+                                        <>
+                                            <option value="">{t("typeNoOverride")}</option>
+                                            <option value="invoice">{t("typeMoloniInvoice")}</option>
+                                            <option value="invoice_receipt">{t("typeMoloniReceipt")}</option>
+                                            <option value="invoice_draft">{t("typeMoloniInvoiceDraft")}</option>
+                                            <option value="invoice_receipt_draft">{t("typeMoloniReceiptDraft")}</option>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <option value="">{t("typeDefault")}</option>
+                                            <option value="invoice">{t("typeInvoice")}</option>
+                                            <option value="invoice_receipt">{t("typeReceipt")}</option>
+                                        </>
+                                    )}
                                 </select>
                             </div>
                             <div className="space-y-1.5">

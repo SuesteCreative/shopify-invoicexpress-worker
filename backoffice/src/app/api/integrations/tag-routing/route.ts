@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     if (!tagName) return NextResponse.json({ error: "tag_name required" }, { status: 400 });
 
-    const validDocTypes = ["invoice", "invoice_receipt"];
+    const validDocTypes = ["invoice", "invoice_receipt", "invoice_draft", "invoice_receipt_draft"];
     const documentType = body.document_type && validDocTypes.includes(body.document_type)
         ? body.document_type
         : null;

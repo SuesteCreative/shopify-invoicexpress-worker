@@ -269,15 +269,21 @@ async function runPipelineCore(
             },
           };
         } else if (destination === "moloni") {
+          const rawType = tagMatch.document_type ?? "";
+          const isDraft = rawType.endsWith("_draft");
+          const baseType = isDraft ? rawType.slice(0, -"_draft".length) : rawType;
           ctx = {
             ...ctx,
+            // _draft suffix forces draft; non-draft suffix forces auto-finalize.
+            // No suffix (series-only rule) leaves auto_finalize from config.
+            ...(rawType ? { config: { ...ctx.config, auto_finalize: isDraft ? 0 : 1 } } : {}),
             destinationConfig: {
               ...ctx.destinationConfig,
               ...(tagMatch.series_name ? {
                 moloni_document_set_id: null,
                 moloni_document_set_name: tagMatch.series_name,
               } : {}),
-              ...(tagMatch.document_type ? { moloni_document_type: tagMatch.document_type } : {}),
+              ...(baseType ? { moloni_document_type: baseType } : {}),
             },
           };
         }

@@ -48,8 +48,9 @@ export class LodgifySource implements SourceAdapter {
   }
 
   externalId(parsedBody: any): string {
-    const id = parsedBody?.data?.bookingId ?? parsedBody?.bookingId;
-    if (id == null) throw new Error("Lodgify webhook missing data.bookingId");
+    // Webhook payload has booking.id (new format) or data.bookingId (thin envelope)
+    const id = parsedBody?.booking?.id ?? parsedBody?.data?.bookingId ?? parsedBody?.bookingId;
+    if (id == null) throw new Error("Lodgify webhook missing booking.id / data.bookingId");
     return String(id);
   }
 
@@ -58,11 +59,45 @@ export class LodgifySource implements SourceAdapter {
     const apiKey = ctx.sourceConfig?.api_key;
     if (!apiKey) throw new Error("Lodgify api_key missing from sourceConfig");
 
-    // Allow admin replay to inject pre-fetched booking data, bypassing v2 when rate-limited.
+    // Prefer the full webhook payload (booking_change / booking_new_status_booked)
+    // which contains all needed fields including payment info. Only fall back to
+    // v2 API for admin replay thin envelopes (data.bookingId only, no booking object).
     let booking: any;
+    let balanceDue: number | null = null;
+    let totalTransactions: number | null = null;
+
     if (parsedBody._preloaded_booking) {
+      // Admin replay: pre-fetched data injected directly (bypasses v2 when rate-limited).
       booking = parsedBody._preloaded_booking;
+    } else if (parsedBody.booking?.id) {
+      // Full webhook payload — use directly, no API call needed.
+      const wb = parsedBody.booking;
+      balanceDue = parsedBody.balance_due != null ? Number(parsedBody.balance_due) : null;
+      totalTransactions = parsedBody.total_transactions?.amount != null
+        ? Number(parsedBody.total_transactions.amount)
+        : null;
+      const grossFromOrder = parsedBody.current_order?.amount_gross?.amount != null
+        ? Number(parsedBody.current_order.amount_gross.amount)
+        : null;
+      // Normalise webhook shape to match what the v2 API returns
+      booking = {
+        status: wb.status,
+        total: grossFromOrder ?? Number(parsedBody.booking_total_amount ?? 0),
+        currency_code: wb.currency_code ?? parsedBody.booking_currency_code ?? "EUR",
+        guest: {
+          name: parsedBody.guest?.name ?? null,
+          email: parsedBody.guest?.email ?? null,
+          country_code: parsedBody.guest?.country_code ?? null,
+          phone: parsedBody.guest?.phone_number ?? null,
+        },
+        arrival: wb.date_arrival ? wb.date_arrival.split("T")[0] : "",
+        departure: wb.date_departure ? wb.date_departure.split("T")[0] : "",
+        property_id: wb.property_id,
+        source: wb.source,
+        room_type_id: wb.room_types?.[0]?.room_type_id ?? null,
+      };
     } else {
+      // Thin envelope (data.bookingId only) — fetch from v2 API.
       const res = await fetch(`https://api.lodgify.com/v2/reservations/${bookingId}`, {
         headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
       });
@@ -74,8 +109,14 @@ export class LodgifySource implements SourceAdapter {
 
     const status = String(booking.status ?? "").toLowerCase();
     if (status !== "booked") {
-      // Tentative / Open / Declined → not invoiceable yet
       console.log(`[Lodgify] Booking ${bookingId} status="${booking.status}" — skipping invoice`);
+      return null;
+    }
+
+    // Payment gate: only invoice when fully paid (balance_due === 0).
+    // For thin envelopes and _preloaded_booking without payment info, assume paid.
+    if (balanceDue !== null && balanceDue > 0) {
+      console.log(`[Lodgify] Booking ${bookingId} balance_due=${balanceDue} — not yet fully paid, skipping`);
       return null;
     }
 

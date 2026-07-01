@@ -709,7 +709,7 @@
   },
   "conciliacao": {
     "title": "Conciliação",
-    "noShop": "Ainda não tens uma integração Shopify ligada. Liga a tua loja primeiro para começares a conciliar faturas."
+    "noShop": "Ainda não tens uma integração ligada. Liga a tua loja ou plataforma primeiro para começares a conciliar faturas."
   },
   "faturacao": {
     "title": "Faturação",

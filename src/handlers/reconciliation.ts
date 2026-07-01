@@ -1,24 +1,29 @@
 import type { Env } from "../env";
-import type { IRequestConfig } from "../storage";
+import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
-import { IxApi } from "../api/ix";
-import { ixCall } from "../ix/ix-call";
+import type { AdapterCtx } from "../adapters/types";
+import { getMoloniCfg, getAccessToken, moloniCall } from "../adapters/destinations/moloni-destination";
 import { scoreHeuristicMatch } from "./reconciliation-score";
 
+// The left side of a reconciliation row, normalized across sources (Shopify
+// orders, Lodgify bookings, …). Each source fetcher maps its native records
+// into this shape so the row-building core below is source-agnostic.
+export interface ReconOrder {
+  id: string;
+  order_number: number;
+  name: string;
+  total: number;
+  paid_at: string;
+  customer_name: string | null;
+  email: string | null;
+  permalink: string;
+  /** Payment status normalized to the Shopify enum ("paid"|"pending"|…). Lets
+   * the UI hold an unpaid order/booking as "Pendente" instead of "Pago". */
+  financial_status: string | null;
+}
+
 export interface ReconciliationRow {
-  order: {
-    id: string;
-    order_number: number;
-    name: string;
-    total: number;
-    paid_at: string;
-    customer_name: string | null;
-    email: string | null;
-    permalink: string;
-    /** Shopify financial_status ("paid", "pending", "authorized", …). Lets the
-     * UI show a held pending order as "Pendente" instead of assuming "Pago". */
-    financial_status: string | null;
-  };
+  order: ReconOrder;
   match: {
     type: "exact" | "approved" | "heuristic" | "not_needed" | "none" | "pending";
     confidence: number;
@@ -34,10 +39,10 @@ export interface ReconciliationRow {
     pdf_url: string | null;
     client_name: string | null;
     /** True when we KNOW an invoice was issued (we hold its id) but couldn't
-     * load its details from InvoiceXpress this round (proxy slow/over capacity).
+     * load its details from the destination this round (proxy slow/over capacity).
      * The merchant must see "fatura emitida (detalhe indisponível)", NEVER the
      * alarming "Sem fatura emitida" — a transient read failure is not a missing
-     * invoice. invoice_id is only ever written after a successful IX create. */
+     * invoice. invoice_id is only ever written after a successful create. */
     meta_unavailable?: boolean;
   } | null;
   candidates: Array<{
@@ -60,8 +65,59 @@ interface InvoiceMeta {
   permalink: string | null;
   pdf_url: string | null;
   client_name: string | null;
-  order_id_link: string | null; // shopify order id this invoice maps to (from processed_orders)
+  order_id_link: string | null; // source order/booking id this invoice maps to
 }
+
+// Everything a reconciliation run needs, resolved once from either a Shopify
+// shop domain or a user's active `connections` row. Drives which source list
+// to fetch and which destination to read invoice metadata from.
+export interface ReconContext {
+  source: SourceKind;
+  destination: DestinationKind;
+  sourceConfig: Record<string, any>;
+  destinationConfig: Record<string, any>;
+  config: IRequestConfig;
+  userId: string | null;
+  /** AppStorage key the override tables (match/decision) are scoped by:
+   *  the Shopify domain for Shopify, else `u:<userId>` for connection-based
+   *  sources that have no domain. */
+  scope: string;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function numericFromId(id: string | number): number {
+  const digits = String(id).replace(/\D/g, "").slice(-12);
+  return Number(digits) || 0;
+}
+
+function dateOnly(input: string): string {
+  const m = String(input ?? "").match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
+
+/** Map over items with a bounded number of in-flight promises. The IX proxy
+ * (ix-proxy.kapta.app) sits on shared hosting and collapses under a burst of
+ * ~200 simultaneous reads — a single reconciliation fired one fetch per invoice
+ * via Promise.all with NO cap, so a 200-order shop hammered the proxy with 200
+ * parallel GETs. Half timed out, their metas came back null, and every one of
+ * those *issued* invoices was then rendered as "Sem fatura emitida" — the bug
+ * that made a merchant think dozens of real invoices had vanished. Capping the
+ * concurrency keeps the proxy responsive so the reads actually succeed. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+// ── Source fetchers (left side) ───────────────────────────────────────────────
 
 async function fetchShopifyOrdersPaginated(
   config: IRequestConfig,
@@ -91,40 +147,141 @@ async function fetchShopifyOrdersPaginated(
   return all;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** Map over items with a bounded number of in-flight promises. The IX proxy
- * (ix-proxy.kapta.app) sits on shared hosting and collapses under a burst of
- * ~200 simultaneous reads — a single reconciliation fired one fetch per invoice
- * via Promise.all with NO cap, so a 200-order shop hammered the proxy with 200
- * parallel GETs. Half timed out, their metas came back null, and every one of
- * those *issued* invoices was then rendered as "Sem fatura emitida" — the bug
- * that made a merchant think dozens of real invoices had vanished. Capping the
- * concurrency keeps the proxy responsive so the reads actually succeed. */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      out[i] = await fn(items[i]);
-    }
+async function fetchShopifyReconOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
+  const config = ctx.config;
+  const paidOrders = await fetchShopifyOrdersPaginated(config, from, to);
+  let orders = paidOrders;
+  // When the shop holds invoices until payment (only_invoice_when_paid), also
+  // pull pending orders so the operator sees what is deliberately NOT yet
+  // invoiced ("fatura não por emitir"). Pending orders rarely carry a
+  // processed_at, so that set is windowed by created_at instead.
+  if (config.only_invoice_when_paid === 1) {
+    const pendingOrders = await fetchShopifyOrdersPaginated(config, from, to, { financialStatus: "pending", dateField: "created_at" });
+    const seen = new Set(paidOrders.map(o => String(o.id)));
+    orders = paidOrders.concat(pendingOrders.filter(o => !seen.has(String(o.id))));
+  }
+  const shopDomain = config.shopify_domain!;
+  return orders.map((order) => {
+    const orderId = String(order.id);
+    const customerName = order.customer
+      ? `${order.customer.first_name ?? ""} ${order.customer.last_name ?? ""}`.trim() || null
+      : null;
+    return {
+      id: orderId,
+      order_number: order.order_number,
+      name: order.name,
+      total: parseFloat(order.total_price ?? "0"),
+      paid_at: order.processed_at ?? order.created_at,
+      customer_name: customerName,
+      email: order.customer?.email ?? order.email ?? null,
+      permalink: `https://${shopDomain.replace(".myshopify.com", "")}.myshopify.com/admin/orders/${orderId}`,
+      financial_status: order.financial_status ?? null,
+    };
   });
-  await Promise.all(workers);
-  return out;
 }
 
-// The IX proxy (ix-proxy.kapta.app) is shared hosting and stalls under load.
-// Earlier this used the generated SDK, but the SDK doesn't honour an abort
-// signal — so when a fetch hung, racing it with a timeout returned early yet left
-// the underlying request IN-FLIGHT, which kept the whole worker alive until it
-// hit the ~30s wall-clock limit and Cloudflare killed it (a 500 — the page
-// failing to load entirely). We now use raw `fetch` with a real AbortController
-// so a hung read is actually cancelled at `budget`, and the caller renders the
-// invoice as issued-but-detail-unavailable rather than "missing".
+// Lodgify bookings for the window (arrival within [from, to]). We list via the
+// v2 bookings endpoint and filter arrival locally so correctness never depends
+// on the server-side date-param contract. Only "booked" bookings are invoiced
+// (mapped → "paid"); open/tentative are shown as "pending"; declined/cancelled
+// are omitted (they are cancellations, not sales).
+async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
+  const apiKey = ctx.sourceConfig?.api_key;
+  if (!apiKey) throw new Error("Lodgify api_key missing from connection sourceConfig");
+  const fromYmd = dateOnly(from);
+  const toYmd = dateOnly(to);
+
+  const items: any[] = [];
+  const size = 50;
+  for (let page = 1; page <= 40; page++) {
+    const qs = new URLSearchParams({
+      stayFilter: "ArrivalDate",
+      stayFilterStart: fromYmd,
+      stayFilterEnd: toYmd,
+      // duplicate under alternate names some Lodgify tenants expect; unknown
+      // params are ignored server-side and arrival is re-filtered locally below.
+      start: fromYmd,
+      end: toYmd,
+      page: String(page),
+      size: String(size),
+      includeCount: "true",
+    });
+    const res = await fetch(`https://api.lodgify.com/v2/reservations/bookings?${qs.toString()}`, {
+      headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
+    });
+    if (!res.ok) throw new Error(`Lodgify GET /v2/reservations/bookings → ${res.status} ${res.statusText}`);
+    const data: any = await res.json().catch(() => null);
+    const pageItems: any[] = Array.isArray(data?.items) ? data.items
+      : Array.isArray(data?.bookings) ? data.bookings
+      : Array.isArray(data) ? data
+      : [];
+    items.push(...pageItems);
+    if (pageItems.length < size) break;
+  }
+
+  const rows: ReconOrder[] = [];
+  for (const b of items) {
+    const status = String(b.status ?? b.state ?? "").toLowerCase();
+    if (status === "declined" || status === "cancelled" || status === "canceled") continue;
+    const arrival = dateOnly(b.arrival ?? b.date_arrival ?? "");
+    // Local arrival window guard (authoritative regardless of server params).
+    if (fromYmd && arrival && arrival < fromYmd) continue;
+    if (toYmd && arrival && arrival > toYmd) continue;
+
+    const id = String(b.id ?? b.booking_id ?? b.reservation_id ?? "");
+    if (!id) continue;
+    const departure = dateOnly(b.departure ?? b.date_departure ?? "");
+    const totalRaw = b.total_amount?.amount ?? b.total_amount ?? b.amount?.amount ?? b.amount ?? b.total ?? 0;
+    const guestName = b.guest?.name ?? b.guest_name ?? b.name ?? null;
+    const guestEmail = b.guest?.email ?? b.email ?? null;
+    const financial = status === "booked" ? "paid" : "pending";
+    rows.push({
+      id,
+      order_number: numericFromId(id),
+      name: `LOD-${id}`,
+      total: Number(totalRaw) || 0,
+      paid_at: arrival ? `${arrival}T12:00:00Z` : new Date().toISOString(),
+      customer_name: guestName ? String(guestName) : null,
+      email: guestEmail ? String(guestEmail) : null,
+      // Best-effort deep link to the booking in the Lodgify owner app. If the
+      // path shape changes tenant-side, adjust here; it is display-only.
+      permalink: `https://app.lodgify.com/#/reservations/bookings/${id}`,
+      financial_status: financial,
+    });
+  }
+  return rows;
+}
+
+async function getSourceOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
+  switch (ctx.source) {
+    case "lodgify": return fetchLodgifyReconOrders(ctx, from, to);
+    case "shopify": return fetchShopifyReconOrders(ctx, from, to);
+    default:
+      // Stripe/EuPago reconciliation not implemented yet — no left-side list.
+      return [];
+  }
+}
+
+// ── Invoice-meta fetchers (right side) ────────────────────────────────────────
+
+interface MetaFetcher {
+  /** KV cache namespace for invoice metadata (per destination). */
+  metaNs: string;
+  /** KV cache namespace + account for the reference-recovery lookup. */
+  refNs: string;
+  refAccount: string;
+  fetchMeta(invoiceId: string, orderId: string, deadline?: number): Promise<InvoiceMeta | null>;
+  /** Resolve an invoice id from our "Order #N" reference, or null on miss. */
+  findByReference(reference: string, deadline?: number): Promise<string | null>;
+}
+
+// The IX proxy (ix-proxy.kapta.app) is shared hosting and stalls under load. We
+// use raw `fetch` with a real AbortController so a hung read is actually
+// cancelled at `budget`, and the caller renders the invoice as
+// issued-but-detail-unavailable rather than "missing".
 const IX_PROXY_BASE = "https://ix-proxy.kapta.app";
 
-async function fetchInvoiceMeta(
+async function fetchIxInvoiceMeta(
   config: IRequestConfig,
   invoiceId: string,
   orderId: string,
@@ -138,8 +295,6 @@ async function fetchInvoiceMeta(
   };
   const PER_ATTEMPT_MS = 5000;
   for (let attempt = 0; attempt < 3; attempt++) {
-    // Bounded-load: once the page's overall meta budget is spent, stop hitting
-    // the proxy entirely so the request always returns inside the worker limit.
     if (deadline && Date.now() >= deadline) return null;
     const budget = deadline ? Math.max(500, Math.min(PER_ATTEMPT_MS, deadline - Date.now())) : PER_ATTEMPT_MS;
     const controller = new AbortController();
@@ -171,8 +326,6 @@ async function fetchInvoiceMeta(
       };
     } catch (e) {
       clearTimeout(timer);
-      // AbortError (our timeout) or a network blip — retry within budget, else
-      // give up on the detail and keep the page responsive.
       if (attempt < 2 && (!deadline || Date.now() < deadline)) { await sleep(200); continue; }
       return null;
     }
@@ -180,88 +333,251 @@ async function fetchInvoiceMeta(
   return null;
 }
 
-export async function getReconciliation(env: Env, config: IRequestConfig, from: string, to: string) {
-  const appStorage = new AppStorage(env, config.shopify_domain!);
-
-  // 1. Orders from Shopify. Always the paid set (matched against IX invoices).
-  //    When the shop holds invoices until payment (only_invoice_when_paid), also
-  //    pull pending orders so the operator sees what is deliberately NOT yet
-  //    invoiced ("fatura não por emitir"). Pending orders rarely carry a
-  //    processed_at, so that set is windowed by created_at instead.
-  const paidOrders = await fetchShopifyOrdersPaginated(config, from, to);
-  let orders = paidOrders;
-  if (config.only_invoice_when_paid === 1) {
-    const pendingOrders = await fetchShopifyOrdersPaginated(config, from, to, { financialStatus: "pending", dateField: "created_at" });
-    const seen = new Set(paidOrders.map(o => String(o.id)));
-    orders = paidOrders.concat(pendingOrders.filter(o => !seen.has(String(o.id))));
+async function fetchIxByReference(config: IRequestConfig, ref: string, deadline?: number): Promise<string | null> {
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+  try {
+    const budget = deadline ? Math.max(500, Math.min(4000, deadline - Date.now())) : 4000;
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), budget);
+    const r = await fetch(`${IX_PROXY_BASE}/v2/documents/reference`, {
+      method: "POST",
+      headers: { ...ixHeaders, "Accept": "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ reference: ref }),
+      signal: c.signal,
+    });
+    clearTimeout(t);
+    const j: any = r.ok ? await r.json().catch(() => null) : null;
+    return j?.data?.data?.id ? String(j.data.data.id) : (j?.data?.id ? String(j.data.id) : null);
+  } catch {
+    return null;
   }
-  const orderIds = orders.map(o => String(o.id));
+}
 
-  // 2. Map order → invoice_id from DB
-  const orderToInvoice = await appStorage.getProcessedInvoicesByOrderIds(orderIds);
+// Moloni invoice metadata. Reuses the destination adapter's OAuth + call layer.
+// cfg/token are resolved lazily once per run and memoized across the fetches.
+function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
+  const ctxLike = { apiKey: "", config: ctx.config, destinationConfig: ctx.destinationConfig } as AdapterCtx;
+  const docType = String(ctx.destinationConfig?.moloni_document_type ?? "invoice").toLowerCase();
+  const getOnePath = docType === "invoice_receipt" ? "/invoiceReceipts/getOne/" : "/invoices/getOne/";
+  const getAllPath = docType === "invoice_receipt" ? "/invoiceReceipts/getAll/" : "/invoices/getAll/";
+  let creds: Promise<{ cfg: Awaited<ReturnType<typeof getMoloniCfg>>; token: string }> | null = null;
+  const getCreds = () => {
+    if (!creds) creds = (async () => {
+      const cfg = await getMoloniCfg(ctxLike);
+      const token = await getAccessToken(cfg);
+      return { cfg, token };
+    })();
+    return creds;
+  };
 
-  // 3. Overrides (manual matches + decisions)
+  const account = `moloni:${ctx.destinationConfig?.moloni_company_id ?? ctx.destinationConfig?.moloni_client_id ?? "x"}`;
+
+  return {
+    metaNs: "molmeta",
+    refNs: "molref",
+    refAccount: account,
+    async fetchMeta(invoiceId, orderId, deadline) {
+      if (deadline && Date.now() >= deadline) return null;
+      try {
+        const { cfg, token } = await getCreds();
+        const d: any = await moloniCall(cfg, token, getOnePath, { document_id: Number(invoiceId) }, "lookup");
+        if (!d || typeof d !== "object") return null;
+        // Moloni names gross_value / net_value inconsistently (see moloni-api-quirks);
+        // pick the larger so the total is the gross regardless of the labelling.
+        const total = Math.max(Number(d.net_value ?? 0), Number(d.gross_value ?? 0)) || Number(d.total ?? 0);
+        const clientName = d.entity?.name ?? d.entity_name ?? d.customer?.name ?? null;
+        return {
+          id: String(d.document_id ?? invoiceId),
+          reference: d.our_reference ?? null,
+          status: Number(d.status) === 1 ? "final" : "draft",
+          total,
+          date: dateOnly(d.date ?? "") || String(d.date ?? ""),
+          // Moloni has no public per-document permalink like IX; leave null and
+          // let the UI surface the reference + "abrir no Moloni".
+          permalink: null,
+          pdf_url: null,
+          client_name: clientName ? String(clientName) : null,
+          order_id_link: orderId,
+        };
+      } catch {
+        return null;
+      }
+    },
+    async findByReference(reference, deadline) {
+      if (deadline && Date.now() >= deadline) return null;
+      try {
+        const { cfg, token } = await getCreds();
+        const found = await moloniCall<Array<{ document_id?: number }>>(
+          cfg, token, getAllPath, { document_set_id: cfg.documentSetId, our_reference: reference }, "lookup",
+        );
+        const first = Array.isArray(found) ? found[0] : null;
+        return first?.document_id ? String(first.document_id) : null;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+function makeIxMetaFetcher(ctx: ReconContext): MetaFetcher {
+  const config = ctx.config;
+  return {
+    metaNs: "ixmeta",
+    refNs: "ixref",
+    refAccount: config.ix_account_name ?? "ix",
+    fetchMeta: (invoiceId, orderId, deadline) => fetchIxInvoiceMeta(config, invoiceId, orderId, deadline),
+    findByReference: (reference, deadline) => fetchIxByReference(config, reference, deadline),
+  };
+}
+
+function getMetaFetcher(ctx: ReconContext): MetaFetcher {
+  switch (ctx.destination) {
+    case "moloni": return makeMoloniMetaFetcher(ctx);
+    case "invoicexpress": return makeIxMetaFetcher(ctx);
+    default:
+      // Vendus/others: no meta fetcher yet — treat every invoice as detail-unavailable.
+      return {
+        metaNs: `meta_${ctx.destination}`, refNs: `ref_${ctx.destination}`, refAccount: ctx.destination,
+        fetchMeta: async () => null,
+        findByReference: async () => null,
+      };
+  }
+}
+
+// ── Context resolution ────────────────────────────────────────────────────────
+
+// Build the reconciliation context from either a Shopify shop domain (legacy,
+// back-compat) or a user's active connection. Returns null when neither yields
+// a usable integration.
+export async function resolveReconContext(
+  env: Env,
+  opts: { shop?: string | null; userId?: string | null },
+): Promise<ReconContext | null> {
+  // Explicit Shopify shop wins (existing callers pass ?shop=).
+  if (opts.shop) {
+    const appStorage = new AppStorage(env, opts.shop);
+    const config = await appStorage.loadConfig();
+    if (!config) return null;
+    return {
+      source: "shopify", destination: "invoicexpress",
+      sourceConfig: {}, destinationConfig: {},
+      config, userId: config.user_id ?? opts.userId ?? null,
+      scope: opts.shop,
+    };
+  }
+
+  if (opts.userId) {
+    const conn: any = await env.DB.prepare(
+      `SELECT source_kind, destination_kind, source_config_json, destination_config_json
+       FROM connections WHERE user_id = ? AND status = 'active'
+       ORDER BY updated_at DESC LIMIT 1`
+    ).bind(opts.userId).first();
+
+    const parse = (s: string | null): Record<string, any> => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
+
+    if (conn) {
+      const source = conn.source_kind as SourceKind;
+      const destination = conn.destination_kind as DestinationKind;
+      const appStorage = new AppStorage(env, null, opts.userId);
+      // A Shopify connection still has a legacy integrations row; a Lodgify-only
+      // user may not, so synthesize a minimal config (mirrors the webhook path).
+      const config = (await appStorage.loadConfig()) ?? synthLegacyConfig(opts.userId);
+      const scope = source === "shopify" && config.shopify_domain
+        ? config.shopify_domain
+        : `u:${opts.userId}`;
+      return {
+        source, destination,
+        sourceConfig: parse(conn.source_config_json),
+        destinationConfig: parse(conn.destination_config_json),
+        config, userId: opts.userId, scope,
+      };
+    }
+
+    // No connection row — fall back to legacy Shopify integration keyed by user.
+    const appStorage = new AppStorage(env, null, opts.userId);
+    const config = await appStorage.loadConfig();
+    if (config?.shopify_domain) {
+      return {
+        source: "shopify", destination: "invoicexpress",
+        sourceConfig: {}, destinationConfig: {},
+        config, userId: opts.userId, scope: config.shopify_domain,
+      };
+    }
+  }
+  return null;
+}
+
+function synthLegacyConfig(userId: string): IRequestConfig {
+  return {
+    id: null, user_id: userId, shopify_domain: null,
+    only_invoice_when_paid: 0,
+  } as unknown as IRequestConfig;
+}
+
+// ── Core ──────────────────────────────────────────────────────────────────────
+
+export async function getReconciliation(env: Env, ctx: ReconContext, from: string, to: string) {
+  const appStorage = new AppStorage(env, ctx.scope, ctx.userId);
+  const meta = getMetaFetcher(ctx);
+
+  // 1. Orders/bookings from the source.
+  const orders = await getSourceOrders(ctx, from, to);
+  const orderIds = orders.map(o => o.id);
+
+  // 2. Map order → invoice_id from DB (scoped by source to avoid id collisions).
+  const orderToInvoice = await appStorage.getProcessedInvoicesByOrderIds(orderIds, ctx.source);
+
+  // 3. Overrides (manual matches + decisions), scoped to this integration.
   const { matches: manualMatches, decisions } = await appStorage.getReconciliationOverrides(orderIds);
 
-  // 4. Manual override invoice IDs supplement automatic mapping
+  // 4. Manual override invoice IDs supplement automatic mapping.
   for (const [orderId, m] of manualMatches.entries()) {
     if (!orderToInvoice.has(orderId)) orderToInvoice.set(orderId, m.invoice_id);
   }
 
-  // 5. Resolve invoice metadata: KV cache FIRST (so we stop hammering the IX
-  //    proxy with one read per invoice on every load — the load that overwhelmed
-  //    the proxy and produced the phantom "Sem fatura"). On a cache miss we fetch
-  //    from IX with bounded concurrency + retry (as before) and write the result
-  //    back to KV, so the cache warms itself and subsequent loads are proxy-free.
-  // Overall budget for the cold (cache-miss) proxy reads. Cached invoices return
-  // instantly; only misses fetch. Once this deadline passes, remaining misses are
-  // skipped and rendered as "detalhe indisponível" so the page always returns
-  // well inside the worker's wall-clock limit instead of 500-ing on a slow proxy.
+  // 5. Resolve invoice metadata: KV cache FIRST (so we stop hammering the
+  //    destination with one read per invoice on every load). On a cache miss we
+  //    fetch with bounded concurrency + retry and write the result back to KV.
   const metaDeadline = Date.now() + 12_000;
   const invoiceEntries = Array.from(orderToInvoice.entries());
-  const cachedMetas = await appStorage.getCachedInvoiceMetas(invoiceEntries.map(([, invoiceId]) => invoiceId));
+  const cachedMetas = await appStorage.getCachedInvoiceMetas(invoiceEntries.map(([, invoiceId]) => invoiceId), meta.metaNs);
   const invoiceMetas = await mapWithConcurrency(
     invoiceEntries, 6,
     async ([orderId, invoiceId]) => {
       const cached = cachedMetas.get(String(invoiceId));
       if (cached) return { ...cached, order_id_link: orderId } as InvoiceMeta;
-      const meta = await fetchInvoiceMeta(config, invoiceId, orderId, metaDeadline);
-      if (meta) {
-        const { order_id_link, ...store } = meta;
-        await appStorage.cacheInvoiceMeta(invoiceId, store);
+      const m = await meta.fetchMeta(invoiceId, orderId, metaDeadline);
+      if (m) {
+        const { order_id_link, ...store } = m;
+        await appStorage.cacheInvoiceMeta(invoiceId, store, meta.metaNs);
       }
-      return meta;
+      return m;
     }
   );
   const invoicesByOrderId = new Map<string, InvoiceMeta>();
   const allInvoiceMetas: InvoiceMeta[] = [];
   for (let i = 0; i < invoiceEntries.length; i++) {
-    const meta = invoiceMetas[i];
-    if (meta) {
-      invoicesByOrderId.set(invoiceEntries[i][0], meta);
-      allInvoiceMetas.push(meta);
+    const m = invoiceMetas[i];
+    if (m) {
+      invoicesByOrderId.set(invoiceEntries[i][0], m);
+      allInvoiceMetas.push(m);
     }
   }
 
+  // Source-specific "held, not yet invoiced" copy.
+  const pendingReason = ctx.source === "lodgify"
+    ? "Reserva por confirmar / pagamento parcial — fatura ainda não emitida"
+    : "Aguarda confirmação de pagamento — fatura não por emitir";
+
   // 6. Build rows
-  const shopDomain = config.shopify_domain!;
-  const rows: ReconciliationRow[] = orders.map(order => {
-    const orderId = String(order.id);
-    const totalNum = parseFloat(order.total_price ?? "0");
-    const customerName = order.customer
-      ? `${order.customer.first_name ?? ""} ${order.customer.last_name ?? ""}`.trim() || null
-      : null;
-    const orderBlock = {
-      id: orderId,
-      order_number: order.order_number,
-      name: order.name,
-      total: totalNum,
-      paid_at: order.processed_at ?? order.created_at,
-      customer_name: customerName,
-      email: order.customer?.email ?? order.email ?? null,
-      permalink: `https://${shopDomain.replace(".myshopify.com", "")}.myshopify.com/admin/orders/${orderId}`,
-      financial_status: order.financial_status ?? null,
-    };
+  const rows: ReconciliationRow[] = orders.map(orderBlock => {
+    const orderId = orderBlock.id;
+    const totalNum = orderBlock.total;
+    const customerName = orderBlock.customer_name;
 
     // Decision override wins
     const decision = decisions.get(orderId);
@@ -278,7 +594,7 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
     const manualMatch = manualMatches.get(orderId);
 
     if (inv) {
-      const expectedRef = `Order #${order.order_number}`;
+      const expectedRef = `Order #${orderBlock.order_number}`;
       const isExact = inv.reference === expectedRef;
       const type: ReconciliationRow["match"]["type"] = manualMatch
         ? "approved"
@@ -301,12 +617,10 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
     }
 
     // We HOLD an invoice_id for this order (DB or manual match) but its metadata
-    // couldn't be read from IX this round (proxy slow/over capacity). The invoice
-    // exists — invoice_id is only ever persisted after a successful IX create —
-    // so we MUST NOT fall through to "Sem fatura". Render it as issued, with the
-    // id we have, flagged meta_unavailable so the UI shows "detalhe indisponível"
-    // instead of a false "missing invoice" alarm. Also skip the heuristic: never
-    // suggest matching an already-invoiced order to some other invoice.
+    // couldn't be read this round (proxy slow/over capacity). The invoice exists
+    // — invoice_id is only ever persisted after a successful create — so we MUST
+    // NOT fall through to "Sem fatura". Render it as issued, flagged
+    // meta_unavailable so the UI shows "detalhe indisponível".
     const knownInvoiceId = orderToInvoice.get(orderId);
     if (knownInvoiceId) {
       return {
@@ -314,32 +628,25 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
         match: {
           type: manualMatch ? "approved" : "exact",
           confidence: 100,
-          reason: "Fatura emitida — detalhe do InvoiceXpress indisponível de momento",
+          reason: "Fatura emitida — detalhe indisponível de momento",
         },
         invoice: {
           id: knownInvoiceId,
-          reference: null,
-          status: null,
-          total: null,
-          date: null,
-          permalink: null,
-          pdf_url: null,
-          client_name: null,
+          reference: null, status: null, total: null, date: null,
+          permalink: null, pdf_url: null, client_name: null,
           meta_unavailable: true,
         },
         candidates: [],
       };
     }
 
-    // Pending order with no invoice = intentionally held until payment confirms
-    // (only_invoice_when_paid). NOT an alarm ("Sem fatura") and NOT a heuristic
-    // candidate — it's correctly waiting. Give it its own state so the operator
-    // sees it's tracked, not lost. (Reached only when no invoice resolved above;
-    // a pending order that WAS invoiced still renders via the inv branch.)
-    if (String(order.financial_status) !== "paid") {
+    // Pending order/booking with no invoice = intentionally held until payment
+    // confirms. NOT an alarm and NOT a heuristic candidate — it's correctly
+    // waiting. Give it its own state so the operator sees it's tracked.
+    if (String(orderBlock.financial_status) !== "paid") {
       return {
         order: orderBlock,
-        match: { type: "pending", confidence: 0, reason: "Aguarda confirmação de pagamento no Shopify — fatura não por emitir" },
+        match: { type: "pending", confidence: 0, reason: pendingReason },
         invoice: null,
         candidates: [],
       };
@@ -347,10 +654,10 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
 
     // Heuristic: score against the invoice pool we already fetched
     const candidates = allInvoiceMetas
-      .filter(im => im.order_id_link !== orderId) // not already linked elsewhere is OK; we still rank
+      .filter(im => im.order_id_link !== orderId)
       .map(im => {
         const { score, reasons } = scoreHeuristicMatch(
-          { amount: totalNum, date: orderBlock.paid_at, customerName, reference: `${order.order_number}` },
+          { amount: totalNum, date: orderBlock.paid_at, customerName, reference: `${orderBlock.order_number}` },
           { amount: im.total, date: im.date, clientName: im.client_name, reference: im.reference }
         );
         return { im, score, reasons };
@@ -378,65 +685,36 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
   });
 
   // 6b. Recover manual / mapping-lost invoices: for orders still showing "none",
-  // ask IX whether a document with our "Order #N" reference exists. This catches
-  // (a) invoices the system created but whose DB mapping was lost (e.g. a create
-  // that timed out after IX had already issued it — see #1054), and (b) manual
-  // invoices that followed the reference convention. NOTE: it can NOT find manual
-  // invoices with arbitrary references — the IX API has no list endpoint. Bounded
-  // (capped concurrency + ixCall timeout) and cached per reference (id or "MISS",
-  // 1h TTL) so repeated loads don't re-hammer the proxy.
+  // ask the destination whether a document with our "Order #N" reference exists.
+  // Catches (a) invoices created but whose DB mapping was lost (a create that
+  // timed out after the destination had issued it) and (b) manual invoices that
+  // followed the reference convention. Bounded (capped concurrency + deadline)
+  // and cached per reference (id or "MISS", 1h TTL).
   const noneRows = rows.filter(r => r.match.type === "none");
   if (noneRows.length > 0) {
-    const ixHeaders = {
-      "x-account-name": config.ix_account_name!,
-      "x-api-key": config.ix_api_key!,
-      "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
-    };
     const refOf = (r: ReconciliationRow) => `Order #${r.order.order_number}`;
-    const account = config.ix_account_name!;
-    const refDeadline = Date.now() + 8_000; // bound the recovery phase too
-    const cachedRefs = await appStorage.getCachedRefLookups(account, noneRows.map(refOf));
+    const refDeadline = Date.now() + 8_000;
+    const cachedRefs = await appStorage.getCachedRefLookups(meta.refAccount, noneRows.map(refOf), meta.refNs);
     await mapWithConcurrency(noneRows, 4, async (row) => {
-      if (Date.now() >= refDeadline) return; // budget spent — leave as-is, don't hang the worker
+      if (Date.now() >= refDeadline) return;
       const ref = refOf(row);
       let invoiceId: string | null = null;
       const cached = cachedRefs.get(ref);
       if (cached === "MISS") return;
       if (cached) invoiceId = cached;
       else {
-        // Raw fetch with a REAL AbortController. The old path used ixCall (SDK +
-        // timeout-race), which (a) doesn't abort, so a hung ref lookup orphaned a
-        // fetch and ran the worker into its limit, and (b) THREW on exhaustion —
-        // a single uninvoiced order with a slow proxy ref-lookup crashed the whole
-        // page (500). Now: bounded, single attempt, and a failure just leaves the
-        // row as "none" — the page always renders.
-        try {
-          const budget = Math.max(500, Math.min(4000, refDeadline - Date.now()));
-          const c = new AbortController();
-          const t = setTimeout(() => c.abort(), budget);
-          const r = await fetch(`${IX_PROXY_BASE}/v2/documents/reference`, {
-            method: "POST",
-            headers: { ...ixHeaders, "Accept": "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ reference: ref }),
-            signal: c.signal,
-          });
-          clearTimeout(t);
-          const j: any = r.ok ? await r.json().catch(() => null) : null;
-          invoiceId = j?.data?.data?.id ? String(j.data.data.id) : (j?.data?.id ? String(j.data.id) : null);
-          await appStorage.cacheRefLookup(account, ref, invoiceId ?? "MISS");
-        } catch {
-          return; // proxy slow/aborted — leave as "none", never crash the page
-        }
+        invoiceId = await meta.findByReference(ref, refDeadline);
+        await appStorage.cacheRefLookup(meta.refAccount, ref, invoiceId ?? "MISS", meta.refNs);
       }
       if (!invoiceId) return;
-      const meta = await fetchInvoiceMeta(config, invoiceId, row.order.id, refDeadline);
-      if (!meta) return;
-      const { order_id_link, ...store } = meta;
-      await appStorage.cacheInvoiceMeta(invoiceId, store);
-      row.match = { type: "heuristic", confidence: 90, reason: "Encontrada no InvoiceXpress por referência (não mapeada na BD)" };
+      const m = await meta.fetchMeta(invoiceId, row.order.id, refDeadline);
+      if (!m) return;
+      const { order_id_link, ...store } = m;
+      await appStorage.cacheInvoiceMeta(invoiceId, store, meta.metaNs);
+      row.match = { type: "heuristic", confidence: 90, reason: "Encontrada por referência (não mapeada na BD)" };
       row.invoice = {
-        id: meta.id, reference: meta.reference, status: meta.status, total: meta.total,
-        date: meta.date, permalink: meta.permalink, pdf_url: meta.pdf_url, client_name: meta.client_name,
+        id: m.id, reference: m.reference, status: m.status, total: m.total,
+        date: m.date, permalink: m.permalink, pdf_url: m.pdf_url, client_name: m.client_name,
       };
       row.candidates = [];
     });
@@ -448,6 +726,8 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
   return {
     from,
     to,
+    source: ctx.source,
+    destination: ctx.destination,
     total_orders: rows.length,
     summary: {
       exact: rows.filter(r => r.match.type === "exact").length,
@@ -456,8 +736,6 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
       none: rows.filter(r => r.match.type === "none").length,
       not_needed: rows.filter(r => r.match.type === "not_needed").length,
       pending: rows.filter(r => r.match.type === "pending").length,
-      // Issued invoices we couldn't read from IX this round (subset of exact/
-      // approved). Lets ops see "verification degraded" vs trusting the page blindly.
       unverified: rows.filter(r => r.invoice?.meta_unavailable).length,
     },
     rows,
@@ -466,31 +744,31 @@ export async function getReconciliation(env: Env, config: IRequestConfig, from: 
 
 export async function approveReconciliationMatch(
   env: Env,
-  config: IRequestConfig,
+  scope: string,
   orderId: string,
   invoiceId: string,
   approvedBy: string | null
 ) {
-  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const appStorage = new AppStorage(env, scope);
   await appStorage.upsertReconciliationMatch(orderId, invoiceId, approvedBy);
   return { ok: true, order_id: orderId, invoice_id: invoiceId };
 }
 
-export async function revertReconciliationMatch(env: Env, config: IRequestConfig, orderId: string) {
-  const appStorage = new AppStorage(env, config.shopify_domain!);
+export async function revertReconciliationMatch(env: Env, scope: string, orderId: string) {
+  const appStorage = new AppStorage(env, scope);
   await appStorage.deleteReconciliationMatch(orderId);
   return { ok: true, order_id: orderId };
 }
 
 export async function setReconciliationDecisionAction(
   env: Env,
-  config: IRequestConfig,
+  scope: string,
   orderId: string,
   decision: string | null,
   reason: string | null,
   decidedBy: string | null
 ) {
-  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const appStorage = new AppStorage(env, scope);
   if (decision === null) {
     await appStorage.clearReconciliationDecision(orderId);
     return { ok: true, order_id: orderId, cleared: true };

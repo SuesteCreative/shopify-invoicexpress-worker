@@ -57,7 +57,7 @@ type MoloniProductLine = {
   taxes?: MoloniTaxLine[];
 };
 
-type MoloniCfg = {
+export type MoloniCfg = {
   baseUrl: string;
   clientId: string;
   clientSecret: string;
@@ -119,7 +119,7 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
 
 // Resolves company/document-set names → IDs via Moloni API when IDs are absent.
 // Uses module-level cache so resolution only happens once per cold start.
-async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
+export async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
   const raw = readMoloniCfg(ctx);
   if (raw.companyId && raw.documentSetId) return raw;
 
@@ -169,7 +169,7 @@ async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
   return { ...raw, companyId, documentSetId };
 }
 
-async function getAccessToken(cfg: MoloniCfg): Promise<string> {
+export async function getAccessToken(cfg: MoloniCfg): Promise<string> {
   const cacheKey = `${cfg.clientId}:${cfg.username}`;
   const cached = tokenCache.get(cacheKey);
   // Evict 60 s before actual expiry to avoid races at the token boundary.
@@ -225,7 +225,7 @@ function formEncode(obj: Record<string, unknown>, prefix = ""): string {
   return parts.filter(Boolean).join("&");
 }
 
-async function moloniCall<T = unknown>(
+export async function moloniCall<T = unknown>(
   cfg: MoloniCfg,
   token: string,
   path: string,

@@ -6,6 +6,7 @@ import { ReconciliationRow, type Row } from "./ReconciliationRow";
 import { DateRangePicker } from "./DateRangePicker";
 import { Filters, type FilterKey } from "./Filters";
 import { exportReconciliationToExcel } from "./exportToExcel";
+import { sourceLabel, destLabel, recordNoun } from "./platform";
 
 type Response = {
     from: string;
@@ -22,7 +23,10 @@ const daysAgoISO = (n: number) => {
     return d.toISOString().slice(0, 10);
 };
 
-export function ReconciliationView({ shop }: { shop: string }) {
+export function ReconciliationView({ identifier, source, destination }: { identifier: string; source: string; destination: string }) {
+    const srcLabel = sourceLabel(source);
+    const dstLabel = destLabel(destination);
+    const noun = recordNoun(source);
     const [from, setFrom] = useState(daysAgoISO(30));
     const [to, setTo] = useState(todayISO());
     const [loading, setLoading] = useState(false);
@@ -102,8 +106,8 @@ export function ReconciliationView({ shop }: { shop: string }) {
                         <ScrollText className="w-6 h-6 text-accent-hot" />
                     </div>
                     <div>
-                        <h1 className="text-3xl md:text-4xl font-medium tracking-tight">Conciliação Shopify ↔ InvoiceXpress</h1>
-                        <p className="text-fg-60 text-sm">{shop}</p>
+                        <h1 className="text-3xl md:text-4xl font-medium tracking-tight">Conciliação {srcLabel} ↔ {dstLabel}</h1>
+                        <p className="text-fg-60 text-sm">{identifier}</p>
                     </div>
                 </div>
             </header>
@@ -117,8 +121,8 @@ export function ReconciliationView({ shop }: { shop: string }) {
                                 Integração pausada — nenhuma fatura está a ser emitida automaticamente
                             </p>
                             <p className="text-xs text-fg-60">
-                                A tua integração Shopify ↔ InvoiceXpress está em pausa. As encomendas continuam a chegar,
-                                mas nenhuma vai gerar fatura até retomares. Encomendas paradas aparecem em <strong>Sem fatura</strong> abaixo.
+                                A tua integração {srcLabel} ↔ {dstLabel} está em pausa. As {noun.plural} continuam a chegar,
+                                mas nenhuma vai gerar fatura até retomares. {noun.plural.charAt(0).toUpperCase() + noun.plural.slice(1)} paradas aparecem em <strong>Sem fatura</strong> abaixo.
                             </p>
                         </div>
                     </div>
@@ -144,7 +148,7 @@ export function ReconciliationView({ shop }: { shop: string }) {
                     onClick={async () => {
                         if (!data) return;
                         setExporting(true);
-                        try { await exportReconciliationToExcel(filtered, shop, from, to); }
+                        try { await exportReconciliationToExcel(filtered, identifier, from, to, source, destination); }
                         catch (e: any) { setError(String(e)); }
                         finally { setExporting(false); }
                     }}
@@ -155,7 +159,7 @@ export function ReconciliationView({ shop }: { shop: string }) {
                 </button>
                 <div className="relative flex-1">
                     <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2" />
-                    <input placeholder="Pesquisar #order, cliente, email, ref. fatura..."
+                    <input placeholder={`Pesquisar ${noun.singular}, cliente, email, ref. fatura...`}
                         value={search} onChange={e => setSearch(e.target.value)}
                         className="w-full bg-surface-2 border border-hairline rounded-xl py-2.5 pl-11 pr-4 text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-[rgba(2,141,196,0.20)]" />
                 </div>
@@ -193,7 +197,7 @@ export function ReconciliationView({ shop }: { shop: string }) {
 
             <div className="space-y-3">
                 {filtered.map(row => (
-                    <ReconciliationRow key={row.order.id} row={row} onChanged={load} />
+                    <ReconciliationRow key={row.order.id} row={row} onChanged={load} source={source} destination={destination} />
                 ))}
             </div>
         </div>

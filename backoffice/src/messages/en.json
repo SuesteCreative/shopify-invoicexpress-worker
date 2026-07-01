@@ -709,7 +709,7 @@
   },
   "conciliacao": {
     "title": "Reconciliation",
-    "noShop": "You don't have a Shopify integration connected yet. Connect your store first to start reconciling invoices."
+    "noShop": "You don't have an integration connected yet. Connect your store or platform first to start reconciling invoices."
   },
   "faturacao": {
     "title": "Billing",

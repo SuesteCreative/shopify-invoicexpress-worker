@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import {
-    ExternalLink, CheckCircle2, AlertCircle, FileText, Loader2,
-    Trash2, RotateCcw, FilePlus2, MinusCircle, ShoppingBag, Clock
+    ExternalLink, CheckCircle2, AlertCircle, Loader2,
+    RotateCcw, FilePlus2, MinusCircle, Clock
 } from "lucide-react";
+import { sourceLabel, destLabel, sourceIcon, destIcon } from "./platform";
 
 export type Row = {
     order: {
@@ -65,9 +66,14 @@ const fmtDate = (s: string | null | undefined) => {
     return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-PT");
 };
 
-export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () => void }) {
+export function ReconciliationRow({ row, onChanged, source, destination }: { row: Row; onChanged: () => void; source: string; destination: string }) {
     const [acting, setActing] = useState(false);
     const badge = BADGE[row.match.type];
+    const srcLabel = sourceLabel(source);
+    const dstLabel = destLabel(destination);
+    const SourceIcon = sourceIcon(source);
+    const DestIcon = destIcon(destination);
+    const isShopify = source === "shopify";
 
     const approve = async (invoiceId: string) => {
         setActing(true);
@@ -139,11 +145,11 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
 
     return (
         <article className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 md:gap-6 items-stretch rounded-2xl border border-hairline bg-surface-2/30 p-4 md:p-5 hover:border-rule transition-all">
-            {/* Shopify side */}
+            {/* Source side */}
             <div className="flex flex-col gap-2 min-w-0">
                 <div className="flex items-center gap-2">
                     <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">
-                        <ShoppingBag className="w-3 h-3" /> Shopify
+                        <SourceIcon className="w-3 h-3" /> {srcLabel}
                     </span>
                     {row.order.financial_status === "paid" ? (
                         <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
@@ -177,13 +183,13 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                 )}
             </div>
 
-            {/* IX side */}
+            {/* Destination side */}
             <div className="flex flex-col gap-2 min-w-0">
                 {row.invoice ? (
                     <>
                         <div className="flex items-center gap-2">
                             <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">
-                                <FileText className="w-3 h-3" /> InvoiceXpress
+                                <DestIcon className="w-3 h-3" /> {dstLabel}
                             </span>
                             {row.invoice.status && (
                                 <span className={`text-[10px] font-bold ${row.invoice.status === "draft" ? "text-soon" : "text-accent-hot"}`}>
@@ -212,7 +218,7 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                         {row.invoice.meta_unavailable && (
                             <p className="text-[10px] font-medium text-soon flex items-center gap-1 mt-0.5">
                                 <AlertCircle className="w-3 h-3 shrink-0" />
-                                Fatura emitida (id {row.invoice.id}) — detalhe do InvoiceXpress indisponível de momento. Atualiza daqui a pouco.
+                                Fatura emitida (id {row.invoice.id}) — detalhe do {dstLabel} indisponível de momento. Atualiza daqui a pouco.
                             </p>
                         )}
                         <div className="flex flex-wrap gap-2 mt-1">
@@ -245,7 +251,8 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                             <Clock className="w-4 h-4" /> Fatura não por emitir
                         </p>
                         <p className="text-xs text-fg-40">
-                            A fatura é emitida automaticamente quando o pagamento for confirmado no Shopify. Até lá a encomenda fica em espera (ex.: Multibanco por pagar).
+                            {row.match.reason
+                                ?? `A fatura é emitida automaticamente quando o pagamento for confirmado no ${srcLabel}. Até lá fica em espera.`}
                         </p>
                     </>
                 ) : (
@@ -271,10 +278,12 @@ export function ReconciliationRow({ row, onChanged }: { row: Row; onChanged: () 
                             </div>
                         )}
                         <div className="flex flex-wrap gap-2 mt-2">
-                            <button onClick={issueInvoice} disabled={acting}
-                                className="text-[10px] font-black uppercase tracking-widest bg-fg text-surface px-3 py-1.5 rounded-lg hover:bg-accent-hot inline-flex items-center gap-1 disabled:opacity-50">
-                                {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FilePlus2 className="w-3 h-3" />} Emitir fatura
-                            </button>
+                            {isShopify && (
+                                <button onClick={issueInvoice} disabled={acting}
+                                    className="text-[10px] font-black uppercase tracking-widest bg-fg text-surface px-3 py-1.5 rounded-lg hover:bg-accent-hot inline-flex items-center gap-1 disabled:opacity-50">
+                                    {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FilePlus2 className="w-3 h-3" />} Emitir fatura
+                                </button>
+                            )}
                             <button onClick={markNotNeeded} disabled={acting}
                                 className="text-[10px] font-black uppercase tracking-widest text-fg-60 hover:text-fg px-3 py-1.5 rounded-lg border border-hairline hover:border-rule inline-flex items-center gap-1 disabled:opacity-50">
                                 {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <MinusCircle className="w-3 h-3" />} Marcar não necessária

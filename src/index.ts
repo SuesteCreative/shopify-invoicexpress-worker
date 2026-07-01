@@ -17,6 +17,7 @@ import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStrip
 import { sendDevModeEmail } from "./handlers/notify";
 import {
   getReconciliation,
+  resolveReconContext,
   approveReconciliationMatch,
   revertReconciliationMatch,
   setReconciliationDecisionAction,
@@ -1304,21 +1305,22 @@ app.post("/admin/pending-reverse-charge/:id/reject", async (c) => {
   return c.json({ ok: true, invoiceId: result.invoiceId, disposition: "reject" });
 })
 
-// Admin: reconciliation list
+// Admin: reconciliation list. Accepts either ?shop= (Shopify back-compat) or
+// ?user_id= (resolves the user's active connection: Shopify→IX, Lodgify→Moloni…).
 app.get("/admin/reconciliation", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const shop = c.req.query("shop");
+  const userId = c.req.query("user_id");
   const from = c.req.query("from");
   const to = c.req.query("to");
-  if (!shop || !from || !to) return c.json({ error: "Missing shop/from/to" }, 400);
+  if ((!shop && !userId) || !from || !to) return c.json({ error: "Missing shop|user_id/from/to" }, 400);
 
-  const appStorage = new AppStorage(c.env, shop);
-  const config = await appStorage.loadConfig();
-  if (!config) return c.json({ error: `No config found for ${shop}` }, 404);
+  const ctx = await resolveReconContext(c.env, { shop, userId });
+  if (!ctx) return c.json({ error: `No integration found for ${shop ?? userId}` }, 404);
 
   try {
-    const result = await getReconciliation(c.env, config, from, to);
+    const result = await getReconciliation(c.env, ctx, from, to);
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to load reconciliation");
@@ -1328,13 +1330,12 @@ app.get("/admin/reconciliation", async (c) => {
 app.post("/admin/reconciliation/approve", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ shop: string; order_id: string; invoice_id: string; approved_by?: string }>();
-  if (!body.shop || !body.order_id || !body.invoice_id) return c.json({ error: "Missing shop/order_id/invoice_id" }, 400);
-  const appStorage = new AppStorage(c.env, body.shop);
-  const config = await appStorage.loadConfig();
-  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+  const body = await c.req.json<{ shop?: string; user_id?: string; order_id: string; invoice_id: string; approved_by?: string }>();
+  if ((!body.shop && !body.user_id) || !body.order_id || !body.invoice_id) return c.json({ error: "Missing shop|user_id/order_id/invoice_id" }, 400);
+  const ctx = await resolveReconContext(c.env, { shop: body.shop, userId: body.user_id });
+  if (!ctx) return c.json({ error: `No integration found for ${body.shop ?? body.user_id}` }, 404);
   try {
-    return c.json(await approveReconciliationMatch(c.env, config, body.order_id, body.invoice_id, body.approved_by ?? null));
+    return c.json(await approveReconciliationMatch(c.env, ctx.scope, body.order_id, body.invoice_id, body.approved_by ?? null));
   } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 
@@ -1342,26 +1343,25 @@ app.delete("/admin/reconciliation/approve", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const shop = c.req.query("shop");
+  const userId = c.req.query("user_id");
   const orderId = c.req.query("order_id");
-  if (!shop || !orderId) return c.json({ error: "Missing shop or order_id" }, 400);
-  const appStorage = new AppStorage(c.env, shop);
-  const config = await appStorage.loadConfig();
-  if (!config) return c.json({ error: `No config found for ${shop}` }, 404);
+  if ((!shop && !userId) || !orderId) return c.json({ error: "Missing shop|user_id/order_id" }, 400);
+  const ctx = await resolveReconContext(c.env, { shop, userId });
+  if (!ctx) return c.json({ error: `No integration found for ${shop ?? userId}` }, 404);
   try {
-    return c.json(await revertReconciliationMatch(c.env, config, orderId));
+    return c.json(await revertReconciliationMatch(c.env, ctx.scope, orderId));
   } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 
 app.post("/admin/reconciliation/decision", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ shop: string; order_id: string; decision: string | null; reason?: string; decided_by?: string }>();
-  if (!body.shop || !body.order_id) return c.json({ error: "Missing shop/order_id" }, 400);
-  const appStorage = new AppStorage(c.env, body.shop);
-  const config = await appStorage.loadConfig();
-  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+  const body = await c.req.json<{ shop?: string; user_id?: string; order_id: string; decision: string | null; reason?: string; decided_by?: string }>();
+  if ((!body.shop && !body.user_id) || !body.order_id) return c.json({ error: "Missing shop|user_id/order_id" }, 400);
+  const ctx = await resolveReconContext(c.env, { shop: body.shop, userId: body.user_id });
+  if (!ctx) return c.json({ error: `No integration found for ${body.shop ?? body.user_id}` }, 404);
   try {
-    return c.json(await setReconciliationDecisionAction(c.env, config, body.order_id, body.decision ?? null, body.reason ?? null, body.decided_by ?? null));
+    return c.json(await setReconciliationDecisionAction(c.env, ctx.scope, body.order_id, body.decision ?? null, body.reason ?? null, body.decided_by ?? null));
   } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 

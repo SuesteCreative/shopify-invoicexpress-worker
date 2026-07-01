@@ -8,8 +8,10 @@ export async function POST(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    // Manual re-emit currently supports the Shopify→IX flow only (reemit by
+    // order number). Non-Shopify sources issue automatically on webhook.
     const shop = await resolveSelfShop(request, userId);
-    if (!shop) return NextResponse.json({ error: "No connected shopify_domain" }, { status: 404 });
+    if (!shop) return NextResponse.json({ error: "Emissão manual disponível apenas para integrações Shopify." }, { status: 404 });
 
     const body = await request.json() as { order_number: number; reason?: string };
     const me = await currentUser();

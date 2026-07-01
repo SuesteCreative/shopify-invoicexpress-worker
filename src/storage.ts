@@ -251,20 +251,23 @@ export class AppStorage {
   // immutable-ish meta (reference/total/date/permalink) keyed by invoice id so
   // subsequent loads read from KV instead. 24h TTL: ref/total/date never change;
   // only `status` can drift (draft→final), which is harmless for a matching view.
-  async getCachedInvoiceMetas(invoiceIds: string[]): Promise<Map<string, any>> {
+  // ns namespaces the cache per destination so a Moloni document id can't collide
+  // with an InvoiceXpress invoice id of the same number. Defaults to "ixmeta" to
+  // keep the already-warm Shopify→IX cache valid.
+  async getCachedInvoiceMetas(invoiceIds: string[], ns: string = "ixmeta"): Promise<Map<string, any>> {
     const map = new Map<string, any>();
     await Promise.all(invoiceIds.map(async (id) => {
       try {
-        const v = await this.kv.get(`ixmeta:${id}`);
+        const v = await this.kv.get(`${ns}:${id}`);
         if (v) map.set(String(id), JSON.parse(v));
       } catch { /* treat as cache miss */ }
     }));
     return map;
   }
 
-  async cacheInvoiceMeta(invoiceId: string, meta: any): Promise<void> {
+  async cacheInvoiceMeta(invoiceId: string, meta: any, ns: string = "ixmeta"): Promise<void> {
     try {
-      await this.kv.put(`ixmeta:${invoiceId}`, JSON.stringify(meta), { expirationTtl: 86400 });
+      await this.kv.put(`${ns}:${invoiceId}`, JSON.stringify(meta), { expirationTtl: 86400 });
     } catch { /* best-effort cache; a miss just refetches */ }
   }
 
@@ -274,20 +277,20 @@ export class AppStorage {
   // result per (account, reference) — an invoice id when found, the sentinel
   // "MISS" when not — for 1h, so repeated loads don't re-hammer the proxy. Short
   // TTL because a current MISS can become a hit once the invoice is created.
-  async getCachedRefLookups(account: string, refs: string[]): Promise<Map<string, string>> {
+  async getCachedRefLookups(account: string, refs: string[], ns: string = "ixref"): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     await Promise.all(refs.map(async (ref) => {
       try {
-        const v = await this.kv.get(`ixref:${account}:${ref}`);
+        const v = await this.kv.get(`${ns}:${account}:${ref}`);
         if (v) map.set(ref, v);
       } catch { /* treat as cache miss */ }
     }));
     return map;
   }
 
-  async cacheRefLookup(account: string, ref: string, value: string): Promise<void> {
+  async cacheRefLookup(account: string, ref: string, value: string, ns: string = "ixref"): Promise<void> {
     try {
-      await this.kv.put(`ixref:${account}:${ref}`, value, { expirationTtl: 3600 });
+      await this.kv.put(`${ns}:${account}:${ref}`, value, { expirationTtl: 3600 });
     } catch { /* best-effort */ }
   }
 
@@ -823,16 +826,22 @@ export class AppStorage {
     }
   }
 
-  async getProcessedInvoicesByOrderIds(orderIds: string[]): Promise<Map<string, string>> {
+  // sourceKind scopes the lookup so a Lodgify booking id can't collide with a
+  // Shopify order id for a user who has both. Legacy rows predate the
+  // source_kind column (NULL) and are Shopify, so a "shopify" filter must also
+  // match NULL. Omit sourceKind to keep the old bare-id behaviour.
+  async getProcessedInvoicesByOrderIds(orderIds: string[], sourceKind?: SourceKind): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     if (orderIds.length === 0) return map;
     for (let i = 0; i < orderIds.length; i += 50) {
       const chunk = orderIds.slice(i, i + 50);
       const placeholders = chunk.map(() => "?").join(",");
       try {
-        const result = await this.db.prepare(
-          `SELECT id, invoice_id FROM processed_orders WHERE id IN (${placeholders})`
-        ).bind(...chunk).all();
+        const sql = sourceKind
+          ? `SELECT id, invoice_id FROM processed_orders WHERE id IN (${placeholders}) AND (source_kind = ? OR (source_kind IS NULL AND ? = 'shopify'))`
+          : `SELECT id, invoice_id FROM processed_orders WHERE id IN (${placeholders})`;
+        const binds = sourceKind ? [...chunk, sourceKind, sourceKind] : chunk;
+        const result = await this.db.prepare(sql).bind(...binds).all();
         for (const row of result.results as any[]) {
           if (row.invoice_id) map.set(String(row.id), String(row.invoice_id));
         }

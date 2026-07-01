@@ -1,4 +1,5 @@
 import type { Row } from "./ReconciliationRow";
+import { sourceLabel, destLabel, recordNoun } from "./platform";
 
 const MATCH_LABEL: Record<Row["match"]["type"], string> = {
     exact: "Match exato",
@@ -20,10 +21,15 @@ const MATCH_COLOR: Record<Row["match"]["type"], string> = {
 
 export async function exportReconciliationToExcel(
     rows: Row[],
-    shop: string,
+    identifier: string,
     from: string,
     to: string,
+    source: string = "shopify",
+    destination: string = "invoicexpress",
 ) {
+    const srcLabel = sourceLabel(source);
+    const dstLabel = destLabel(destination);
+    const noun = recordNoun(source);
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
     wb.creator = "Rioko 2.0";
@@ -35,14 +41,14 @@ export async function exportReconciliationToExcel(
 
     // Title block
     ws.mergeCells("A1:N1");
-    ws.getCell("A1").value = `Conciliação Shopify ↔ InvoiceXpress — ${shop}`;
+    ws.getCell("A1").value = `Conciliação ${srcLabel} ↔ ${dstLabel} — ${identifier}`;
     ws.getCell("A1").font = { size: 16, bold: true, color: { argb: "FFFFFFFF" } };
     ws.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
     ws.getCell("A1").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(1).height = 28;
 
     ws.mergeCells("A2:N2");
-    ws.getCell("A2").value = `Período: ${formatRange(from, to)}  ·  Total: ${rows.length} encomendas  ·  Gerado em ${new Date().toLocaleString("pt-PT")}`;
+    ws.getCell("A2").value = `Período: ${formatRange(from, to)}  ·  Total: ${rows.length} ${noun.plural}  ·  Gerado em ${new Date().toLocaleString("pt-PT")}`;
     ws.getCell("A2").font = { size: 10, italic: true, color: { argb: "FF64748B" } };
     ws.getCell("A2").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(2).height = 18;
@@ -56,10 +62,11 @@ export async function exportReconciliationToExcel(
     ws.getRow(3).height = 18;
 
     // Header row
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
     const headers = [
-        "Encomenda", "Data Pagamento", "Cliente", "Email", "Total Shopify",
+        cap(noun.singular), "Data Pagamento", "Cliente", "Email", `Total ${srcLabel}`,
         "Status Match", "Confiança", "Razão",
-        "Fatura IX", "Estado IX", "Total IX", "Data IX", "Cliente IX", "Link IX",
+        `Fatura ${dstLabel}`, `Estado ${dstLabel}`, `Total ${dstLabel}`, `Data ${dstLabel}`, `Cliente ${dstLabel}`, `Link ${dstLabel}`,
     ];
     const headerRow = ws.addRow(headers); // row 4
     headerRow.eachCell(cell => {
@@ -141,7 +148,7 @@ export async function exportReconciliationToExcel(
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `conciliacao_${shop.replace(/\./g, "_")}_${from}_${to}.xlsx`;
+    a.download = `conciliacao_${identifier.replace(/[^a-zA-Z0-9]+/g, "_")}_${from}_${to}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

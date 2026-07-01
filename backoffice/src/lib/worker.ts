@@ -40,8 +40,43 @@ export async function resolveShopForUser(userId: string): Promise<string | null>
 /** Impersonation-aware: returns the shop for whoever is currently viewing
  *  (impersonated user when admin is impersonating, else the auth user). */
 export async function resolveSelfShop(request: Request, fallbackUserId: string): Promise<string | null> {
+    return resolveShopForUser(resolveViewerId(request, fallbackUserId));
+}
+
+/** Impersonation-aware viewer id (impersonated user when an admin is
+ *  impersonating, else the authenticated user). */
+export function resolveViewerId(request: Request, fallbackUserId: string): string {
     const cookieHeader = request.headers.get("cookie") ?? "";
     const m = cookieHeader.match(/rioko_impersonate_id=([^;]+)/);
-    const viewerId = m ? m[1] : fallbackUserId;
-    return resolveShopForUser(viewerId);
+    return m ? m[1] : fallbackUserId;
+}
+
+export type ConnectionSummary = {
+    source: string;        // "shopify" | "lodgify" | "stripe" | …
+    destination: string;   // "invoicexpress" | "moloni" | "vendus"
+    identifier: string;    // shop domain for Shopify, else the user id
+};
+
+/** Resolve which integration a user reconciles: the active `connections` row
+ *  (source→destination), falling back to a legacy Shopify `integrations` row.
+ *  Drives the dynamic conciliação title/labels. Returns null when neither exists. */
+export async function resolveConnectionForUser(userId: string): Promise<ConnectionSummary | null> {
+    const ctx = (() => { try { return getRequestContext(); } catch { return null; } })();
+    const db = (ctx?.env as any)?.DB;
+    if (!db) return null;
+
+    const conn: any = await db.prepare(
+        `SELECT source_kind, destination_kind FROM connections
+         WHERE user_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+    ).bind(userId).first();
+
+    const domRow: any = await db.prepare("SELECT shopify_domain FROM integrations WHERE user_id = ?").bind(userId).first();
+    const domain: string | null = domRow?.shopify_domain ?? null;
+
+    if (conn) {
+        const identifier = conn.source_kind === "shopify" && domain ? domain : userId;
+        return { source: conn.source_kind, destination: conn.destination_kind, identifier };
+    }
+    if (domain) return { source: "shopify", destination: "invoicexpress", identifier: domain };
+    return null;
 }

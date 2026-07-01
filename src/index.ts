@@ -703,23 +703,43 @@ app.post("/admin/lodgify/reregister-webhooks", async (c) => {
 
   const results: Record<string, any> = {};
 
-  for (const { event, url, secretKey, idKey } of toRegister) {
-    // Delete existing if we have an ID stored
-    const existingId = cfg[idKey];
-    if (existingId) {
-      await fetch(`${LODGIFY}/webhooks/v1/unsubscribe/${existingId}`, {
-        method: "DELETE",
-        headers: { "X-ApiKey": apiKey },
-      }).catch(() => null);
-    }
+  // Fetch live webhook list from Lodgify to find all IDs pointing to our Worker
+  const workerHost = new URL(workerBase).hostname;
+  const listRes = await fetch(`${LODGIFY}/webhooks/v1/list`, { headers: { "X-ApiKey": apiKey } });
+  const liveList: any[] = listRes.ok ? ((await listRes.json().catch(() => [])) as any[]) : [];
+  const ourWebhooks = liveList.filter((w: any) => (w.target_url ?? w.url ?? "").includes(workerHost));
 
+  // Delete all existing webhooks pointing to our Worker (by live ID)
+  const deleteResults: Record<string, number> = {};
+  for (const w of ourWebhooks) {
+    const wId = w.id ?? w.webhook_id;
+    // Try DELETE then POST fallback
+    let status = 0;
+    for (const method of ["DELETE", "POST"] as const) {
+      const dr = await fetch(`${LODGIFY}/webhooks/v1/unsubscribe/${wId}`, {
+        method, headers: { "X-ApiKey": apiKey },
+      }).catch(() => null);
+      status = dr?.status ?? 0;
+      if (status >= 200 && status < 300) break;
+    }
+    deleteResults[wId] = status;
+  }
+  results["_deleted"] = deleteResults;
+  results["_live_list"] = liveList.map((w: any) => ({ id: w.id, event: w.event ?? w.type, url: w.target_url ?? w.url }));
+
+  // Small pause after deletes
+  await new Promise(r => setTimeout(r, 1500));
+
+  for (const { event, url, secretKey, idKey } of toRegister) {
     // Register new
     const res = await fetch(`${LODGIFY}/webhooks/v1/subscribe`, {
       method: "POST",
       headers: { "X-ApiKey": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({ target_url: url, event }),
     });
-    const data: any = await res.json().catch(() => ({}));
+    const rawText = await res.text().catch(() => "");
+    let data: any = {};
+    try { data = JSON.parse(rawText); } catch { data = { raw: rawText.slice(0, 300) }; }
     if (!res.ok) {
       results[event] = { ok: false, status: res.status, error: data };
       continue;

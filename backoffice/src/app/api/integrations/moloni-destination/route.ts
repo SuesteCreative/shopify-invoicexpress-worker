@@ -39,6 +39,7 @@ type MoloniBody = {
     moloni_company_name?: string;
     moloni_document_set_id?: number | string;
     moloni_document_set_name?: string;
+    moloni_document_type?: "invoice" | "invoice_receipt";
     moloni_environment?: "production" | "sandbox";
     vat_included?: boolean;
     auto_finalize?: boolean;
@@ -56,6 +57,7 @@ function redactConfig(cfg: Record<string, unknown>) {
         moloni_company_name: cfg.moloni_company_name ?? null,
         moloni_document_set_id: cfg.moloni_document_set_id ?? null,
         moloni_document_set_name: cfg.moloni_document_set_name ?? null,
+        moloni_document_type: cfg.moloni_document_type ?? "invoice",
         moloni_environment: cfg.moloni_environment ?? "production",
         vat_included: cfg.vat_included !== false,
         auto_finalize: cfg.auto_finalize === true,
@@ -130,6 +132,7 @@ export async function POST(request: NextRequest) {
         moloni_company_name: body.moloni_company_name ?? previousCfg.moloni_company_name,
         moloni_document_set_id: body.moloni_document_set_id ?? previousCfg.moloni_document_set_id,
         moloni_document_set_name: body.moloni_document_set_name ?? previousCfg.moloni_document_set_name,
+        moloni_document_type: body.moloni_document_type ?? previousCfg.moloni_document_type,
         moloni_environment: body.moloni_environment ?? previousCfg.moloni_environment,
     };
 
@@ -163,6 +166,7 @@ export async function POST(request: NextRequest) {
         moloni_company_name: merged.moloni_company_name ? String(merged.moloni_company_name) : undefined,
         moloni_document_set_id: merged.moloni_document_set_id !== undefined && merged.moloni_document_set_id !== null && merged.moloni_document_set_id !== "" ? Number(merged.moloni_document_set_id) : undefined,
         moloni_document_set_name: merged.moloni_document_set_name ? String(merged.moloni_document_set_name) : undefined,
+        moloni_document_type: merged.moloni_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
         moloni_environment: env_,
         vat_included: body.vat_included !== undefined ? body.vat_included : (previousCfg.vat_included !== false),
         auto_finalize: body.auto_finalize !== undefined ? body.auto_finalize === true : (previousCfg.auto_finalize === true),

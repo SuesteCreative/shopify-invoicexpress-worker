@@ -69,6 +69,7 @@ export default function LodgifyMoloniIntegration() {
     const [documentSetName, setDocumentSetName] = useState("");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
+    const [documentType, setDocumentType] = useState<"invoice" | "invoice_receipt">("invoice_receipt");
     const [exemptionReason, setExemptionReason] = useState("M01");
 
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
@@ -127,6 +128,7 @@ export default function LodgifyMoloniIntegration() {
                 setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
                 if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
                 if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
+                if (typeof cfg.moloni_document_type === "string") setDocumentType(cfg.moloni_document_type === "invoice" ? "invoice" : "invoice_receipt");
                 if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
                 setConnectionStatus(mConn.status ?? "");
                 credsOk = !!cfg.moloni_client_id && !!cfg.has_client_secret && !!cfg.moloni_username && !!cfg.has_password;
@@ -218,6 +220,7 @@ export default function LodgifyMoloniIntegration() {
                     source_kind: "lodgify",
                     moloni_company_name: companyName.trim(),
                     moloni_document_set_name: documentSetName.trim(),
+                    moloni_document_type: documentType,
                     vat_included: vatIncluded,
                     auto_finalize: autoFinalize,
                     exemption_reason: exemptionReason,
@@ -421,6 +424,30 @@ export default function LodgifyMoloniIntegration() {
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                         </div>
                         <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${autoFinalize ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} /></button>
+                    </div>
+                    <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline space-y-4">
+                        <div>
+                            <h3 className="font-bold text-sm">{t("documentTypeTitle")}</h3>
+                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("documentTypeDesc")}</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {([
+                                { value: "invoice_receipt" as const, title: t("docTypeReceipt"), hint: t("docTypeReceiptHint") },
+                                { value: "invoice" as const, title: t("docTypeInvoice"), hint: t("docTypeInvoiceHint") },
+                            ]).map((opt) => (
+                                <button
+                                    key={opt.value}
+                                    onClick={() => setDocumentType(opt.value)}
+                                    className={`text-left p-4 rounded-2xl border transition-all ${documentType === opt.value ? "border-accent bg-accent/5 ring-2 ring-accent/20" : "border-hairline hover:border-rule bg-surface-2/40"}`}
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="font-bold text-sm">{opt.title}</span>
+                                        <span className={`w-4 h-4 rounded-full border-2 shrink-0 transition-all ${documentType === opt.value ? "border-accent bg-accent" : "border-rule"}`} />
+                                    </div>
+                                    <p className="text-[10px] text-fg-40 font-medium mt-1 leading-relaxed">{opt.hint}</p>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-8 rounded-[2rem] border-hairline space-y-4">
                         <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3></div>

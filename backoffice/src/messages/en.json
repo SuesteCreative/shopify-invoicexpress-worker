@@ -951,6 +951,8 @@
   "tagRouting": {
     "title": "Tag-Based Series Routing → InvoiceXpress",
     "subtitle": "Match Shopify order tags or Stripe metadata key:value pairs to a specific invoice series and document type. First matching rule wins.",
+    "titleMoloni": "Tag-Based Routing → Moloni",
+    "subtitleMoloni": "Match Lodgify booking attributes (property_id, source, room_type_id) to a Moloni document set or document type. First matching rule wins.",
     "back": "Back to {source}",
     "colTag": "Tag name",
     "colType": "Invoice type",

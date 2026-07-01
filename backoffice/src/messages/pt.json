@@ -951,6 +951,8 @@
   "tagRouting": {
     "title": "Routing por Tags → InvoiceXpress",
     "subtitle": "Associa tags de encomendas do Shopify ou pares chave:valor de metadados do Stripe a uma série e tipo de documento específico. A primeira regra correspondente é aplicada.",
+    "titleMoloni": "Routing por Tags → Moloni",
+    "subtitleMoloni": "Associa atributos de reservas do Lodgify (property_id, source, room_type_id) a um conjunto de documentos ou tipo de documento Moloni. A primeira regra correspondente é aplicada.",
     "back": "Voltar para {source}",
     "colTag": "Nome da tag",
     "colType": "Tipo de fatura",

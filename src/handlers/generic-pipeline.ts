@@ -268,13 +268,16 @@ async function runPipelineCore(
               ...(tagMatch.series_name ? { ix_sequence_name: tagMatch.series_name } : {}),
             },
           };
-        } else if (destination === "moloni" && tagMatch.series_name) {
+        } else if (destination === "moloni") {
           ctx = {
             ...ctx,
             destinationConfig: {
               ...ctx.destinationConfig,
-              moloni_document_set_id: null,
-              moloni_document_set_name: tagMatch.series_name,
+              ...(tagMatch.series_name ? {
+                moloni_document_set_id: null,
+                moloni_document_set_name: tagMatch.series_name,
+              } : {}),
+              ...(tagMatch.document_type ? { moloni_document_type: tagMatch.document_type } : {}),
             },
           };
         }

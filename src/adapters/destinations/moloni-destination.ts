@@ -71,6 +71,8 @@ type MoloniCfg = {
   // Human-readable names used for lazy ID resolution when IDs are absent.
   companyName?: string;
   documentSetName?: string;
+  // "invoice" → /invoices/insert/ (default), "invoice_receipt" → /invoiceReceipts/insert/
+  documentType: string;
 };
 
 const DEFAULT_PAYMENT_METHOD_ID = 0; // 0 = unset; finalize accepts no method
@@ -111,7 +113,8 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   }
 
   const defaultTaxId = Number(c.moloni_default_tax_id ?? 0);
-  return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId, companyName, documentSetName, defaultTaxId };
+  const documentType = String(c.moloni_document_type ?? "invoice").toLowerCase();
+  return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId, companyName, documentSetName, defaultTaxId, documentType };
 }
 
 // Resolves company/document-set names → IDs via Moloni API when IDs are absent.
@@ -765,8 +768,11 @@ export class MoloniDestination implements DestinationAdapter {
       ...(needsExemption ? { exemption_reason: exemptionReason } : {}),
     };
 
+    const insertPath = cfg.documentType === "invoice_receipt"
+      ? "/invoiceReceipts/insert/"
+      : "/invoices/insert/";
     const res = await moloniCall<{ document_id?: number }>(
-      cfg, token, "/invoices/insert/", payload, "create",
+      cfg, token, insertPath, payload, "create",
     );
     const id = res?.document_id;
     if (!id) {

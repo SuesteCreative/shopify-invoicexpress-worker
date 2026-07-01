@@ -91,9 +91,7 @@ export default function TagRoutingPage() {
 
     async function saveRule() {
         if (!draft.tag_name.trim()) { setError(t("tagNameRequired")); return; }
-        // For Moloni: series (document set) is required. For IX: at least one of type or series.
-        if (isMoloni && !draft.series_name.trim()) { setError(t("docSetRequired")); return; }
-        if (!isMoloni && !draft.document_type && !draft.series_name.trim()) { setError(t("atLeastOne")); return; }
+        if (!draft.document_type && !draft.series_name.trim()) { setError(t("atLeastOne")); return; }
         setSaving(true); setError("");
         try {
             const body: any = {
@@ -101,7 +99,7 @@ export default function TagRoutingPage() {
                 destination_kind: destinationKind,
                 tag_name: draft.tag_name.trim(),
             };
-            if (!isMoloni && draft.document_type) body.document_type = draft.document_type;
+            if (draft.document_type) body.document_type = draft.document_type;
             if (draft.series_name.trim()) body.series_name = draft.series_name.trim();
 
             const res = await fetch("/api/integrations/tag-routing", {
@@ -158,8 +156,8 @@ export default function TagRoutingPage() {
                 <Link href={backHref} className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
                     <ArrowLeft className="w-3 h-3" /> {t("back", { source: backConnectionLabel })}
                 </Link>
-                <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{t("title")}</h1>
-                <p className="text-fg-60 font-medium max-w-2xl">{t("subtitle")}</p>
+                <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{isMoloni ? t("titleMoloni") : t("title")}</h1>
+                <p className="text-fg-60 font-medium max-w-2xl">{isMoloni ? t("subtitleMoloni") : t("subtitle")}</p>
             </div>
 
             {error && (
@@ -173,27 +171,23 @@ export default function TagRoutingPage() {
             <div className="space-y-3">
                 {/* Header */}
                 {rules.length > 0 && (
-                    <div className={`grid ${isMoloni ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto_auto_auto]"} gap-4 px-5 py-2`}>
+                    <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-5 py-2">
                         <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em]">{t("colTag")}</span>
-                        {!isMoloni && (
-                            <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] w-36 text-center">{t("colType")}</span>
-                        )}
+                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] w-36 text-center">{t("colType")}</span>
                         <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] w-24 text-center">{seriesColLabel}</span>
                         <span className="w-8" />
                     </div>
                 )}
 
                 {rules.map((rule) => (
-                    <div key={rule.id} className={`glass rounded-2xl p-5 border-hairline grid ${isMoloni ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto_auto_auto]"} gap-4 items-center`}>
+                    <div key={rule.id} className="glass rounded-2xl p-5 border-hairline grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center">
                         <span className="font-mono text-sm truncate">{rule.tag_name}</span>
-                        {!isMoloni && (
-                            <span className="w-36 text-center">
-                                {rule.document_type
-                                    ? <Badge label={rule.document_type === "invoice_receipt" ? t("typeReceipt") : t("typeInvoice")} color="accent" />
-                                    : <span className="text-[10px] text-fg-40 uppercase tracking-wider">{t("typeDefault")}</span>
-                                }
-                            </span>
-                        )}
+                        <span className="w-36 text-center">
+                            {rule.document_type
+                                ? <Badge label={rule.document_type === "invoice_receipt" ? t("typeReceipt") : t("typeInvoice")} color="accent" />
+                                : <span className="text-[10px] text-fg-40 uppercase tracking-wider">{t("typeDefault")}</span>
+                            }
+                        </span>
                         <span className="w-24 text-center">
                             {rule.series_name
                                 ? <Badge label={rule.series_name} color="hot" />
@@ -217,7 +211,7 @@ export default function TagRoutingPage() {
                 {/* Inline add form */}
                 {adding && (
                     <div className="glass rounded-2xl p-5 border-accent ring-2 ring-accent/20 space-y-4">
-                        <div className={`grid grid-cols-1 ${isMoloni ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-4`}>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] block">{t("colTag")}</label>
                                 <input
@@ -228,20 +222,18 @@ export default function TagRoutingPage() {
                                     className="w-full bg-surface-2 border border-hairline rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-accent"
                                 />
                             </div>
-                            {!isMoloni && (
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] block">{t("colType")}</label>
-                                    <select
-                                        value={draft.document_type}
-                                        onChange={(e) => setDraft({ ...draft, document_type: e.target.value })}
-                                        className="w-full bg-surface-2 border border-hairline rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
-                                    >
-                                        <option value="">{t("typeDefault")}</option>
-                                        <option value="invoice">{t("typeInvoice")}</option>
-                                        <option value="invoice_receipt">{t("typeReceipt")}</option>
-                                    </select>
-                                </div>
-                            )}
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] block">{t("colType")}</label>
+                                <select
+                                    value={draft.document_type}
+                                    onChange={(e) => setDraft({ ...draft, document_type: e.target.value })}
+                                    className="w-full bg-surface-2 border border-hairline rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                                >
+                                    <option value="">{t("typeDefault")}</option>
+                                    <option value="invoice">{t("typeInvoice")}</option>
+                                    <option value="invoice_receipt">{t("typeReceipt")}</option>
+                                </select>
+                            </div>
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] block">{seriesColLabel}</label>
                                 {sequences.length > 0 ? (

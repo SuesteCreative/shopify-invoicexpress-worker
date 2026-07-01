@@ -141,10 +141,22 @@ export class LodgifySource implements SourceAdapter {
       ? Math.round((grossTotal / (1 + taxRate / 100)) * 10000) / 10000
       : grossTotal;
 
-    const guestName = booking.guest?.name || "Consumidor Final";
-    const guestEmail = String(booking.guest?.email ?? "");
-    const rawCountry = String(booking.guest?.country_code ?? "PT").toUpperCase();
+    // Enrich guest with full contact details (address, postal code, split name,
+    // notes). The v2 booking object only carries name/email/phone/country_code;
+    // the v1 reservation endpoint additionally exposes street_address, city,
+    // postal_code and state — all of which Moloni wants on the customer record.
+    // Best-effort: a v1 failure must never block invoicing.
+    const enriched = await fetchGuestDetails(bookingId, apiKey);
+
+    const guestName = enriched?.fullName || booking.guest?.name || "Consumidor Final";
+    const guestEmail = String(enriched?.email ?? booking.guest?.email ?? "");
+    const rawCountry = String(enriched?.countryCode ?? booking.guest?.country_code ?? "PT").toUpperCase();
     const countryName = countryCodeToName(rawCountry);
+    const guestPhone = enriched?.phone ?? booking.guest?.phone ?? null;
+    // NIF is not a native Lodgify field; it only appears when the guest typed it
+    // into the booking notes. Surface notes so the destination's extractPtNif
+    // (which scans order.note for a valid 9-digit PT NIF) can pick it up.
+    const guestNote = enriched?.note ?? (booking.notes ? String(booking.notes) : null) ?? null;
 
     const arrival = String(booking.arrival ?? "");
     const departure = String(booking.departure ?? "");
@@ -154,23 +166,23 @@ export class LodgifySource implements SourceAdapter {
     const orderNumeric = numericFromId(bookingId);
 
     const nameParts = guestName.split(" ");
-    const firstName = nameParts[0] ?? "Consumidor";
-    const lastName = nameParts.slice(1).join(" ") || "Final";
+    const firstName = enriched?.firstName || nameParts[0] || "Consumidor";
+    const lastName = enriched?.lastName || nameParts.slice(1).join(" ") || "Final";
 
     const addr = {
       first_name: firstName,
       last_name: lastName,
       name: guestName,
       company: null as string | null,
-      address1: "",
-      address2: "",
-      city: "",
-      province: "",
+      address1: enriched?.address1 ?? "",
+      address2: enriched?.address2 ?? "",
+      city: enriched?.city ?? "",
+      province: enriched?.state ?? "",
       province_code: "",
-      zip: "",
+      zip: enriched?.zip ?? "",
       country: countryName,
       country_code: rawCountry,
-      phone: booking.guest?.phone ?? null,
+      phone: guestPhone,
     };
 
     const lineTitle = [arrival, departure].every(Boolean)
@@ -213,7 +225,7 @@ export class LodgifySource implements SourceAdapter {
       reference: refStr,
       order_number: orderNumeric,
       created_at: bookingDateIso,
-      note: null,
+      note: guestNote,
       note_attributes: noteAttrs,
       metafields: null,
       tags: [],
@@ -283,6 +295,58 @@ function timingSafeEqual(a: string, b: string): boolean {
 function numericFromId(id: string | number): number {
   const digits = String(id).replace(/\D/g, "").slice(-12);
   return Number(digits) || 0;
+}
+
+type GuestDetails = {
+  firstName: string | null;
+  lastName: string | null;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  zip: string | null;
+  state: string | null;
+  countryCode: string | null;
+  note: string | null;
+};
+
+// The v1 reservation endpoint carries the full guest record (postal address,
+// split name, notes) that v2's booking object omits. Best-effort enrichment —
+// any failure returns null and the caller falls back to the v2/webhook guest.
+async function fetchGuestDetails(bookingId: string, apiKey: string): Promise<GuestDetails | null> {
+  try {
+    const res = await fetch(`https://api.lodgify.com/v1/reservation/booking/${bookingId}`, {
+      headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const g = data?.guest;
+    if (!g) return null;
+    const clean = (v: unknown): string | null => {
+      const s = v == null ? "" : String(v).trim();
+      return s.length > 0 ? s : null;
+    };
+    const phone = clean(g.phone) ?? clean(Array.isArray(g.phone_numbers) ? g.phone_numbers[0] : null);
+    return {
+      firstName: clean(g.guest_name?.first_name),
+      lastName: clean(g.guest_name?.last_name),
+      fullName: clean(g.guest_name?.full_name) ?? clean(g.name),
+      email: clean(g.email),
+      phone,
+      address1: clean(g.street_address1),
+      address2: clean(g.street_address2),
+      city: clean(g.city),
+      zip: clean(g.postal_code),
+      state: clean(g.state),
+      countryCode: clean(g.country_code),
+      note: clean(data?.note),
+    };
+  } catch {
+    // Non-fatal: enrichment is additive; invoice still issues without it.
+    return null;
+  }
 }
 
 // Minimal country code → name map for IX (needs full name, not ISO code).

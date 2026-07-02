@@ -852,6 +852,54 @@ export class AppStorage {
     return map;
   }
 
+  /** Bulk-upsert Lodgify bookings into the local mirror (`lodgify_bookings`),
+   *  synced by the 30-min poll. Reconciliation reads from this table instead of
+   *  hitting the rate-limited Lodgify API on every page load. Keyed by booking
+   *  id; stores the full v2 item as raw_json plus queryable columns. */
+  async upsertLodgifyBookings(userId: string, bookings: any[]): Promise<number> {
+    if (!Array.isArray(bookings) || bookings.length === 0) return 0;
+    const num = (v: unknown): number | null => {
+      const n = typeof v === "object" && v !== null && "amount" in (v as any) ? Number((v as any).amount) : Number(v as any);
+      return Number.isFinite(n) ? n : null;
+    };
+    const ymd = (v: unknown): string | null => {
+      const m = String(v ?? "").match(/^(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : null;
+    };
+    const stmt = this.db.prepare(
+      `INSERT INTO lodgify_bookings
+         (id, user_id, status, amount_due, amount_paid, total_amount, currency_code,
+          arrival, departure, created_at, updated_at, source, property_id,
+          guest_name, guest_email, raw_json, synced_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET
+         user_id=excluded.user_id, status=excluded.status, amount_due=excluded.amount_due,
+         amount_paid=excluded.amount_paid, total_amount=excluded.total_amount,
+         currency_code=excluded.currency_code, arrival=excluded.arrival, departure=excluded.departure,
+         created_at=excluded.created_at, updated_at=excluded.updated_at, source=excluded.source,
+         property_id=excluded.property_id, guest_name=excluded.guest_name,
+         guest_email=excluded.guest_email, raw_json=excluded.raw_json, synced_at=CURRENT_TIMESTAMP`
+    );
+    const rows: any[] = [];
+    for (const b of bookings) {
+      const id = String(b?.id ?? b?.booking_id ?? b?.reservation_id ?? "");
+      if (!id) continue;
+      rows.push(stmt.bind(
+        id, userId, b?.status ?? null, num(b?.amount_due), num(b?.amount_paid),
+        num(b?.total_amount), b?.currency_code ?? null, ymd(b?.arrival), ymd(b?.departure),
+        b?.created_at ?? null, b?.updated_at ?? null, b?.source ?? null,
+        b?.property_id != null ? String(b.property_id) : null,
+        b?.guest?.name ?? null, b?.guest?.email ?? null, JSON.stringify(b),
+      ));
+    }
+    if (rows.length === 0) return 0;
+    // Chunk to stay under D1's per-batch statement cap.
+    for (let i = 0; i < rows.length; i += 50) {
+      await this.db.batch(rows.slice(i, i + 50));
+    }
+    return rows.length;
+  }
+
   async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {
     const processed = new Set<string>();
     // Batch in chunks of 50 to avoid SQL parameter limits

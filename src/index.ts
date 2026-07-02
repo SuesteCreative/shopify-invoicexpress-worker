@@ -1900,36 +1900,43 @@ function ymd(input: unknown): string {
   return m ? m[1] : "";
 }
 
-// List upcoming bookings for a connection via stayFilter=Upcoming — the verified
-// working contract. (stayFilter=ArrivalDate needs a single `stayFilterDate` and
-// matches one exact day, so it can't express a forward window; Upcoming does.)
-// The v2 list item is rich — status, totals, amount_due, guest, property, source
-// — so no per-booking detail fetch is needed here; LodgifySource still enriches
-// the guest address from the v1 endpoint downstream.
-async function listUpcomingBookings(apiKey: string): Promise<any[]> {
+// List Lodgify bookings with the given query params (paginated, resilient). The
+// v2 list item is rich — status, totals, amount_due, guest, property, source —
+// so no per-booking detail fetch is needed here; LodgifySource still enriches
+// the guest address from the v1 endpoint downstream. Retries 429 (rate-limited
+// integration) with Retry-After backoff and paces pages; on exhaustion it
+// returns what it has rather than throwing (background sync should never crash
+// the whole poll over a transient limit).
+async function listLodgifyBookings(apiKey: string, params: Record<string, string>): Promise<any[]> {
   const out: any[] = [];
   const size = 50;
+  const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
   for (let page = 1; page <= 40; page++) {
-    const qs = new URLSearchParams({
-      stayFilter: "Upcoming",
-      page: String(page),
-      size: String(size),
-      includeCount: "false",
-    });
-    const res = await fetch(`${LODGIFY_API}/v2/reservations/bookings?${qs.toString()}`, {
-      headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
-    });
-    if (!res.ok) {
+    const qs = new URLSearchParams({ ...params, page: String(page), size: String(size), includeCount: "false" });
+    const url = `${LODGIFY_API}/v2/reservations/bookings?${qs.toString()}`;
+    let items: any[] | null = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data: any = await res.json().catch(() => null);
+        items = Array.isArray(data?.items) ? data.items
+          : Array.isArray(data?.bookings) ? data.bookings
+          : Array.isArray(data) ? data
+          : [];
+        break;
+      }
+      if (res.status === 429) {
+        const ra = Number(res.headers.get("retry-after"));
+        await delay(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1));
+        continue;
+      }
       console.error(`[LodgifyPoll] list ${res.status} ${res.statusText}`);
       break;
     }
-    const data: any = await res.json().catch(() => null);
-    const items: any[] = Array.isArray(data?.items) ? data.items
-      : Array.isArray(data?.bookings) ? data.bookings
-      : Array.isArray(data) ? data
-      : [];
+    if (items == null) break;
     out.push(...items);
     if (items.length < size) break;
+    await delay(250); // pace pages to avoid re-tripping the rate limit
   }
   return out;
 }
@@ -1972,11 +1979,11 @@ function toPreloadedFromItem(item: any): Record<string, unknown> {
 }
 
 interface LodgifyPollResult {
-  connections: number; scanned: number; invoiced: number; skipped: number; failed: number;
+  connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;
 }
 
 async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
-  const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0 };
+  const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0 };
 
   const conns = await env.DB.prepare(
     `SELECT id, user_id, source_config_json, destination_kind, destination_config_json
@@ -2012,12 +2019,27 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
       continue;
     }
 
+    // Fetch recent activity (created/modified in the last ~120 days) — one
+    // gentle updatedSince sweep rather than a wide burst. Covers new bookings,
+    // bookings just marked paid (their updated_at bumps), and upcoming stays.
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - 120);
     let bookings: any[];
     try {
-      bookings = await listUpcomingBookings(apiKey);
+      bookings = await listLodgifyBookings(apiKey, { updatedSince: since.toISOString().slice(0, 10) });
     } catch (e: any) {
       console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${e?.message ?? e}`);
       continue;
+    }
+
+    // Mirror every fetched booking into D1 so the conciliação view reads locally
+    // (no Lodgify call on page load → no 429). Best-effort: a sync failure must
+    // not stop invoicing.
+    try {
+      const synced = await new AppStorage(env, null, conn.user_id).upsertLodgifyBookings(conn.user_id, bookings);
+      result.synced += synced;
+    } catch (e: any) {
+      console.error(`[LodgifyPoll] user ${conn.user_id}: booking sync failed: ${e?.message ?? e}`);
     }
 
     const storageTopic = "lodgify/created";
@@ -2093,7 +2115,7 @@ export default {
       }
       try {
         const r = await pollLodgifyBookings(env);
-        console.log(`[Cron] Lodgify poll: scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} failed=${r.failed} across ${r.connections} connection(s)`);
+        console.log(`[Cron] Lodgify poll: synced=${r.synced} scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} failed=${r.failed} across ${r.connections} connection(s)`);
       } catch (e: any) {
         console.error(`[Cron] Lodgify poll failed: ${e.message}`);
       }

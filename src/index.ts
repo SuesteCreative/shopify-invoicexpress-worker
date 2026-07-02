@@ -1873,6 +1873,200 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
   }
 }
 
+// ── Lodgify booking poller (cron) ─────────────────────────────────────────────
+// Lodgify does not expose webhook registration to user-level API keys (partner
+// OAuth only), so new-customer bookings never arrive via /webhooks/lodgify/*.
+// This poll lists Booked bookings per active connection and drives the SAME
+// pipeline the webhook uses (with a preloaded booking), deduped on the shared
+// `lodgify/created` webhook-info key so a booking is invoiced at most once
+// regardless of which path sees it first.
+
+const LODGIFY_API = "https://api.lodgify.com";
+
+function firstNum(...vals: unknown[]): number | null {
+  for (const v of vals) {
+    if (v == null) continue;
+    const n = typeof v === "object" && v !== null && "amount" in (v as any)
+      ? Number((v as any).amount)
+      : Number(v as any);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function ymd(input: unknown): string {
+  const s = String(input ?? "");
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
+
+// List upcoming bookings for a connection via stayFilter=Upcoming — the verified
+// working contract. (stayFilter=ArrivalDate needs a single `stayFilterDate` and
+// matches one exact day, so it can't express a forward window; Upcoming does.)
+// The v2 list item is rich — status, totals, amount_due, guest, property, source
+// — so no per-booking detail fetch is needed here; LodgifySource still enriches
+// the guest address from the v1 endpoint downstream.
+async function listUpcomingBookings(apiKey: string): Promise<any[]> {
+  const out: any[] = [];
+  const size = 50;
+  for (let page = 1; page <= 40; page++) {
+    const qs = new URLSearchParams({
+      stayFilter: "Upcoming",
+      page: String(page),
+      size: String(size),
+      includeCount: "false",
+    });
+    const res = await fetch(`${LODGIFY_API}/v2/reservations/bookings?${qs.toString()}`, {
+      headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
+    });
+    if (!res.ok) {
+      console.error(`[LodgifyPoll] list ${res.status} ${res.statusText}`);
+      break;
+    }
+    const data: any = await res.json().catch(() => null);
+    const items: any[] = Array.isArray(data?.items) ? data.items
+      : Array.isArray(data?.bookings) ? data.bookings
+      : Array.isArray(data) ? data
+      : [];
+    out.push(...items);
+    if (items.length < size) break;
+  }
+  return out;
+}
+
+// Outstanding balance in Lodgify for a v2 booking item, or null if undeterminable.
+// Policy (confirmed with merchant): invoice a booking only once it is PAID in
+// Lodgify — i.e. amount_due≈0. That covers both direct payments captured through
+// Lodgify AND OTA (Booking.com/Airbnb) stays that staff mark as paid, since
+// marking-as-paid raises amount_paid → amount_due drops to 0. Bookings with a
+// positive balance are skipped and re-evaluated on every poll (never marked
+// processed), so they invoice automatically on the poll after payment lands.
+function bookingAmountDue(item: any): number | null {
+  const due = firstNum(item?.amount_due, item?.balance_due);
+  if (due != null) return Math.round(due * 100) / 100;
+  const total = firstNum(item?.total_amount, item?.total);
+  const paid = firstNum(item?.amount_paid, item?.total_paid);
+  if (total != null && paid != null) return Math.round((total - paid) * 100) / 100;
+  return null;
+}
+
+// Map a v2 booking list item into the shape LodgifySource reads from
+// `_preloaded_booking`.
+function toPreloadedFromItem(item: any): Record<string, unknown> {
+  return {
+    status: item?.status,
+    total: firstNum(item?.total_amount, item?.total) ?? 0,
+    currency_code: item?.currency_code ?? "EUR",
+    guest: {
+      name: item?.guest?.name ?? item?.guest?.guest_name?.full_name ?? null,
+      email: item?.guest?.email ?? null,
+      country_code: item?.guest?.country_code ?? null,
+      phone: item?.guest?.phone ?? item?.guest?.phone_number ?? null,
+    },
+    arrival: ymd(item?.arrival ?? item?.date_arrival),
+    departure: ymd(item?.departure ?? item?.date_departure),
+    property_id: item?.property_id ?? null,
+    source: item?.source ?? null,
+    room_type_id: item?.rooms?.[0]?.room_type_id ?? item?.room_types?.[0]?.room_type_id ?? null,
+  };
+}
+
+interface LodgifyPollResult {
+  connections: number; scanned: number; invoiced: number; skipped: number; failed: number;
+}
+
+async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
+  const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0 };
+
+  const conns = await env.DB.prepare(
+    `SELECT id, user_id, source_config_json, destination_kind, destination_config_json
+     FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`
+  ).all();
+  const rows = (conns?.results ?? []) as any[];
+
+  for (const conn of rows) {
+    result.connections++;
+
+    let sourceCfg: Record<string, any> = {};
+    try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+    const apiKey = sourceCfg.api_key;
+    if (!apiKey) {
+      console.warn(`[LodgifyPoll] user ${conn.user_id}: no api_key in source_config — skipping`);
+      continue;
+    }
+
+    let destinationConfig: Record<string, any> | undefined;
+    try { destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined; } catch { destinationConfig = undefined; }
+
+    // Same synthesized legacy config + subscription gate the webhook route uses.
+    const legacy: any = (await env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(conn.user_id).first()) ?? {
+      user_id: conn.user_id,
+      shopify_domain: null,
+      auto_finalize: destinationConfig?.auto_finalize ? 1 : 0,
+      b2b_reverse_charge: 0,
+      ix_send_email: 0,
+    };
+    const gate = await checkSubscriptionGate(env, legacy);
+    if (!gate.allowed) {
+      console.warn(`[LodgifyPoll] user ${conn.user_id}: subscription gate blocked (${gate.reason}) — skipping`);
+      continue;
+    }
+
+    let bookings: any[];
+    try {
+      bookings = await listUpcomingBookings(apiKey);
+    } catch (e: any) {
+      console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${e?.message ?? e}`);
+      continue;
+    }
+
+    const storageTopic = "lodgify/created";
+    const destination = (conn.destination_kind as any) ?? "moloni";
+
+    for (const item of bookings) {
+      // Only confirmed stays are invoiceable (Open/Tentative/Declined are not).
+      if (String(item?.status ?? "").toLowerCase() !== "booked") continue;
+      const bookingId = String(item?.id ?? item?.booking_id ?? item?.reservation_id ?? "");
+      if (!bookingId) continue;
+      result.scanned++;
+
+      // Payment gate: only auto-invoice bookings settled through Lodgify
+      // (amount_due≈0). See bookingAmountDue re: OTA channel bookings.
+      const due = bookingAmountDue(item);
+      if (due != null && due > 0.01) { result.skipped++; continue; }
+
+      const appStorage = new AppStorage(env, null, conn.user_id);
+      // Shared dedup with the webhook path — invoice a booking at most once.
+      const { isProcessed, state } = await appStorage.isWebhookProcessed(bookingId, storageTopic);
+      if (isProcessed && state !== "failed") { result.skipped++; continue; }
+
+      await appStorage.markWebhookAsProcessing(bookingId, storageTopic);
+      const body = { event: "booking_new_status_booked", data: { bookingId }, _preloaded_booking: toPreloadedFromItem(item) };
+      try {
+        await runAdapterPipeline({
+          env,
+          config: legacy,
+          source: "lodgify",
+          destination,
+          topic: "created" as any,
+          webhookId: bookingId,
+          body,
+          sourceConfig: sourceCfg,
+          destinationConfig,
+        });
+        await appStorage.markWebhookAsProcessed(bookingId, storageTopic, "success");
+        result.invoiced++;
+      } catch (e: any) {
+        console.error(`[LodgifyPoll] user ${conn.user_id}: pipeline failed for booking ${bookingId}: ${e?.message ?? e}`);
+        await appStorage.markWebhookAsProcessed(bookingId, storageTopic, "failed");
+        result.failed++;
+      }
+    }
+  }
+
+  return result;
+}
+
 export default {
   fetch: app.fetch,
   async queue(batch: MessageBatch<QueueMessage | StripeQueueMessage>, env: Env) {
@@ -1889,6 +2083,23 @@ export default {
     await processShopifyBatch(batch as MessageBatch<QueueMessage>, env);
   },
   async scheduled(event: ScheduledController, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
+    // Every 30 min — Lodgify booking poll. Lodgify user-level API keys cannot
+    // register webhooks (partner OAuth only), so bookings are polled and
+    // invoiced here. Runs on its own cron so it never rides the ops sweep.
+    if (event.cron === "*/30 * * * *") {
+      if (env.LODGIFY_POLL_ENABLED === "0") {
+        console.log("[Cron] Lodgify poll disabled (LODGIFY_POLL_ENABLED=0)");
+        return;
+      }
+      try {
+        const r = await pollLodgifyBookings(env);
+        console.log(`[Cron] Lodgify poll: scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} failed=${r.failed} across ${r.connections} connection(s)`);
+      } catch (e: any) {
+        console.error(`[Cron] Lodgify poll failed: ${e.message}`);
+      }
+      return;
+    }
+
     // Friday 16:00 UTC — weekly per-merchant "unprocessed invoices" digest only.
     // Runs on its own cron so it doesn't ride along with the daily ops sweep.
     if (event.cron === "0 16 * * 5") {

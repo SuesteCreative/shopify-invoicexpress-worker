@@ -18,6 +18,8 @@ export type Row = {
         email: string | null;
         permalink: string;
         financial_status: string | null;
+        /** OTA / sales channel the booking came through (Lodgify `source`). */
+        channel?: string | null;
     };
     match: {
         type: "exact" | "approved" | "heuristic" | "not_needed" | "none" | "pending";
@@ -27,6 +29,9 @@ export type Row = {
     invoice: {
         id: string;
         reference: string | null;
+        /** Moloni doc number (finalized) or "#<id>" (draft). Preferred over
+         * reference for the destination-side label. Null for InvoiceXpress. */
+        number?: string | null;
         status: string | null;
         total: number | null;
         date: string | null;
@@ -56,6 +61,18 @@ const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
     not_needed: { label: "Não necessária", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
     none: { label: "Sem fatura", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
     pending: { label: "Aguarda pagamento", cls: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]" },
+};
+
+// Lodgify `source` codes → friendly channel labels shown as a chip on the row.
+const CHANNEL_LABELS: Record<string, string> = {
+    bookingcom: "Booking.com", booking: "Booking.com",
+    airbnb: "Airbnb", airbnbintegration: "Airbnb",
+    expedia: "Expedia", vrbo: "Vrbo", homeaway: "HomeAway",
+    manual: "Manual", direct: "Direto", website: "Website",
+};
+const channelLabel = (c: string | null | undefined): string | null => {
+    if (!c) return null;
+    return CHANNEL_LABELS[c.toLowerCase()] ?? c;
 };
 
 const fmt = (n: number) => n.toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
@@ -147,10 +164,15 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
         <article className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 md:gap-6 items-stretch rounded-2xl border border-hairline bg-surface-2/30 p-4 md:p-5 hover:border-rule transition-all">
             {/* Source side */}
             <div className="flex flex-col gap-2 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">
                         <SourceIcon className="w-3 h-3" /> {srcLabel}
                     </span>
+                    {channelLabel(row.order.channel) && (
+                        <span className="text-[9px] font-black uppercase tracking-widest text-accent px-2 py-0.5 rounded bg-[rgba(2,141,196,0.10)] border border-[rgba(2,141,196,0.30)]">
+                            {channelLabel(row.order.channel)}
+                        </span>
+                    )}
                     {row.order.financial_status === "paid" ? (
                         <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
                     ) : (
@@ -201,11 +223,11 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             {row.invoice.permalink ? (
                                 <a href={row.invoice.permalink} target="_blank" rel="noopener noreferrer"
                                     className="text-base font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
-                                    {row.invoice.reference ?? `Fatura ${row.invoice.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
+                                    {row.invoice.number ?? row.invoice.reference ?? `Fatura ${row.invoice.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
                                 </a>
                             ) : (
-                                <span className="text-base font-black text-fg">
-                                    {row.invoice.reference ?? `Fatura ${row.invoice.id}`}
+                                <span className="text-base font-black text-fg" title={row.invoice.status === "draft" ? "Rascunho — o link abre quando a fatura for finalizada no Moloni" : undefined}>
+                                    {row.invoice.number ?? row.invoice.reference ?? `Fatura ${row.invoice.id}`}
                                 </span>
                             )}
                             {row.invoice.total != null && (

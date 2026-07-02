@@ -79,9 +79,10 @@
     ]
   },
   "triggers": {
-    // 0 8 * * *  → daily ops sweep (IX match retry, VIES retry, TTL purge)
-    // 0 16 * * 5 → Friday weekly per-merchant "unprocessed invoices" digest
-    "crons": ["0 8 * * *", "0 16 * * 5"]
+    // */30 * * * * → Lodgify booking poll (no webhook access on user API keys)
+    // 0 8 * * *    → daily ops sweep (IX match retry, VIES retry, TTL purge)
+    // 0 16 * * 5   → Friday weekly per-merchant "unprocessed invoices" digest
+    "crons": ["*/30 * * * *", "0 8 * * *", "0 16 * * 5"]
   },
   "limits": {
     "cpu_ms": 60000

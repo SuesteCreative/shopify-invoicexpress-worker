@@ -20,6 +20,9 @@ export interface ReconOrder {
   /** Payment status normalized to the Shopify enum ("paid"|"pending"|…). Lets
    * the UI hold an unpaid order/booking as "Pendente" instead of "Pago". */
   financial_status: string | null;
+  /** Sales channel / OTA the booking came through (Lodgify `source`, e.g.
+   * "BookingCom", "Airbnb", "Manual", "Direct"). Null for non-Lodgify sources. */
+  channel?: string | null;
 }
 
 export interface ReconciliationRow {
@@ -32,6 +35,11 @@ export interface ReconciliationRow {
   invoice: {
     id: string;
     reference: string | null;
+    /** Human-facing document number. For Moloni: the real fatura number once
+     * finalized (e.g. "RVFR 5"), or "#<document_id>" while still a draft
+     * (Moloni assigns number=-1 to drafts). Null for destinations that surface
+     * the number via `reference` already (InvoiceXpress). */
+    number: string | null;
     status: string | null;
     total: number | null;
     date: string | null;
@@ -59,6 +67,7 @@ export interface ReconciliationRow {
 interface InvoiceMeta {
   id: string;
   reference: string | null;
+  number: string | null; // human doc number (finalized) or "#<id>" (draft); null for IX
   status: string | null;
   total: number;
   date: string;
@@ -180,11 +189,15 @@ async function fetchShopifyReconOrders(ctx: ReconContext, from: string, to: stri
   });
 }
 
-// Lodgify bookings for the window (arrival within [from, to]). We list via the
-// v2 bookings endpoint and filter arrival locally so correctness never depends
-// on the server-side date-param contract. Only "booked" bookings are invoiced
-// (mapped → "paid"); open/tentative are shown as "pending"; declined/cancelled
-// are omitted (they are cancellations, not sales).
+// Lodgify bookings for the window. A booking is included if it was MADE
+// (created_at) in [from, to] OR its stay (arrival) falls in [from, to]. Created
+// alone would hide bookings made earlier that arrive now; arrival alone hides
+// bookings just made for a future stay — the common PMS case, and what the
+// operator expects to see right after a booking comes in. We list via the v2
+// endpoint (stayFilter=All) and window locally so correctness never depends on
+// the server date-param contract. Payment ("paid" iff amount_due≈0) is
+// orthogonal — unpaid bookings still show (as "pending"). Declined/cancelled
+// are omitted (cancellations, not sales).
 async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
   const apiKey = ctx.sourceConfig?.api_key;
   if (!apiKey) throw new Error("Lodgify api_key missing from connection sourceConfig");
@@ -194,17 +207,14 @@ async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: stri
   const items: any[] = [];
   const size = 50;
   for (let page = 1; page <= 40; page++) {
+    // stayFilter=All (verified working) + local arrival-window filter below.
+    // ArrivalDate matches a single exact `stayFilterDate`, so it can't express
+    // the [from,to] range this reconciliation needs; All + local guard does.
     const qs = new URLSearchParams({
-      stayFilter: "ArrivalDate",
-      stayFilterStart: fromYmd,
-      stayFilterEnd: toYmd,
-      // duplicate under alternate names some Lodgify tenants expect; unknown
-      // params are ignored server-side and arrival is re-filtered locally below.
-      start: fromYmd,
-      end: toYmd,
+      stayFilter: "All",
       page: String(page),
       size: String(size),
-      includeCount: "true",
+      includeCount: "false",
     });
     const res = await fetch(`https://api.lodgify.com/v2/reservations/bookings?${qs.toString()}`, {
       headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
@@ -224,9 +234,11 @@ async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: stri
     const status = String(b.status ?? b.state ?? "").toLowerCase();
     if (status === "declined" || status === "cancelled" || status === "canceled") continue;
     const arrival = dateOnly(b.arrival ?? b.date_arrival ?? "");
-    // Local arrival window guard (authoritative regardless of server params).
-    if (fromYmd && arrival && arrival < fromYmd) continue;
-    if (toYmd && arrival && arrival > toYmd) continue;
+    const created = dateOnly(b.created_at ?? b.date_created ?? "");
+    // Include if made in-window OR arriving in-window (see fn comment).
+    const inCreated = !!created && (!fromYmd || created >= fromYmd) && (!toYmd || created <= toYmd);
+    const inArrival = !!arrival && (!fromYmd || arrival >= fromYmd) && (!toYmd || arrival <= toYmd);
+    if (!inCreated && !inArrival) continue;
 
     const id = String(b.id ?? b.booking_id ?? b.reservation_id ?? "");
     if (!id) continue;
@@ -234,19 +246,29 @@ async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: stri
     const totalRaw = b.total_amount?.amount ?? b.total_amount ?? b.amount?.amount ?? b.amount ?? b.total ?? 0;
     const guestName = b.guest?.name ?? b.guest_name ?? b.name ?? null;
     const guestEmail = b.guest?.email ?? b.email ?? null;
-    const financial = status === "booked" ? "paid" : "pending";
+    // Payment status mirrors the poll's invoice gate: a booking is "paid" once
+    // it's settled in Lodgify (amount_due≈0) — whether captured through Lodgify
+    // or marked paid by staff for an OTA stay. Positive balance ⇒ "pending"
+    // (rendered as "Fatura não por emitir"). Fall back to booked-status only when
+    // the balance field is absent.
+    const amountDue = Number(b.amount_due ?? b.balance_due ?? NaN);
+    const financial = Number.isFinite(amountDue)
+      ? (amountDue <= 0.01 ? "paid" : "pending")
+      : (status === "booked" ? "paid" : "pending");
     rows.push({
       id,
       order_number: numericFromId(id),
       name: `LOD-${id}`,
       total: Number(totalRaw) || 0,
-      paid_at: arrival ? `${arrival}T12:00:00Z` : new Date().toISOString(),
+      // Sort/display by booking date so freshly-made bookings surface at the top.
+      paid_at: (b.created_at ? String(b.created_at) : null) ?? (arrival ? `${arrival}T12:00:00Z` : new Date().toISOString()),
       customer_name: guestName ? String(guestName) : null,
       email: guestEmail ? String(guestEmail) : null,
       // Best-effort deep link to the booking in the Lodgify owner app. If the
       // path shape changes tenant-side, adjust here; it is display-only.
       permalink: `https://app.lodgify.com/#/reservations/bookings/${id}`,
       financial_status: financial,
+      channel: b.source ? String(b.source) : null,
     });
   }
   return rows;
@@ -316,6 +338,7 @@ async function fetchIxInvoiceMeta(
       return {
         id: String(d.id ?? invoiceId),
         reference: d.reference ?? null,
+        number: null, // IX surfaces the doc number via `reference`
         status: d.status ?? d.state ?? null,
         total: Number(d.total ?? d.sum ?? 0),
         date: d.date ?? d.created_at ?? "",
@@ -390,16 +413,36 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
         // pick the larger so the total is the gross regardless of the labelling.
         const total = Math.max(Number(d.net_value ?? 0), Number(d.gross_value ?? 0)) || Number(d.total ?? 0);
         const clientName = d.entity?.name ?? d.entity_name ?? d.customer?.name ?? null;
+        const isFinal = Number(d.status) === 1;
+        const docId = String(d.document_id ?? invoiceId);
+        // Moloni assigns number=-1 to drafts; a real sequential number only
+        // exists once finalized. Show the finalized number (prefixed with the
+        // document set, e.g. "RVFR 5") when available, else the internal doc id
+        // "#<id>" so the draft is still identifiable in Moloni.
+        const num = Number(d.number);
+        const number = isFinal && Number.isFinite(num) && num > 0
+          ? `${d.document_set_name ? `${d.document_set_name} ` : ""}${num}`
+          : `#${docId}`;
+        // Moloni exposes a shareable PDF link only for FINALIZED documents
+        // (drafts have none). Best-effort: fetch it so a paid booking's invoice
+        // is clickable once finalized. Failure (draft, valid:0, transient)
+        // leaves the link null and the UI shows the number as plain text.
+        let permalink: string | null = null;
+        if (isFinal) {
+          try {
+            const pdf: any = await moloniCall(cfg, token, "/documents/getPDFLink/", { document_id: Number(invoiceId) }, "lookup");
+            permalink = (pdf?.url ?? pdf?.link ?? null) as string | null;
+          } catch { /* no public link for this document — leave null */ }
+        }
         return {
-          id: String(d.document_id ?? invoiceId),
+          id: docId,
           reference: d.our_reference ?? null,
-          status: Number(d.status) === 1 ? "final" : "draft",
+          number,
+          status: isFinal ? "final" : "draft",
           total,
           date: dateOnly(d.date ?? "") || String(d.date ?? ""),
-          // Moloni has no public per-document permalink like IX; leave null and
-          // let the UI surface the reference + "abrir no Moloni".
-          permalink: null,
-          pdf_url: null,
+          permalink,
+          pdf_url: permalink,
           client_name: clientName ? String(clientName) : null,
           order_id_link: orderId,
         };
@@ -549,9 +592,14 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     invoiceEntries, 6,
     async ([orderId, invoiceId]) => {
       const cached = cachedMetas.get(String(invoiceId));
-      if (cached) return { ...cached, order_id_link: orderId } as InvoiceMeta;
+      // Never serve OR write a cached DRAFT: its status/number/PDF link all
+      // change the moment it's finalized. Caching only immutable finalized docs
+      // means a manual finalize in Moloni surfaces on the very next load instead
+      // of waiting out the 24h TTL. Drafts are simply re-fetched each load
+      // (bounded by the concurrency cap above).
+      if (cached && cached.status !== "draft") return { ...cached, order_id_link: orderId } as InvoiceMeta;
       const m = await meta.fetchMeta(invoiceId, orderId, metaDeadline);
-      if (m) {
+      if (m && m.status !== "draft") {
         const { order_id_link, ...store } = m;
         await appStorage.cacheInvoiceMeta(invoiceId, store, meta.metaNs);
       }
@@ -605,6 +653,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
         invoice: {
           id: inv.id,
           reference: inv.reference,
+          number: inv.number,
           status: inv.status,
           total: inv.total,
           date: inv.date,
@@ -632,7 +681,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
         },
         invoice: {
           id: knownInvoiceId,
-          reference: null, status: null, total: null, date: null,
+          reference: null, number: null, status: null, total: null, date: null,
           permalink: null, pdf_url: null, client_name: null,
           meta_unavailable: true,
         },
@@ -710,10 +759,10 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       const m = await meta.fetchMeta(invoiceId, row.order.id, refDeadline);
       if (!m) return;
       const { order_id_link, ...store } = m;
-      await appStorage.cacheInvoiceMeta(invoiceId, store, meta.metaNs);
+      if (m.status !== "draft") await appStorage.cacheInvoiceMeta(invoiceId, store, meta.metaNs);
       row.match = { type: "heuristic", confidence: 90, reason: "Encontrada por referência (não mapeada na BD)" };
       row.invoice = {
-        id: m.id, reference: m.reference, status: m.status, total: m.total,
+        id: m.id, reference: m.reference, number: m.number, status: m.status, total: m.total,
         date: m.date, permalink: m.permalink, pdf_url: m.pdf_url, client_name: m.client_name,
       };
       row.candidates = [];

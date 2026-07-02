@@ -66,8 +66,13 @@ export type MoloniCfg = {
   companyId: number;
   documentSetId: number;
   // Moloni account tax rule ID for the standard VAT rate (e.g. "IVA 23%").
-  // 0 = exempt/no-tax fallback. Set moloni_default_tax_id in destinationConfig.
+  // 0 = resolve tax_id from the company's tax table by rate (see taxIdByRate).
+  // Set moloni_default_tax_id in destinationConfig to pin a single rule.
   defaultTaxId: number;
+  // Rate → Moloni tax_id, resolved from /taxes/getAll/ when defaultTaxId is 0.
+  // Populated per createDraft/issueCredit; lets a company invoice at whatever
+  // rate the line carries (e.g. 6% alojamento) without a per-client id in config.
+  taxIdByRate?: Map<number, number>;
   // Human-readable names used for lazy ID resolution when IDs are absent.
   companyName?: string;
   documentSetName?: string;
@@ -410,6 +415,65 @@ function taxRateForItem(
   return item.tax.unit_amount === 0 ? 0 : Number(item.tax.value);
 }
 
+// companyId → (rate → tax_id), from /taxes/getAll/. Survives within an isolate.
+const taxRateToIdCache = new Map<number, Map<number, number>>();
+
+function normRate(rate: number): number {
+  return Math.round(Number(rate) * 100) / 100;
+}
+
+// Pick the Moloni tax_id for a given rate. Explicit moloni_default_tax_id wins
+// (back-compat with connections that pin one rule). Otherwise use the rate→id
+// map resolved from the company's tax table. Throws with an actionable message
+// rather than silently emitting tax_id:0 (which Moloni rejects).
+function pickTaxId(cfg: MoloniCfg, rate: number): number {
+  if (cfg.defaultTaxId > 0) return cfg.defaultTaxId;
+  const id = cfg.taxIdByRate?.get(normRate(rate));
+  if (id && id > 0) return id;
+  const known = cfg.taxIdByRate ? [...cfg.taxIdByRate.keys()].join(", ") : "(none)";
+  throw new Error(
+    `Moloni: company ${cfg.companyId} has no IVA tax rule at ${rate}% (available: ${known}). ` +
+    `Set moloni_default_tax_id in the connection or create a ${rate}% tax in Moloni.`,
+  );
+}
+
+// Resolve the tax_id for every distinct positive rate the order needs and stash
+// the map on cfg for buildMoloniLineItems / ensureMoloniProduct to read. No-op
+// when moloni_default_tax_id is set (explicit override) or all lines are exempt.
+// Fails fast if a required rate has no matching tax rule in the company.
+async function ensureTaxIdsByRate(cfg: MoloniCfg, token: string, rates: number[]): Promise<void> {
+  if (cfg.defaultTaxId > 0) return;
+  const wanted = [...new Set(rates.map(normRate).filter((r) => r > 0))];
+  if (wanted.length === 0) return;
+
+  let map = taxRateToIdCache.get(cfg.companyId);
+  if (!map) {
+    const taxes = await moloniCall<Array<{ tax_id?: number; value?: number | string }>>(
+      cfg, token, "/taxes/getAll/", {}, "lookup",
+    );
+    map = new Map<number, number>();
+    if (Array.isArray(taxes)) {
+      for (const t of taxes) {
+        const val = normRate(Number(t.value));
+        const id = Number(t.tax_id);
+        // First rule per rate wins (Moloni lists the primary first).
+        if (id > 0 && Number.isFinite(val) && !map.has(val)) map.set(val, id);
+      }
+    }
+    taxRateToIdCache.set(cfg.companyId, map);
+  }
+  cfg.taxIdByRate = map;
+
+  for (const r of wanted) {
+    if (!map.get(r)) {
+      throw new Error(
+        `Moloni: company ${cfg.companyId} has no IVA tax rule at ${r}% ` +
+        `(available: ${[...map.keys()].join(", ") || "none"}). Set moloni_default_tax_id.`,
+      );
+    }
+  }
+}
+
 function buildMoloniLineItems(
   normalized: Normalized,
   ctx: AdapterCtx,
@@ -451,7 +515,7 @@ function buildMoloniLineItems(
 
     if (taxRate > 0) {
       line.taxes = [{
-        tax_id: cfg.defaultTaxId,
+        tax_id: pickTaxId(cfg, taxRate),
         value: taxRate,
         order: 1,
         cumulative: 0,
@@ -640,7 +704,7 @@ async function ensureMoloniProduct(
     has_stock: 0,
   };
   if (taxRate > 0) {
-    insertBody.taxes = [{ tax_id: cfg.defaultTaxId, value: taxRate, order: 0, cumulative: 0 }];
+    insertBody.taxes = [{ tax_id: pickTaxId(cfg, taxRate), value: taxRate, order: 0, cumulative: 0 }];
   } else {
     insertBody.exemption_reason = "M01";
   }
@@ -741,6 +805,10 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
+    // Resolve rate→tax_id before building products (ensureMoloniProduct also
+    // needs it) so a 6% line invoices at the company's actual 6% rule.
+    await ensureTaxIdsByRate(cfg, token, normalized.order.items.map((it) => taxRateForItem(it, ctx)));
+
     const [customerId, productIds] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
       resolveProductIds(cfg, token, normalized.order.items, (it) => taxRateForItem(it, ctx), ctx.productMappings),
@@ -824,6 +892,10 @@ export class MoloniDestination implements DestinationAdapter {
       order: { ...normalized.order, items: refundItems },
     };
 
+    // Resolve rate→tax_id for the refunded lines (and the cash-delta line, which
+    // reuses the max line rate) before building products.
+    await ensureTaxIdsByRate(cfg, token, refundItems.map((it) => taxRateForItem(it, ctx)));
+
     const [customerId, productIds] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
       resolveProductIds(cfg, token, refundItems, (it) => taxRateForItem(it, ctx), ctx.productMappings),
@@ -856,7 +928,7 @@ export class MoloniDestination implements DestinationAdapter {
         order,
       };
       if (maxTax > 0) {
-        line.taxes = [{ tax_id: cfg.defaultTaxId, value: maxTax, order: 1, cumulative: 0 }];
+        line.taxes = [{ tax_id: pickTaxId(cfg, maxTax), value: maxTax, order: 1, cumulative: 0 }];
       } else {
         line.exemption_reason = (ctx.config.ix_exemption_reason ?? "M01").trim() || "M01";
       }

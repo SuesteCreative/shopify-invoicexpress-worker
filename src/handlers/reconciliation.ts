@@ -194,60 +194,77 @@ async function fetchShopifyReconOrders(ctx: ReconContext, from: string, to: stri
 // alone would hide bookings made earlier that arrive now; arrival alone hides
 // bookings just made for a future stay — the common PMS case, and what the
 // operator expects to see right after a booking comes in. We list via the v2
-// endpoint (stayFilter=All) and window locally so correctness never depends on
-// the server date-param contract. Payment ("paid" iff amount_due≈0) is
-// orthogonal — unpaid bookings still show (as "pending"). Declined/cancelled
-// are omitted (cancellations, not sales).
-async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
+// endpoint (updatedSince, KV-cached ~10min to survive Lodgify rate limits) and
+// window locally so correctness never depends on the server date-param
+// contract. Payment ("paid" iff amount_due≈0) is orthogonal — unpaid bookings
+// still show (as "pending"). Declined/cancelled are omitted (not sales).
+async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
   const apiKey = ctx.sourceConfig?.api_key;
   if (!apiKey) throw new Error("Lodgify api_key missing from connection sourceConfig");
   const fromYmd = dateOnly(from);
   const toYmd = dateOnly(to);
 
-  const items: any[] = [];
-  const size = 50;
-  const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
-  for (let page = 1; page <= 40; page++) {
-    // stayFilter=All (verified working) + local arrival-window filter below.
-    // ArrivalDate matches a single exact `stayFilterDate`, so it can't express
-    // the [from,to] range this reconciliation needs; All + local guard does.
-    const qs = new URLSearchParams({
-      stayFilter: "All",
-      page: String(page),
-      size: String(size),
-      includeCount: "false",
-    });
-    const url = `https://api.lodgify.com/v2/reservations/bookings?${qs.toString()}`;
+  // Short-lived cache of the raw booking list. Lodgify rate-limits this
+  // (unregistered) integration and the poller competes for the same budget, so
+  // repeated conciliação loads/refreshes must NOT each re-hit Lodgify. Keyed by
+  // user + window-start (the only param that drives the fetch; `to` filters
+  // locally). Never cache an empty result — that would pin a rate-limited miss.
+  const cacheKey = `lodgifylist:${ctx.userId ?? "x"}:${fromYmd}`;
+  let items: any[] | null = null;
+  try {
+    const cached = await env.INVOICE_KV.get(cacheKey);
+    if (cached) items = JSON.parse(cached) as any[];
+  } catch { /* treat as miss */ }
 
-    // Lodgify rate-limits this (unregistered) integration and returns 429 on a
-    // burst of page reads. Retry with Retry-After backoff, then DEGRADE
-    // GRACEFULLY: return the bookings gathered so far instead of throwing —
-    // a partial reconciliation list is far better than a dead page.
-    let pageItems: any[] | null = null;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const res = await fetch(url, { headers });
-      if (res.ok) {
-        const data: any = await res.json().catch(() => null);
-        pageItems = Array.isArray(data?.items) ? data.items
-          : Array.isArray(data?.bookings) ? data.bookings
-          : Array.isArray(data) ? data
-          : [];
+  if (items == null) {
+    items = [];
+    const size = 50;
+    const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
+    for (let page = 1; page <= 40; page++) {
+      // updatedSince (one small window) instead of stayFilter=All (a 7-page
+      // burst that trips the 429). Returns bookings created/modified since
+      // `from` — exactly the recent activity a recent-window reconciliation
+      // needs. The local created-OR-arrival filter below still bounds [from,to].
+      const qs = new URLSearchParams({
+        updatedSince: fromYmd,
+        page: String(page),
+        size: String(size),
+        includeCount: "false",
+      });
+      const url = `https://api.lodgify.com/v2/reservations/bookings?${qs.toString()}`;
+
+      // Retry 429 with Retry-After backoff, then DEGRADE GRACEFULLY: use the
+      // bookings gathered so far instead of throwing — a partial list beats a
+      // dead page (this is what the poller already does).
+      let pageItems: any[] | null = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const res = await fetch(url, { headers });
+        if (res.ok) {
+          const data: any = await res.json().catch(() => null);
+          pageItems = Array.isArray(data?.items) ? data.items
+            : Array.isArray(data?.bookings) ? data.bookings
+            : Array.isArray(data) ? data
+            : [];
+          break;
+        }
+        if (res.status === 429) {
+          const ra = Number(res.headers.get("retry-after"));
+          const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1);
+          await sleep(waitMs);
+          continue;
+        }
+        console.error(`[Recon] Lodgify list page ${page} → ${res.status} ${res.statusText}`);
         break;
       }
-      if (res.status === 429) {
-        const ra = Number(res.headers.get("retry-after"));
-        const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1);
-        await sleep(waitMs);
-        continue;
-      }
-      console.error(`[Recon] Lodgify list page ${page} → ${res.status} ${res.statusText}`);
-      break;
+      if (pageItems == null) break; // 429-exhausted or non-200 — use what we have
+      items.push(...pageItems);
+      if (pageItems.length < size) break;
+      await sleep(250); // pace pages to avoid re-tripping the rate limit
     }
-    if (pageItems == null) break; // 429-exhausted or non-200 — use what we have
-    items.push(...pageItems);
-    if (pageItems.length < size) break;
-    // Pace subsequent pages to avoid re-tripping the rate limit.
-    await sleep(250);
+    // Cache only a real result — never poison the cache with a rate-limited empty.
+    if (items.length > 0) {
+      try { await env.INVOICE_KV.put(cacheKey, JSON.stringify(items), { expirationTtl: 600 }); } catch { /* best-effort */ }
+    }
   }
 
   const rows: ReconOrder[] = [];
@@ -295,9 +312,9 @@ async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: stri
   return rows;
 }
 
-async function getSourceOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
+async function getSourceOrders(env: Env, ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
   switch (ctx.source) {
-    case "lodgify": return fetchLodgifyReconOrders(ctx, from, to);
+    case "lodgify": return fetchLodgifyReconOrders(env, ctx, from, to);
     case "shopify": return fetchShopifyReconOrders(ctx, from, to);
     default:
       // Stripe/EuPago reconciliation not implemented yet — no left-side list.
@@ -589,7 +606,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
   const meta = getMetaFetcher(ctx);
 
   // 1. Orders/bookings from the source.
-  const orders = await getSourceOrders(ctx, from, to);
+  const orders = await getSourceOrders(env, ctx, from, to);
   const orderIds = orders.map(o => o.id);
 
   // 2. Map order → invoice_id from DB (scoped by source to avoid id collisions).

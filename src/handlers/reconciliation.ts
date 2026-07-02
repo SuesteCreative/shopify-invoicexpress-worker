@@ -206,6 +206,7 @@ async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: stri
 
   const items: any[] = [];
   const size = 50;
+  const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
   for (let page = 1; page <= 40; page++) {
     // stayFilter=All (verified working) + local arrival-window filter below.
     // ArrivalDate matches a single exact `stayFilterDate`, so it can't express
@@ -216,17 +217,37 @@ async function fetchLodgifyReconOrders(ctx: ReconContext, from: string, to: stri
       size: String(size),
       includeCount: "false",
     });
-    const res = await fetch(`https://api.lodgify.com/v2/reservations/bookings?${qs.toString()}`, {
-      headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
-    });
-    if (!res.ok) throw new Error(`Lodgify GET /v2/reservations/bookings → ${res.status} ${res.statusText}`);
-    const data: any = await res.json().catch(() => null);
-    const pageItems: any[] = Array.isArray(data?.items) ? data.items
-      : Array.isArray(data?.bookings) ? data.bookings
-      : Array.isArray(data) ? data
-      : [];
+    const url = `https://api.lodgify.com/v2/reservations/bookings?${qs.toString()}`;
+
+    // Lodgify rate-limits this (unregistered) integration and returns 429 on a
+    // burst of page reads. Retry with Retry-After backoff, then DEGRADE
+    // GRACEFULLY: return the bookings gathered so far instead of throwing —
+    // a partial reconciliation list is far better than a dead page.
+    let pageItems: any[] | null = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data: any = await res.json().catch(() => null);
+        pageItems = Array.isArray(data?.items) ? data.items
+          : Array.isArray(data?.bookings) ? data.bookings
+          : Array.isArray(data) ? data
+          : [];
+        break;
+      }
+      if (res.status === 429) {
+        const ra = Number(res.headers.get("retry-after"));
+        const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1);
+        await sleep(waitMs);
+        continue;
+      }
+      console.error(`[Recon] Lodgify list page ${page} → ${res.status} ${res.statusText}`);
+      break;
+    }
+    if (pageItems == null) break; // 429-exhausted or non-200 — use what we have
     items.push(...pageItems);
     if (pageItems.length < size) break;
+    // Pace subsequent pages to avoid re-tripping the rate limit.
+    await sleep(250);
   }
 
   const rows: ReconOrder[] = [];

@@ -2019,14 +2019,28 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
       continue;
     }
 
-    // Fetch recent activity (created/modified in the last ~120 days) — one
-    // gentle updatedSince sweep rather than a wide burst. Covers new bookings,
-    // bookings just marked paid (their updated_at bumps), and upcoming stays.
-    const since = new Date();
-    since.setUTCDate(since.getUTCDate() - 120);
+    // Incremental catch-up sync: fetch only what changed since the last
+    // successful sync (minus a 2-day safety margin), NOT a wide 120-day burst.
+    // A 120-day sweep is ~3 pages and reliably tripped Lodgify's 429, which
+    // returned an empty page and froze the mirror. Anchoring on the last
+    // synced_at keeps each sweep tiny in steady state (≈2 days of changes) yet
+    // still catches up automatically after an outage. First-ever sync (empty
+    // mirror) backfills 120 days.
+    const DAY = 86_400_000;
+    let sinceMs: number;
+    try {
+      const last: any = await env.DB.prepare(
+        "SELECT MAX(synced_at) AS m FROM lodgify_bookings WHERE user_id = ?"
+      ).bind(conn.user_id).first();
+      const lastMs = last?.m ? Date.parse(String(last.m).replace(" ", "T") + "Z") : NaN;
+      sinceMs = Number.isFinite(lastMs) ? lastMs - 2 * DAY : Date.now() - 120 * DAY;
+    } catch {
+      sinceMs = Date.now() - 7 * DAY;
+    }
+    const sinceYmd = new Date(sinceMs).toISOString().slice(0, 10);
     let bookings: any[];
     try {
-      bookings = await listLodgifyBookings(apiKey, { updatedSince: since.toISOString().slice(0, 10) });
+      bookings = await listLodgifyBookings(apiKey, { updatedSince: sinceYmd });
     } catch (e: any) {
       console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${e?.message ?? e}`);
       continue;

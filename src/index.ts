@@ -2162,6 +2162,15 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
         const paid = firstNum(item?.amount_paid) ?? 0;
         if (paid <= 0.01) { result.skipped++; continue; }              // nothing paid yet
         const partials = await appStorage.getPartialInvoices(conn.user_id, bookingId);
+        // Transition guard: a booking already invoiced by the STANDARD flow
+        // lives under processed_orders / "Order #N" — the instalment dedup
+        // ("Order #N-seq") wouldn't see it, so billing it progressively would
+        // DUPLICATE. Leave those to the old flow; only bookings with no prior
+        // standard invoice (or already mid-instalment) go progressive.
+        if (partials.length === 0) {
+          const standard = await appStorage.getInvoiceByOrderId(bookingId);
+          if (standard?.invoice_id) { result.skipped++; continue; }
+        }
         const already = partials.reduce((s, p) => s + p.invoiced_amount, 0);
         const delta = Math.round((paid - already) * 100) / 100;
         if (delta <= 0.01) { result.skipped++; continue; }             // no new payment to bill

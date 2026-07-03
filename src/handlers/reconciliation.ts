@@ -438,8 +438,15 @@ async function fetchIxByReference(config: IRequestConfig, ref: string, deadline?
 function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
   const ctxLike = { apiKey: "", config: ctx.config, destinationConfig: ctx.destinationConfig } as AdapterCtx;
   const docType = String(ctx.destinationConfig?.moloni_document_type ?? "invoice").toLowerCase();
-  const getOnePath = docType === "invoice_receipt" ? "/invoiceReceipts/getOne/" : "/invoices/getOne/";
-  const getAllPath = docType === "invoice_receipt" ? "/invoiceReceipts/getAll/" : "/invoices/getAll/";
+  // Tag-routing can emit EITHER an invoice or an invoice_receipt (and any
+  // series), so a stored document_id may live under either endpoint. Try the
+  // connection default first, then the other.
+  const getOnePaths = docType === "invoice_receipt"
+    ? ["/invoiceReceipts/getOne/", "/invoices/getOne/"]
+    : ["/invoices/getOne/", "/invoiceReceipts/getOne/"];
+  const getAllPaths = docType === "invoice_receipt"
+    ? ["/invoiceReceipts/getAll/", "/invoices/getAll/"]
+    : ["/invoices/getAll/", "/invoiceReceipts/getAll/"];
   let creds: Promise<{ cfg: Awaited<ReturnType<typeof getMoloniCfg>>; token: string }> | null = null;
   const getCreds = () => {
     if (!creds) creds = (async () => {
@@ -452,6 +459,11 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
 
   const account = `moloni:${ctx.destinationConfig?.moloni_company_id ?? ctx.destinationConfig?.moloni_client_id ?? "x"}`;
 
+  // Moloni returns `[]` (empty array) from getOne when the id isn't of that
+  // document type; a real hit is an object carrying document_id.
+  const isRealDoc = (d: any): boolean =>
+    !!d && typeof d === "object" && !Array.isArray(d) && d.document_id != null;
+
   return {
     metaNs: "molmeta",
     refNs: "molref",
@@ -460,26 +472,37 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
       if (deadline && Date.now() >= deadline) return null;
       try {
         const { cfg, token } = await getCreds();
-        const d: any = await moloniCall(cfg, token, getOnePath, { document_id: Number(invoiceId) }, "lookup");
-        if (!d || typeof d !== "object") return null;
+        // Query both doc-type endpoints; the id may be an invoice OR an
+        // invoice_receipt (tag-routing). First real hit wins. If NEITHER has it
+        // (deleted/replaced), return null so ref-recovery / "detalhe
+        // indisponível" handles it — never a phantom "draft #id / 0€".
+        let d: any = null;
+        for (const path of getOnePaths) {
+          if (deadline && Date.now() >= deadline) break;
+          const r: any = await moloniCall(cfg, token, path, { document_id: Number(invoiceId) }, "lookup");
+          if (isRealDoc(r)) { d = r; break; }
+        }
+        if (!d) return null;
         // Moloni names gross_value / net_value inconsistently (see moloni-api-quirks);
         // pick the larger so the total is the gross regardless of the labelling.
         const total = Math.max(Number(d.net_value ?? 0), Number(d.gross_value ?? 0)) || Number(d.total ?? 0);
         const clientName = d.entity?.name ?? d.entity_name ?? d.customer?.name ?? null;
-        const isFinal = Number(d.status) === 1;
+        // status 0 = draft (rascunho). ANY non-zero status is a finalized/closed
+        // document (seen 1 and 2 live), so treat "not draft" as final rather
+        // than testing status===1 — otherwise a finalized doc renders as draft.
+        const isFinal = Number(d.status) !== 0;
         const docId = String(d.document_id ?? invoiceId);
         // Moloni assigns number=-1 to drafts; a real sequential number only
         // exists once finalized. Show the finalized number (prefixed with the
-        // document set, e.g. "RVFR 5") when available, else the internal doc id
-        // "#<id>" so the draft is still identifiable in Moloni.
+        // document set, e.g. "VLFR 137") when available, else the internal doc
+        // id "#<id>" so the draft is still identifiable in Moloni.
         const num = Number(d.number);
         const number = isFinal && Number.isFinite(num) && num > 0
           ? `${d.document_set_name ? `${d.document_set_name} ` : ""}${num}`
           : `#${docId}`;
-        // Moloni exposes a shareable PDF link only for FINALIZED documents
-        // (drafts have none). Best-effort: fetch it so a paid booking's invoice
-        // is clickable once finalized. Failure (draft, valid:0, transient)
-        // leaves the link null and the UI shows the number as plain text.
+        // Moloni exposes a shareable PDF link only for FINALIZED documents.
+        // Best-effort: fetch it so a finalized invoice is clickable. Failure
+        // (draft, valid:0, transient) leaves the link null.
         let permalink: string | null = null;
         if (isFinal) {
           try {
@@ -507,11 +530,19 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
       if (deadline && Date.now() >= deadline) return null;
       try {
         const { cfg, token } = await getCreds();
-        const found = await moloniCall<Array<{ document_id?: number }>>(
-          cfg, token, getAllPath, { document_set_id: cfg.documentSetId, our_reference: reference }, "lookup",
-        );
-        const first = Array.isArray(found) ? found[0] : null;
-        return first?.document_id ? String(first.document_id) : null;
+        // Search across BOTH doc types and ALL series (no document_set_id) —
+        // tag-routing can file the doc under a different series (e.g. VLFR),
+        // which a set-scoped lookup would miss. our_reference "Order #N" is
+        // unique per booking.
+        for (const path of getAllPaths) {
+          if (deadline && Date.now() >= deadline) break;
+          const found = await moloniCall<Array<{ document_id?: number }>>(
+            cfg, token, path, { our_reference: reference }, "lookup",
+          );
+          const first = Array.isArray(found) ? found[0] : null;
+          if (first?.document_id) return String(first.document_id);
+        }
+        return null;
       } catch {
         return null;
       }

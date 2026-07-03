@@ -36,6 +36,11 @@ export interface Order {
   shipping_address: ShippingAddress
   items: Item[]
   global_discount: GlobalDiscount
+  /** Optional override for the destination document's our_reference. Used by
+   *  Lodgify partial (instalment) invoicing to give each instalment a distinct
+   *  reference ("Order #N-1", "Order #N-2") so the dedup-by-reference doesn't
+   *  block the second one. When absent, destinations fall back to "Order #N". */
+  invoice_reference?: string | null
 }
 
 export interface Meta {

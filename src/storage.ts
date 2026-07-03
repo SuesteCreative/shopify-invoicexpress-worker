@@ -900,6 +900,51 @@ export class AppStorage {
     return rows.length;
   }
 
+  /** Instalment invoices already issued for a booking (progressive invoicing). */
+  async getPartialInvoices(userId: string, bookingId: string): Promise<Array<{ seq: number; invoice_id: string | null; invoiced_amount: number; our_reference: string | null }>> {
+    try {
+      const res = await this.db.prepare(
+        "SELECT seq, invoice_id, invoiced_amount, our_reference FROM lodgify_partial_invoices WHERE user_id = ? AND booking_id = ? ORDER BY seq"
+      ).bind(userId, String(bookingId)).all();
+      return ((res.results ?? []) as any[]).map((r) => ({
+        seq: Number(r.seq),
+        invoice_id: r.invoice_id ? String(r.invoice_id) : null,
+        invoiced_amount: Number(r.invoiced_amount ?? 0),
+        our_reference: r.our_reference ?? null,
+      }));
+    } catch (e) { console.error("[Rioko] getPartialInvoices failed:", e); return []; }
+  }
+
+  async upsertPartialInvoice(userId: string, bookingId: string, seq: number, invoiceId: string, invoicedAmount: number, ourReference: string): Promise<void> {
+    await this.db.prepare(
+      `INSERT INTO lodgify_partial_invoices (booking_id, user_id, seq, invoice_id, invoiced_amount, our_reference, created_at)
+       VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
+       ON CONFLICT(booking_id, seq) DO UPDATE SET
+         invoice_id=excluded.invoice_id, invoiced_amount=excluded.invoiced_amount, our_reference=excluded.our_reference`
+    ).bind(String(bookingId), userId, seq, String(invoiceId), invoicedAmount, ourReference).run();
+  }
+
+  /** For reconciliation: booking_id → [invoice_id, …] across all instalments. */
+  async getPartialInvoicesByBookingIds(userId: string, bookingIds: string[]): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (!userId || bookingIds.length === 0) return map;
+    for (let i = 0; i < bookingIds.length; i += 50) {
+      const chunk = bookingIds.slice(i, i + 50);
+      const ph = chunk.map(() => "?").join(",");
+      try {
+        const res = await this.db.prepare(
+          `SELECT booking_id, invoice_id FROM lodgify_partial_invoices WHERE user_id = ? AND booking_id IN (${ph}) AND invoice_id IS NOT NULL ORDER BY seq`
+        ).bind(userId, ...chunk).all();
+        for (const r of (res.results ?? []) as any[]) {
+          const b = String(r.booking_id);
+          if (!map.has(b)) map.set(b, []);
+          map.get(b)!.push(String(r.invoice_id));
+        }
+      } catch (e) { console.error("[Rioko] getPartialInvoicesByBookingIds chunk failed:", e); }
+    }
+    return map;
+  }
+
   async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {
     const processed = new Set<string>();
     // Batch in chunks of 50 to avoid SQL parameter limits

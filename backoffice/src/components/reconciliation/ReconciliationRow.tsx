@@ -7,6 +7,23 @@ import {
 } from "lucide-react";
 import { sourceLabel, destLabel, sourceIcon, destIcon } from "./platform";
 
+export type InvoiceInfo = {
+    id: string;
+    reference: string | null;
+    /** Moloni doc number (finalized) or "#<id>" (draft). Preferred over
+     * reference for the destination-side label. Null for InvoiceXpress. */
+    number?: string | null;
+    status: string | null;
+    total: number | null;
+    date: string | null;
+    permalink: string | null;
+    pdf_url: string | null;
+    client_name: string | null;
+    /** Invoice is known to exist (we hold its id) but its details couldn't be
+     * loaded this round — show "detalhe indisponível", never a false alarm. */
+    meta_unavailable?: boolean;
+};
+
 export type Row = {
     order: {
         id: string;
@@ -26,23 +43,9 @@ export type Row = {
         confidence: number;
         reason?: string;
     };
-    invoice: {
-        id: string;
-        reference: string | null;
-        /** Moloni doc number (finalized) or "#<id>" (draft). Preferred over
-         * reference for the destination-side label. Null for InvoiceXpress. */
-        number?: string | null;
-        status: string | null;
-        total: number | null;
-        date: string | null;
-        permalink: string | null;
-        pdf_url: string | null;
-        client_name: string | null;
-        /** Invoice is known to exist (we hold its id) but its details couldn't be
-         * loaded from InvoiceXpress this round. Show "fatura emitida (detalhe
-         * indisponível)" — never the false "Sem fatura emitida" alarm. */
-        meta_unavailable?: boolean;
-    } | null;
+    invoice: InvoiceInfo | null;
+    /** All invoices for this booking. >1 when billed in instalments (50/50). */
+    invoices?: InvoiceInfo[];
     candidates: Array<{
         id: string;
         reference: string | null;
@@ -207,7 +210,45 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
 
             {/* Destination side */}
             <div className="flex flex-col gap-2 min-w-0">
-                {row.invoice ? (
+                {row.invoices && row.invoices.length > 1 ? (
+                    <>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">
+                                <DestIcon className="w-3 h-3" /> {dstLabel}
+                            </span>
+                            <span className="text-[10px] font-bold text-accent-hot">
+                                {row.invoices.length} faturas · Σ {fmt(row.invoices.reduce((s, iv) => s + (iv.total ?? 0), 0))}
+                            </span>
+                        </div>
+                        {row.invoices.map((iv, i) => (
+                            <div key={iv.id} className="flex flex-wrap items-baseline gap-2 border-l-2 border-hairline pl-2 py-0.5">
+                                <span className="text-[9px] font-black text-fg-40">parcela {i + 1}</span>
+                                {iv.status && (
+                                    <span className={`text-[10px] font-bold ${iv.status === "draft" ? "text-soon" : "text-accent-hot"}`}>{iv.status}</span>
+                                )}
+                                {iv.permalink ? (
+                                    <a href={iv.permalink} target="_blank" rel="noopener noreferrer"
+                                        className="text-sm font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
+                                        {iv.number ?? iv.reference ?? `Fatura ${iv.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
+                                    </a>
+                                ) : (
+                                    <span className="text-sm font-black text-fg" title={iv.status === "draft" ? "Rascunho — o link abre quando a fatura for finalizada no Moloni" : undefined}>
+                                        {iv.number ?? iv.reference ?? `Fatura ${iv.id}`}
+                                    </span>
+                                )}
+                                {iv.total != null && (
+                                    <span className="text-[11px] font-bold text-fg-60">{fmt(iv.total)}</span>
+                                )}
+                                {iv.pdf_url && (
+                                    <a href={iv.pdf_url} target="_blank" rel="noopener noreferrer"
+                                        className="text-[9px] font-black uppercase tracking-widest text-fg-60 hover:text-fg inline-flex items-center gap-0.5">
+                                        PDF <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                )}
+                            </div>
+                        ))}
+                    </>
+                ) : row.invoice ? (
                     <>
                         <div className="flex items-center gap-2">
                             <span className="text-[9px] font-black uppercase tracking-widest text-fg-40 px-2 py-0.5 rounded bg-surface-2 border border-hairline flex items-center gap-1">

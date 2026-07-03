@@ -25,6 +25,28 @@ export interface ReconOrder {
   channel?: string | null;
 }
 
+export interface ReconInvoice {
+  id: string;
+  reference: string | null;
+  /** Human-facing document number. For Moloni: the real fatura number once
+   * finalized (e.g. "RVFR 5"), or "#<document_id>" while still a draft
+   * (Moloni assigns number=-1 to drafts). Null for destinations that surface
+   * the number via `reference` already (InvoiceXpress). */
+  number: string | null;
+  status: string | null;
+  total: number | null;
+  date: string | null;
+  permalink: string | null;
+  pdf_url: string | null;
+  client_name: string | null;
+  /** True when we KNOW an invoice was issued (we hold its id) but couldn't
+   * load its details from the destination this round (proxy slow/over capacity).
+   * The merchant must see "fatura emitida (detalhe indisponível)", NEVER the
+   * alarming "Sem fatura emitida" — a transient read failure is not a missing
+   * invoice. invoice_id is only ever written after a successful create. */
+  meta_unavailable?: boolean;
+}
+
 export interface ReconciliationRow {
   order: ReconOrder;
   match: {
@@ -32,27 +54,12 @@ export interface ReconciliationRow {
     confidence: number;
     reason?: string;
   };
-  invoice: {
-    id: string;
-    reference: string | null;
-    /** Human-facing document number. For Moloni: the real fatura number once
-     * finalized (e.g. "RVFR 5"), or "#<document_id>" while still a draft
-     * (Moloni assigns number=-1 to drafts). Null for destinations that surface
-     * the number via `reference` already (InvoiceXpress). */
-    number: string | null;
-    status: string | null;
-    total: number | null;
-    date: string | null;
-    permalink: string | null;
-    pdf_url: string | null;
-    client_name: string | null;
-    /** True when we KNOW an invoice was issued (we hold its id) but couldn't
-     * load its details from the destination this round (proxy slow/over capacity).
-     * The merchant must see "fatura emitida (detalhe indisponível)", NEVER the
-     * alarming "Sem fatura emitida" — a transient read failure is not a missing
-     * invoice. invoice_id is only ever written after a successful create. */
-    meta_unavailable?: boolean;
-  } | null;
+  /** Primary invoice (first instalment for split bookings) — kept for existing
+   * consumers (Excel export, single-invoice UI). `invoices` holds ALL of them. */
+  invoice: ReconInvoice | null;
+  /** All invoices mapped to this booking. >1 when a booking is invoiced in
+   * instalments (e.g. 50% deposit + 50% balance). Absent/length≤1 otherwise. */
+  invoices?: ReconInvoice[];
   candidates: Array<{
     id: string;
     reference: string | null;
@@ -655,8 +662,13 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
   const orders = await getSourceOrders(env, ctx, from, to);
   const orderIds = orders.map(o => o.id);
 
-  // 2. Map order → invoice_id from DB (scoped by source to avoid id collisions).
+  // 2. Map order → invoice_id(s). processed_orders holds the single (standard)
+  //    invoice per booking; lodgify_partial_invoices holds instalment invoices
+  //    (progressive 50/50 billing), so a booking can map to several.
   const orderToInvoice = await appStorage.getProcessedInvoicesByOrderIds(orderIds, ctx.source);
+  const partialsByOrder = ctx.source === "lodgify" && ctx.userId
+    ? await appStorage.getPartialInvoicesByBookingIds(ctx.userId, orderIds)
+    : new Map<string, string[]>();
 
   // 3. Overrides (manual matches + decisions), scoped to this integration.
   const { matches: manualMatches, decisions } = await appStorage.getReconciliationOverrides(orderIds);
@@ -666,11 +678,21 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     if (!orderToInvoice.has(orderId)) orderToInvoice.set(orderId, m.invoice_id);
   }
 
-  // 5. Resolve invoice metadata: KV cache FIRST (so we stop hammering the
-  //    destination with one read per invoice on every load). On a cache miss we
-  //    fetch with bounded concurrency + retry and write the result back to KV.
+  // Combined order → [invoiceId, …] (dedup; standard first, then instalments).
+  const orderInvoiceIds = new Map<string, string[]>();
+  const addInvoiceId = (oid: string, id: string) => {
+    if (!id) return;
+    const arr = orderInvoiceIds.get(oid) ?? [];
+    if (!arr.includes(id)) { arr.push(id); orderInvoiceIds.set(oid, arr); }
+  };
+  for (const [oid, id] of orderToInvoice.entries()) addInvoiceId(oid, id);
+  for (const [oid, ids] of partialsByOrder.entries()) for (const id of ids) addInvoiceId(oid, id);
+
+  // 5. Resolve metadata for every invoice id: KV cache FIRST (so we stop
+  //    hammering the destination on every load), else bounded-concurrency fetch.
   const metaDeadline = Date.now() + 12_000;
-  const invoiceEntries = Array.from(orderToInvoice.entries());
+  const invoiceEntries: Array<[string, string]> = [];
+  for (const [oid, ids] of orderInvoiceIds.entries()) for (const id of ids) invoiceEntries.push([oid, id]);
   const cachedMetas = await appStorage.getCachedInvoiceMetas(invoiceEntries.map(([, invoiceId]) => invoiceId), meta.metaNs);
   const invoiceMetas = await mapWithConcurrency(
     invoiceEntries, 6,
@@ -679,8 +701,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       // Never serve OR write a cached DRAFT: its status/number/PDF link all
       // change the moment it's finalized. Caching only immutable finalized docs
       // means a manual finalize in Moloni surfaces on the very next load instead
-      // of waiting out the 24h TTL. Drafts are simply re-fetched each load
-      // (bounded by the concurrency cap above).
+      // of waiting out the 24h TTL. Drafts are simply re-fetched each load.
       if (cached && cached.status !== "draft") return { ...cached, order_id_link: orderId } as InvoiceMeta;
       const m = await meta.fetchMeta(invoiceId, orderId, metaDeadline);
       if (m && m.status !== "draft") {
@@ -690,15 +711,22 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       return m;
     }
   );
-  const invoicesByOrderId = new Map<string, InvoiceMeta>();
+  const invoicesByOrderId = new Map<string, InvoiceMeta[]>();
   const allInvoiceMetas: InvoiceMeta[] = [];
   for (let i = 0; i < invoiceEntries.length; i++) {
     const m = invoiceMetas[i];
-    if (m) {
-      invoicesByOrderId.set(invoiceEntries[i][0], m);
-      allInvoiceMetas.push(m);
-    }
+    if (!m) continue;
+    const oid = invoiceEntries[i][0];
+    const arr = invoicesByOrderId.get(oid) ?? [];
+    arr.push(m);
+    invoicesByOrderId.set(oid, arr);
+    allInvoiceMetas.push(m);
   }
+  const toRowInvoice = (m: InvoiceMeta): ReconInvoice => ({
+    id: m.id, reference: m.reference, number: m.number, status: m.status,
+    total: m.total, date: m.date, permalink: m.permalink, pdf_url: m.pdf_url,
+    client_name: m.client_name,
+  });
 
   // Source-specific "held, not yet invoiced" copy.
   const pendingReason = ctx.source === "lodgify"
@@ -722,29 +750,23 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       };
     }
 
-    const inv = invoicesByOrderId.get(orderId);
+    const invs = invoicesByOrderId.get(orderId) ?? [];
+    const inv = invs[0];
     const manualMatch = manualMatches.get(orderId);
 
     if (inv) {
       const expectedRef = `Order #${orderBlock.order_number}`;
-      const isExact = inv.reference === expectedRef;
+      // Exact if any mapped invoice carries the booking reference or an
+      // "Order #N-<seq>" instalment reference.
+      const isExact = invs.some(x => x.reference === expectedRef || (x.reference ?? "").startsWith(`${expectedRef}-`));
       const type: ReconciliationRow["match"]["type"] = manualMatch
         ? "approved"
         : isExact ? "exact" : "heuristic";
       return {
         order: orderBlock,
         match: { type, confidence: type === "heuristic" ? 80 : 100 },
-        invoice: {
-          id: inv.id,
-          reference: inv.reference,
-          number: inv.number,
-          status: inv.status,
-          total: inv.total,
-          date: inv.date,
-          permalink: inv.permalink,
-          pdf_url: inv.pdf_url,
-          client_name: inv.client_name,
-        },
+        invoice: toRowInvoice(inv),
+        invoices: invs.map(toRowInvoice),
         candidates: [],
       };
     }
@@ -754,8 +776,14 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     // — invoice_id is only ever persisted after a successful create — so we MUST
     // NOT fall through to "Sem fatura". Render it as issued, flagged
     // meta_unavailable so the UI shows "detalhe indisponível".
-    const knownInvoiceId = orderToInvoice.get(orderId);
+    const knownInvoiceId = orderInvoiceIds.get(orderId)?.[0];
     if (knownInvoiceId) {
+      const unavailable: ReconInvoice = {
+        id: knownInvoiceId,
+        reference: null, number: null, status: null, total: null, date: null,
+        permalink: null, pdf_url: null, client_name: null,
+        meta_unavailable: true,
+      };
       return {
         order: orderBlock,
         match: {
@@ -763,12 +791,8 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
           confidence: 100,
           reason: "Fatura emitida — detalhe indisponível de momento",
         },
-        invoice: {
-          id: knownInvoiceId,
-          reference: null, number: null, status: null, total: null, date: null,
-          permalink: null, pdf_url: null, client_name: null,
-          meta_unavailable: true,
-        },
+        invoice: unavailable,
+        invoices: [unavailable],
         candidates: [],
       };
     }
@@ -845,10 +869,12 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       const { order_id_link, ...store } = m;
       if (m.status !== "draft") await appStorage.cacheInvoiceMeta(invoiceId, store, meta.metaNs);
       row.match = { type: "heuristic", confidence: 90, reason: "Encontrada por referência (não mapeada na BD)" };
-      row.invoice = {
+      const recovered: ReconInvoice = {
         id: m.id, reference: m.reference, number: m.number, status: m.status, total: m.total,
         date: m.date, permalink: m.permalink, pdf_url: m.pdf_url, client_name: m.client_name,
       };
+      row.invoice = recovered;
+      row.invoices = [recovered];
       row.candidates = [];
     });
   }

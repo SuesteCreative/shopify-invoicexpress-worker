@@ -3,7 +3,9 @@ import type { QueueMessage, StripeQueueMessage, StripeCanonicalTopic, WebhookTop
 import { Context, Hono } from "hono";
 import { AppStorage } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
-import { getSourceAdapter } from "./adapters/registry";
+import { getSourceAdapter, getDestinationAdapter } from "./adapters/registry";
+import { loadTagRoutingRules, matchTagRouting } from "./services/tag-routing";
+import { loadProductMappings } from "./services/product-mappings";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
@@ -1978,6 +1980,82 @@ function toPreloadedFromItem(item: any): Record<string, unknown> {
   };
 }
 
+// Emit one instalment (partial) invoice for a booking via the destination
+// adapter, billing only `deltaAmount` under a distinct reference "Order #N-seq"
+// and a "parcela" note. Respects tag-routing (series/doc-type) the same way the
+// standard pipeline does. Idempotent: dedups on the reference at the destination
+// so a crash between create and record doesn't duplicate.
+async function emitLodgifyPartialInvoice(env: Env, o: {
+  config: any;
+  sourceCfg: Record<string, any>;
+  destinationConfig: Record<string, any> | undefined;
+  destination: any;
+  productMappings: Map<string, number> | undefined;
+  tagRoutingRules: import("./services/tag-routing").TagRoutingRule[];
+  bookingItem: any;
+  bookingId: string;
+  seq: number;
+  deltaAmount: number;
+  totalAmount: number;
+}): Promise<string> {
+  const orderNum = Number(String(o.bookingId).replace(/\D/g, "").slice(-12)) || 0;
+  const reference = `Order #${orderNum}-${o.seq}`;
+  const pct = o.totalAmount > 0 ? Math.round((o.deltaAmount / o.totalAmount) * 100) : 0;
+  const note = o.seq > 1
+    ? `Parcela ${o.seq} — ${pct}% da reserva LOD-${o.bookingId} (ref. Order #${orderNum}; 1ª parcela: Order #${orderNum}-1)`
+    : `Parcela ${o.seq} — ${pct}% da reserva LOD-${o.bookingId} (ref. Order #${orderNum})`;
+
+  const sourceAdapter = getSourceAdapter("lodgify");
+  const destAdapter = getDestinationAdapter(o.destination);
+
+  let ctx: any = {
+    apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
+    config: o.config,
+    sourceConfig: o.sourceCfg,
+    destinationConfig: o.destinationConfig,
+    productMappings: o.productMappings,
+  };
+
+  // Normalize the v2 item to the shape LodgifySource reads (maps total_amount →
+  // total, rooms[].room_type_id, keeps property_id/source for tag-routing). The
+  // _partial.amount then overrides the gross with this instalment's delta.
+  const body = { _preloaded_booking: toPreloadedFromItem(o.bookingItem), _partial: { seq: o.seq, amount: o.deltaAmount, reference, note } };
+  const normalized = await sourceAdapter.toNormalized(body, ctx);
+  if (!normalized) throw new Error(`[LodgifyPoll] partial normalize failed for ${o.bookingId} seq ${o.seq}`);
+
+  // Tag routing (Moloni) — mirrors generic-pipeline.ts: route to the property's
+  // series / doc-type. `_draft` suffix forces draft; a plain type auto-finalizes.
+  const tagMatch = matchTagRouting(normalized.order, o.tagRoutingRules);
+  if (tagMatch && o.destination === "moloni") {
+    const rawType = tagMatch.document_type ?? "";
+    const isDraft = rawType.endsWith("_draft");
+    const baseType = isDraft ? rawType.slice(0, -"_draft".length) : rawType;
+    ctx = {
+      ...ctx,
+      ...(rawType ? { config: { ...ctx.config, auto_finalize: isDraft ? 0 : 1 } } : {}),
+      destinationConfig: {
+        ...ctx.destinationConfig,
+        ...(tagMatch.series_name ? { moloni_document_set_id: null, moloni_document_set_name: tagMatch.series_name } : {}),
+        ...(baseType ? { moloni_document_type: baseType } : {}),
+      },
+    };
+  }
+
+  // Idempotency: if this instalment's reference already exists at the
+  // destination (crash after create, before we recorded it), reuse it.
+  if (destAdapter.findByReference) {
+    const found = await destAdapter.findByReference(reference, ctx);
+    if (found) return found.id;
+  }
+
+  const { invoiceId } = await destAdapter.createDraft(normalized, ctx);
+  if (ctx.config?.auto_finalize === 1) {
+    try { await destAdapter.finalize(invoiceId, ctx); }
+    catch (e: any) { console.error(`[LodgifyPoll] finalize partial ${reference} failed: ${e?.message ?? e}`); }
+  }
+  return invoiceId;
+}
+
 interface LodgifyPollResult {
   connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;
 }
@@ -2059,19 +2137,55 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
     const storageTopic = "lodgify/created";
     const destination = (conn.destination_kind as any) ?? "moloni";
 
+    // Progressive (instalment) invoicing — opt-in per connection. When on, a
+    // booking is invoiced for each newly-paid amount (e.g. 50% deposit, then
+    // 50% balance) under distinct references, instead of once at 100% paid.
+    const partialEnabled = !!(destinationConfig?.moloni_partial_invoicing) && destination === "moloni";
+    const partialCtx = partialEnabled
+      ? {
+          productMappings: await loadProductMappings(env, conn.user_id, "lodgify").catch(() => undefined),
+          tagRoutingRules: await loadTagRoutingRules(env, conn.user_id, "lodgify", destination).catch(() => []),
+        }
+      : null;
+
     for (const item of bookings) {
       // Only confirmed stays are invoiceable (Open/Tentative/Declined are not).
       if (String(item?.status ?? "").toLowerCase() !== "booked") continue;
       const bookingId = String(item?.id ?? item?.booking_id ?? item?.reservation_id ?? "");
       if (!bookingId) continue;
       result.scanned++;
+      const appStorage = new AppStorage(env, null, conn.user_id);
 
-      // Payment gate: only auto-invoice bookings settled through Lodgify
-      // (amount_due≈0). See bookingAmountDue re: OTA channel bookings.
+      // ── Progressive path: bill each newly-paid delta ──────────────────────
+      if (partialEnabled && partialCtx) {
+        const total = Number(item?.total_amount ?? 0);
+        const paid = firstNum(item?.amount_paid) ?? 0;
+        if (paid <= 0.01) { result.skipped++; continue; }              // nothing paid yet
+        const partials = await appStorage.getPartialInvoices(conn.user_id, bookingId);
+        const already = partials.reduce((s, p) => s + p.invoiced_amount, 0);
+        const delta = Math.round((paid - already) * 100) / 100;
+        if (delta <= 0.01) { result.skipped++; continue; }             // no new payment to bill
+        const seq = partials.length + 1;
+        try {
+          const invoiceId = await emitLodgifyPartialInvoice(env, {
+            config: legacy, sourceCfg, destinationConfig, destination,
+            productMappings: partialCtx.productMappings, tagRoutingRules: partialCtx.tagRoutingRules,
+            bookingItem: item, bookingId, seq, deltaAmount: delta, totalAmount: total,
+          });
+          const orderNum = Number(String(bookingId).replace(/\D/g, "").slice(-12)) || 0;
+          await appStorage.upsertPartialInvoice(conn.user_id, bookingId, seq, invoiceId, delta, `Order #${orderNum}-${seq}`);
+          result.invoiced++;
+        } catch (e: any) {
+          console.error(`[LodgifyPoll] user ${conn.user_id}: partial invoice failed for ${bookingId} seq ${seq}: ${e?.message ?? e}`);
+          result.failed++;
+        }
+        continue;
+      }
+
+      // ── Standard path: invoice once when settled in Lodgify (amount_due≈0) ─
       const due = bookingAmountDue(item);
       if (due != null && due > 0.01) { result.skipped++; continue; }
 
-      const appStorage = new AppStorage(env, null, conn.user_id);
       // Shared dedup with the webhook path — invoice a booking at most once.
       const { isProcessed, state } = await appStorage.isWebhookProcessed(bookingId, storageTopic);
       if (isProcessed && state !== "failed") { result.skipped++; continue; }

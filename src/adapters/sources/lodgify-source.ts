@@ -130,8 +130,13 @@ export class LodgifySource implements SourceAdapter {
       return null;
     }
 
+    // Partial (instalment) invoicing: the poll passes `_partial.amount` = the
+    // newly-paid delta to bill on THIS document (the rest comes on later
+    // instalments), plus a distinct reference and a "parcela" note.
+    const partial = parsedBody?._partial as { seq?: number; amount?: number; reference?: string; note?: string } | undefined;
     // For refunds, use the amount paid (total_transactions.amount) as the gross to credit.
-    const grossTotal = isDeclined ? amountPaid : Number(booking.total ?? 0);
+    const grossTotal = partial ? Number(partial.amount ?? 0)
+      : isDeclined ? amountPaid : Number(booking.total ?? 0);
     const currency = String(booking.currency_code ?? "EUR").toUpperCase();
 
     // PT default: 6% IVA (alojamento local, Lista I Verba 2.17 CIVA).
@@ -185,9 +190,10 @@ export class LodgifySource implements SourceAdapter {
       phone: guestPhone,
     };
 
-    const lineTitle = [arrival, departure].every(Boolean)
+    const baseTitle = [arrival, departure].every(Boolean)
       ? `Alojamento ${arrival} - ${departure}`
       : "Alojamento";
+    const lineTitle = partial?.seq ? `${baseTitle} (parcela ${partial.seq})` : baseTitle;
 
     const lineItem = {
       id: 1,
@@ -225,7 +231,9 @@ export class LodgifySource implements SourceAdapter {
       reference: refStr,
       order_number: orderNumeric,
       created_at: bookingDateIso,
-      note: guestNote,
+      // Instalment note (e.g. "Parcela 1 — 50% …") prepended, keeping the guest
+      // note so a NIF typed there is still picked up by extractPtNif.
+      note: partial ? [partial.note, guestNote].filter(Boolean).join(" | ") || null : guestNote,
       note_attributes: noteAttrs,
       metafields: null,
       tags: [],
@@ -258,6 +266,7 @@ export class LodgifySource implements SourceAdapter {
       shipping_address: addr,
       items: [lineItem],
       global_discount: { name: "", percent: 0, amount: 0 },
+      invoice_reference: partial?.reference ?? null,
     };
 
     // For declined bookings, build a credit entry covering the full paid amount.

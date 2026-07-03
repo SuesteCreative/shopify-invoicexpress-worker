@@ -841,7 +841,10 @@ export class MoloniDestination implements DestinationAdapter {
       customer_id: customerId,
       date: dateOnlyYmd(normalized.order.created_at),
       expiration_date: dateOnlyYmd(normalized.order.created_at),
-      our_reference: `Order #${normalized.order.order_number}`,
+      // Instalment invoices carry a distinct reference ("Order #N-1", "…-2") so
+      // the dedup-by-reference doesn't block the second one; fall back to the
+      // per-booking reference for normal single invoices.
+      our_reference: normalized.order.invoice_reference ?? `Order #${normalized.order.order_number}`,
       your_reference: normalized.order.reference?.toString().slice(0, 100) ?? undefined,
       products,
       status: 0, // 0 = draft, 1 = closed/finalized

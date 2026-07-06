@@ -47,6 +47,10 @@ type MoloniTaxLine = {
 
 type MoloniProductLine = {
   product_id?: number;
+  // Credit-note lines only: the document_product_id of the ORIGINAL invoice line
+  // this line credits. Moloni's creditNotes/insert REQUIRES it (fails with
+  // ["5 related_id"] otherwise). Absent on invoice/receipt lines.
+  related_id?: number;
   name: string;
   summary?: string;
   qty: number;
@@ -958,6 +962,28 @@ function formatPtYmd(ymd: string): string {
 // series minimum Moloni reports (the closest allowed date) and stamp the real
 // transaction date in the notes — the correct fiscal practice for issuing today
 // a document for a past payment. Returns the (possibly re-dated) insert result.
+// Fetch the source document's line items so a credit note can carry the
+// required per-line `related_id` (= each original line's document_product_id).
+// The id may be an invoice OR an invoice_receipt (tag-routing / the client's
+// document_type), so try the configured type first, then the other. Returns []
+// when neither endpoint has it (deleted / wrong id).
+async function fetchMoloniDocLines(
+  cfg: MoloniCfg,
+  token: string,
+  documentId: string | number,
+): Promise<Array<{ product_id?: number; document_product_id?: number }>> {
+  const paths = cfg.documentType === "invoice_receipt"
+    ? ["/invoiceReceipts/getOne/", "/invoices/getOne/"]
+    : ["/invoices/getOne/", "/invoiceReceipts/getOne/"];
+  for (const path of paths) {
+    const d = await moloniCall<any>(cfg, token, path, { document_id: Number(documentId) }, "lookup").catch(() => null);
+    if (d && typeof d === "object" && !Array.isArray(d) && d.document_id != null && Array.isArray(d.products)) {
+      return d.products as Array<{ product_id?: number; document_product_id?: number }>;
+    }
+  }
+  return [];
+}
+
 async function insertMoloniDoc(
   cfg: MoloniCfg,
   token: string,
@@ -1185,6 +1211,26 @@ export class MoloniDestination implements DestinationAdapter {
 
     if (products.length === 0) {
       throw new Error("Moloni credit create failed: no line items derived from refund");
+    }
+
+    // Stamp the required per-line related_id (= the source invoice line's
+    // document_product_id). Match each credit line to the base line by
+    // product_id; the free-form cash-delta line (placeholder product) and any
+    // unmatched line fall back to the first base line — Moloni only needs a
+    // valid document_product_id from the associated document, not an exact map.
+    const baseLines = await fetchMoloniDocLines(cfg, token, invoiceId);
+    const relatedByProduct = new Map<number, number>();
+    for (const bl of baseLines) {
+      if (bl?.product_id != null && bl?.document_product_id != null && !relatedByProduct.has(Number(bl.product_id))) {
+        relatedByProduct.set(Number(bl.product_id), Number(bl.document_product_id));
+      }
+    }
+    const fallbackRelated = baseLines[0]?.document_product_id != null ? Number(baseLines[0].document_product_id) : undefined;
+    for (const p of products) {
+      p.related_id = (p.product_id != null ? relatedByProduct.get(Number(p.product_id)) : undefined) ?? fallbackRelated;
+    }
+    if (products.some((p) => p.related_id == null)) {
+      throw new Error(`Moloni credit create failed: could not resolve related_id from source document ${invoiceId} (deleted or has no lines)`);
     }
 
     const exemptionReason = resolveExemptionReason(ctx);

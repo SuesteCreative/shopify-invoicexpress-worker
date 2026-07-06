@@ -83,7 +83,15 @@ export function ReconciliationView({ identifier, source, destination }: { identi
     const filtered = useMemo(() => {
         if (!data) return [];
         return data.rows.filter(r => {
-            if (filter !== "all" && r.match.type !== filter) return false;
+            // Refund filters are orthogonal to match.type (they key off the order's
+            // refund_state / missing credit note), so branch them separately.
+            if (filter === "refunded") {
+                if (!r.order.refund_state) return false;
+            } else if (filter === "credit_missing") {
+                if (!(r.order.refund_state && r.invoice && (r.credit_notes?.length ?? 0) === 0)) return false;
+            } else if (filter !== "all" && r.match.type !== filter) {
+                return false;
+            }
             if (search) {
                 const s = search.toLowerCase();
                 return (
@@ -177,6 +185,8 @@ export function ReconciliationView({ identifier, source, destination }: { identi
                         none: data.summary.none ?? 0,
                         not_needed: data.summary.not_needed ?? 0,
                         pending: data.summary.pending ?? 0,
+                        refunded: data.summary.refunded ?? 0,
+                        credit_missing: data.summary.credit_missing ?? 0,
                     }}
                 />
             )}

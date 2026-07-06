@@ -19,6 +19,12 @@ const MATCH_COLOR: Record<Row["match"]["type"], string> = {
     pending: "FF64748B",     // slate-500 (held, awaiting payment)
 };
 
+const REFUND_LABEL: Record<NonNullable<Row["order"]["refund_state"]>, string> = {
+    full: "Reembolsado",
+    partial: "Reembolso parcial",
+    cancelled: "Cancelado",
+};
+
 export async function exportReconciliationToExcel(
     rows: Row[],
     identifier: string,
@@ -40,14 +46,14 @@ export async function exportReconciliationToExcel(
     });
 
     // Title block
-    ws.mergeCells("A1:N1");
+    ws.mergeCells("A1:Q1");
     ws.getCell("A1").value = `Conciliação ${srcLabel} ↔ ${dstLabel} — ${identifier}`;
     ws.getCell("A1").font = { size: 16, bold: true, color: { argb: "FFFFFFFF" } };
     ws.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
     ws.getCell("A1").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(1).height = 28;
 
-    ws.mergeCells("A2:N2");
+    ws.mergeCells("A2:Q2");
     ws.getCell("A2").value = `Período: ${formatRange(from, to)}  ·  Total: ${rows.length} ${noun.plural}  ·  Gerado em ${new Date().toLocaleString("pt-PT")}`;
     ws.getCell("A2").font = { size: 10, italic: true, color: { argb: "FF64748B" } };
     ws.getCell("A2").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
@@ -55,8 +61,8 @@ export async function exportReconciliationToExcel(
 
     // Summary line
     const counts = summarize(rows);
-    ws.mergeCells("A3:N3");
-    ws.getCell("A3").value = `Match exato: ${counts.exact} · Aprovados: ${counts.approved} · Heurístico: ${counts.heuristic} · Sem fatura: ${counts.none} · Não necessárias: ${counts.not_needed} · Aguarda pagamento: ${counts.pending}`;
+    ws.mergeCells("A3:Q3");
+    ws.getCell("A3").value = `Match exato: ${counts.exact} · Aprovados: ${counts.approved} · Heurístico: ${counts.heuristic} · Sem fatura: ${counts.none} · Não necessárias: ${counts.not_needed} · Aguarda pagamento: ${counts.pending} · Reembolsos/cancel.: ${counts.refunded} · NC em falta: ${counts.credit_missing}`;
     ws.getCell("A3").font = { size: 10, bold: true, color: { argb: "FF334155" } };
     ws.getCell("A3").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(3).height = 18;
@@ -67,6 +73,7 @@ export async function exportReconciliationToExcel(
         cap(noun.singular), "Data Pagamento", "Cliente", "Email", `Total ${srcLabel}`,
         "Status Match", "Confiança", "Razão",
         `Fatura ${dstLabel}`, `Estado ${dstLabel}`, `Total ${dstLabel}`, `Data ${dstLabel}`, `Cliente ${dstLabel}`, `Link ${dstLabel}`,
+        "Estado reembolso", "Nota de crédito", "Link NC",
     ];
     const headerRow = ws.addRow(headers); // row 4
     headerRow.eachCell(cell => {
@@ -84,6 +91,15 @@ export async function exportReconciliationToExcel(
 
     // Data rows
     rows.forEach(r => {
+        const cns = r.credit_notes ?? [];
+        const refundLabel = r.order.refund_state ? REFUND_LABEL[r.order.refund_state] : "";
+        // Refunded/cancelled + has invoice + no NC found ⇒ flag the gap.
+        const ncMissing = !!r.order.refund_state && !!r.invoice && cns.length === 0;
+        const ncText = cns.length > 0
+            ? cns.map(c => c.number ?? c.reference ?? `NC ${c.id}`).join(", ")
+            : ncMissing ? "EM FALTA" : "";
+        const ncLink = cns.find(c => c.permalink)?.permalink ?? "";
+
         const row = ws.addRow([
             r.order.name,
             fmtDate(r.order.paid_at),
@@ -99,6 +115,9 @@ export async function exportReconciliationToExcel(
             r.invoice?.date ? fmtDate(r.invoice.date) : "",
             r.invoice?.client_name ?? "",
             r.invoice?.permalink ?? "",
+            refundLabel,
+            ncText,
+            "",
         ]);
 
         // Currency formatting
@@ -116,6 +135,23 @@ export async function exportReconciliationToExcel(
             const linkCell = row.getCell(14);
             linkCell.value = { text: "Abrir fatura", hyperlink: r.invoice.permalink };
             linkCell.font = { color: { argb: "FF2563EB" }, underline: true, size: 10 };
+        }
+
+        // Refund state (col 15) — red text for a refund/cancel
+        if (r.order.refund_state) {
+            row.getCell(15).font = { bold: true, color: { argb: "FFEF4444" }, size: 10 };
+        }
+
+        // Credit-note text (col 16) — red + bold when EM FALTA
+        if (ncMissing) {
+            row.getCell(16).font = { bold: true, color: { argb: "FFEF4444" }, size: 10 };
+        }
+
+        // Credit-note link (col 17)
+        if (ncLink) {
+            const ncCell = row.getCell(17);
+            ncCell.value = { text: "Abrir NC", hyperlink: ncLink };
+            ncCell.font = { color: { argb: "FF2563EB" }, underline: true, size: 10 };
         }
 
         // Order link
@@ -136,11 +172,11 @@ export async function exportReconciliationToExcel(
     });
 
     // Column widths
-    const widths = [12, 14, 22, 26, 14, 16, 11, 30, 18, 12, 14, 14, 22, 16];
+    const widths = [12, 14, 22, 26, 14, 16, 11, 30, 18, 12, 14, 14, 22, 16, 16, 20, 12];
     widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
     // Auto filter on header
-    ws.autoFilter = { from: "A4", to: `N${4 + rows.length}` };
+    ws.autoFilter = { from: "A4", to: `Q${4 + rows.length}` };
 
     // Generate file
     const buf = await wb.xlsx.writeBuffer();
@@ -172,5 +208,7 @@ function summarize(rows: Row[]) {
         none: rows.filter(r => r.match.type === "none").length,
         not_needed: rows.filter(r => r.match.type === "not_needed").length,
         pending: rows.filter(r => r.match.type === "pending").length,
+        refunded: rows.filter(r => !!r.order.refund_state).length,
+        credit_missing: rows.filter(r => !!r.order.refund_state && !!r.invoice && (r.credit_notes?.length ?? 0) === 0).length,
     };
 }

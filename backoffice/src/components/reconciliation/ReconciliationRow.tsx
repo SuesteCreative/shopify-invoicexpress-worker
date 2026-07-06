@@ -24,6 +24,18 @@ export type InvoiceInfo = {
     meta_unavailable?: boolean;
 };
 
+/** A credit note (nota de crédito) issued against the order's invoice. */
+export type CreditInfo = {
+    id: string;
+    number: string | null;
+    reference: string | null;
+    status: string | null;
+    total: number | null;
+    date: string | null;
+    permalink: string | null;
+    pdf_url: string | null;
+};
+
 export type Row = {
     order: {
         id: string;
@@ -37,6 +49,9 @@ export type Row = {
         financial_status: string | null;
         /** OTA / sales channel the booking came through (Lodgify `source`). */
         channel?: string | null;
+        /** Normalized refund/cancel state (source-agnostic). */
+        refund_state?: "partial" | "full" | "cancelled" | null;
+        cancelled_at?: string | null;
     };
     match: {
         type: "exact" | "approved" | "heuristic" | "not_needed" | "none" | "pending";
@@ -46,6 +61,9 @@ export type Row = {
     invoice: InvoiceInfo | null;
     /** All invoices for this booking. >1 when billed in instalments (50/50). */
     invoices?: InvoiceInfo[];
+    /** Credit notes found for this order's invoice(s). Empty on a refunded order
+     * that has an invoice ⇒ "nota de crédito não emitida" alarm. */
+    credit_notes?: CreditInfo[];
     candidates: Array<{
         id: string;
         reference: string | null;
@@ -64,6 +82,14 @@ const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
     not_needed: { label: "Não necessária", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
     none: { label: "Sem fatura", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
     pending: { label: "Aguarda pagamento", cls: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]" },
+};
+
+// Source-side chip for refunded / cancelled orders. Full refund + cancellation
+// read as destructive (red); a partial refund is a softer amber.
+const REFUND_CHIP: Record<NonNullable<Row["order"]["refund_state"]>, { label: string; cls: string }> = {
+    full: { label: "Reembolsado", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
+    partial: { label: "Reembolso parcial", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
+    cancelled: { label: "Cancelado", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
 };
 
 // Lodgify `source` codes → friendly channel labels shown as a chip on the row.
@@ -180,6 +206,11 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                         <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
                     ) : (
                         <span className="text-xs font-bold text-soon">Pendente · {fmt(row.order.total)}</span>
+                    )}
+                    {row.order.refund_state && (
+                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${REFUND_CHIP[row.order.refund_state].cls}`}>
+                            {REFUND_CHIP[row.order.refund_state].label}
+                        </span>
                     )}
                 </div>
                 <div className="flex flex-wrap items-baseline gap-2">
@@ -353,6 +384,48 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             </button>
                         </div>
                     </>
+                )}
+
+                {/* Credit notes (notas de crédito) for refunded/cancelled orders.
+                    Shown when the order carries a refund_state and has an invoice:
+                    either the NC(s) with a hyperlink, or — the alarm — a warning
+                    that no credit note was found for a refunded/cancelled invoice. */}
+                {row.order.refund_state && (row.invoice || (row.invoices?.length ?? 0) > 0) && (
+                    <div className="mt-1 border-t border-hairline pt-2 flex flex-col gap-1.5">
+                        {row.credit_notes && row.credit_notes.length > 0 ? (
+                            row.credit_notes.map(cn => (
+                                <div key={cn.id} className="flex flex-wrap items-baseline gap-2">
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-destructive px-2 py-0.5 rounded bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.30)] inline-flex items-center gap-1">
+                                        <RotateCcw className="w-3 h-3" /> Nota de crédito
+                                    </span>
+                                    {cn.permalink ? (
+                                        <a href={cn.permalink} target="_blank" rel="noopener noreferrer"
+                                            className="text-sm font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
+                                            {cn.number ?? cn.reference ?? `NC ${cn.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
+                                        </a>
+                                    ) : (
+                                        <span className="text-sm font-black text-fg" title={cn.status === "draft" ? "Rascunho — o link abre quando a nota de crédito for finalizada" : undefined}>
+                                            {cn.number ?? cn.reference ?? `NC ${cn.id}`}
+                                        </span>
+                                    )}
+                                    {cn.total != null && (
+                                        <span className="text-[11px] font-bold text-destructive">−{fmt(Math.abs(cn.total))}</span>
+                                    )}
+                                    {cn.date && <span className="text-[10px] font-bold text-fg-40">{fmtDate(cn.date)}</span>}
+                                    {row.invoice && (
+                                        <span className="text-[10px] font-medium text-fg-40">
+                                            assoc. {row.invoice.number ?? row.invoice.reference ?? `fatura ${row.invoice.id}`}
+                                        </span>
+                                    )}
+                                </div>
+                            ))
+                        ) : !row.invoice?.meta_unavailable ? (
+                            <p className="text-[11px] font-bold text-soon flex items-center gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                {row.order.refund_state === "cancelled" ? "Cancelado" : "Reembolsado"} — nota de crédito não emitida
+                            </p>
+                        ) : null}
+                    </div>
                 )}
             </div>
         </article>

@@ -23,6 +23,31 @@ export interface ReconOrder {
   /** Sales channel / OTA the booking came through (Lodgify `source`, e.g.
    * "BookingCom", "Airbnb", "Manual", "Direct"). Null for non-Lodgify sources. */
   channel?: string | null;
+  /** Normalized refund/cancellation state, source-agnostic. Each source fetcher
+   * maps its native status (Shopify financial_status/cancelled_at, Lodgify
+   * cancelled/declined, future Stripe amount_refunded, …) into this enum so the
+   * reconciliation core — and the credit-note lookup below — stays generic.
+   * `partial` = partly refunded, `full` = fully refunded, `cancelled` = order
+   * cancelled/booking declined. Null/absent = a normal live order. */
+  refund_state?: "partial" | "full" | "cancelled" | null;
+  /** ISO timestamp the order was cancelled (Shopify `cancelled_at`), if any. */
+  cancelled_at?: string | null;
+}
+
+/** A credit note (nota de crédito) issued against an order's invoice. Populated
+ * only for rows whose order carries a `refund_state`. The link back to the
+ * original invoice lives at the provider (IX `owner_invoice_id`, Moloni
+ * `associated_documents`), not in our DB, so these are read back live per run. */
+export interface ReconCredit {
+  id: string;
+  /** Human doc number (IX `sequence_number`, Moloni finalized number). */
+  number: string | null;
+  reference: string | null;
+  status: string | null;
+  total: number | null;
+  date: string | null;
+  permalink: string | null;
+  pdf_url: string | null;
 }
 
 export interface ReconInvoice {
@@ -60,6 +85,10 @@ export interface ReconciliationRow {
   /** All invoices mapped to this booking. >1 when a booking is invoiced in
    * instalments (e.g. 50% deposit + 50% balance). Absent/length≤1 otherwise. */
   invoices?: ReconInvoice[];
+  /** Credit notes found for this order's invoice(s). Populated only when the
+   * order is refunded/cancelled (`order.refund_state` set). Empty array on a
+   * refunded order that has an invoice ⇒ the "nota de crédito não emitida" alarm. */
+  credit_notes?: ReconCredit[];
   candidates: Array<{
     id: string;
     reference: string | null;
@@ -166,21 +195,43 @@ async function fetchShopifyOrdersPaginated(
 async function fetchShopifyReconOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
   const config = ctx.config;
   const paidOrders = await fetchShopifyOrdersPaginated(config, from, to);
-  let orders = paidOrders;
+  // Merge passes, de-duping by order id (first pass wins).
+  const seen = new Set(paidOrders.map(o => String(o.id)));
+  const orders = [...paidOrders];
+  const merge = (extra: any[]) => {
+    for (const o of extra) {
+      const id = String(o.id);
+      if (seen.has(id)) continue;
+      seen.add(id); orders.push(o);
+    }
+  };
   // When the shop holds invoices until payment (only_invoice_when_paid), also
   // pull pending orders so the operator sees what is deliberately NOT yet
   // invoiced ("fatura não por emitir"). Pending orders rarely carry a
   // processed_at, so that set is windowed by created_at instead.
   if (config.only_invoice_when_paid === 1) {
-    const pendingOrders = await fetchShopifyOrdersPaginated(config, from, to, { financialStatus: "pending", dateField: "created_at" });
-    const seen = new Set(paidOrders.map(o => String(o.id)));
-    orders = paidOrders.concat(pendingOrders.filter(o => !seen.has(String(o.id))));
+    merge(await fetchShopifyOrdersPaginated(config, from, to, { financialStatus: "pending", dateField: "created_at" }));
   }
+  // Refunded / partially-refunded orders are EXCLUDED by financial_status=paid,
+  // so without these passes a refunded-but-invoiced order silently drops off the
+  // view. They were paid, so they carry a processed_at (default date field). We
+  // pull them so their credit note (nota de crédito) can be surfaced on the row.
+  merge(await fetchShopifyOrdersPaginated(config, from, to, { financialStatus: "refunded" }));
+  merge(await fetchShopifyOrdersPaginated(config, from, to, { financialStatus: "partially_refunded" }));
+
   const shopDomain = config.shopify_domain!;
   return orders.map((order) => {
     const orderId = String(order.id);
     const customerName = order.customer
       ? `${order.customer.first_name ?? ""} ${order.customer.last_name ?? ""}`.trim() || null
+      : null;
+    const fin = order.financial_status ?? null;
+    const cancelledAt = order.cancelled_at ?? null;
+    // Normalized, source-agnostic refund state (see ReconOrder.refund_state).
+    const refundState: ReconOrder["refund_state"] =
+      fin === "refunded" || fin === "voided" ? "full"
+      : fin === "partially_refunded" ? "partial"
+      : cancelledAt ? "cancelled"
       : null;
     return {
       id: orderId,
@@ -191,7 +242,9 @@ async function fetchShopifyReconOrders(ctx: ReconContext, from: string, to: stri
       customer_name: customerName,
       email: order.customer?.email ?? order.email ?? null,
       permalink: `https://${shopDomain.replace(".myshopify.com", "")}.myshopify.com/admin/orders/${orderId}`,
-      financial_status: order.financial_status ?? null,
+      financial_status: fin,
+      refund_state: refundState,
+      cancelled_at: cancelledAt,
     };
   });
 }
@@ -292,7 +345,11 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
   const rows: ReconOrder[] = [];
   for (const b of items) {
     const status = String(b.status ?? b.state ?? "").toLowerCase();
-    if (status === "declined" || status === "cancelled" || status === "canceled") continue;
+    // Cancelled/declined bookings are no longer skipped outright — we tag them
+    // `cancelled` so an already-invoiced cancellation surfaces its credit note.
+    // (getReconciliation drops cancelled bookings that were never invoiced, so
+    // this doesn't reintroduce declined-booking noise.)
+    const isCancelled = status === "declined" || status === "cancelled" || status === "canceled";
     const arrival = dateOnly(b.arrival ?? b.date_arrival ?? "");
     const created = dateOnly(b.created_at ?? b.date_created ?? "");
     // Include if made in-window OR arriving in-window (see fn comment).
@@ -329,6 +386,7 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
       permalink: `https://app.lodgify.com/#/reservations/bookings/${id}`,
       financial_status: financial,
       channel: b.source ? String(b.source) : null,
+      refund_state: isCancelled ? "cancelled" : null,
     });
   }
   return rows;
@@ -355,6 +413,12 @@ interface MetaFetcher {
   fetchMeta(invoiceId: string, orderId: string, deadline?: number): Promise<InvoiceMeta | null>;
   /** Resolve an invoice id from our "Order #N" reference, or null on miss. */
   findByReference(reference: string, deadline?: number): Promise<string | null>;
+  /** Credit notes issued against `invoiceId` at the destination, linked via the
+   * provider's own back-reference (IX `owner_invoice_id` / Moloni
+   * `associated_documents`). `orderNumber` lets destinations that can't read the
+   * association directly fall back to the "OrderCancel #N" reference convention.
+   * Returns [] when none (or when the destination has no credit-note read path). */
+  fetchCredits(invoiceId: string, orderNumber: number, deadline?: number): Promise<ReconCredit[]>;
 }
 
 // The IX proxy (ix-proxy.kapta.app) is shared hosting and stalls under load. We
@@ -414,6 +478,61 @@ async function fetchIxInvoiceMeta(
     }
   }
   return null;
+}
+
+// Credit notes issued against an IX invoice. IX exposes them directly via the
+// document's "related" collection (owner_invoice_id links them), so one call
+// yields every credit note with its permalink already populated — the clean
+// primitive. Same fragile-proxy discipline as fetchIxInvoiceMeta (AbortController
+// + deadline); a hung read returns [] rather than blocking the whole run.
+async function fetchIxCredits(
+  config: IRequestConfig,
+  invoiceId: string,
+  deadline?: number,
+): Promise<ReconCredit[]> {
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" : "dev",
+    "Accept": "application/json",
+  };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (deadline && Date.now() >= deadline) return [];
+    const budget = deadline ? Math.max(500, Math.min(5000, deadline - Date.now())) : 5000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budget);
+    try {
+      const res = await fetch(`${IX_PROXY_BASE}/v2/documents/${Number(invoiceId)}/related`, {
+        headers: ixHeaders,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        if (res.status === 404) return []; // invoice gone / no related docs
+        if (attempt < 2 && (!deadline || Date.now() < deadline)) { await sleep(300 * (attempt + 1)); continue; }
+        return [];
+      }
+      const j: any = await res.json().catch(() => null);
+      const docs: any[] = Array.isArray(j?.data?.documents) ? j.data.documents : [];
+      return docs
+        .filter((d) => d?.type === "CreditNote")
+        .map((d): ReconCredit => ({
+          id: String(d.id),
+          number: d.sequence_number ?? null,
+          reference: d.reference ?? null,
+          status: d.status ?? null,
+          total: Number(d.total ?? d.sum ?? 0),
+          date: d.date ?? null,
+          permalink: d.permalink ?? null,
+          pdf_url: d.permalink ?? null,
+        }));
+    } catch {
+      clearTimeout(timer);
+      if (attempt < 2 && (!deadline || Date.now() < deadline)) { await sleep(200); continue; }
+      return [];
+    }
+  }
+  return [];
 }
 
 async function fetchIxByReference(config: IRequestConfig, ref: string, deadline?: number): Promise<string | null> {
@@ -554,6 +673,72 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
         return null;
       }
     },
+    async fetchCredits(invoiceId, orderNumber, deadline) {
+      if (deadline && Date.now() >= deadline) return [];
+      try {
+        const { cfg, token } = await getCreds();
+        // Two lookups, deduped by document_id:
+        //  (a) associated_id — the machine link the credit note carries back to
+        //      its invoice (moloni-destination writes associated_documents:[{associated_id}]).
+        //  (b) our_reference "OrderCancel #<n>" — the deterministic cancel ref, in
+        //      case (a) isn't returned inline by getAll (validate live).
+        const byId = new Map<string, any>();
+        const collect = (arr: any) => {
+          for (const d of Array.isArray(arr) ? arr : []) {
+            const id = d?.document_id;
+            if (id != null) byId.set(String(id), d);
+          }
+        };
+        // (a) associated_id filter — Moloni ignores unknown filters (returns all),
+        // so we re-filter client-side on associated_documents to stay correct.
+        const assoc = await moloniCall<any[]>(
+          cfg, token, "/creditNotes/getAll/", { associated_id: Number(invoiceId) }, "lookup",
+        ).catch(() => []);
+        collect((Array.isArray(assoc) ? assoc : []).filter((d) =>
+          (Array.isArray(d?.associated_documents) ? d.associated_documents : [])
+            .some((a: any) => Number(a?.associated_id) === Number(invoiceId)),
+        ));
+        // (b) deterministic cancel reference.
+        if (!deadline || Date.now() < deadline) {
+          const byRef = await moloniCall<any[]>(
+            cfg, token, "/creditNotes/getAll/", { our_reference: `OrderCancel #${orderNumber}` }, "lookup",
+          ).catch(() => []);
+          collect((Array.isArray(byRef) ? byRef : []).filter((d) =>
+            String(d?.our_reference ?? "") === `OrderCancel #${orderNumber}`,
+          ));
+        }
+        const out: ReconCredit[] = [];
+        for (const d of byId.values()) {
+          const total = Math.max(Number(d.net_value ?? 0), Number(d.gross_value ?? 0)) || Number(d.total ?? 0);
+          const isFinal = Number(d.status) !== 0;
+          const docId = String(d.document_id);
+          const num = Number(d.number);
+          const number = isFinal && Number.isFinite(num) && num > 0
+            ? `${d.document_set_name ? `${d.document_set_name} ` : ""}${num}`
+            : `#${docId}`;
+          let permalink: string | null = null;
+          if (isFinal && (!deadline || Date.now() < deadline)) {
+            try {
+              const pdf: any = await moloniCall(cfg, token, "/documents/getPDFLink/", { document_id: Number(docId) }, "lookup");
+              permalink = (pdf?.url ?? pdf?.link ?? null) as string | null;
+            } catch { /* no public link — leave null */ }
+          }
+          out.push({
+            id: docId,
+            number,
+            reference: d.our_reference ?? null,
+            status: isFinal ? "final" : "draft",
+            total,
+            date: dateOnly(d.date ?? "") || String(d.date ?? ""),
+            permalink,
+            pdf_url: permalink,
+          });
+        }
+        return out;
+      } catch {
+        return [];
+      }
+    },
   };
 }
 
@@ -565,6 +750,7 @@ function makeIxMetaFetcher(ctx: ReconContext): MetaFetcher {
     refAccount: config.ix_account_name ?? "ix",
     fetchMeta: (invoiceId, orderId, deadline) => fetchIxInvoiceMeta(config, invoiceId, orderId, deadline),
     findByReference: (reference, deadline) => fetchIxByReference(config, reference, deadline),
+    fetchCredits: (invoiceId, _orderNumber, deadline) => fetchIxCredits(config, invoiceId, deadline),
   };
 }
 
@@ -578,6 +764,7 @@ function getMetaFetcher(ctx: ReconContext): MetaFetcher {
         metaNs: `meta_${ctx.destination}`, refNs: `ref_${ctx.destination}`, refAccount: ctx.destination,
         fetchMeta: async () => null,
         findByReference: async () => null,
+        fetchCredits: async () => [],
       };
   }
 }
@@ -734,7 +921,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     : "Aguarda confirmação de pagamento — fatura não por emitir";
 
   // 6. Build rows
-  const rows: ReconciliationRow[] = orders.map(orderBlock => {
+  const rows: ReconciliationRow[] = orders.map((orderBlock): ReconciliationRow => {
     const orderId = orderBlock.id;
     const totalNum = orderBlock.total;
     const customerName = orderBlock.customer_name;
@@ -839,7 +1026,13 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
         reason: c.reasons.join(" · "),
       })),
     };
-  });
+  }).filter(r =>
+    // Drop cancelled orders/bookings that were never invoiced — nothing to
+    // reconcile and no credit note to show (keeps declined-booking noise out,
+    // matching the prior Lodgify behavior). A refund WITHOUT an invoice is a real
+    // anomaly, so those (refund_state "full"/"partial") are kept visible.
+    !(r.order.refund_state === "cancelled" && !r.invoice)
+  );
 
   // 6b. Recover manual / mapping-lost invoices: for orders still showing "none",
   // ask the destination whether a document with our "Order #N" reference exists.
@@ -879,6 +1072,49 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     });
   }
 
+  // 6c. Credit notes (notas de crédito). ONLY for rows whose order carries a
+  // refund_state and holds an invoice id — gated so we don't add a destination
+  // read per invoice on every load (the IX proxy is fragile, see the concurrency
+  // comment above). Each invoice id is fetched once (deduped), bounded by
+  // concurrency + deadline, and cached in KV (immutable finalized docs). Empty
+  // results are NOT cached, so a "refund just happened, NC still pending" row
+  // keeps re-checking until the credit note appears.
+  const creditRows = rows.filter(r => !!r.order.refund_state && (!!r.invoice?.id || !!(r.invoices?.length)));
+  if (creditRows.length > 0) {
+    const creditDeadline = Date.now() + 8_000;
+    const cnNs = `${meta.metaNs}_cn`;
+    const invoiceIdsOf = (r: ReconciliationRow): string[] => {
+      const ids = new Set<string>();
+      if (r.invoice?.id) ids.add(r.invoice.id);
+      for (const iv of r.invoices ?? []) if (iv.id) ids.add(iv.id);
+      return [...ids];
+    };
+    const orderNumberByInvoice = new Map<string, number>();
+    for (const r of creditRows) for (const id of invoiceIdsOf(r)) {
+      if (!orderNumberByInvoice.has(id)) orderNumberByInvoice.set(id, r.order.order_number);
+    }
+    const uniqInvoiceIds = [...orderNumberByInvoice.keys()];
+    const cachedCredits = await appStorage.getCachedInvoiceMetas(uniqInvoiceIds, cnNs);
+    const creditsByInvoice = new Map<string, ReconCredit[]>();
+    await mapWithConcurrency(uniqInvoiceIds, 4, async (invoiceId) => {
+      const cached = cachedCredits.get(invoiceId) as ReconCredit[] | undefined;
+      if (cached) { creditsByInvoice.set(invoiceId, cached); return; }
+      if (Date.now() >= creditDeadline) { creditsByInvoice.set(invoiceId, []); return; }
+      const credits = await meta.fetchCredits(invoiceId, orderNumberByInvoice.get(invoiceId) ?? 0, creditDeadline);
+      if (credits.length > 0) await appStorage.cacheInvoiceMeta(invoiceId, credits, cnNs);
+      creditsByInvoice.set(invoiceId, credits);
+    });
+    for (const r of creditRows) {
+      const acc: ReconCredit[] = [];
+      for (const id of invoiceIdsOf(r)) {
+        for (const c of creditsByInvoice.get(id) ?? []) {
+          if (!acc.some(x => x.id === c.id)) acc.push(c);
+        }
+      }
+      r.credit_notes = acc;
+    }
+  }
+
   // Sort newest first
   rows.sort((a, b) => Date.parse(b.order.paid_at) - Date.parse(a.order.paid_at));
 
@@ -896,6 +1132,10 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       not_needed: rows.filter(r => r.match.type === "not_needed").length,
       pending: rows.filter(r => r.match.type === "pending").length,
       unverified: rows.filter(r => r.invoice?.meta_unavailable).length,
+      // Refunded/cancelled orders in the window, and — the alarm — those with an
+      // invoice but NO credit note found at the destination.
+      refunded: rows.filter(r => !!r.order.refund_state).length,
+      credit_missing: rows.filter(r => !!r.order.refund_state && !!r.invoice && (r.credit_notes?.length ?? 0) === 0).length,
     },
     rows,
   };

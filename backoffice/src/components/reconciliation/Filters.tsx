@@ -1,6 +1,6 @@
 "use client";
 
-export type FilterKey = "all" | "exact" | "approved" | "heuristic" | "none" | "not_needed" | "pending";
+export type FilterKey = "all" | "exact" | "approved" | "heuristic" | "none" | "not_needed" | "pending" | "refunded" | "credit_missing";
 
 const LABELS: Record<FilterKey, string> = {
     all: "Todos",
@@ -10,6 +10,8 @@ const LABELS: Record<FilterKey, string> = {
     none: "Sem fatura",
     not_needed: "Não necessárias",
     pending: "Aguarda pagamento",
+    refunded: "Reembolsos/cancel.",
+    credit_missing: "NC em falta",
 };
 
 const COLORS: Record<FilterKey, string> = {
@@ -20,6 +22,8 @@ const COLORS: Record<FilterKey, string> = {
     none: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]",
     not_needed: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]",
     pending: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]",
+    refunded: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]",
+    credit_missing: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]",
 };
 
 export function Filters({ current, setCurrent, counts }: {

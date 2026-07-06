@@ -164,14 +164,13 @@ app.post("/webhooks/stripe", async (c) => {
     return c.text("Stripe source disabled", 404);
   }
 
-  // Fail-fast: refuse to enter the verification path if no secret is set.
-  // Without this we'd loop over every connection trying empty/undefined
-  // secrets and either return a misleading 404 or 500.
-  if (!c.env.STRIPE_WEBHOOK_SECRET) {
-    console.error("[Stripe] STRIPE_WEBHOOK_SECRET missing — set via `wrangler secret put STRIPE_WEBHOOK_SECRET`");
-    return c.text("Stripe webhook secret not configured", 500);
-  }
-
+  // Signing secrets are per-connection: the webhook auto-install captures each
+  // account's whsec_ (via the merchant's restricted key) into
+  // source_config_json.webhook_secret. The optional global STRIPE_WEBHOOK_SECRET
+  // is only a fallback for connections that lack their own. So we do NOT
+  // fail-fast on a missing global secret — the per-connection scan below verifies
+  // each event against the owning connection's secret and returns 404 if none
+  // match (the loop already skips connections with no usable secret).
   const sig = c.req.header("Stripe-Signature");
   const rawBody = await c.req.text();
   if (!sig) return c.text("Missing Stripe-Signature", 400);

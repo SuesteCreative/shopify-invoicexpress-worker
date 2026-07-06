@@ -263,3 +263,37 @@ guard** — confirmed in prod logs (real 422 "Invoice total mismatch" + 944× "I
   Inert for all 4 current clients (none set `force_shipping_tax_rate`).
 - [x] **F-NULL** — `pickInvoiceAddress` NPE'd on `customer: null` (guest/POS) -> order never invoiced.
   Fix: default null customer to `{}`.
+
+---
+
+## Audit — 2026-07-06 (Stripe→Moloni onboarding verification)
+
+Found while verifying the Stripe→Moloni path before onboarding a new Moloni-only
+client (no Shopify/IX history → no legacy `integrations` row). Root cause is the
+split config source-of-truth: the setup wizard writes to
+`connections.destination_config_json`, but the worker reads several settings from
+the legacy `integrations` row.
+
+### Critical
+- [x] **BUG 0** — global `STRIPE_WEBHOOK_SECRET` fail-fast (`src/index.ts` `/webhooks/stripe`)
+  returns 500 for ALL Stripe events before the per-connection secret logic runs. Live probe:
+  `POST /webhooks/stripe → 500 "Stripe webhook secret not configured"`. Signing secrets are
+  per-connection (auto-installed via the merchant's restricted key), so the global gate is dead
+  weight. Fix: drop the fail-fast; the per-connection scan verifies and 404s gracefully.
+- [ ] **BUG A** — `processStripeBatch` drops events (`message.ack()` + skip) when a user has no
+  legacy `integrations` row. A Moloni-only client's paid order is silently never invoiced, no
+  incident. Fix: synthesize a minimal config from `destination_config` (mirror the Lodgify poller).
+
+### High
+- [ ] **BUG B** — `auto_finalize` read from legacy `integrations` row (`generic-pipeline.ts`),
+  but the Moloni wizard saves it to `destination_config`. Wizard toggle ignored → invoices stay
+  draft. Fixed by BUG A's config projection (project `destinationConfig.auto_finalize` over base).
+- [ ] **BUG C** — `exemption_reason` read from `ctx.config.ix_exemption_reason`
+  (`moloni-destination.ts`, 4 sites), but the wizard saves `destination_config.exemption_reason`.
+  Never read → wrong fiscal exemption code (always falls back to M01). Affects Stripe AND Lodgify→Moloni.
+  Fix: read exemption from `destinationConfig` first, legacy as fallback.
+
+### Medium
+- [ ] **BUG D** — incident `connection_label` hardcoded `"stripe → invoicexpress"` in the Stripe
+  webhook handler (`src/index.ts`), mislabels Moloni/Vendus clients. Fix: pull `destination_kind`
+  from the connection row and interpolate.

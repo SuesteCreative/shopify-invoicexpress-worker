@@ -533,10 +533,12 @@ export class StripeSource implements SourceAdapter {
     const obj = event?.data?.object;
     if (!obj) return String(event?.id ?? "");
 
-    // Refunds must reference the originating PaymentIntent so the credit note
-    // attaches to the invoice we created when the PI succeeded. Stripe puts
-    // the link on the Charge as `payment_intent`.
-    if (event.type === "charge.refunded" && obj.payment_intent) {
+    // Charge events reference their originating PaymentIntent so they dedup with
+    // payment_intent.succeeded. A single card payment fires BOTH charge.succeeded
+    // AND payment_intent.succeeded — without this they'd get different ids and
+    // Rioko would create TWO invoices for one payment. Refund credit notes
+    // likewise attach to the invoice created for the PI.
+    if ((event.type === "charge.succeeded" || event.type === "charge.refunded") && obj.payment_intent) {
       return String(obj.payment_intent);
     }
     // Checkout Session and its PaymentIntent both produce a webhook for the

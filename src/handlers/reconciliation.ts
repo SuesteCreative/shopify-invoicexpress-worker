@@ -698,7 +698,10 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
           (Array.isArray(d?.associated_documents) ? d.associated_documents : [])
             .some((a: any) => Number(a?.associated_id) === Number(invoiceId)),
         ));
-        // (b) deterministic cancel reference.
+        // (b) deterministic cancel reference — catches the admin manual-cancel
+        // convention "OrderCancel #<orderNumber>" (see admin.ts). NOTE: automatic
+        // refunds do NOT use this — their credit note is "OrderRefund #<refundId>"
+        // (refundId, unknown here), so path (c) is what links those.
         if (!deadline || Date.now() < deadline) {
           const byRef = await moloniCall<any[]>(
             cfg, token, "/creditNotes/getAll/", { our_reference: `OrderCancel #${orderNumber}` }, "lookup",
@@ -706,6 +709,29 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
           collect((Array.isArray(byRef) ? byRef : []).filter((d) =>
             String(d?.our_reference ?? "") === `OrderCancel #${orderNumber}`,
           ));
+        }
+        // (c) Invoice-side link — the reliable path for AUTOMATIC refund credit
+        // notes. The parent invoice's `associated_table` lists the credit notes
+        // attached to it (Moloni's reverse link; mirrors the clean IX
+        // /documents/{id}/related path). Independent of the reference convention
+        // and of whether getAll returns associated_documents inline. Resolve each
+        // linked id via creditNotes/getOne (which returns [] for non-credit-note
+        // ids, so receipts/other associations are naturally skipped).
+        if (!deadline || Date.now() < deadline) {
+          let inv: any = null;
+          for (const path of getOnePaths) {
+            if (deadline && Date.now() >= deadline) break;
+            const r: any = await moloniCall(cfg, token, path, { document_id: Number(invoiceId) }, "lookup").catch(() => null);
+            if (isRealDoc(r)) { inv = r; break; }
+          }
+          const links = Array.isArray(inv?.associated_table) ? inv.associated_table : [];
+          for (const a of links) {
+            if (deadline && Date.now() >= deadline) break;
+            const cnId = Number(a?.associated_id ?? a?.document_id ?? a?.related_id ?? a?.associated_document_id ?? 0);
+            if (!cnId || byId.has(String(cnId))) continue;
+            const cn: any = await moloniCall(cfg, token, "/creditNotes/getOne/", { document_id: cnId }, "lookup").catch(() => null);
+            if (isRealDoc(cn)) byId.set(String(cn.document_id), cn);
+          }
         }
         const out: ReconCredit[] = [];
         for (const d of byId.values()) {

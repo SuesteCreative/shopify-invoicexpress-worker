@@ -1756,17 +1756,28 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         destinationConfig = undefined;
       }
 
-      // Load legacy `integrations` row for now — Phase 5 will project the full
-      // config out of `connections.destination_config_json`. For Phase 3 we
-      // reuse the existing per-user IX credentials so behavior stays identical.
-      const legacy: any = await env.DB.prepare(
+      // Config resolution. IX-origin clients carry their behavior toggles in the
+      // legacy `integrations` row. A Moloni/Vendus-only client (no Shopify/IX
+      // history) has no such row — synthesize a minimal one (mirroring the
+      // Lodgify poller) instead of dropping the event, which would leave a paid
+      // order silently uninvoiced. Non-IX destinations store auto_finalize in the
+      // connection's destination_config (the setup wizard writes it there), so
+      // project it over the base — the pipeline reads config.auto_finalize.
+      // (exemption_reason is read straight from destination_config by the Moloni
+      // adapter.)
+      const legacyRow: any = await env.DB.prepare(
         "SELECT * FROM integrations WHERE user_id = ?"
       ).bind(userId).first();
 
-      if (!legacy) {
-        console.error(`[Stripe] No legacy integrations row for user ${userId}, acking`);
-        message.ack();
-        continue;
+      const legacy: any = legacyRow ?? {
+        user_id: userId,
+        shopify_domain: null,
+        b2b_reverse_charge: 0,
+        ix_send_email: 0,
+        auto_finalize: 0,
+      };
+      if (destinationConfig && typeof destinationConfig.auto_finalize === "boolean") {
+        legacy.auto_finalize = destinationConfig.auto_finalize ? 1 : 0;
       }
 
       await runAdapterPipeline({

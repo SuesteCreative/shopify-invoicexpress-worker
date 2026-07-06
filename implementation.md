@@ -280,12 +280,12 @@ the legacy `integrations` row.
   `POST /webhooks/stripe → 500 "Stripe webhook secret not configured"`. Signing secrets are
   per-connection (auto-installed via the merchant's restricted key), so the global gate is dead
   weight. Fix: drop the fail-fast; the per-connection scan verifies and 404s gracefully.
-- [ ] **BUG A** — `processStripeBatch` drops events (`message.ack()` + skip) when a user has no
+- [x] **BUG A** — `processStripeBatch` drops events (`message.ack()` + skip) when a user has no
   legacy `integrations` row. A Moloni-only client's paid order is silently never invoiced, no
   incident. Fix: synthesize a minimal config from `destination_config` (mirror the Lodgify poller).
 
 ### High
-- [ ] **BUG B** — `auto_finalize` read from legacy `integrations` row (`generic-pipeline.ts`),
+- [x] **BUG B** — `auto_finalize` read from legacy `integrations` row (`generic-pipeline.ts`),
   but the Moloni wizard saves it to `destination_config`. Wizard toggle ignored → invoices stay
   draft. Fixed by BUG A's config projection (project `destinationConfig.auto_finalize` over base).
 - [ ] **BUG C** — `exemption_reason` read from `ctx.config.ix_exemption_reason`

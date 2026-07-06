@@ -44,6 +44,7 @@ type MoloniBody = {
     vat_included?: boolean;
     auto_finalize?: boolean;
     exemption_reason?: string;
+    default_vat_rate?: number | string | null;
     status?: "draft" | "active" | "paused" | "error";
 };
 
@@ -62,6 +63,7 @@ function redactConfig(cfg: Record<string, unknown>) {
         vat_included: cfg.vat_included !== false,
         auto_finalize: cfg.auto_finalize === true,
         exemption_reason: cfg.exemption_reason ?? "M01",
+        default_vat_rate: cfg.default_vat_rate ?? null,
     };
 }
 
@@ -174,6 +176,13 @@ export async function POST(request: NextRequest) {
         exemption_reason: typeof body.exemption_reason === "string" && body.exemption_reason.trim()
             ? body.exemption_reason.trim()
             : (previousCfg.exemption_reason ?? "M01"),
+        // Fallback VAT rate applied when the payment source carries no tax (e.g.
+        // Stripe PaymentIntents). "" / null clears it → exempt. Undefined keeps prior.
+        default_vat_rate: body.default_vat_rate === "" || body.default_vat_rate === null
+            ? undefined
+            : (body.default_vat_rate !== undefined && Number.isFinite(Number(body.default_vat_rate))
+                ? Number(body.default_vat_rate)
+                : previousCfg.default_vat_rate),
     };
 
     const id = crypto.randomUUID();

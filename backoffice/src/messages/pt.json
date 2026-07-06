@@ -1488,6 +1488,8 @@
     "productMappingsTitle": "Mapeamento de produtos",
     "productMappingsDesc": "Ligar produtos Stripe a produtos Moloni existentes (opcional)",
     "manageMappings": "Gerir mappings",
+    "defaultVatRateLabel": "Taxa de IVA por defeito (%)",
+    "defaultVatRateHint": "Aplicada quando o Stripe não envia IVA (ex: PaymentIntents). Ex: 23. Deixa em branco para isento.",
     "exemptionTitle": "Razão de Isenção (IVA 0%)",
     "production": "Produção",
     "sandbox": "Sandbox",

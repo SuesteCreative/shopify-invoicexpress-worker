@@ -1486,6 +1486,8 @@
     "productMappingsTitle": "Product mappings",
     "productMappingsDesc": "Pair Stripe products with existing Moloni products (optional)",
     "manageMappings": "Manage mappings",
+    "defaultVatRateLabel": "Default VAT rate (%)",
+    "defaultVatRateHint": "Applied when Stripe sends no VAT (e.g. PaymentIntents). E.g. 23. Leave blank for exempt.",
     "exemptionTitle": "Exemption reason (0% VAT)",
     "production": "Production",
     "sandbox": "Sandbox",

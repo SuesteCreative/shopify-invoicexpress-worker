@@ -72,6 +72,7 @@ export default function StripeMoloniIntegration() {
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
     const [exemptionReason, setExemptionReason] = useState("M01");
+    const [defaultVatRate, setDefaultVatRate] = useState("");
 
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
 
@@ -114,6 +115,7 @@ export default function StripeMoloniIntegration() {
                 if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
                 if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
                 if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
+                if (cfg.default_vat_rate != null) setDefaultVatRate(String(cfg.default_vat_rate));
                 setConnectionStatus(mConn.status ?? "");
             }
 
@@ -273,6 +275,7 @@ export default function StripeMoloniIntegration() {
                 vat_included: vatIncluded,
                 auto_finalize: autoFinalize,
                 exemption_reason: exemptionReason,
+                default_vat_rate: defaultVatRate.trim() === "" ? null : Number(defaultVatRate),
                 status: "draft",
             };
             const res = await fetch("/api/integrations/moloni-destination", {
@@ -498,6 +501,11 @@ export default function StripeMoloniIntegration() {
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("documentSetIdLabel")}</label>
                         <input type="text" value={documentSetName} onChange={(e) => setDocumentSetName(e.target.value)} placeholder="FR2026" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
                         <p className="text-[10px] text-fg-40 ml-1">{t("documentSetNameHint")}</p>
+                    </div>
+                    <div className="md:col-span-2 space-y-3">
+                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("defaultVatRateLabel")}</label>
+                        <input type="number" step="0.01" min="0" max="100" value={defaultVatRate} onChange={(e) => setDefaultVatRate(e.target.value)} placeholder="23" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("defaultVatRateHint")}</p>
                     </div>
                     <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                         <div>

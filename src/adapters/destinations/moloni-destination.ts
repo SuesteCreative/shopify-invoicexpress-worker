@@ -432,7 +432,12 @@ function taxRateForItem(
     ? ctx.config.force_shipping_tax_rate
     : ctx.config.force_tax_rate;
   if (forceTax != null) return Number(forceTax);
-  return item.tax.unit_amount === 0 ? 0 : Number(item.tax.value);
+  if (item.tax.unit_amount !== 0) return Number(item.tax.value);
+  // Fallback: the connection's default VAT rate, applied when the payment carries
+  // no tax breakdown (e.g. Stripe PaymentIntents). Stripe's real tax above always
+  // wins; this is the last resort before treating the line as exempt.
+  const def = Number((ctx.destinationConfig as any)?.default_vat_rate);
+  return Number.isFinite(def) && def > 0 ? def : 0;
 }
 
 // companyId → (rate → tax_id), from /taxes/getAll/. Survives within an isolate.
@@ -674,9 +679,18 @@ function buildMoloniLineItems(
       return line;
     }
 
-    // Unmapped reference: derive the rate from the source (or force_tax_rate).
+    // Unmapped reference: derive the rate from the source (or force_tax_rate/default).
     const taxRate = taxRateForItem(item, ctx);
     if (taxRate > 0) {
+      // Moloni `price` is NET. When the rate did NOT come from the source (the
+      // payment carried no tax — e.g. a Stripe PaymentIntent, so item.unit_price
+      // is the GROSS amount paid) and prices are VAT-inclusive, back out the net
+      // so net + VAT reproduces exactly what the buyer paid (reconcile enforces it).
+      const sourceProvidedTax = item.tax.unit_amount !== 0;
+      const vatIncluded = (ctx.destinationConfig as any)?.vat_included !== false;
+      if (!sourceProvidedTax && vatIncluded) {
+        line.price = Math.round((item.unit_price / (1 + taxRate / 100)) * 10000) / 10000;
+      }
       line.taxes = [{ tax_id: pickTaxId(cfg, taxRate), value: taxRate, order: 1, cumulative: 0 }];
     } else {
       // Exemption code required by Moloni on zero-tax lines.

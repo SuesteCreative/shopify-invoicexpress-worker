@@ -288,7 +288,7 @@ the legacy `integrations` row.
 - [x] **BUG B** — `auto_finalize` read from legacy `integrations` row (`generic-pipeline.ts`),
   but the Moloni wizard saves it to `destination_config`. Wizard toggle ignored → invoices stay
   draft. Fixed by BUG A's config projection (project `destinationConfig.auto_finalize` over base).
-- [ ] **BUG C** — `exemption_reason` read from `ctx.config.ix_exemption_reason`
+- [x] **BUG C** — `exemption_reason` read from `ctx.config.ix_exemption_reason`
   (`moloni-destination.ts`, 4 sites), but the wizard saves `destination_config.exemption_reason`.
   Never read → wrong fiscal exemption code (always falls back to M01). Affects Stripe AND Lodgify→Moloni.
   Fix: read exemption from `destinationConfig` first, legacy as fallback.

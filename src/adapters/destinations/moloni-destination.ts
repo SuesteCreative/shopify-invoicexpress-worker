@@ -122,6 +122,19 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId, companyName, documentSetName, defaultTaxId, documentType };
 }
 
+/**
+ * Exemption code for zero-VAT lines. Non-IX destinations (the Stripe/Lodgify→Moloni
+ * setup wizards) store this in the connection's destination_config; the legacy
+ * `integrations.ix_exemption_reason` is the fallback for IX-origin configs.
+ */
+function resolveExemptionReason(ctx: AdapterCtx): string {
+  const fromDest = ctx.destinationConfig?.exemption_reason;
+  const raw = typeof fromDest === "string" && fromDest.trim()
+    ? fromDest
+    : (ctx.config?.ix_exemption_reason ?? "M01");
+  return String(raw).trim() || "M01";
+}
+
 // Resolves company/document-set names → IDs via Moloni API when IDs are absent.
 // Uses module-level cache so resolution only happens once per cold start.
 export async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
@@ -522,7 +535,7 @@ function buildMoloniLineItems(
       }];
     } else {
       // Exemption code required by Moloni on zero-tax lines.
-      const ex = (ctx.config.ix_exemption_reason ?? "M01").trim() || "M01";
+      const ex = resolveExemptionReason(ctx);
       line.exemption_reason = ex;
     }
     return line;
@@ -833,7 +846,7 @@ export class MoloniDestination implements DestinationAdapter {
       { context: `→Moloni order#${normalized.order.order_number}` },
     );
 
-    const exemptionReason = (ctx.config.ix_exemption_reason ?? "M01").trim() || "M01";
+    const exemptionReason = resolveExemptionReason(ctx);
     const needsExemption = products.some((p) => !p.taxes || p.taxes.length === 0);
 
     const payload: Record<string, unknown> = {
@@ -933,7 +946,7 @@ export class MoloniDestination implements DestinationAdapter {
       if (maxTax > 0) {
         line.taxes = [{ tax_id: pickTaxId(cfg, maxTax), value: maxTax, order: 1, cumulative: 0 }];
       } else {
-        line.exemption_reason = (ctx.config.ix_exemption_reason ?? "M01").trim() || "M01";
+        line.exemption_reason = resolveExemptionReason(ctx);
       }
       products.push(line);
     }
@@ -942,7 +955,7 @@ export class MoloniDestination implements DestinationAdapter {
       throw new Error("Moloni credit create failed: no line items derived from refund");
     }
 
-    const exemptionReason = (ctx.config.ix_exemption_reason ?? "M01").trim() || "M01";
+    const exemptionReason = resolveExemptionReason(ctx);
     const needsExemption = products.some((p) => !p.taxes || p.taxes.length === 0);
 
     const payload: Record<string, unknown> = {

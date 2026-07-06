@@ -945,15 +945,21 @@ export class MoloniDestination implements DestinationAdapter {
         : cfg.documentType === "invoice_receipt"
           ? "/invoiceReceipts/getAll/"
           : "/invoices/getAll/";
-      const found = await moloniCall<Array<{ document_id?: number }>>(
+      const found = await moloniCall<Array<{ document_id?: number; our_reference?: string }>>(
         cfg, token, getAllPath, {
           document_set_id: cfg.documentSetId,
           our_reference: reference,
         },
         "lookup",
       );
-      const first = Array.isArray(found) ? found[0] : null;
-      if (first?.document_id) return { id: String(first.document_id) };
+      // Defensive exact match: Moloni's getAll filters by our_reference, but we
+      // re-check client-side so a loose/ignored filter can never return a
+      // false-positive — which for the refund path would SKIP (drop) a
+      // legitimate credit note, a worse fault than a duplicate.
+      const match = (Array.isArray(found) ? found : []).find(
+        (d) => String(d.our_reference ?? "") === reference,
+      );
+      if (match?.document_id) return { id: String(match.document_id) };
       return null;
     } catch (e) {
       // Swallowing a 5xx here would let the pipeline issue a DUPLICATE invoice

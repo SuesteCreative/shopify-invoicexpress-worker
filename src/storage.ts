@@ -195,12 +195,20 @@ export class AppStorage {
     }
 
     // 2. Secondary Check: Fast KV. Try new namespaced key first, fall back to
-    //    legacy "shopify_order:" key for rows written before Phase 3.
-    const fresh = await this.kv.get(newKey);
-    if (fresh) return true;
-    if (newKey !== legacyKey) {
-      const legacy = await this.kv.get(legacyKey);
-      if (legacy) return true;
+    //    legacy "shopify_order:" key for rows written before Phase 3. KV is a
+    //    best-effort fast-path — the D1 check above is authoritative — so a KV
+    //    outage must NOT fail invoicing. A transient KV 500 here previously threw
+    //    and blocked the whole pipeline; swallow it and fall through to "not
+    //    processed" (D1 already confirmed no durable record).
+    try {
+      const fresh = await this.kv.get(newKey);
+      if (fresh) return true;
+      if (newKey !== legacyKey) {
+        const legacy = await this.kv.get(legacyKey);
+        if (legacy) return true;
+      }
+    } catch (e) {
+      console.warn("[Rioko] Idempotency KV read failed (non-fatal, D1 is authoritative):", e);
     }
     return false;
   }

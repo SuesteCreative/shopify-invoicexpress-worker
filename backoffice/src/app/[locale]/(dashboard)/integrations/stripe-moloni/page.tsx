@@ -76,7 +76,7 @@ export default function StripeMoloniIntegration() {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
 
     const moloniCredsSaved = !!clientId && hasSavedSecret && !!username && hasSavedPassword;
-    const settingsSaved = (!!companyId && !!documentSetId) || (!!companyName && !!documentSetName);
+    const settingsSaved = (!!companyId && !!documentSetId) || !!companyName;
     const allComplete = connectionStatus === "active";
 
     useEffect(() => {
@@ -119,7 +119,7 @@ export default function StripeMoloniIntegration() {
 
             // Smart resume
             const credsOk = !!cfg_clientId(mConn) && !!cfg_hasSecret(mConn) && !!cfg_username(mConn) && !!cfg_hasPassword(mConn);
-            const setOk = (!!cfg_companyId(mConn) && !!cfg_docSet(mConn)) || (!!mConn?.destination_config?.moloni_company_name && !!mConn?.destination_config?.moloni_document_set_name);
+            const setOk = (!!cfg_companyId(mConn) && !!cfg_docSet(mConn)) || !!mConn?.destination_config?.moloni_company_name;
             const status = mConn?.status ?? "";
             if (status === "active") setStep(5);
             else if (stripeSaved && webhookSaved && credsOk && setOk) setStep(4);
@@ -259,7 +259,7 @@ export default function StripeMoloniIntegration() {
     };
 
     const handleSaveSettings = async () => {
-        if (!companyName.trim() || !documentSetName.trim()) {
+        if (!companyName.trim()) {
             setGlobalError(t("errorSettingsRequired"));
             return;
         }

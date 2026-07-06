@@ -148,10 +148,11 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: `Missing ${field}` }, { status: 400 });
             }
         }
-        const hasIds = merged.moloni_company_id && merged.moloni_document_set_id;
-        const hasNames = merged.moloni_company_name && merged.moloni_document_set_name;
-        if (!hasIds && !hasNames) {
-            return NextResponse.json({ error: "Missing company and document set — provide either IDs or names" }, { status: 400 });
+        // Company is required (id or name). The document set is OPTIONAL: when
+        // omitted, the Worker uses the account's default série (active_by_default).
+        const hasCompany = merged.moloni_company_id || merged.moloni_company_name;
+        if (!hasCompany) {
+            return NextResponse.json({ error: "Missing company — provide the company name or ID" }, { status: 400 });
         }
     }
 

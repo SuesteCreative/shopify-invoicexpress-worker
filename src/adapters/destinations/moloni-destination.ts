@@ -167,7 +167,6 @@ export async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
   }
 
   if (!documentSetId) {
-    if (!raw.documentSetName) throw new Error("Moloni: missing moloni_document_set_id and moloni_document_set_name");
     // documentSets/getAll requires company_id as JSON body; form-encoded is ignored.
     const dsRes = await fetch(
       `${raw.baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
@@ -175,12 +174,20 @@ export async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
     );
     const dsData: unknown[] = await safeJson(dsRes) as unknown[];
     const dsList = Array.isArray(dsData) ? dsData : [];
-    const dsMatch = dsList.find((d: any) => String(d.name ?? d.document_set_name ?? "").toLowerCase() === raw.documentSetName!.toLowerCase());
-    if (!dsMatch) {
-      const names = dsList.map((d: any) => `"${d.name ?? d.document_set_name}"`).join(", ");
-      throw new Error(`Moloni: document set "${raw.documentSetName}" not found. Available: ${names || "(none)"}`);
+    if (raw.documentSetName) {
+      const dsMatch = dsList.find((d: any) => String(d.name ?? d.document_set_name ?? "").toLowerCase() === raw.documentSetName!.toLowerCase());
+      if (!dsMatch) {
+        const names = dsList.map((d: any) => `"${d.name ?? d.document_set_name}"`).join(", ");
+        throw new Error(`Moloni: document set "${raw.documentSetName}" not found. Available: ${names || "(none)"}`);
+      }
+      documentSetId = Number((dsMatch as any).document_set_id ?? (dsMatch as any).id);
+    } else {
+      // No série specified → use the account's default set (active_by_default),
+      // falling back to the first available set.
+      const def = dsList.find((d: any) => Number((d as any).active_by_default) === 1) ?? dsList[0];
+      if (!def) throw new Error("Moloni: no document set available for this company — create a série in Moloni or name one explicitly.");
+      documentSetId = Number((def as any).document_set_id ?? (def as any).id);
     }
-    documentSetId = Number((dsMatch as any).document_set_id ?? (dsMatch as any).id);
   }
 
   resolvedIdCache.set(cacheKey, { companyId, documentSetId });

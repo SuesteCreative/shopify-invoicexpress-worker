@@ -342,7 +342,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                 ) : row.match.type === "pending" ? (
                     <>
                         <p className="text-sm font-bold text-soon flex items-center gap-2">
-                            <Clock className="w-4 h-4" /> Fatura não por emitir
+                            <Clock className="w-4 h-4" /> Faturação em espera
                         </p>
                         <p className="text-xs text-fg-40">
                             {row.match.reason

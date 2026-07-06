@@ -944,7 +944,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
   // Source-specific "held, not yet invoiced" copy.
   const pendingReason = ctx.source === "lodgify"
     ? "Reserva por confirmar / pagamento parcial — fatura ainda não emitida"
-    : "Aguarda confirmação de pagamento — fatura não por emitir";
+    : "Aguarda confirmação de pagamento — fatura ainda não emitida";
 
   // 6. Build rows
   const rows: ReconciliationRow[] = orders.map((orderBlock): ReconciliationRow => {

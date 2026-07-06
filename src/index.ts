@@ -201,7 +201,7 @@ app.post("/webhooks/stripe", async (c) => {
 
   if (stripeAccount) {
     ownerRow = await c.env.DB.prepare(
-      `SELECT id, user_id, source_config_json FROM connections
+      `SELECT id, user_id, source_config_json, destination_kind FROM connections
        WHERE source_kind = 'stripe' AND status = 'active'
          AND json_extract(source_config_json, '$.stripe_account_id') = ?
        LIMIT 1`
@@ -212,7 +212,7 @@ app.post("/webhooks/stripe", async (c) => {
     }
   } else {
     const rows = await c.env.DB.prepare(
-      `SELECT id, user_id, source_config_json FROM connections
+      `SELECT id, user_id, source_config_json, destination_kind FROM connections
        WHERE source_kind = 'stripe' AND status = 'active'`
     ).all();
     for (const row of (rows.results ?? []) as any[]) {
@@ -246,7 +246,7 @@ app.post("/webhooks/stripe", async (c) => {
       kind: "webhook_invalid_signature",
       summary: `Stripe webhook rejeitado por assinatura inválida (account=${stripeAccount})`,
       detail: { stripeAccount },
-      connection_label: "stripe → invoicexpress",
+      connection_label: `stripe → ${ownerRow.destination_kind ?? "invoicexpress"}`,
       bucket: "daily",
     });
     return c.text("Invalid signature", 401);
@@ -294,7 +294,7 @@ app.post("/webhooks/stripe", async (c) => {
         summary: `Falha ao enfileirar evento Stripe ${eventId} (${canonical}). Evento NÃO foi processado.`,
         detail: { eventId, topic: canonical, error: String(err?.message ?? err) },
         affected_ids: [eventId],
-        connection_label: "stripe → invoicexpress",
+        connection_label: `stripe → ${ownerRow.destination_kind ?? "invoicexpress"}`,
       });
     } catch (incErr) {
       console.error("[Stripe] Failed to emit enqueue-failure incident:", incErr);

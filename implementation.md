@@ -294,6 +294,6 @@ the legacy `integrations` row.
   Fix: read exemption from `destinationConfig` first, legacy as fallback.
 
 ### Medium
-- [ ] **BUG D** — incident `connection_label` hardcoded `"stripe → invoicexpress"` in the Stripe
+- [x] **BUG D** — incident `connection_label` hardcoded `"stripe → invoicexpress"` in the Stripe
   webhook handler (`src/index.ts`), mislabels Moloni/Vendus clients. Fix: pull `destination_kind`
   from the connection row and interpolate.

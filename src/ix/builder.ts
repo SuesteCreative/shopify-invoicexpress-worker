@@ -3,6 +3,7 @@ import type { Normalized } from "../api/normalize-shopify";
 import type { PostV2CreditNotesData, PostV2InvoicesData } from "../api/ix/client";
 import { validatePTNIF } from "./nif";
 import { isCrossBorderEU } from "./eu-countries";
+import { buildExemptionMention } from "./exemption-mentions";
 import type { ViesChecker } from "./vies";
 import { type ReconcileLine } from "../adapters/reconcile";
 import { format } from "date-fns";
@@ -474,7 +475,15 @@ export class IxBuilder {
       : baseReason;
     const noteRaw = (normalized.order?.note ?? "").trim();
     const rcMention = shopifyReverseCharge ? "IVA - autoliquidação (Art. 196.º Directiva IVA UE)" : "";
-    const obsCombined = [noteRaw, rcMention].filter(Boolean).join(" | ").slice(0, 200);
+    // When the shop opts in, stamp the exemption code's bilingual legal mention.
+    // Only on the generic-exemption path (exempt, non reverse-charge); rcReason
+    // equals baseReason there, so the mention matches the code actually sent.
+    // Placed first so the 200-char cap never truncates the mandatory fiscal text.
+    const exemptionMention =
+      this.config.ix_stamp_exemption_note === 1 && requestTaxExemptionReason && !shopifyReverseCharge
+        ? buildExemptionMention(rcReason)
+        : "";
+    const obsCombined = [exemptionMention, noteRaw, rcMention].filter(Boolean).join(" | ").slice(0, 200);
 
     const invoice: IxInvoice = {
       client,

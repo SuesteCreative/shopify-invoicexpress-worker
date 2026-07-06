@@ -43,6 +43,12 @@ export interface IRequestConfig {
   // (e.g. Multibanco) are not invoiced at orders/created; orders/paid emits them
   // on payment. Orthogonal to auto_finalize. Set to 0 to restore emit-at-create.
   only_invoice_when_paid: number | null;
+  // 0 or 1. When 1, invoices/credit notes whose exemption code is applied (any
+  // 0%-tax line, non reverse-charge) also carry the bilingual legal mention for
+  // that code in `observations` (see src/ix/exemption-mentions.ts). Off by
+  // default; enabled per shop that needs the exemption spelled out for carriers
+  // /customs (e.g. UPS on US exports). Derived from ix_exemption_reason.
+  ix_stamp_exemption_note: number | null;
   // 0 or 1
   webhooks_active: number | null;
   // 0 or 1

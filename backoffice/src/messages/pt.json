@@ -1368,7 +1368,10 @@
     "securityFooter": "Todas as credenciais são encriptadas em repouso. O Client Secret e a password só são usados pelo worker Rioko para obter tokens de acesso de curta duração junto da API Moloni — nunca são partilhados com terceiros nem com o teu browser.",
     "productMappingsTitle": "Mapeamento de produtos",
     "productMappingsDesc": "Ligar produtos Shopify a produtos Moloni existentes (opcional)",
-    "manageMappings": "Gerir mappings"
+    "manageMappings": "Gerir mappings",
+    "tagRoutingTitle": "Routing por tags",
+    "tagRoutingDesc": "Encaminhar encomendas para séries ou tipo de documento específico com base em tags do Shopify",
+    "manageTagRouting": "Gerir routing"
   },
   "stripeMoloniSetup": {
     "title": "Stripe + Moloni",

@@ -27,6 +27,28 @@ async function loadStripeConnectionConfig(env: Env, userId: string): Promise<Str
   try { return JSON.parse(row.source_config_json) as StripeConnConfig; } catch { return null; }
 }
 
+interface StripeConnFull {
+  destinationKind: string;
+  sourceConfig: StripeConnConfig;
+  destinationConfig: Record<string, any> | undefined;
+}
+
+// Full connection view for recovery ops: destination + both config blobs, so a
+// re-emit routes to the SAME destination the live webhook path would (Moloni,
+// Vendus, …) instead of the IX-only default. Mirrors processStripeBatch.
+async function loadStripeConnectionFull(env: Env, userId: string): Promise<StripeConnFull | null> {
+  const row: any = await env.DB.prepare(
+    "SELECT destination_kind, source_config_json, destination_config_json FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1"
+  ).bind(userId).first();
+  if (!row) return null;
+  const parse = (s: string | null): Record<string, any> | undefined => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
+  return {
+    destinationKind: row.destination_kind ?? "invoicexpress",
+    sourceConfig: (parse(row.source_config_json) ?? {}) as StripeConnConfig,
+    destinationConfig: parse(row.destination_config_json),
+  };
+}
+
 // Walks Stripe `payment_intents.list` over a date range. Filters client-side to
 // status=succeeded — Stripe's PI list endpoint doesn't have a status filter, so
 // we paginate and skip.
@@ -224,11 +246,19 @@ export async function reemitStripeOrder(
     triggered_by: options.triggered_by ?? null, reason: options.reason ?? null,
   });
 
-  const connCfg = await loadStripeConnectionConfig(env, config.user_id);
-  if (!connCfg?.restricted_key) {
+  const conn = await loadStripeConnectionFull(env, config.user_id);
+  const connCfg = conn?.sourceConfig;
+  if (!conn || !connCfg?.restricted_key) {
     const err = "No Stripe restricted_key on connection";
     await appStorage.finishDevJob(jobId, "error", { error: err }, []);
     return { job_id: jobId, status: "error", error: err };
+  }
+  // Non-IX destinations store auto_finalize in destination_config (the wizard
+  // writes it there); the pipeline reads config.auto_finalize, so project it —
+  // this is what keeps a re-emit a DRAFT when the client hasn't opted into
+  // auto-finalize (mirrors processStripeBatch).
+  if (conn.destinationConfig && typeof conn.destinationConfig.auto_finalize === "boolean") {
+    (config as any).auto_finalize = conn.destinationConfig.auto_finalize ? 1 : 0;
   }
 
   const fetched = await fetchStripeObject(connCfg.restricted_key, stripeId, connCfg.stripe_account_id);
@@ -243,9 +273,11 @@ export async function reemitStripeOrder(
 
   try {
     await runAdapterPipeline({
-      env, config, source: "stripe", destination: "invoicexpress",
+      env, config, source: "stripe",
+      destination: (conn.destinationKind as any) ?? "invoicexpress",
       topic: "created", webhookId: null, body: event,
       sourceConfig: connCfg,
+      destinationConfig: conn.destinationConfig,
     });
   } catch (e: any) {
     const err = `Pipeline failed: ${e?.message ?? e}`;

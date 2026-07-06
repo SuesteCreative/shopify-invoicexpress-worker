@@ -1121,8 +1121,11 @@ app.post("/admin/stripe/reemit", async (c) => {
     notify_emails?: string[];
   }>();
   if (!body.user_id || !body.stripe_id) return c.json({ error: "Missing user_id or stripe_id" }, 400);
-  const config = await loadConfigForUser(c, body.user_id);
-  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  // Moloni/Vendus-only Stripe clients have no legacy integrations row — synth a
+  // minimal config (reemitStripeOrder resolves destination + auto_finalize from
+  // the connection itself). Mirrors processStripeBatch's fallback.
+  const config = (await loadConfigForUser(c, body.user_id))
+    ?? ({ user_id: body.user_id, shopify_domain: null, b2b_reverse_charge: 0, ix_send_email: 0, auto_finalize: 0 } as any);
   try {
     const result = await reemitStripeOrder(c.env, config, body.stripe_id, {
       force: body.force,

@@ -487,16 +487,141 @@ async function ensureTaxIdsByRate(cfg: MoloniCfg, token: string, rates: number[]
   }
 }
 
+// A resolved Moloni product for one order-line reference. `mapped` marks
+// references the merchant explicitly linked in /integrations/moloni-mappings —
+// for those we honour the Moloni product's OWN tax rule (taxes/exemption read
+// via /products/getOne/), so mixed-rate invoices are driven by the mapping.
+// Unmapped references keep the source-derived rate (taxRateForItem).
+type ResolvedProduct = {
+  product_id: number;
+  mapped: boolean;
+  taxes?: MoloniTaxLine[];
+  exemption_reason?: string;
+};
+
+// companyId:product_id → the mapped product's own tax rule, read once per isolate.
+const productTaxCache = new Map<string, { taxes?: MoloniTaxLine[]; exemption_reason?: string }>();
+
+// Read a mapped Moloni product's own taxes[] + exemption_reason via
+// /products/getOne/. Moloni lines cannot inherit a product's tax — each must
+// declare taxes[] or exemption_reason — so we copy the product's rule onto the
+// line. Cached per isolate; transient 5xx re-throws so the queue retries.
+async function fetchMoloniProductTax(
+  cfg: MoloniCfg,
+  token: string,
+  productId: number,
+): Promise<{ taxes?: MoloniTaxLine[]; exemption_reason?: string }> {
+  const key = `${cfg.companyId}:${productId}`;
+  const cached = productTaxCache.get(key);
+  if (cached) return cached;
+
+  const prod = await moloniCall<{
+    taxes?: Array<{ tax_id?: number; value?: number | string; order?: number; cumulative?: number }>;
+    exemption_reason?: string;
+  }>(cfg, token, "/products/getOne/", { product_id: productId }, "lookup");
+
+  const taxes: MoloniTaxLine[] = Array.isArray(prod?.taxes)
+    ? prod!.taxes
+        .filter((t) => Number(t?.tax_id) > 0)
+        .map((t, i) => ({
+          tax_id: Number(t.tax_id),
+          value: normRate(Number(t.value ?? 0)),
+          order: Number(t.order ?? i + 1),
+          cumulative: (Number(t.cumulative) === 1 ? 1 : 0) as 0 | 1,
+        }))
+    : [];
+  const result = taxes.length > 0
+    ? { taxes }
+    : { exemption_reason: (prod?.exemption_reason ?? "").toString().trim() || undefined };
+  productTaxCache.set(key, result);
+  return result;
+}
+
+// True when the merchant explicitly mapped this line's reference to a Moloni
+// product (so the product's own tax rule wins over the source-derived rate).
+function isReferenceMapped(ctx: AdapterCtx, item: Normalized["order"]["items"][number]): boolean {
+  const pid = ctx.productMappings?.get(deriveProductReference(item));
+  return pid != null && Number.isFinite(pid) && Number(pid) > 0;
+}
+
+// ── Multi-currency ────────────────────────────────────────────────────────────
+// companyId → iso4217 → currency_id, and the daily EUR conversion table. Both
+// survive within an isolate (Moloni refreshes the exchange table daily; the
+// short isolate lifetime keeps us well inside that window).
+const currencyIdCache = new Map<number, Map<string, number>>();
+const currencyExchangeCache = new Map<number, Array<{ from: number; to: number; value: number }>>();
+const MOLONI_BASE_CURRENCY = "EUR";
+
+type MoloniExchange = { currencyId: number; rate: number };
+
+// Resolve exchange_currency_id + exchange_rate for a non-EUR document so Moloni
+// issues in the paid currency (native support). Returns null for EUR/empty.
+// exchange_rate = EUR-per-1-foreign — the value of the currencyExchange record
+// with from=foreign,to=EUR (inverted from the reverse record when only that
+// exists). Validated against live data (currencies: EUR=1,USD=2; exchange
+// USD->EUR=0.87355 = EUR per USD). Still logged so the first real finalized doc
+// can confirm the EUR fiscal total matches.
+async function resolveMoloniExchange(
+  cfg: MoloniCfg,
+  token: string,
+  isoCurrency: string | null | undefined,
+): Promise<MoloniExchange | null> {
+  const iso = String(isoCurrency ?? "").trim().toUpperCase();
+  if (!iso || iso === MOLONI_BASE_CURRENCY) return null;
+
+  // 1. iso4217 → currency_id (foreign + EUR), cached per company.
+  let idByIso = currencyIdCache.get(cfg.companyId);
+  if (!idByIso) {
+    const list = await moloniCall<Array<{ currency_id?: number; iso4217?: string }>>(
+      cfg, token, "/currencies/getAll/", {}, "lookup",
+    );
+    idByIso = new Map<string, number>();
+    if (Array.isArray(list)) {
+      for (const c of list) {
+        const code = String(c?.iso4217 ?? "").trim().toUpperCase();
+        if (code && Number(c?.currency_id) > 0) idByIso.set(code, Number(c.currency_id));
+      }
+    }
+    currencyIdCache.set(cfg.companyId, idByIso);
+  }
+  const foreignId = idByIso.get(iso);
+  const eurId = idByIso.get(MOLONI_BASE_CURRENCY);
+  if (!foreignId || !eurId) {
+    throw new Error(`Moloni create failed: currency ${iso} has no Moloni currency_id (available: ${[...idByIso.keys()].join(", ") || "none"})`);
+  }
+
+  // 2. Daily exchange table (no params), cached per company/isolate.
+  let table = currencyExchangeCache.get(cfg.companyId);
+  if (!table) {
+    const rows = await moloniCall<Array<{ from?: number; to?: number; value?: number | string }>>(
+      cfg, token, "/currencyExchange/getAll/", {}, "lookup",
+    );
+    table = (Array.isArray(rows) ? rows : []).map((r) => ({ from: Number(r.from), to: Number(r.to), value: Number(r.value) }));
+    currencyExchangeCache.set(cfg.companyId, table);
+  }
+
+  // Prefer the foreign→EUR record (value = EUR per 1 foreign); fall back to the
+  // inverse EUR→foreign record and invert. Throw if neither exists.
+  const fwd = table.find((r) => r.from === foreignId && r.to === eurId && r.value > 0);
+  const rev = table.find((r) => r.from === eurId && r.to === foreignId && r.value > 0);
+  const rate = fwd ? fwd.value : rev ? Math.round((1 / rev.value) * 1e6) / 1e6 : 0;
+  if (!(rate > 0)) {
+    throw new Error(`Moloni create failed: no ${iso}/EUR exchange rate in Moloni's daily table`);
+  }
+  console.log(`[Moloni] currency ${iso}: exchange_currency_id=${foreignId} exchange_rate=${rate} (fwd=${fwd?.value ?? "-"} rev=${rev?.value ?? "-"})`);
+  return { currencyId: foreignId, rate };
+}
+
 function buildMoloniLineItems(
   normalized: Normalized,
   ctx: AdapterCtx,
-  productIds: Map<string, number>,
+  resolved: Map<string, ResolvedProduct>,
   cfg: MoloniCfg,
 ): MoloniProductLine[] {
   return normalized.order.items.map((item, idx): MoloniProductLine => {
     const reference = deriveProductReference(item);
-    const product_id = productIds.get(reference);
-    if (!product_id) {
+    const resolvedProduct = resolved.get(reference);
+    if (!resolvedProduct?.product_id) {
       throw new Error(`Moloni create failed: no Moloni product_id resolved for reference '${reference}'`);
     }
     const name = deriveProductName(item);
@@ -505,7 +630,6 @@ function buildMoloniLineItems(
     // Stripe price id, etc). Genuine Shopify shipping lines have no SKU
     // so they fall through to undefined.
     const summary = sku ? `SKU: ${sku}`.slice(0, 200) : undefined;
-    const taxRate = taxRateForItem(item, ctx);
 
     // Moloni `price` is the NET unit price (VAT-exclusive); Moloni adds tax
     // on top from `taxes[].value`. This matches the IX convention for
@@ -517,7 +641,7 @@ function buildMoloniLineItems(
     const discountPct = item.discount?.percent ?? 0;
 
     const line: MoloniProductLine = {
-      product_id,
+      product_id: resolvedProduct.product_id,
       name,
       qty: item.quantity,
       price: netUnit,
@@ -526,17 +650,25 @@ function buildMoloniLineItems(
     };
     if (summary) line.summary = summary;
 
+    if (resolvedProduct.mapped) {
+      // Mapped reference: the Moloni product's OWN tax rule drives the line.
+      // This is what makes mixed-rate invoices work — map a 6% product and a
+      // 23% product and the invoice carries both rates.
+      if (resolvedProduct.taxes && resolvedProduct.taxes.length > 0) {
+        line.taxes = resolvedProduct.taxes.map((t, i) => ({ ...t, order: i + 1 }));
+      } else {
+        line.exemption_reason = resolvedProduct.exemption_reason || resolveExemptionReason(ctx);
+      }
+      return line;
+    }
+
+    // Unmapped reference: derive the rate from the source (or force_tax_rate).
+    const taxRate = taxRateForItem(item, ctx);
     if (taxRate > 0) {
-      line.taxes = [{
-        tax_id: pickTaxId(cfg, taxRate),
-        value: taxRate,
-        order: 1,
-        cumulative: 0,
-      }];
+      line.taxes = [{ tax_id: pickTaxId(cfg, taxRate), value: taxRate, order: 1, cumulative: 0 }];
     } else {
       // Exemption code required by Moloni on zero-tax lines.
-      const ex = resolveExemptionReason(ctx);
-      line.exemption_reason = ex;
+      line.exemption_reason = resolveExemptionReason(ctx);
     }
     return line;
   });
@@ -730,21 +862,24 @@ async function ensureMoloniProduct(
   return Number(created.product_id);
 }
 
-// Resolve product_ids for every line in the normalized order. De-duplicates
+// Resolve every line's Moloni product for the normalized order. De-duplicates
 // by reference so repeated SKUs share a single lookup/insert per createDraft
-// call. Returns a Map<reference → product_id>.
+// call. Returns a Map<reference → ResolvedProduct>.
 //
 // Resolution order per reference:
 //   1. Explicit user mapping from `ctx.productMappings` (set via the
-//      /integrations/moloni-mappings backoffice page).
-//   2. find-or-create on Moloni's product catalog via ensureMoloniProduct.
-async function resolveProductIds(
+//      /integrations/moloni-mappings backoffice page). For these we ALSO read
+//      the Moloni product's own tax rule (via /products/getOne/) so the mapped
+//      product's VAT drives the line — this is how mixed-rate invoices work.
+//   2. find-or-create on Moloni's product catalog via ensureMoloniProduct,
+//      using the source-derived rate.
+async function resolveProducts(
   cfg: MoloniCfg,
   token: string,
   items: Normalized["order"]["items"],
   taxRateFor: (item: Normalized["order"]["items"][number]) => number,
   explicitMappings?: Map<string, number>,
-): Promise<Map<string, number>> {
+): Promise<Map<string, ResolvedProduct>> {
   const byReference = new Map<string, { name: string; taxRate: number }>();
   for (const item of items) {
     const ref = deriveProductReference(item);
@@ -752,15 +887,16 @@ async function resolveProductIds(
       byReference.set(ref, { name: deriveProductName(item), taxRate: taxRateFor(item) });
     }
   }
-  const resolved = new Map<string, number>();
+  const resolved = new Map<string, ResolvedProduct>();
   for (const [reference, meta] of byReference) {
     const mapped = explicitMappings?.get(reference);
     if (mapped && Number.isFinite(mapped) && mapped > 0) {
-      resolved.set(reference, mapped);
+      const tax = await fetchMoloniProductTax(cfg, token, Number(mapped));
+      resolved.set(reference, { product_id: Number(mapped), mapped: true, taxes: tax.taxes, exemption_reason: tax.exemption_reason });
       continue;
     }
     const pid = await ensureMoloniProduct(cfg, token, reference, meta.name, meta.taxRate);
-    resolved.set(reference, pid);
+    resolved.set(reference, { product_id: pid, mapped: false });
   }
   return resolved;
 }
@@ -818,15 +954,20 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    // Resolve rate→tax_id before building products (ensureMoloniProduct also
-    // needs it) so a 6% line invoices at the company's actual 6% rule.
-    await ensureTaxIdsByRate(cfg, token, normalized.order.items.map((it) => taxRateForItem(it, ctx)));
+    // Resolve rate→tax_id only for UNMAPPED lines (they derive their rate from
+    // the source, and ensureMoloniProduct needs the rule to create products).
+    // Mapped lines carry the Moloni product's own taxes[] instead.
+    await ensureTaxIdsByRate(
+      cfg, token,
+      normalized.order.items.filter((it) => !isReferenceMapped(ctx, it)).map((it) => taxRateForItem(it, ctx)),
+    );
 
-    const [customerId, productIds] = await Promise.all([
+    const [customerId, resolved, exchange] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
-      resolveProductIds(cfg, token, normalized.order.items, (it) => taxRateForItem(it, ctx), ctx.productMappings),
+      resolveProducts(cfg, token, normalized.order.items, (it) => taxRateForItem(it, ctx), ctx.productMappings),
+      resolveMoloniExchange(cfg, token, normalized.order.currency),
     ]);
-    const products = buildMoloniLineItems(normalized, ctx, productIds, cfg);
+    const products = buildMoloniLineItems(normalized, ctx, resolved, cfg);
     if (products.length === 0) {
       throw new Error("Moloni create failed: no line items derived from normalized order");
     }
@@ -863,6 +1004,8 @@ export class MoloniDestination implements DestinationAdapter {
       status: 0, // 0 = draft, 1 = closed/finalized
       notes: (normalized.order.note ?? "").toString().slice(0, 200),
       ...(needsExemption ? { exemption_reason: exemptionReason } : {}),
+      // Non-EUR: issue in the paid currency; Moloni derives the EUR fiscal value.
+      ...(exchange ? { exchange_currency_id: exchange.currencyId, exchange_rate: exchange.rate } : {}),
     };
 
     const insertPath = cfg.documentType === "invoice_receipt"
@@ -908,29 +1051,40 @@ export class MoloniDestination implements DestinationAdapter {
       order: { ...normalized.order, items: refundItems },
     };
 
-    // Resolve rate→tax_id for the refunded lines (and the cash-delta line, which
-    // reuses the max line rate) before building products.
-    await ensureTaxIdsByRate(cfg, token, refundItems.map((it) => taxRateForItem(it, ctx)));
+    // Resolve rate→tax_id only for UNMAPPED refunded lines. Mapped lines carry
+    // the Moloni product's own taxes[] (the cash-delta line reuses a line rate).
+    await ensureTaxIdsByRate(
+      cfg, token,
+      refundItems.filter((it) => !isReferenceMapped(ctx, it)).map((it) => taxRateForItem(it, ctx)),
+    );
 
-    const [customerId, productIds] = await Promise.all([
+    const [customerId, resolved, exchange] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
-      resolveProductIds(cfg, token, refundItems, (it) => taxRateForItem(it, ctx), ctx.productMappings),
+      resolveProducts(cfg, token, refundItems, (it) => taxRateForItem(it, ctx), ctx.productMappings),
+      resolveMoloniExchange(cfg, token, normalized.order.currency),
     ]);
 
-    const products = buildMoloniLineItems(subset, ctx, productIds, cfg);
+    const products = buildMoloniLineItems(subset, ctx, resolved, cfg);
 
     // Free-form refund delta when Shopify reports an amount beyond the line
     // items (e.g. partial cash refund). Mirrors IX adapter's behaviour.
     if (refund.amountToRefund > 0) {
-      const maxTax = products.reduce<number>((acc, p) => {
+      // Reuse the highest line rate for the cash delta. Track the line itself so
+      // we can reuse its resolved tax_id — a mapped product's tax_id may not be
+      // in the rate→id table.
+      const maxTaxLine = products.reduce<MoloniProductLine | null>((acc, p) => {
         const t = p.taxes?.[0]?.value ?? 0;
-        return t > acc ? t : acc;
-      }, 0);
+        const accV = acc?.taxes?.[0]?.value ?? 0;
+        return t > accV ? p : acc;
+      }, null);
+      const maxTax = maxTaxLine?.taxes?.[0]?.value ?? 0;
       const factor = maxTax > 0 ? 1 + maxTax / 100 : 1;
       const netUnit = Math.round((refund.amountToRefund / factor) * 10000) / 10000;
       const order = products.length + 1;
       // Cash-only refund delta has no source product. Ensure a synthetic
-      // RIOKO-PLACEHOLDER product exists and reference it here.
+      // RIOKO-PLACEHOLDER product exists and reference it here. Resolve the rate
+      // first so product creation doesn't throw when it came from a mapping.
+      if (maxTax > 0) await ensureTaxIdsByRate(cfg, token, [maxTax]);
       const fallbackPid = await ensureMoloniProduct(
         cfg, token, FALLBACK_PLACEHOLDER_REFERENCE, "Rioko Refund Delta", maxTax,
       );
@@ -944,7 +1098,8 @@ export class MoloniDestination implements DestinationAdapter {
         order,
       };
       if (maxTax > 0) {
-        line.taxes = [{ tax_id: pickTaxId(cfg, maxTax), value: maxTax, order: 1, cumulative: 0 }];
+        const tid = maxTaxLine?.taxes?.[0]?.tax_id ?? pickTaxId(cfg, maxTax);
+        line.taxes = [{ tax_id: tid, value: maxTax, order: 1, cumulative: 0 }];
       } else {
         line.exemption_reason = resolveExemptionReason(ctx);
       }
@@ -974,6 +1129,8 @@ export class MoloniDestination implements DestinationAdapter {
         value: refund.amountToRefund > 0 ? refund.amountToRefund : products.reduce((acc, p) => acc + p.qty * p.price, 0),
       }],
       ...(needsExemption ? { exemption_reason: exemptionReason } : {}),
+      // Mirror the source document's currency on the credit note.
+      ...(exchange ? { exchange_currency_id: exchange.currencyId, exchange_rate: exchange.rate } : {}),
     };
 
     const inserted = await moloniCall<{ document_id?: number }>(

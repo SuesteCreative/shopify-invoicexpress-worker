@@ -289,11 +289,12 @@ async function runPipelineCore(
         }
       }
 
-      // Currency guard: PT accounting must be in EUR. Reject non-EUR payments
-      // explicitly rather than silently issuing a misvalued invoice. (Future
-      // work: implement FX conversion via balance_transaction.exchange_rate.)
+      // Currency guard. Moloni issues foreign-currency documents natively
+      // (exchange_currency_id + exchange_rate — handled in the adapter), so it
+      // accepts non-EUR. IX/Vendus have no FX path yet, so we still reject
+      // non-EUR there rather than silently issuing a misvalued invoice.
       const currency = String(normalized.order?.currency ?? "EUR").toUpperCase();
-      if (currency && currency !== "EUR") {
+      if (currency && currency !== "EUR" && destination !== "moloni") {
         await reportIncident(env, {
           user_id: config.user_id,
           severity: "critical",

@@ -946,6 +946,44 @@ function dateOnlyYmd(input: string): string {
   return m ? m[1] : todayYmd();
 }
 
+function formatPtYmd(ymd: string): string {
+  const [y, m, d] = ymd.split("-");
+  return d && m && y ? `${d}/${m}/${y}` : ymd;
+}
+
+// Moloni forbids a new document dated BEFORE the last one already issued in its
+// series/type — even a draft — returning a validation error like
+// "12 date >= 2026-07-05". This bites any late issuance: a re-emit of an old
+// payment, a long-delayed webhook, a backfill. When it happens, re-date to the
+// series minimum Moloni reports (the closest allowed date) and stamp the real
+// transaction date in the notes — the correct fiscal practice for issuing today
+// a document for a past payment. Returns the (possibly re-dated) insert result.
+async function insertMoloniDoc(
+  cfg: MoloniCfg,
+  token: string,
+  insertPath: string,
+  payload: Record<string, unknown>,
+): Promise<{ document_id?: number }> {
+  try {
+    return await moloniCall<{ document_id?: number }>(cfg, token, insertPath, payload, "create");
+  } catch (e) {
+    const msg = String((e as { message?: string })?.message ?? e);
+    const m = msg.match(/date\s*>=\s*(\d{4}-\d{2}-\d{2})/);
+    if (!m) throw e;
+    const minYmd = m[1];
+    const originalYmd = typeof payload.date === "string" ? payload.date : todayYmd();
+    const paymentNote = `Data do pagamento: ${formatPtYmd(originalYmd)}`;
+    const existingNotes = typeof payload.notes === "string" ? payload.notes.trim() : "";
+    const retry: Record<string, unknown> = {
+      ...payload,
+      date: minYmd,
+      expiration_date: minYmd,
+      notes: (existingNotes ? `${existingNotes} | ${paymentNote}` : paymentNote).slice(0, 200),
+    };
+    return await moloniCall<{ document_id?: number }>(cfg, token, insertPath, retry, "create");
+  }
+}
+
 export class MoloniDestination implements DestinationAdapter {
   readonly kind = "moloni" as const;
 
@@ -1052,9 +1090,7 @@ export class MoloniDestination implements DestinationAdapter {
     const insertPath = cfg.documentType === "invoice_receipt"
       ? "/invoiceReceipts/insert/"
       : "/invoices/insert/";
-    const res = await moloniCall<{ document_id?: number }>(
-      cfg, token, insertPath, payload, "create",
-    );
+    const res = await insertMoloniDoc(cfg, token, insertPath, payload);
     const id = res?.document_id;
     if (!id) {
       throw new Error(`Moloni create failed: insert returned no document_id — ${safeErrorJson(res)}`);

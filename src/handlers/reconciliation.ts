@@ -3,6 +3,7 @@ import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
 import type { AdapterCtx } from "../adapters/types";
 import { getMoloniCfg, getAccessToken, moloniCall } from "../adapters/destinations/moloni-destination";
+import { stripeFetch } from "../services/stripe";
 import { scoreHeuristicMatch } from "./reconciliation-score";
 
 // The left side of a reconciliation row, normalized across sources (Shopify
@@ -392,12 +393,140 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
   return rows;
 }
 
+// Live Stripe fetch — the left side for Stripe-source connections. Walks
+// `payment_intents.list` over [from,to] via the connection's restricted_key
+// (Stripe has no server-side status filter on this endpoint, so we paginate and
+// keep only status=succeeded — a captured payment). `expand[]=data.latest_charge`
+// gives us the payer name/email and the refund state in one call, no per-PI
+// round-trips. Connect direct-charge accounts require the Stripe-Account header,
+// which stripeFetch adds from stripe_account_id.
+async function fetchStripeReconOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
+  const restrictedKey = ctx.sourceConfig?.restricted_key as string | undefined;
+  if (!restrictedKey) return [];
+  const stripeAccount = (ctx.sourceConfig?.stripe_account_id as string | undefined) ?? null;
+  const fromUnix = Math.floor(new Date(from).getTime() / 1000);
+  const toUnix = Math.floor(new Date(to).getTime() / 1000);
+
+  const out: ReconOrder[] = [];
+  let startingAfter: string | null = null;
+  for (let page = 0; page < 20; page++) {
+    const params = new URLSearchParams();
+    params.set("created[gte]", String(fromUnix));
+    params.set("created[lte]", String(toUnix));
+    params.set("limit", "100");
+    params.append("expand[]", "data.latest_charge");
+    if (startingAfter) params.set("starting_after", startingAfter);
+
+    const res = await stripeFetch("payment_intents", restrictedKey, { stripeAccount, query: params });
+    if (!res.ok) {
+      console.error(`[Recon] Stripe paymentIntents.list ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      break;
+    }
+    const body: any = await res.json();
+    const list: any[] = Array.isArray(body?.data) ? body.data : [];
+    for (const pi of list) {
+      // Only captured payments are billable events. Skip incomplete
+      // (requires_payment_method / requires_action) and canceled intents.
+      if (pi.status !== "succeeded") continue;
+      const ch = pi.latest_charge && typeof pi.latest_charge === "object" ? pi.latest_charge : null;
+      const amountRefunded = Number(ch?.amount_refunded ?? 0);
+      const refundState: ReconOrder["refund_state"] =
+        ch?.refunded ? "full"
+        : amountRefunded > 0 ? "partial"
+        : null;
+      const name = ch?.billing_details?.name ?? pi.shipping?.name ?? null;
+      const email = ch?.billing_details?.email ?? pi.receipt_email ?? null;
+      const dashPath = stripeAccount ? `${stripeAccount}/payments` : "payments";
+      out.push({
+        id: String(pi.id),
+        order_number: numericFromId(pi.id),
+        name: String(pi.id),
+        total: Number(pi.amount ?? 0) / 100,
+        paid_at: new Date(Number(pi.created ?? 0) * 1000).toISOString(),
+        customer_name: name ? String(name) : null,
+        email: email ? String(email) : null,
+        permalink: `https://dashboard.stripe.com/${dashPath}/${pi.id}`,
+        financial_status: "paid",
+        refund_state: refundState,
+      });
+    }
+    if (!body.has_more || list.length === 0) break;
+    startingAfter = list[list.length - 1]?.id ?? null;
+    if (!startingAfter) break;
+  }
+  return out;
+}
+
+// Stripe→Moloni backfill link. Invoices raised by a PREVIOUS integrator are NOT
+// in our `processed_orders`, so they'd show as "Sem fatura" even though the
+// fatura exists in Moloni. The previous integrator stamps the PaymentIntent id
+// on the Moloni doc as `your_reference = "#stripe_" + <pi_id>` (verified live on
+// MY VAN TRAVEL: doc your_reference `#stripe_pi_3Tpnfn…` ↔ PI `pi_3Tpnfn…`). We
+// page Moloni's docs once, build a { pi_id → document_id } index, and cache it
+// in KV so subsequent page loads don't re-page Moloni. Rioko's OWN invoices
+// already live in processed_orders, so this only fills the historical gap.
+async function buildStripeMoloniRefIndex(ctx: ReconContext, fromYmd: string): Promise<Record<string, string>> {
+  const ctxLike = { apiKey: "", config: ctx.config, destinationConfig: ctx.destinationConfig } as AdapterCtx;
+  const cfg = await getMoloniCfg(ctxLike);
+  const token = await getAccessToken(cfg);
+  const index: Record<string, string> = {};
+  // Old docs land under whichever series/type the previous integrator used
+  // (seen filed under invoiceReceipts even when the set is named "FT…"), so we
+  // sweep both endpoints. Most-recent-first; stop once a full page is entirely
+  // older than the window, or the offset cap is hit.
+  for (const path of ["/invoiceReceipts/getAll/", "/invoices/getAll/"]) {
+    for (let offset = 0; offset < 2000; offset += 50) {
+      let docs: any[];
+      try {
+        docs = await moloniCall<any[]>(cfg, token, path, { qty: 50, offset, order_by: "date_desc" }, "lookup");
+      } catch {
+        break; // endpoint unavailable / transient — take what we have
+      }
+      const arr = Array.isArray(docs) ? docs : [];
+      if (arr.length === 0) break;
+      let allOlder = true;
+      for (const d of arr) {
+        const ref = String(d?.your_reference ?? "");
+        // "#stripe_" + <pi id> — tolerate the "#" being absent and match on the
+        // embedded pi_ token so a format tweak on the source side still links.
+        const m = ref.match(/(pi_[A-Za-z0-9]+)/);
+        if (m && d?.document_id != null) index[m[1]] = String(d.document_id);
+        const docYmd = dateOnly(d?.date ?? "");
+        if (!docYmd || docYmd >= fromYmd) allOlder = false;
+      }
+      if (arr.length < 50 || allOlder) break;
+      await sleep(200); // be gentle on Moloni's rate limit
+    }
+  }
+  return index;
+}
+
+async function getStripeMoloniRefIndex(env: Env, ctx: ReconContext, fromYmd: string): Promise<Map<string, string>> {
+  const cacheKey = `stripemol_refidx:${ctx.userId ?? "x"}:${fromYmd}`;
+  try {
+    const cached = await env.INVOICE_KV.get(cacheKey);
+    if (cached) return new Map(Object.entries(JSON.parse(cached) as Record<string, string>));
+  } catch { /* treat as miss */ }
+  let index: Record<string, string> = {};
+  try {
+    index = await buildStripeMoloniRefIndex(ctx, fromYmd);
+  } catch (e) {
+    console.error("[Recon] Stripe→Moloni ref index build failed:", e);
+    return new Map();
+  }
+  try {
+    await env.INVOICE_KV.put(cacheKey, JSON.stringify(index), { expirationTtl: 1800 });
+  } catch { /* best-effort */ }
+  return new Map(Object.entries(index));
+}
+
 async function getSourceOrders(env: Env, ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
   switch (ctx.source) {
     case "lodgify": return fetchLodgifyReconOrders(env, ctx, from, to);
     case "shopify": return fetchShopifyReconOrders(ctx, from, to);
+    case "stripe": return fetchStripeReconOrders(ctx, from, to);
     default:
-      // Stripe/EuPago reconciliation not implemented yet — no left-side list.
+      // EuPago reconciliation not implemented yet — no left-side list.
       return [];
   }
 }
@@ -882,6 +1011,20 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
   const partialsByOrder = ctx.source === "lodgify" && ctx.userId
     ? await appStorage.getPartialInvoicesByBookingIds(ctx.userId, orderIds)
     : new Map<string, string[]>();
+
+  // 2b. Stripe→Moloni: link invoices raised by a PREVIOUS integrator (absent
+  //     from processed_orders) via the PaymentIntent id stamped on the Moloni
+  //     doc's your_reference. Only fills gaps — never overrides our own mapping.
+  if (ctx.source === "stripe" && ctx.destination === "moloni" && orderIds.length > 0) {
+    const unmapped = orderIds.filter((oid) => !orderToInvoice.has(oid));
+    if (unmapped.length > 0) {
+      const refIndex = await getStripeMoloniRefIndex(env, ctx, dateOnly(from));
+      for (const oid of unmapped) {
+        const docId = refIndex.get(oid);
+        if (docId) orderToInvoice.set(oid, docId);
+      }
+    }
+  }
 
   // 3. Overrides (manual matches + decisions), scoped to this integration.
   const { matches: manualMatches, decisions } = await appStorage.getReconciliationOverrides(orderIds);

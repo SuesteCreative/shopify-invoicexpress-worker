@@ -27,6 +27,8 @@ export default function ShopifyMoloniIntegration() {
     const [password, setPassword] = useState("");
     const [companyId, setCompanyId] = useState("");
     const [documentSetId, setDocumentSetId] = useState("");
+    const [companyName, setCompanyName] = useState("");
+    const [documentSetName, setDocumentSetName] = useState("");
     const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
     const [status, setStatus] = useState<ConnectionStatus>("");
 
@@ -60,6 +62,8 @@ export default function ShopifyMoloniIntegration() {
                         setHasSavedPassword(!!cfg.has_password);
                         setCompanyId(String(cfg.moloni_company_id ?? ""));
                         setDocumentSetId(String(cfg.moloni_document_set_id ?? ""));
+                        setCompanyName(String(cfg.moloni_company_name ?? ""));
+                        setDocumentSetName(String(cfg.moloni_document_set_name ?? ""));
                         setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
                         setStatus(data.connection.status);
                     }
@@ -80,8 +84,8 @@ export default function ShopifyMoloniIntegration() {
                 source_kind: "shopify",
                 moloni_client_id: clientId,
                 moloni_username: username,
-                moloni_company_id: companyId,
-                moloni_document_set_id: documentSetId,
+                moloni_company_name: companyName.trim(),
+                moloni_document_set_name: documentSetName.trim(),
                 moloni_environment: environment,
                 status: targetStatus,
             };
@@ -100,6 +104,12 @@ export default function ShopifyMoloniIntegration() {
             if (!res.ok) {
                 const json = await res.json().catch(() => ({})) as { error?: string };
                 throw new Error(json.error ?? `HTTP ${res.status}`);
+            }
+            // Validate the Moloni credentials actually authenticate (background grant).
+            const valRes = await fetch("/api/integrations/moloni-destination/companies?source_kind=shopify");
+            if (!valRes.ok) {
+                const vjson = await valRes.json().catch(() => ({})) as { error?: string };
+                throw new Error(vjson.error ?? t("errorMoloniAuth"));
             }
             setSuccess(true);
             setStatus(targetStatus);
@@ -176,7 +186,7 @@ export default function ShopifyMoloniIntegration() {
                         type="text"
                         value={clientId}
                         onChange={(e) => setClientId(e.target.value)}
-                        placeholder="rioko-app"
+                        placeholder={t("clientIdPlaceholder")}
                         className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
                     />
                 </Field>
@@ -212,21 +222,21 @@ export default function ShopifyMoloniIntegration() {
                 </Field>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label={t("companyIdLabel")} hint={t("companyIdHint")}>
+                    <Field label={t("companyIdLabel")} hint={t("companyNameHint")}>
                         <input
-                            type="number"
-                            value={companyId}
-                            onChange={(e) => setCompanyId(e.target.value)}
-                            placeholder="12345"
-                            className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
+                            type="text"
+                            value={companyName}
+                            onChange={(e) => setCompanyName(e.target.value)}
+                            placeholder="Kapta, Lda"
+                            className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors"
                         />
                     </Field>
-                    <Field label={t("documentSetIdLabel")} hint={t("documentSetIdHint")}>
+                    <Field label={t("documentSetIdLabel")} hint={t("documentSetNameHint")}>
                         <input
-                            type="number"
-                            value={documentSetId}
-                            onChange={(e) => setDocumentSetId(e.target.value)}
-                            placeholder="67890"
+                            type="text"
+                            value={documentSetName}
+                            onChange={(e) => setDocumentSetName(e.target.value)}
+                            placeholder="FR2026"
                             className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
                         />
                     </Field>

@@ -63,9 +63,12 @@ export default function StripeMoloniIntegration() {
     const [hasSavedPassword, setHasSavedPassword] = useState(false);
     const [moloniError, setMoloniError] = useState("");
 
-    // Settings
+    // Settings — company + série are entered by NAME; the Worker resolves the
+    // Moloni IDs from the API lazily at invoice time (same as lodgify-moloni).
     const [companyId, setCompanyId] = useState("");
     const [documentSetId, setDocumentSetId] = useState("");
+    const [companyName, setCompanyName] = useState("");
+    const [documentSetName, setDocumentSetName] = useState("");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
     const [exemptionReason, setExemptionReason] = useState("M01");
@@ -73,7 +76,7 @@ export default function StripeMoloniIntegration() {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
 
     const moloniCredsSaved = !!clientId && hasSavedSecret && !!username && hasSavedPassword;
-    const settingsSaved = !!companyId && !!documentSetId;
+    const settingsSaved = (!!companyId && !!documentSetId) || (!!companyName && !!documentSetName);
     const allComplete = connectionStatus === "active";
 
     useEffect(() => {
@@ -105,6 +108,8 @@ export default function StripeMoloniIntegration() {
                 setHasSavedPassword(!!cfg.has_password);
                 setCompanyId(cfg.moloni_company_id != null ? String(cfg.moloni_company_id) : "");
                 setDocumentSetId(cfg.moloni_document_set_id != null ? String(cfg.moloni_document_set_id) : "");
+                setCompanyName(cfg.moloni_company_name ? String(cfg.moloni_company_name) : "");
+                setDocumentSetName(cfg.moloni_document_set_name ? String(cfg.moloni_document_set_name) : "");
                 setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
                 if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
                 if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
@@ -114,7 +119,7 @@ export default function StripeMoloniIntegration() {
 
             // Smart resume
             const credsOk = !!cfg_clientId(mConn) && !!cfg_hasSecret(mConn) && !!cfg_username(mConn) && !!cfg_hasPassword(mConn);
-            const setOk = !!cfg_companyId(mConn) && !!cfg_docSet(mConn);
+            const setOk = (!!cfg_companyId(mConn) && !!cfg_docSet(mConn)) || (!!mConn?.destination_config?.moloni_company_name && !!mConn?.destination_config?.moloni_document_set_name);
             const status = mConn?.status ?? "";
             if (status === "active") setStep(5);
             else if (stripeSaved && webhookSaved && credsOk && setOk) setStep(4);
@@ -236,6 +241,15 @@ export default function StripeMoloniIntegration() {
             if (password) setHasSavedPassword(true);
             setClientSecret("");
             setPassword("");
+            // Validate the credentials actually authenticate against Moloni (a
+            // background grant via the companies proxy) before advancing — instant
+            // ✓/✗ instead of discovering a bad login at invoice time.
+            const valRes = await fetch("/api/integrations/moloni-destination/companies?source_kind=stripe");
+            if (!valRes.ok) {
+                const vjson: any = await valRes.json().catch(() => ({}));
+                setMoloniError(vjson.error ?? t("errorMoloniAuth"));
+                return;
+            }
             setStep(3);
         } catch (e: any) {
             setMoloniError(e?.message ?? "Unknown error");
@@ -245,7 +259,7 @@ export default function StripeMoloniIntegration() {
     };
 
     const handleSaveSettings = async () => {
-        if (!companyId || !documentSetId) {
+        if (!companyName.trim() || !documentSetName.trim()) {
             setGlobalError(t("errorSettingsRequired"));
             return;
         }
@@ -254,8 +268,8 @@ export default function StripeMoloniIntegration() {
         try {
             const body: Record<string, unknown> = {
                 source_kind: "stripe",
-                moloni_company_id: companyId,
-                moloni_document_set_id: documentSetId,
+                moloni_company_name: companyName.trim(),
+                moloni_document_set_name: documentSetName.trim(),
                 vat_included: vatIncluded,
                 auto_finalize: autoFinalize,
                 exemption_reason: exemptionReason,
@@ -431,7 +445,8 @@ export default function StripeMoloniIntegration() {
                 <div className="grid md:grid-cols-2 gap-8">
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("clientIdLabel")}</label>
-                        <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="rioko-app" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder={t("clientIdPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("clientIdHint")}</p>
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("clientSecretLabel")}</label>
@@ -476,13 +491,13 @@ export default function StripeMoloniIntegration() {
                 <div className="grid md:grid-cols-2 gap-8">
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("companyIdLabel")}</label>
-                        <input type="number" value={companyId} onChange={(e) => setCompanyId(e.target.value)} placeholder="12345" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
-                        <p className="text-[10px] text-fg-40 ml-1">{t("companyIdHint")}</p>
+                        <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Kapta, Lda" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("companyNameHint")}</p>
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("documentSetIdLabel")}</label>
-                        <input type="number" value={documentSetId} onChange={(e) => setDocumentSetId(e.target.value)} placeholder="67890" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
-                        <p className="text-[10px] text-fg-40 ml-1">{t("documentSetIdHint")}</p>
+                        <input type="text" value={documentSetName} onChange={(e) => setDocumentSetName(e.target.value)} placeholder="FR2026" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <p className="text-[10px] text-fg-40 ml-1">{t("documentSetNameHint")}</p>
                     </div>
                     <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                         <div>

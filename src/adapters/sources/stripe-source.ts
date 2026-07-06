@@ -185,6 +185,15 @@ export function stripeToNormalized(event: any): Normalized | null {
     if (session.payment_status && session.payment_status !== "paid") return null;
 
     const amount = (session.amount_total ?? 0) / 100;
+    // VAT from Stripe Tax (Checkout). When Stripe collected tax, invoice the NET
+    // unit price + the rate derived from Stripe's own amount_tax, so Moloni
+    // reproduces the exact gross the buyer paid (the reconcile guard enforces it).
+    // When Stripe collected no tax, leave the line untaxed so the downstream
+    // default VAT rate / exemption applies.
+    const sessionTax = (session.total_details?.amount_tax ?? 0) / 100;
+    const sessionNet = session.amount_subtotal != null ? session.amount_subtotal / 100 : amount - sessionTax;
+    const sessionRate = sessionTax > 0 && sessionNet > 0 ? Math.round((sessionTax / sessionNet) * 10000) / 100 : 0;
+    const sessionUnit = sessionRate > 0 ? sessionNet : amount;
     const details = session.customer_details ?? {};
     const billingName = details.name ?? session.shipping_details?.name ?? "";
     const billingEmail = details.email ?? session.customer_email ?? "";
@@ -245,10 +254,10 @@ export function stripeToNormalized(event: any): Normalized | null {
           product_id: 0,
           variant_id: 0,
           quantity: 1,
-          unit_price: amount,
-          unit_price_calculated: amount,
-          subtotal_calculated: amount,
-          tax: { name: "VAT", value: 0, unit_amount: 0 },
+          unit_price: sessionUnit,
+          unit_price_calculated: sessionUnit,
+          subtotal_calculated: sessionUnit,
+          tax: { name: "VAT", value: sessionRate, unit_amount: sessionRate > 0 ? sessionTax : 0 },
           discount: { name: "", percent: 0 },
           title: description,
           variant_title: null,
@@ -380,23 +389,31 @@ export function stripeToNormalized(event: any): Normalized | null {
         },
         billing_address: addrFromStripe(inv.customer_address, inv.customer_name, inv.customer_phone),
         shipping_address: addrFromStripe(inv.customer_shipping?.address, inv.customer_shipping?.name, inv.customer_shipping?.phone),
-        items: lines.map((l, idx) => ({
-          id: idx + 1,
-          product_id: 0,
-          variant_id: 0,
-          quantity: l.quantity ?? 1,
-          unit_price: (l.amount ?? 0) / 100 / (l.quantity || 1),
-          unit_price_calculated: (l.amount ?? 0) / 100 / (l.quantity || 1),
-          subtotal_calculated: (l.amount ?? 0) / 100,
-          tax: { name: "VAT", value: 0, unit_amount: 0 },
-          discount: { name: "", percent: 0 },
-          title: l.description ?? "Item",
-          variant_title: null,
-          sku: l.price?.id ?? "",
-          fulfilled: true,
-          fulfilled_quantity: l.quantity ?? 1,
-          fulfillment_status: "fulfilled",
-        })),
+        items: lines.map((l, idx) => {
+          // Stripe invoice lines carry the net `amount` + `tax_amounts[]`; derive
+          // the per-line rate so mixed-rate invoices map correctly. No tax → 0.
+          const lineNet = (l.amount ?? 0) / 100;
+          const lineTax = Array.isArray(l.tax_amounts) ? l.tax_amounts.reduce((s: number, t: any) => s + (t?.amount ?? 0), 0) / 100 : 0;
+          const lineRate = lineTax > 0 && lineNet > 0 ? Math.round((lineTax / lineNet) * 10000) / 100 : 0;
+          const qty = l.quantity || 1;
+          return {
+            id: idx + 1,
+            product_id: 0,
+            variant_id: 0,
+            quantity: l.quantity ?? 1,
+            unit_price: lineNet / qty,
+            unit_price_calculated: lineNet / qty,
+            subtotal_calculated: lineNet,
+            tax: { name: "VAT", value: lineRate, unit_amount: lineTax },
+            discount: { name: "", percent: 0 },
+            title: l.description ?? "Item",
+            variant_title: null,
+            sku: l.price?.id ?? "",
+            fulfilled: true,
+            fulfilled_quantity: l.quantity ?? 1,
+            fulfillment_status: "fulfilled",
+          };
+        }),
         global_discount: { name: "", percent: 0, amount: 0 },
       },
       refunds: [],

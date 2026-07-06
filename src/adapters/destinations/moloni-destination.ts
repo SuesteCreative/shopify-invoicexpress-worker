@@ -516,19 +516,24 @@ async function fetchMoloniProductTax(
   if (cached) return cached;
 
   const prod = await moloniCall<{
-    taxes?: Array<{ tax_id?: number; value?: number | string; order?: number; cumulative?: number }>;
+    // On a product tax association the RATE lives in the nested `tax.value`; the
+    // outer `value` is a per-product override that Moloni leaves 0 by default.
+    taxes?: Array<{ tax_id?: number; value?: number | string; order?: number; cumulative?: number; tax?: { value?: number | string; exemption_reason?: string } }>;
     exemption_reason?: string;
   }>(cfg, token, "/products/getOne/", { product_id: productId }, "lookup");
 
   const taxes: MoloniTaxLine[] = Array.isArray(prod?.taxes)
     ? prod!.taxes
         .filter((t) => Number(t?.tax_id) > 0)
-        .map((t, i) => ({
-          tax_id: Number(t.tax_id),
-          value: normRate(Number(t.value ?? 0)),
-          order: Number(t.order ?? i + 1),
-          cumulative: (Number(t.cumulative) === 1 ? 1 : 0) as 0 | 1,
-        }))
+        .map((t, i) => {
+          const rate = Number(t.tax?.value ?? 0) > 0 ? Number(t.tax?.value) : Number(t.value ?? 0);
+          return {
+            tax_id: Number(t.tax_id),
+            value: normRate(rate),
+            order: Number(t.order ?? i + 1),
+            cumulative: (Number(t.cumulative) === 1 ? 1 : 0) as 0 | 1,
+          };
+        })
     : [];
   const result = taxes.length > 0
     ? { taxes }
@@ -713,7 +718,12 @@ async function resolveOrCreateCustomer(
   const nextNumRes = await moloniCall<{ number?: string | number }>(
     cfg, token, "/customers/getNextNumber/", {}, "lookup",
   );
-  const nextNumber = Number(nextNumRes?.number ?? 1);
+  // Guard non-numeric responses: some accounts return a corrupted sequence
+  // (e.g. "NaN1"), and `Number()` would yield NaN → Moloni rejects "4 number"
+  // AND persists a customer with a NaN number, corrupting the sequence further.
+  // Fall back to a always-valid, non-colliding value.
+  const parsedNext = Number(nextNumRes?.number);
+  const nextNumber = Number.isFinite(parsedNext) && parsedNext > 0 ? parsedNext : Date.now();
 
   const countryId = await resolveCountryId(cfg, token, billing?.country_code);
   const inserted = await moloniCall<{ customer_id?: number }>(
@@ -922,15 +932,19 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
     try {
-      // CRITICAL: query the SAME document type createDraft writes to. When
-      // documentType is "invoice_receipt", drafts live under /invoiceReceipts/,
-      // and /invoices/getAll/ returns 0 for them — making this dedup blind and
-      // producing a duplicate on every webhook re-delivery. `our_reference` is
-      // the field Moloni indexes for free-text lookup and it matches draft
-      // documents (status 0, number -1) too.
-      const getAllPath = cfg.documentType === "invoice_receipt"
-        ? "/invoiceReceipts/getAll/"
-        : "/invoices/getAll/";
+      // CRITICAL: query the SAME document type the reference was written to.
+      // Refund references ("OrderRefund #<id>") live on CREDIT NOTES, not
+      // invoices — searching /invoices/ for them made refund dedup blind and
+      // duplicated the credit note on every webhook re-delivery. Invoice
+      // references ("Order #<n>") match the invoice (or invoiceReceipt) drafts.
+      // `our_reference` is the field Moloni indexes for free-text lookup and it
+      // matches draft documents (status 0, number -1) too.
+      const isCreditRef = /^OrderRefund /i.test(reference);
+      const getAllPath = isCreditRef
+        ? "/creditNotes/getAll/"
+        : cfg.documentType === "invoice_receipt"
+          ? "/invoiceReceipts/getAll/"
+          : "/invoices/getAll/";
       const found = await moloniCall<Array<{ document_id?: number }>>(
         cfg, token, getAllPath, {
           document_set_id: cfg.documentSetId,

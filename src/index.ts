@@ -15,6 +15,7 @@ import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
 import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
 import { checkSubscriptionGate } from "./services/subscription-gate";
+import { runRenewalReminders } from "./services/subscription-reminders";
 import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
 import {
@@ -1106,6 +1107,25 @@ app.post("/admin/stripe/backfill", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to run Stripe backfill");
+  }
+})
+
+// Admin: run the renewal-reminder sweep on demand (testing / manual send).
+//   { dry_run?: boolean, window_days?: number }
+// dry_run=true lists who is due without sending; window_days overrides the
+// default 7-day lookahead (e.g. to verify a far-future subscription is caught).
+app.post("/admin/billing/renewal-reminders", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ dry_run?: boolean; window_days?: number }>().catch(() => ({} as any));
+  try {
+    const result = await runRenewalReminders(c.env, {
+      dryRun: body.dry_run === true,
+      windowDays: typeof body.window_days === "number" ? body.window_days : undefined,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to run renewal reminders");
   }
 })
 
@@ -2332,6 +2352,17 @@ export default {
       console.log(`[Cron] VIES retry: retried=${result.retried} resolved=${result.resolved} deferred=${result.deferred} incidents=${result.incidents}`);
     } catch (e: any) {
       console.error(`[Cron] VIES retry failed: ${e.message}`);
+    }
+
+    // Subscription renewal reminders — email the customer + ops ~7 days before an
+    // ending (cancel_at_period_end=1) subscription lapses. On by default.
+    if (env.RENEWAL_REMINDER_ENABLED !== "0") {
+      try {
+        const r = await runRenewalReminders(env);
+        console.log(`[Cron] Renewal reminders: ${r.sent} sent, ${r.failed} failed (${r.checked} due)`);
+      } catch (e: any) {
+        console.error(`[Cron] Renewal reminders failed: ${e.message}`);
+      }
     }
 
     // TTL purge of replay-protection tables. webhook_info and billing_events

@@ -28,4 +28,8 @@ export interface Env {
   // registration to user-level API keys, so bookings are polled instead.
   // On by default; set to "0" to kill the poll without redeploying crons.
   LODGIFY_POLL_ENABLED?: string;          // "0" disables; any other value (or unset) = enabled
+  // Subscription renewal reminders (daily 08:00 cron). Emails the customer + ops
+  // ~7 days before an ending (cancel_at_period_end=1) subscription lapses.
+  // On by default; set to "0" to disable without redeploying crons.
+  RENEWAL_REMINDER_ENABLED?: string;      // "0" disables; any other value (or unset) = enabled
 }

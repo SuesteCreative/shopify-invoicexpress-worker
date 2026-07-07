@@ -36,7 +36,13 @@ export async function POST(req: NextRequest) {
 
         const stripe = getStripe();
         const isLodgify = source.startsWith("lodgify");
-        const lookupOrId = plan === "annual"
+        const isStripeMoloni = source === "stripe-moloni";
+        // stripe-moloni has its own price points (€5/mo, €50/yr). The lookup keys
+        // are stable and not secret, so they're hardcoded rather than env-gated —
+        // the checkout resolves lookup keys via the prices.list fallback below.
+        const lookupOrId = isStripeMoloni
+            ? (plan === "annual" ? "stripe-moloni-yearly" : "stripe-moloni-monthly")
+            : plan === "annual"
             ? (isLodgify ? getStripeEnv("STRIPE_PRICE_LODGIFY_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP"))
             : (isLodgify ? getStripeEnv("STRIPE_PRICE_LODGIFY_MONTHLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP"));
 
@@ -76,6 +82,7 @@ export async function POST(req: NextRequest) {
 
         const SOURCE_PATHS: Record<string, { ok: string; cancel: string }> = {
             "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
+            "stripe-moloni":  { ok: "/integrations/stripe-moloni?stripe=success",  cancel: "/integrations/stripe-moloni?stripe=cancel" },
             "faturacao":      { ok: "/faturacao?stripe=success",                   cancel: "/faturacao?stripe=cancel" },
         };
         const appBaseUrl = new URL(getStripeEnv("SUCCESS_REDIRECT_URL")).origin;

@@ -3,8 +3,9 @@
 export const runtime = "edge";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { CreditCard, ClipboardList, Loader2, Check, AlertTriangle, ChevronRight, Webhook, Settings2, Zap, Info, ShieldCheck, BookOpen, Copy, Building2 } from "lucide-react";
+import { CreditCard, ClipboardList, Loader2, Check, CheckCheck, AlertTriangle, ChevronRight, Webhook, Settings2, Zap, Info, ShieldCheck, BookOpen, Copy, Building2 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { RIOKO_CONFIG } from "@/lib/config";
@@ -34,6 +35,13 @@ const exemptionOptions = [
 export default function StripeMoloniIntegration() {
     const t = useTranslations("stripeMoloniSetup");
     const tCommon = useTranslations("integrationsIndex");
+    const tB = useTranslations("faturacao");
+    const searchParams = useSearchParams();
+    const stripeResult = searchParams.get("stripe");
+
+    // Billing (subscription) — mirrors lodgify-moloni. Payment cards on the page.
+    const [sub, setSub] = useState<any>(null);
+    const [subscribing, setSubscribing] = useState<"monthly" | "annual" | null>(null);
 
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(true);
@@ -85,6 +93,8 @@ export default function StripeMoloniIntegration() {
     useEffect(() => {
         if (!STRIPE_ENABLED) { setLoading(false); return; }
         fetch("/api/auth/sync", { method: "POST" }).catch(console.error);
+
+        fetch("/api/billing/subscription").then(r => r.json()).then(setSub).catch(() => setSub(null));
 
         Promise.all([
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
@@ -330,6 +340,27 @@ export default function StripeMoloniIntegration() {
             setTimeout(() => setCopied(false), 2000);
         } catch { }
     };
+
+    const handleSubscribe = async (plan: "monthly" | "annual") => {
+        setSubscribing(plan);
+        try {
+            const r = await fetch("/api/billing/checkout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plan, source: "stripe-moloni" }),
+            });
+            const d: any = await r.json();
+            if (d.url) window.location.href = d.url;
+            else alert(d.error || tB("genericError"));
+        } finally {
+            setSubscribing(null);
+        }
+    };
+
+    const subData = sub?.subscription;
+    const uiState = sub?.ui_state;
+    const hasActiveSub = !!subData?.stripe_subscription_id && (uiState === "active" || uiState === "trialing" || uiState === "trialing_earlybird" || uiState === "exempt");
+    const showSubCta = sub !== null && !hasActiveSub && uiState !== "exempt";
 
     if (!STRIPE_ENABLED) {
         return (
@@ -612,6 +643,67 @@ export default function StripeMoloniIntegration() {
 
     return (
         <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
+            {stripeResult === "success" && (
+                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.30)] text-accent-hot">
+                    <CheckCheck className="w-5 h-5 shrink-0" />
+                    <p className="font-mono text-xs uppercase tracking-[0.18em]">{tB("stripeSuccess")}</p>
+                </motion.div>
+            )}
+
+            {/* Billing card — payment cards for the stripe-moloni plan */}
+            {sub !== null && (
+                <div className="glass rounded-[2rem] p-5 sm:p-8">
+                    {hasActiveSub ? (
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-[rgba(94,234,212,0.15)] ring-1 ring-[rgba(94,234,212,0.30)] flex items-center justify-center">
+                                    <CreditCard className="w-5 h-5 text-accent-hot" />
+                                </div>
+                                <div>
+                                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("subscribeHeading")}</p>
+                                    <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
+                                        {tB("statusActive")}
+                                    </span>
+                                </div>
+                            </div>
+                            <Link href="/faturacao" className="px-5 py-3 rounded-2xl bg-white/5 border border-hairline text-fg font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-white/10 transition-all flex items-center gap-2">
+                                <CreditCard className="w-4 h-4" />
+                                {tB("changeCard")}
+                            </Link>
+                        </div>
+                    ) : showSubCta && (
+                        <div className="space-y-4">
+                            <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{tB("subscribeHeading")}</h2>
+                            <div className="grid sm:grid-cols-2 gap-4">
+                                <div className="rounded-2xl p-5 flex flex-col gap-4 border border-hairline bg-surface-2/30">
+                                    <div>
+                                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("monthlyPlan")}</p>
+                                        <p className="text-2xl font-medium tracking-tight">{t("monthlyPrice")}</p>
+                                    </div>
+                                    <button onClick={() => handleSubscribe("monthly")} disabled={!!subscribing} className="w-full py-3 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] bg-white/5 border border-hairline hover:border-rule hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                                        {subscribing === "monthly" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                                        {tB("btnSubscribeMonthly")}
+                                    </button>
+                                </div>
+                                <div className="rounded-2xl p-5 flex flex-col gap-4 border border-accent/30 bg-[rgba(2,141,196,0.04)]">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{tB("annualPlan")}</p>
+                                            <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-[rgba(94,234,212,0.15)] text-accent-hot border border-[rgba(94,234,212,0.25)]">{tB("annualSaving")}</span>
+                                        </div>
+                                        <p className="text-2xl font-medium tracking-tight">{t("annualPrice")}</p>
+                                    </div>
+                                    <button onClick={() => handleSubscribe("annual")} disabled={!!subscribing} className="w-full py-3 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] bg-accent text-surface font-bold hover:bg-accent-hot transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                                        {subscribing === "annual" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                                        {tB("btnSubscribeAnnual")}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             <StepperHeader
                 backHref="/integrations"
                 backLabel={t("backToIntegrations")}

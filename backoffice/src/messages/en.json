@@ -1482,6 +1482,8 @@
     "documentTypeDesc": "Invoice-Receipt for already-settled payments (Stripe's case); Invoice for credit invoicing.",
     "documentTypeInvoice": "Invoice",
     "documentTypeInvoiceReceipt": "Invoice-Receipt",
+    "monthlyPrice": "€5/month + VAT",
+    "annualPrice": "€50/year + VAT",
     "exemptionDesc": "Applied when the invoice has 0% VAT (exemption, reverse charge, etc).",
     "activateWarning": "Once active, Rioko starts processing Stripe webhooks and issuing Moloni invoices in real time. You can pause anytime.",
     "integrationDoneTitle": "Integration complete",

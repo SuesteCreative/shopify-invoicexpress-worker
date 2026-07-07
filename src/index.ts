@@ -2369,12 +2369,19 @@ export default {
     // grow unbounded — keys are external (Shopify webhook id, Stripe event id)
     // so retention beyond ~90 days adds no dedup value but does enlarge the
     // replay surface. 90d covers the longest Stripe/Shopify retry windows.
+    // EXCEPTION: the payment ledger the faturação page renders (invoice.paid /
+    // payment_failed / charge.refunded) is kept — those are the customer's
+    // billing history (e.g. a once-a-year annual payment) and must not vanish
+    // after 90 days. Only the ephemeral dedup rows (subscription.*/checkout.*)
+    // are purged.
     try {
       const wi = await env.DB.prepare(
         "DELETE FROM webhook_info WHERE created_at < datetime('now', '-90 day')"
       ).run();
       const be = await env.DB.prepare(
-        "DELETE FROM billing_events WHERE created_at < datetime('now', '-90 day')"
+        `DELETE FROM billing_events
+         WHERE created_at < datetime('now', '-90 day')
+           AND type NOT IN ('invoice.paid','invoice.payment_failed','charge.refunded')`
       ).run();
       console.log(`[Cron] TTL purge: webhook_info=${wi.meta?.changes ?? 0} billing_events=${be.meta?.changes ?? 0}`);
     } catch (e: any) {

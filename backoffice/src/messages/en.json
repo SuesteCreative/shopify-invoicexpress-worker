@@ -721,6 +721,8 @@
     "statusNone": "No subscription",
     "planAnnual": "Annual · €75/year",
     "planMonthly": "Monthly · €7.50/month",
+    "planAnnualStripeMoloni": "Annual · €50/year",
+    "planMonthlyStripeMoloni": "Monthly · €5/month",
     "cancels": "Cancels {date}",
     "subscriptionName": "Rioko 2.0 subscription",
     "nif": "VAT ID",

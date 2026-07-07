@@ -35,11 +35,24 @@ export async function GET(req: NextRequest) {
             "SELECT * FROM subscriptions WHERE user_id = ?"
         ).bind(targetUserId).first();
 
+        // Plan pricing is per-integration (stripe-moloni is €5/€50, not the
+        // default €7.50/€75). Surface the customer's integration so the billing
+        // page can label the plan with the right price. Keyed on the connection,
+        // since the subscription row itself carries no source.
+        let plan_source: string | null = null;
+        if (sub) {
+            const conn: any = await db.prepare(
+                "SELECT 1 FROM connections WHERE user_id = ? AND source_kind = 'stripe' AND destination_kind = 'moloni' LIMIT 1"
+            ).bind(targetUserId).first();
+            if (conn) plan_source = "stripe-moloni";
+        }
+
         return NextResponse.json({
             subscription: sub,
             ui_state: subscriptionUIState(sub),
             blocked: isSubscriptionBlocked(sub),
             role: targetRole,
+            plan_source,
         });
     } catch (e: any) {
         console.error("[billing/subscription] error", e);

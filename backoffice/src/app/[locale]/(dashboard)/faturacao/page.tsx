@@ -201,7 +201,9 @@ export default function FaturacaoPage() {
                                 </span>
                                 {s?.plan && (
                                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
-                                        {s.plan === "annual" ? t("planAnnual") : t("planMonthly")}
+                                        {sub?.plan_source === "stripe-moloni"
+                                            ? (s.plan === "annual" ? t("planAnnualStripeMoloni") : t("planMonthlyStripeMoloni"))
+                                            : (s.plan === "annual" ? t("planAnnual") : t("planMonthly"))}
                                     </span>
                                 )}
                                 {s?.cancel_at_period_end === 1 && (

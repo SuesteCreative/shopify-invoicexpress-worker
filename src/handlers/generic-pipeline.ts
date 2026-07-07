@@ -54,6 +54,13 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
     return { kind: "reconcile_drift", severity: "critical", permanent: true };
   }
 
+  // Empty-document guard fired: the builder produced zero line items (a
+  // normalization gap). Retrying the same payload can't add items — fail fast
+  // so it surfaces as a real-time alert instead of grinding the retry budget.
+  if (msg.includes("has no line items")) {
+    return { kind: "normalize_fail", severity: "critical", permanent: true };
+  }
+
   // Destination rejected the document outright (most common: invalid NIF, invalid client)
   const isDestCreateError =
     msg.includes("invoicexpress create failed")
@@ -400,11 +407,16 @@ async function runPipelineCore(
             continue;
           }
         }
-        const sum = credit.line_items.reduce((acc, item) => acc + item.subtotal, 0);
+        // GROSS sum (subtotal + tax) of the returned lines — the credit lines
+        // the adapter rebuilds already carry tax, so amountToRefund is only the
+        // non-line-item remainder (shipping / cash). Using the net subtotal left
+        // Σtax as a phantom extra line, over-crediting by the tax.
+        const sum = credit.line_items.reduce((acc, item) => acc + item.subtotal + (item.total_tax ?? 0), 0);
         await destAdapter.issueCredit(invoice.invoice_id, {
           refundId: credit.refund_id,
           itemsIds: credit.line_items.map(li => li.id),
           amountToRefund: credit.amount - sum,
+          grossAmount: credit.amount,
         }, normalized, ctx);
         issuedCount++;
       }

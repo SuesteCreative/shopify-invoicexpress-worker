@@ -99,7 +99,9 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
   }
 
   const shopify = new Shopify(env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config);
-  const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
+  const normalizedOrderResponse = env.NORMALIZE_IN_WORKER === "1"
+    ? await shopify.normalizeOrderLocal(orderId)
+    : await shopify.normalizeOrder(orderId);
 
   if (!normalizedOrderResponse) {
     console.log(`[Rioko] Failed to normalize order for order ${orderId}`);

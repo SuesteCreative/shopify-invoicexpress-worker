@@ -1,7 +1,6 @@
 import type { Env } from "../env";
 import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
-import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { ixCall } from "../ix/ix-call";
 import { awaitInvoiceVisibility } from "../utils";
@@ -32,15 +31,11 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
   await awaitInvoiceVisibility();
 
   try {
-    // Normalize order
-    const shopify = new Shopify(env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config);
-    const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
-
-    if (!normalizedOrderResponse) {
-      console.log(`[Rioko] Failed to normalize order for order ${orderId}`);
-      await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Failed to normalize order", status: 400 });
-      throw new Error(`Failed to normalize order for order ${orderId}`);
-    }
+    // NOTE: finalize does NOT need the normalized order — it only needs the
+    // invoice row (looked up by the raw order id below) and the IX doc id. The
+    // old normalize call here was dead work whose only observable effect was to
+    // FAIL the finalize on a transient Shopify hiccup (and, under
+    // NORMALIZE_IN_WORKER, an extra raw Shopify fetch). Dropped.
 
     // Look up the invoice by the RAW order id — the same key orders/created
     // persists with (avoid normalized.order.id, which can diverge).

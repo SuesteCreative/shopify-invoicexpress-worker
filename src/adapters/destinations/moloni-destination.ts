@@ -1236,6 +1236,25 @@ export class MoloniDestination implements DestinationAdapter {
       throw new Error("Moloni credit create failed: no line items derived from refund");
     }
 
+    // Source-of-truth guard (parity with createDraft and the IX refund path):
+    // the credit-note gross MUST equal the amount actually refunded. issueCredit
+    // historically had NO reconcile, so a mis-derived line (e.g. an inflated
+    // cash-delta) would silently ship a fiscally-wrong credit note. Abort on
+    // >1¢ drift → the queue retries / DLQ raises an incident instead.
+    if (refund.grossAmount != null && refund.grossAmount > 0) {
+      reconcileTotalOrThrow(
+        refund.grossAmount,
+        products.map((p) => ({
+          name: p.name,
+          quantity: Number(p.qty),
+          unit_price: Number(p.price),
+          tax_rate: Number(p.taxes?.[0]?.value ?? 0),
+          discount_percent: Number(p.discount ?? 0),
+        })),
+        { context: `→Moloni credit OrderRefund#${refund.refundId}` },
+      );
+    }
+
     // Stamp the required per-line related_id (= the source invoice line's
     // document_product_id). Match each credit line to the base line by
     // product_id; the free-form cash-delta line (placeholder product) and any

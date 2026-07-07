@@ -1,5 +1,6 @@
 import type { IRequestConfig } from "./storage";
 import type { NormalizedOrderResponse } from "./api/normalize-shopify";
+import { buildNormalizedFromRaw } from "./ix/normalize-local";
 import { delay } from "./utils";
 
 export async function verifyShopifyWebhook(hmac: string, body: string, secret: string): Promise<boolean> {
@@ -50,6 +51,21 @@ export class Shopify {
       if (normalized.normalized) normalized.normalized.raw_order = rawOrder;
     }
     return normalized;
+  }
+
+  // In-worker normalization for the Shopify→IX CREATE path — no external
+  // Hostinger call. Fetches the raw order directly from Shopify (the same fetch
+  // `normalizeOrder` already does in parallel) and maps it into the Normalized
+  // shape the builder's raw path consumes. Gated by NORMALIZE_IN_WORKER at the
+  // handler call site; validated byte-identical to the Hostinger path by
+  // scripts/shadow-normalize.mjs before cutover.
+  public async normalizeOrderLocal(orderId: string): Promise<NormalizedOrderResponse | null> {
+    const raw = await this.fetchRawOrder(orderId).catch((e) => {
+      console.error(`[Rioko] raw shopify fetch failed for ${orderId} (local normalize):`, e);
+      return null;
+    });
+    if (!raw) return null; // transient → caller throws → queue retries (same as remote)
+    return buildNormalizedFromRaw(raw, this.config.shopify_domain ?? "");
   }
 
   private async fetchNormalized(orderId: string): Promise<NormalizedOrderResponse | null> {

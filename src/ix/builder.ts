@@ -125,7 +125,12 @@ export class IxBuilder {
       const rawPercent = lineSubtotalSend > 0
         ? (1 - targetLineNet / lineSubtotalSend) * 100
         : 0;
-      const discountPercent = forceZeroTax ? 0 : round4(Math.max(0, rawPercent));
+      // forceZeroTax zeroes the TAX (reverse-charge / exempt), NOT the discount:
+      // the line must still net to what the buyer paid. With rate=0 above,
+      // targetLineNet already equals the discounted gross, so this percentage
+      // correctly re-targets it. (Dropping the discount here overcharged a
+      // discounted reverse-charge order — the only caller of this path.)
+      const discountPercent = round4(Math.max(0, rawPercent));
       const item: IxInvoice["items"][number] = {
         quantity: qty,
         tax,
@@ -444,6 +449,11 @@ export class IxBuilder {
     const items = usingRawPath
       ? this.buildInvoiceItemsFromRaw(normalized.raw_order)
       : this.buildInvoiceItems(normalized.order.items);
+    // Never POST an empty document — IX rejects it and, more importantly, a
+    // zero-item build signals a normalization gap we must not paper over.
+    if (items.length === 0) {
+      throw new Error(`Invoice for Order #${normalized.order.order_number} has no line items — refusing to POST an empty document`);
+    }
     const requestTaxExemptionReason = this.shouldRequestTaxExemptionReason(items);
     const shopifyReverseCharge = usingRawPath && this.detectShopifyReverseCharge(normalized.raw_order);
 
@@ -789,7 +799,19 @@ export class IxBuilder {
 
   buildReverseChargeInvoice(normalized: Normalized, countryCode: string, vatNumber: string): { invoice: IxInvoice; requestTaxExemptionReason: true } {
     const client = this.buildInvoiceClient(normalized);
-    const items = this.buildInvoiceItems(normalized.order.items, { forceZeroTax: true });
+    // Build the (zero-tax) lines from the SAME source the normal create path
+    // uses. Under NORMALIZE_IN_WORKER the in-worker normalizer leaves the
+    // computed `order.items` empty (the raw builder recomputes from raw_order),
+    // so reading `order.items` here yields an EMPTY reverse-charge invoice that
+    // IX rejects → the B2B EU order never invoices. Prefer the raw builder when
+    // raw_order is present so items are always populated; fall back to the
+    // computed items only when there is no raw order (e.g. a stored pending row).
+    const items = normalized.raw_order
+      ? this.buildInvoiceItemsFromRaw(normalized.raw_order, { forceZeroTax: true })
+      : this.buildInvoiceItems(normalized.order.items, { forceZeroTax: true });
+    if (items.length === 0) {
+      throw new Error(`Reverse-charge invoice for Order #${normalized.order.order_number} has no line items — refusing to POST an empty document`);
+    }
     const reasonCode = this.config.ix_b2b_exemption_reason ?? "M16";
     const rcMention = `Reverse charge — Article 196 EU VAT Directive 2006/112/EC. Buyer VAT: ${countryCode}${vatNumber}`;
     const noteRaw = (normalized.order.note ?? "").trim();

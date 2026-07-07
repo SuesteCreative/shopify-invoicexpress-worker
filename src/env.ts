@@ -32,4 +32,14 @@ export interface Env {
   // ~7 days before an ending (cancel_at_period_end=1) subscription lapses.
   // On by default; set to "0" to disable without redeploying crons.
   RENEWAL_REMINDER_ENABLED?: string;      // "0" disables; any other value (or unset) = enabled
+  // Self-healing invoice reconciliation sweep (daily 04:00 cron). Re-emits any
+  // paid Shopify order missing its InvoiceXpress invoice, via the double-guarded
+  // reemit path (no duplicates, drift-guarded). Ships DARK.
+  RECON_SWEEP_ENABLED?: string;           // "1" enables the 04:00 cron; default off
+  RECON_SWEEP_DAYS?: string;              // lookback window in days; default "7"
+  RECON_SWEEP_SHOPS?: string;             // CSV allowlist of shopify_domains; empty = all active shops
+  // Shopify→IX CREATE-path normalization source. "1" builds the Normalized shape
+  // in-worker from the raw Shopify order (no external Hostinger call); default/"0"
+  // keeps the external normalize service. Refund + adapter paths are unaffected.
+  NORMALIZE_IN_WORKER?: string;
 }

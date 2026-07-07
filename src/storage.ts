@@ -161,6 +161,29 @@ export class AppStorage {
     return integration as unknown as IRequestConfig;
   }
 
+  /**
+   * List every ACTIVE Shopify→InvoiceXpress integration — those with usable
+   * Shopify + IX credentials that are not paused. Used by the daily
+   * reconciliation sweep to know which shops to reconcile. Paused shops are
+   * excluded so the sweep never resurrects invoicing on an intentionally-off
+   * integration. Returns just the identifiers; callers `loadConfig()` per shop
+   * to get the exact same config object the live path uses.
+   */
+  async listActiveShopifyIntegrations(): Promise<Array<{ shopify_domain: string; user_id: string | null }>> {
+    const res = await this.db.prepare(
+      `SELECT shopify_domain, user_id FROM integrations
+       WHERE shopify_domain IS NOT NULL AND shopify_domain != ''
+         AND shopify_token IS NOT NULL AND shopify_token != ''
+         AND ix_api_key IS NOT NULL AND ix_api_key != ''
+         AND COALESCE(is_paused, 0) = 0
+       ORDER BY shopify_domain`
+    ).all();
+    return ((res.results as any[]) ?? []).map((r) => ({
+      shopify_domain: String(r.shopify_domain),
+      user_id: r.user_id ?? null,
+    }));
+  }
+
   async saveLog(data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number; user_id?: string | null }) {
     try {
       await this.db.prepare(

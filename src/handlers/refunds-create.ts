@@ -71,12 +71,24 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
     // Process each credit/refund
     const credits = normalizedOrderResponse.normalized.credits.map(credit => {
       const lineItems = credit.line_items;
-      const sum = lineItems.reduce((acc, item) => acc + item.subtotal, 0);
+      // GROSS sum of the returned lines. `credit.amount` is tax-INCLUSIVE, and
+      // the item lines we rebuild below already carry their own tax, so the
+      // "extra" amount to bill separately is only what the refund covers BEYOND
+      // the returned lines (shipping / a discretionary cash amount) — i.e.
+      // amount − Σ(subtotal + total_tax). Using the net subtotal here (the old
+      // bug) left Σtax as a phantom extra line, inflating the credit note by the
+      // tax and tripping the reconcile guard so no credit note was ever emitted
+      // for a normal line-item refund.
+      const sum = lineItems.reduce((acc, item) => acc + item.subtotal + (item.total_tax ?? 0), 0);
       const amount = credit.amount;
 
       return {
         refundId: credit.refund_id,
         itemsIds: lineItems.map(item => item.id),
+        // Carry the refunded lines through so the credit note is built from the
+        // amounts ACTUALLY refunded (qty/subtotal/total_tax), not the order's
+        // full-price lines — see buildCreditItemsFromRefund below.
+        lineItems,
         amountToRefund: amount - sum,
         // Carry the gross refund amount through so the credit-note total can be
         // reconciled against it before POST (see guard below).
@@ -117,17 +129,56 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
     }
     const invoiceBuildResult = { invoice: build.invoice, requestTaxExemptionReason: build.requestTaxExemptionReason };
 
+    // Build one credit-note line per REFUNDED line item, from the refund's own
+    // numbers (qty, net subtotal, total_tax) — NOT the order's full-price lines.
+    // This is what makes partial refunds (partial quantity, discounted lines,
+    // multi-line orders) reconcile to the amount actually refunded: line gross =
+    // subtotal + total_tax, so Σ lines + (non-line-item remainder) = credit.amount.
+    // The order item is looked up only for the human name / SKU. reverseCharge
+    // forces the rate to 0 (M16 exemption stamped separately).
+    const orderItemsById = new Map(
+      normalizedOrderResponse.normalized.order.items.map(it => [it.id, it]),
+    );
+    const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const buildCreditItemsFromRefund = (
+      refundLines: Array<{ id: number; quantity: number; subtotal: number; total_tax: number }>,
+      forceZeroTax: boolean,
+    ): any[] => {
+      const out: any[] = [];
+      for (const li of refundLines) {
+        const qty = Number(li.quantity) || 1;
+        const net = Number(li.subtotal);        // net amount refunded for this line
+        const tax = Number(li.total_tax ?? 0);  // tax refunded for this line
+        if (!(net > 0) && !(tax > 0)) continue;
+        const rate = forceZeroTax ? 0 : (net > 0 ? round2((tax / net) * 100) : 0);
+        const oi: any = orderItemsById.get(li.id);
+        const name = (oi
+          ? (oi.variant_title ? `${oi.title} / ${oi.variant_title}` : oi.title)
+          : `Item devolvido #${li.id}`) || "Item devolvido";
+        const line: any = { quantity: qty, tax: rate, unit_price: round4(net / qty), name: String(name).slice(0, 200) };
+        if (oi?.sku) line.description = `SKU: ${oi.sku}`.slice(0, 200);
+        out.push(line);
+      }
+      return out;
+    };
+
     // Create credit notes for each refund
     await Promise.all(
       credits.map(async credit => {
-        // Get normalized items for this credit
-        const normalizedItems = normalizedOrderResponse.normalized.order.items.filter(item =>
-          credit.itemsIds.includes(item.id)
-        );
-        const items = ixBuilder.buildInvoiceItems(normalizedItems, { forceZeroTax: build.reverseCharge });
+        const items = buildCreditItemsFromRefund(credit.lineItems as any, build.reverseCharge);
 
-        // Add refund amount as a line item if there's a difference
-        if (credit.amountToRefund > 0) {
+        // Reconcile the reconstructed lines to the GROSS actually refunded.
+        // Recompute the lines' gross with IX's own round-once model, then close
+        // the gap to credit.amount:
+        //   • remainder > 0  → the refund covered something beyond the returned
+        //     lines (shipping / discretionary cash): add one extra line for it.
+        //   • remainder < 0  → the refund gave back LESS than the returned lines'
+        //     value (restocking fee / partial-value refund): scale the lines down
+        //     with a uniform positive discount so the note totals what was paid.
+        const grossLines = items.length > 0 ? ixBuilder.computeIxExpectedTotal(items as any) : 0;
+        const remainder = round2(Number(credit.amount) - grossLines);
+        if (remainder > 0.01) {
           const taxes = invoiceBuildResult.invoice.items.map(item => item.tax);
           const maxTax = build.reverseCharge ? 0 : (taxes.reduce((a, b) =>
             (typeof a === "number" ? a : a.value) >= (typeof b === "number" ? b : b.value) ? a : b
@@ -138,10 +189,15 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           items.push({
             quantity: 1,
             tax: maxTax,
-            unit_price: credit.amountToRefund / (1 + taxPercentage),
-            description: `Refund amount of ${credit.amountToRefund}`,
+            unit_price: remainder / (1 + taxPercentage),
+            description: `Refund amount of ${remainder}`,
             name: `Refund amount (#${credit.refundId})`,
           });
+        } else if (remainder < -0.01 && grossLines > 0) {
+          const discountPct = round4(Math.max(0, (1 - Number(credit.amount) / grossLines) * 100));
+          for (const it of items) {
+            (it as any).discount = discountPct;
+          }
         }
 
         // Guard: the credit-note total MUST equal the amount actually refunded
@@ -159,7 +215,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           const creditDrift = Math.abs(expectedCredit - refundAmount);
           if (creditDrift > 0.01) {
             throw new Error(
-              `[Shopify→IX credit note #${credit.refundId}] total mismatch: refund=${refundAmount.toFixed(2)} expected=${expectedCredit.toFixed(2)} drift=${creditDrift.toFixed(2)}. Items=${JSON.stringify(items)}`,
+              `[Shopify→IX credit note #${credit.refundId}] invoice total mismatch: refund=${refundAmount.toFixed(2)} expected=${expectedCredit.toFixed(2)} drift=${creditDrift.toFixed(2)}. Items=${JSON.stringify(items)}`,
             );
           }
         }

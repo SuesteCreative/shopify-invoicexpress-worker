@@ -487,7 +487,12 @@ export function stripeToNormalized(event: any): Normalized | null {
     credits: ch.refunded ? [{
       refund_id: ch.refunds?.data?.[0]?.id ?? ch.id,
       amount: (ch.amount_refunded ?? 0) / 100,
-      line_items: [{ id: 1, quantity: 1, subtotal: (ch.amount_refunded ?? 0) / 100, total_tax: 0 }],
+      // No per-line breakdown for a Stripe refund — leave line_items empty so the
+      // pipeline sets amountToRefund = amount_refunded (partial OR full) and the
+      // Moloni cash-delta path credits exactly that amount. A synthetic line here
+      // would collide (id:1) with the full-value order item and make the credit
+      // note cover the WHOLE invoice instead of the partial refund.
+      line_items: [],
     }] : [],
     debits: [],
   };

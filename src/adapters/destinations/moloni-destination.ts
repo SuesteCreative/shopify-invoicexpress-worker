@@ -967,18 +967,32 @@ function formatPtYmd(ymd: string): string {
 // The id may be an invoice OR an invoice_receipt (tag-routing / the client's
 // document_type), so try the configured type first, then the other. Returns []
 // when neither endpoint has it (deleted / wrong id).
+interface MoloniBaseLine {
+  product_id?: number;
+  document_product_id?: number;
+  /** First tax rule on the original line — reused so a cash-only credit note
+   * (Stripe refund) mirrors the source document's VAT instead of going exempt. */
+  tax_id?: number;
+  tax_value?: number;
+}
+
 async function fetchMoloniDocLines(
   cfg: MoloniCfg,
   token: string,
   documentId: string | number,
-): Promise<Array<{ product_id?: number; document_product_id?: number }>> {
+): Promise<MoloniBaseLine[]> {
   const paths = cfg.documentType === "invoice_receipt"
     ? ["/invoiceReceipts/getOne/", "/invoices/getOne/"]
     : ["/invoices/getOne/", "/invoiceReceipts/getOne/"];
   for (const path of paths) {
     const d = await moloniCall<any>(cfg, token, path, { document_id: Number(documentId) }, "lookup").catch(() => null);
     if (d && typeof d === "object" && !Array.isArray(d) && d.document_id != null && Array.isArray(d.products)) {
-      return d.products as Array<{ product_id?: number; document_product_id?: number }>;
+      return (d.products as any[]).map((p) => ({
+        product_id: p?.product_id,
+        document_product_id: p?.document_product_id,
+        tax_id: p?.taxes?.[0]?.tax_id,
+        tax_value: p?.taxes?.[0]?.value != null ? Number(p.taxes[0].value) : undefined,
+      }));
     }
   }
   return [];
@@ -1161,11 +1175,16 @@ export class MoloniDestination implements DestinationAdapter {
       refundItems.filter((it) => !isReferenceMapped(ctx, it)).map((it) => taxRateForItem(it, ctx)),
     );
 
-    const [customerId, resolved, exchange] = await Promise.all([
+    // Source document's lines — needed BOTH for the required per-line related_id
+    // and for the cash-delta VAT rate (below). Fetched once here.
+    const [customerId, resolved, exchange, baseLines] = await Promise.all([
       resolveOrCreateCustomer(cfg, token, normalized),
       resolveProducts(cfg, token, refundItems, (it) => taxRateForItem(it, ctx), ctx.productMappings),
       resolveMoloniExchange(cfg, token, normalized.order.currency),
+      fetchMoloniDocLines(cfg, token, invoiceId),
     ]);
+    const baseRate = baseLines[0]?.tax_value ?? null;
+    const baseTaxId = baseLines[0]?.tax_id ?? null;
 
     const products = buildMoloniLineItems(subset, ctx, resolved, cfg);
 
@@ -1180,16 +1199,20 @@ export class MoloniDestination implements DestinationAdapter {
         const accV = acc?.taxes?.[0]?.value ?? 0;
         return t > accV ? p : acc;
       }, null);
-      const maxTax = maxTaxLine?.taxes?.[0]?.value ?? 0;
-      const factor = maxTax > 0 ? 1 + maxTax / 100 : 1;
+      const lineTax = maxTaxLine?.taxes?.[0]?.value ?? 0;
+      // Cash-ONLY refund (Stripe: no refund line items) has no line rate — take it
+      // from the ORIGINAL document so the credit note carries its VAT (e.g. 23%)
+      // instead of going out exempt. With real refund lines (Shopify) keep theirs.
+      const rate = lineTax > 0 ? lineTax : (baseRate && baseRate > 0 ? baseRate : 0);
+      const factor = rate > 0 ? 1 + rate / 100 : 1;
       const netUnit = Math.round((refund.amountToRefund / factor) * 10000) / 10000;
       const order = products.length + 1;
       // Cash-only refund delta has no source product. Ensure a synthetic
       // RIOKO-PLACEHOLDER product exists and reference it here. Resolve the rate
       // first so product creation doesn't throw when it came from a mapping.
-      if (maxTax > 0) await ensureTaxIdsByRate(cfg, token, [maxTax]);
+      if (rate > 0) await ensureTaxIdsByRate(cfg, token, [rate]);
       const fallbackPid = await ensureMoloniProduct(
-        cfg, token, FALLBACK_PLACEHOLDER_REFERENCE, "Rioko Refund Delta", maxTax,
+        cfg, token, FALLBACK_PLACEHOLDER_REFERENCE, "Rioko Refund Delta", rate,
       );
       const line: MoloniProductLine = {
         product_id: fallbackPid,
@@ -1200,9 +1223,9 @@ export class MoloniDestination implements DestinationAdapter {
         discount: 0,
         order,
       };
-      if (maxTax > 0) {
-        const tid = maxTaxLine?.taxes?.[0]?.tax_id ?? pickTaxId(cfg, maxTax);
-        line.taxes = [{ tax_id: tid, value: maxTax, order: 1, cumulative: 0 }];
+      if (rate > 0) {
+        const tid = (lineTax > 0 ? maxTaxLine?.taxes?.[0]?.tax_id : baseTaxId) ?? pickTaxId(cfg, rate);
+        line.taxes = [{ tax_id: tid, value: rate, order: 1, cumulative: 0 }];
       } else {
         line.exemption_reason = resolveExemptionReason(ctx);
       }
@@ -1218,7 +1241,7 @@ export class MoloniDestination implements DestinationAdapter {
     // product_id; the free-form cash-delta line (placeholder product) and any
     // unmatched line fall back to the first base line — Moloni only needs a
     // valid document_product_id from the associated document, not an exact map.
-    const baseLines = await fetchMoloniDocLines(cfg, token, invoiceId);
+    // (baseLines was fetched once above, reused here.)
     const relatedByProduct = new Map<number, number>();
     for (const bl of baseLines) {
       if (bl?.product_id != null && bl?.document_product_id != null && !relatedByProduct.has(Number(bl.product_id))) {

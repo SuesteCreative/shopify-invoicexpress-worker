@@ -2097,7 +2097,7 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
   const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0 };
 
   const conns = await env.DB.prepare(
-    `SELECT id, user_id, source_config_json, destination_kind, destination_config_json
+    `SELECT id, user_id, source_config_json, destination_kind, destination_config_json, invoice_cutoff
      FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`
   ).all();
   const rows = (conns?.results ?? []) as any[];
@@ -2115,6 +2115,11 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
 
     let destinationConfig: Record<string, any> | undefined;
     try { destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined; } catch { destinationConfig = undefined; }
+
+    // Don't invoice bookings created before the connection's cutoff (the
+    // subscription start date, stamped when the account activates by payment).
+    // NULL cutoff = invoice everything (existing behaviour).
+    const cutoffMs = conn.invoice_cutoff ? Date.parse(String(conn.invoice_cutoff)) : null;
 
     // Same synthesized legacy config + subscription gate the webhook route uses.
     const legacy: any = (await env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(conn.user_id).first()) ?? {
@@ -2188,6 +2193,15 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
       if (!bookingId) continue;
       result.scanned++;
       const appStorage = new AppStorage(env, null, conn.user_id);
+
+      // Retroactive-invoicing guard: never invoice bookings created before the
+      // connection's cutoff (the subscription start date). The mirror already
+      // stored them for reconciliação; we simply don't bill pre-subscription
+      // history. Covers both the progressive and standard paths below.
+      if (cutoffMs != null && Number.isFinite(cutoffMs)) {
+        const createdMs = Date.parse(String(item?.created_at ?? ""));
+        if (Number.isFinite(createdMs) && createdMs < cutoffMs) { result.skipped++; continue; }
+      }
 
       // ── Progressive path: bill each newly-paid delta ──────────────────────
       if (partialEnabled && partialCtx) {

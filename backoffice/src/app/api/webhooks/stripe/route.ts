@@ -19,6 +19,18 @@ function isRiokoUserId(id: string | null | undefined): id is string {
     return !!id && id.startsWith("user_");
 }
 
+// When a user's subscription becomes paid/active, release any connection that was
+// paused pending payment and stamp the subscription start as the invoice cutoff.
+// WHERE status='paused' makes it idempotent — first activation wins, later webhook
+// re-runs never overwrite an existing cutoff. Users without a paused connection
+// (e.g. Shopify merchants) simply match 0 rows.
+async function activatePausedConnections(db: D1Database, userId: string, cutoffIso: string | null) {
+    await db.prepare(
+        `UPDATE connections SET status='active', invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
+         WHERE user_id=? AND status='paused'`
+    ).bind(cutoffIso, userId).run();
+}
+
 async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, sub: Stripe.Subscription) {
     const item = sub.items.data[0];
     const priceId = item?.price?.id || null;
@@ -185,6 +197,13 @@ export async function POST(req: NextRequest) {
                     addr?.country || null,
                 ).run();
 
+                // First paid activation: release the connection that was paused
+                // pending payment and stamp the subscription start as the cutoff
+                // (bookings created before it are never invoiced retroactively).
+                if (sub?.status === "active") {
+                    await activatePausedConnections(db, userId, isoFromUnix((sub as any)?.start_date));
+                }
+
                 // Mark event processed
                 await db.prepare(
                     "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"
@@ -206,6 +225,10 @@ export async function POST(req: NextRequest) {
                     break;
                 }
                 await upsertSubscriptionFromStripeSub(db, userId, sub);
+                // Release a connection paused pending payment on the first active sub.
+                if (sub.status === "active") {
+                    await activatePausedConnections(db, userId, isoFromUnix((sub as any).start_date));
+                }
                 await db.prepare(
                     "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"
                 ).bind(event.id, userId, event.type, sub.id, JSON.stringify(sub)).run();

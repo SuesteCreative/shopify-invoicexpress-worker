@@ -200,7 +200,10 @@ export default function FaturacaoPage() {
     const s = sub?.subscription;
     const uiState = sub?.ui_state;
     const hasSubscription = !!s?.stripe_subscription_id;
-    const showSubscribeCta = !hasSubscription && uiState !== "exempt" && uiState !== "trialing_earlybird" && uiState !== "trialing";
+    // Show the payment cards while blocked/none AND during the early-bird grace,
+    // so a Shopify pilot can subscribe any time before their grace ends (per-client
+    // date). "trialing" (a paying Stripe trial) keeps a sub, so it's excluded.
+    const showSubscribeCta = !hasSubscription && uiState !== "exempt" && uiState !== "trialing";
 
     return (
         <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -317,10 +320,24 @@ export default function FaturacaoPage() {
                 </motion.div>
             )}
 
-            {/* Subscribe CTA — shown only when user has no active subscription */}
+            {/* Subscribe CTA — shown while blocked/none and during early-bird grace */}
             {showSubscribeCta && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-                    <SuspendedBanner />
+                    {uiState === "trialing_earlybird" ? (
+                        <div className="flex items-start gap-4 px-6 py-5 rounded-2xl border border-[rgba(245,158,11,0.25)] bg-[rgba(245,158,11,0.06)]">
+                            <span className="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-[rgba(245,158,11,0.15)] text-soon ring-1 ring-[rgba(245,158,11,0.30)]">
+                                <Clock className="w-5 h-5" />
+                            </span>
+                            <div className="min-w-0">
+                                <p className="text-sm font-black text-soon uppercase tracking-[0.14em]">{t("earlyBirdGraceTitle")}</p>
+                                <p className="text-[12px] text-fg-60 mt-1.5 leading-relaxed">
+                                    {t("earlyBirdGraceBody", { date: s?.trial_end ? new Date(s.trial_end).toLocaleDateString("pt-PT") : "" })}
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <SuspendedBanner />
+                    )}
                     <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{t("subscribeHeading")}</h2>
                     <div className="grid sm:grid-cols-2 gap-4">
                         <div className="glass rounded-[2rem] p-6 sm:p-8 flex flex-col gap-6 border border-hairline">

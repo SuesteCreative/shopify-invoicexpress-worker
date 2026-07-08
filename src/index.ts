@@ -15,7 +15,7 @@ import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
 import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
 import { checkSubscriptionGate } from "./services/subscription-gate";
-import { runRenewalReminders } from "./services/subscription-reminders";
+import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
 import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
 import {
@@ -2418,6 +2418,17 @@ export default {
         console.log(`[Cron] Renewal reminders: ${r.sent} sent, ${r.failed} failed (${r.checked} due)`);
       } catch (e: any) {
         console.error(`[Cron] Renewal reminders failed: ${e.message}`);
+      }
+    }
+
+    // Early-bird ending reminders — email each Shopify pilot ~1 day before their
+    // free early-bird grace (per-client trial_end) ends, prompting them to subscribe.
+    if (env.RENEWAL_REMINDER_ENABLED !== "0") {
+      try {
+        const r = await runEarlyBirdEndingReminders(env);
+        console.log(`[Cron] Early-bird reminders: ${r.sent} sent, ${r.failed} failed (${r.checked} due)`);
+      } catch (e: any) {
+        console.error(`[Cron] Early-bird reminders failed: ${e.message}`);
       }
     }
 

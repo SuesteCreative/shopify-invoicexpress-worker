@@ -730,6 +730,8 @@
     "nextCharge": "Next charge",
     "subLabel": "Subscription",
     "customerLabel": "Customer",
+    "earlyBirdGraceTitle": "Early Bird — free access",
+    "earlyBirdGraceBody": "Your Early Bird (free) period ends on {date}. Subscribe below to keep issuing invoices without interruption after that date.",
     "linkSubTitle": "Link Stripe subscription (admin)",
     "linkSubHint": "Paste the Stripe subscription id (sub_…) to link it to this account — e.g. a subscription created via a payment link. Activates the plan, stamps the user on Stripe and records the payment in history.",
     "linkSubPlaceholder": "sub_...",

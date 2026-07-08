@@ -86,6 +86,61 @@ function summarizeOrder(order: any): ShopifyOrderSummary {
   };
 }
 
+/**
+ * "Does an invoice with this reference already exist in InvoiceXpress?" — the
+ * dedup leg that protects PHANTOM orders (present in IX, absent from our D1),
+ * where our DB check can't help. The lookup rides ix-proxy, which under load
+ * intermittently answers "not found" for invoices that DO exist (the
+ * phantom-"Sem fatura" failure). A single false "not found" here would let us
+ * create a DUPLICATE invoice — unacceptable for fiscal documents. So we retry a
+ * null a few times with backoff: a transient blip resolves, a genuine absence
+ * stays null across every attempt. Returns the existing invoice id, or null
+ * only after the retries agree it's absent.
+ */
+async function findIxInvoiceByReference(
+  ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
+  reference: string,
+  attempts = 2,
+): Promise<string | null> {
+  let lastErr: unknown = null;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const res = await IxApi.v2.documents.reference.post({ headers: ixHeaders, body: { reference } });
+      const id = res.data?.data?.id;
+      if (id) return String(id);
+    } catch (e) {
+      lastErr = e;
+    }
+    if (i < attempts) await new Promise((r) => setTimeout(r, 300));
+  }
+  if (lastErr) console.warn(`[Rioko] IX reference lookup errored ${attempts}x for "${reference}": ${String((lastErr as any)?.message ?? lastErr).slice(0, 120)}`);
+  return null;
+}
+
+/**
+ * IX rejects `changeState → finalized` on a document that is ALREADY finalized /
+ * has payments, with a stable set of messages (EN direct + PT via the proxy):
+ * `DOC001 "Document already paid. Cannot be edited"`, `"has payments and can't be
+ * edited"`, `"O documento já contém pagamentos. Não pode ser editado"`. The
+ * reconciliation sweep re-finalizes every already-issued invoice in its window,
+ * so these are HEALTHY documents, not failures — detecting them lets the caller
+ * report an idempotent skip instead of flooding the ops report with false errors.
+ */
+function isAlreadyFinalizedIxError(error: unknown): boolean {
+  const s = JSON.stringify(error ?? "").toLowerCase();
+  return (
+    s.includes("doc001") ||
+    s.includes("already paid") ||
+    s.includes("cannot be edited") ||
+    s.includes("can't be edited") ||
+    s.includes("has payments") ||
+    s.includes("já contém pagamentos") ||
+    s.includes("ja contem pagamentos") ||
+    s.includes("não pode ser editado") ||
+    s.includes("nao pode ser editado")
+  );
+}
+
 export async function getUnprocessedOrders(env: Env, config: IRequestConfig, from: string, to: string) {
   const appStorage = new AppStorage(env, config.shopify_domain!);
 
@@ -107,14 +162,11 @@ export async function getUnprocessedOrders(env: Env, config: IRequestConfig, fro
 
   for (const order of notInDb) {
     const ixRef = `Order #${order.order_number}`;
-    const ixExisting = await IxApi.v2.documents.reference.post({
-      headers: ixHeaders,
-      body: { reference: ixRef },
-    });
+    const existingId = await findIxInvoiceByReference(ixHeaders, ixRef);
 
-    if (ixExisting.data?.data?.id) {
+    if (existingId) {
       // Exists in IX but not in our DB — sync it
-      await appStorage.saveProcessedInvoice(String(order.id), String(ixExisting.data.data.id));
+      await appStorage.saveProcessedInvoice(String(order.id), existingId);
       existsInIx.push(order);
     } else {
       unprocessed.push(order);
@@ -254,12 +306,9 @@ async function adminDryRunCreate(env: Env, config: IRequestConfig, order: any, t
       "x-api-key": config.ix_api_key!,
       "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
     };
-    const ixExisting = await IxApi.v2.documents.reference.post({
-      headers: ixHeaders,
-      body: { reference: `Order #${order.order_number}` },
-    });
-    if (ixExisting.data?.data?.id) {
-      return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Exists in IX (id=${ixExisting.data.data.id})` };
+    const existingId = await findIxInvoiceByReference(ixHeaders, `Order #${order.order_number}`);
+    if (existingId) {
+      return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Exists in IX (id=${existingId})` };
     }
     return { order_id: order.id, order_number: order.order_number, status: "dry_run", message: "Would create invoice" };
   } catch (e) {
@@ -882,22 +931,24 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
     };
 
     if (!opts.skipIxReferenceCheck) {
-      // Check if invoice already exists in InvoiceXpress
-      const ixExisting = await IxApi.v2.documents.reference.post({
-        headers: ixHeaders,
-        body: { reference: ixRef },
-      });
+      // Check if invoice already exists in InvoiceXpress (retrying leg — a flaky
+      // ix-proxy "not found" must never let us double-invoice a phantom order).
+      const existingId = await findIxInvoiceByReference(ixHeaders, ixRef);
 
-      if (ixExisting.data?.data?.id) {
+      if (existingId) {
         // Exists in IX but not in our DB — save the reference
-        await appStorage.saveProcessedInvoice(orderId, String(ixExisting.data.data.id));
-        return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Already exists in InvoiceXpress (id=${ixExisting.data.data.id}), synced to DB` };
+        await appStorage.saveProcessedInvoice(orderId, existingId);
+        return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Already exists in InvoiceXpress (id=${existingId}), synced to DB` };
       }
     }
 
-    // Normalize order
+    // Normalize order. Same flag as the live create handlers so the
+    // reconciliation sweep + manual reemit are also Hostinger-independent
+    // (shadow-validated byte-identical). Refund path stays on Hostinger.
     const shopify = new Shopify(env.NORMALIZE_SHOPIFY_ORDER_API_KEY, config);
-    const normalizedOrderResponse = await shopify.normalizeOrder(orderId);
+    const normalizedOrderResponse = env.NORMALIZE_IN_WORKER === "1"
+      ? await shopify.normalizeOrderLocal(orderId)
+      : await shopify.normalizeOrder(orderId);
 
     if (!normalizedOrderResponse) {
       return { order_id: order.id, order_number: order.order_number, status: "error", message: "Failed to normalize order" };
@@ -953,6 +1004,13 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
     });
 
     if (error) {
+      // Already finalized / has payments = a HEALTHY, issued document — not a
+      // failure. The sweep re-finalizes every processed order in its window, so
+      // without this it reports hundreds of false "errors" on good invoices.
+      // Report an idempotent skip instead.
+      if (isAlreadyFinalizedIxError(error)) {
+        return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Already finalized (document has payments / cannot be edited)" };
+      }
       return { order_id: order.id, order_number: order.order_number, status: "error", message: `Finalize failed: ${JSON.stringify(error)}` };
     }
 

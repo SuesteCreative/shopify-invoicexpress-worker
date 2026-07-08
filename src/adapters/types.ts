@@ -51,6 +51,10 @@ export interface NormalizedRefund {
   refundId: string | number;
   itemsIds: Array<string | number>;
   amountToRefund: number;
+  /** Total gross amount actually refunded (tax-inclusive). When present, the
+   *  destination reconciles the credit-note total against it and aborts on a
+   *  mismatch rather than shipping a mis-totalled fiscal document. */
+  grossAmount?: number;
 }
 
 export interface DestinationInvoiceCreateResult {

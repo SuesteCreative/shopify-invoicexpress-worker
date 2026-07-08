@@ -3,12 +3,17 @@
   "version": "1.0.0",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev -c wrangler.worker.toml",
+    "dev": "wrangler dev -c wrangler.jsonc",
     "deploy": "wrangler deploy",
     "deploy:safe": "node scripts/pre-deploy-backup.mjs && wrangler deploy",
     "backup": "node scripts/pre-deploy-backup.mjs",
-    "build": "wrangler deploy --dry-run -c wrangler.worker.toml",
-    "preview": "wrangler dev"
+    "gen:builder": "esbuild src/ix/builder.ts --bundle --format=esm --platform=node --outfile=scripts/.gen/builder.mjs",
+    "gen:normalize": "esbuild src/ix/normalize-local.ts --bundle --format=esm --platform=node --outfile=scripts/.gen/normalize-local.mjs",
+    "audit:shopify": "npm run gen:builder && node scripts/audit-shopify.mjs",
+    "shadow:normalize": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-normalize.mjs",
+    "shadow:refund": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-refund.mjs",
+    "build": "wrangler deploy --dry-run -c wrangler.jsonc",
+    "preview": "wrangler dev -c wrangler.jsonc"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240101.0",

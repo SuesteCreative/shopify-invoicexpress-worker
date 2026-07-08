@@ -76,6 +76,20 @@ export class IxBuilder {
     return "RIOKO-SHIPPING";
   }
 
+  // Book (ISBN) reduced-rate rule. When the merchant defines the synthetic
+  // `RIOKO-ISBN-BOOK` override (tax_rate = e.g. 6), any line whose SKU is an
+  // ISBN-13 (978…/979…) is billed at that rate. This lets a bookseller charge
+  // books at 6% and everything else at the forced/collected rate WITHOUT a
+  // per-title override for every ISBN in the catalog (thousands). A specific
+  // per-SKU override still wins over this; and it only applies to merchants who
+  // opt in by creating the RIOKO-ISBN-BOOK row, so other shops are unaffected.
+  private isbnBookRate(li: any): number | undefined {
+    const rate = this.overrides?.get("RIOKO-ISBN-BOOK")?.tax_rate;
+    if (rate == null) return undefined;
+    const sku = (li?.sku ?? "").toString().replace(/[-\s]/g, "");
+    return /^97[89]\d{10}$/.test(sku) ? Number(rate) : undefined;
+  }
+
   shouldRequestTaxExemptionReason(items: IxInvoice["items"]) {
     return items.some(item =>
       (typeof item.tax === "number"
@@ -125,7 +139,12 @@ export class IxBuilder {
       const rawPercent = lineSubtotalSend > 0
         ? (1 - targetLineNet / lineSubtotalSend) * 100
         : 0;
-      const discountPercent = forceZeroTax ? 0 : round4(Math.max(0, rawPercent));
+      // forceZeroTax zeroes the TAX (reverse-charge / exempt), NOT the discount:
+      // the line must still net to what the buyer paid. With rate=0 above,
+      // targetLineNet already equals the discounted gross, so this percentage
+      // correctly re-targets it. (Dropping the discount here overcharged a
+      // discounted reverse-charge order — the only caller of this path.)
+      const discountPercent = round4(Math.max(0, rawPercent));
       const item: IxInvoice["items"][number] = {
         quantity: qty,
         tax,
@@ -177,11 +196,13 @@ export class IxBuilder {
       // priced gross at 17€ with 6% baked in), the math rate was 0 so the gross
       // was kept as net while 6% was stamped on top → IX total 72.08 vs paid
       // 68.00 → "Invoice total mismatch" drift, invoice never issued.
+      // Precedence: per-SKU override > ISBN book rate (if SKU is an ISBN and the
+      // merchant opted into RIOKO-ISBN-BOOK) > merchant force_tax_rate > collected.
       const effectiveRate = forceZeroTax
         ? 0
         : (override?.tax_rate != null
           ? Number(override.tax_rate)
-          : (forceTaxProducts != null ? forceTaxProducts : shopifyRate));
+          : (this.isbnBookRate(li) ?? (forceTaxProducts != null ? forceTaxProducts : shopifyRate)));
       const variantTitle = li?.variant_title ? ` / ${li.variant_title}` : "";
       const defaultName = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
       const name = (override?.name_override ?? defaultName).slice(0, 200);
@@ -444,6 +465,11 @@ export class IxBuilder {
     const items = usingRawPath
       ? this.buildInvoiceItemsFromRaw(normalized.raw_order)
       : this.buildInvoiceItems(normalized.order.items);
+    // Never POST an empty document — IX rejects it and, more importantly, a
+    // zero-item build signals a normalization gap we must not paper over.
+    if (items.length === 0) {
+      throw new Error(`Invoice for Order #${normalized.order.order_number} has no line items — refusing to POST an empty document`);
+    }
     const requestTaxExemptionReason = this.shouldRequestTaxExemptionReason(items);
     const shopifyReverseCharge = usingRawPath && this.detectShopifyReverseCharge(normalized.raw_order);
 
@@ -789,7 +815,19 @@ export class IxBuilder {
 
   buildReverseChargeInvoice(normalized: Normalized, countryCode: string, vatNumber: string): { invoice: IxInvoice; requestTaxExemptionReason: true } {
     const client = this.buildInvoiceClient(normalized);
-    const items = this.buildInvoiceItems(normalized.order.items, { forceZeroTax: true });
+    // Build the (zero-tax) lines from the SAME source the normal create path
+    // uses. Under NORMALIZE_IN_WORKER the in-worker normalizer leaves the
+    // computed `order.items` empty (the raw builder recomputes from raw_order),
+    // so reading `order.items` here yields an EMPTY reverse-charge invoice that
+    // IX rejects → the B2B EU order never invoices. Prefer the raw builder when
+    // raw_order is present so items are always populated; fall back to the
+    // computed items only when there is no raw order (e.g. a stored pending row).
+    const items = normalized.raw_order
+      ? this.buildInvoiceItemsFromRaw(normalized.raw_order, { forceZeroTax: true })
+      : this.buildInvoiceItems(normalized.order.items, { forceZeroTax: true });
+    if (items.length === 0) {
+      throw new Error(`Reverse-charge invoice for Order #${normalized.order.order_number} has no line items — refusing to POST an empty document`);
+    }
     const reasonCode = this.config.ix_b2b_exemption_reason ?? "M16";
     const rcMention = `Reverse charge — Article 196 EU VAT Directive 2006/112/EC. Buyer VAT: ${countryCode}${vatNumber}`;
     const noteRaw = (normalized.order.note ?? "").trim();

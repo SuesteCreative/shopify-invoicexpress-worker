@@ -27,6 +27,7 @@ import {
   getShopForUser,
 } from "./handlers/reconciliation";
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
+import { runReconciliationSweep } from "./handlers/reconciliation-sweep";
 import { delay } from "./utils";
 import { errorResponse, requireAdminAuth } from "./security";
 import {
@@ -792,6 +793,29 @@ app.get("/admin/unprocessed-orders", async (c) => {
 async function requireAdmin(c: Context<{ Bindings: Env }>) {
   return requireAdminAuth(c);
 }
+
+// Admin: run the self-healing reconciliation sweep on demand (validation +
+// immediate backlog heal). dry_run:true reports what WOULD happen and writes
+// nothing. Same code the 04:00 cron runs.
+app.post("/admin/run-reconciliation-sweep", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { dry_run?: boolean; shops?: string[] | string; days?: number } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  const shops = Array.isArray(body.shops)
+    ? body.shops
+    : (typeof body.shops === "string" ? body.shops.split(",").map((s) => s.trim()).filter(Boolean) : undefined);
+  try {
+    const result = await runReconciliationSweep(c.env, {
+      dryRun: body.dry_run === true, // real run unless dry_run:true is passed
+      shops,
+      days: typeof body.days === "number" ? body.days : undefined,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Reconciliation sweep failed");
+  }
+})
 
 // Admin: process (create or finalize) orders
 app.post("/admin/process-orders", async (c) => {
@@ -2328,6 +2352,24 @@ export default {
         } catch (e: any) {
           console.error(`[Cron] Weekly pattern report failed: ${e.message}`);
         }
+      }
+      return;
+    }
+
+    // Daily 04:00 UTC — self-healing invoice reconciliation sweep. Re-emits any
+    // paid Shopify order missing its IX invoice (drop from a normalize outage,
+    // never-delivered webhook, etc.) via the double-guarded reemit path. Runs on
+    // its own cron so it never rides the 08:00 ops sweep. Ships dark.
+    if (event.cron === "0 4 * * *") {
+      if (env.RECON_SWEEP_ENABLED === "1") {
+        try {
+          const r = await runReconciliationSweep(env);
+          console.log(`[Cron] Reconciliation sweep: shops=${r.shopsScanned} created=${r.totals.created} finalized=${r.totals.finalized} skipped=${r.totals.skipped} errors=${r.totals.errors}`);
+        } catch (e: any) {
+          console.error(`[Cron] Reconciliation sweep failed: ${e.message}`);
+        }
+      } else {
+        console.log("[Cron] Reconciliation sweep disabled (RECON_SWEEP_ENABLED != 1)");
       }
       return;
     }

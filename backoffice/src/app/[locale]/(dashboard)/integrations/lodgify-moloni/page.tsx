@@ -9,6 +9,7 @@ import { Hotel, Building2, Loader2, Check, AlertTriangle, ChevronRight, Settings
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
+import SuspendedBanner from "@/components/SuspendedBanner";
 import { RIOKO_CONFIG } from "@/lib/config";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
@@ -595,6 +596,7 @@ export default function LodgifyMoloniIntegration() {
                         </div>
                     ) : showSubCta && (
                         <div className="space-y-4">
+                            <SuspendedBanner />
                             <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{tB("subscribeHeading")}</h2>
                             <div className="grid sm:grid-cols-2 gap-4">
                                 <div className="rounded-2xl p-5 flex flex-col gap-4 border border-hairline bg-surface-2/30">

@@ -26,13 +26,17 @@ export async function checkSubscriptionGate(env: Env, config: IRequestConfig): P
     if (isAdminUser) return { allowed: true };
 
     const sub: any = await env.DB.prepare(
-      "SELECT status, trial_end, stripe_subscription_id FROM subscriptions WHERE user_id = ?"
+      "SELECT status, trial_end, stripe_subscription_id, early_bird FROM subscriptions WHERE user_id = ?"
     ).bind(config.user_id).first();
 
+    // Must pay to invoice: blocked unless active, exempt, a paying Stripe trial
+    // (has stripe_subscription_id), or an early-bird still inside its trial window.
+    // Non-early-bird trialing without a Stripe sub is suspended — no invoices.
     const now = new Date();
     const blocked = !sub
       || ["canceled", "unpaid", "incomplete_expired", "incomplete", "past_due"].includes(sub.status)
-      || (sub.status === "trialing" && !sub.stripe_subscription_id && sub.trial_end && new Date(sub.trial_end) < now);
+      || (sub.status === "trialing" && !sub.stripe_subscription_id
+          && !(sub.early_bird && sub.trial_end && new Date(sub.trial_end) > now));
 
     if (blocked) return { allowed: false, reason: `subscription_inactive (${sub?.status || "none"})` };
     return { allowed: true };

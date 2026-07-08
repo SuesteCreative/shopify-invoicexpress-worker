@@ -730,6 +730,8 @@
     "nextCharge": "Próxima cobrança",
     "subLabel": "Subscrição",
     "customerLabel": "Cliente",
+    "earlyBirdGraceTitle": "Early Bird — acesso grátis",
+    "earlyBirdGraceBody": "O teu período Early Bird (grátis) termina a {date}. Subscreve abaixo para continuares a emitir faturas sem interrupção após essa data.",
     "linkSubTitle": "Associar subscrição Stripe (admin)",
     "linkSubHint": "Cola o ID da subscrição Stripe (sub_…) para a ligar a esta conta — ex. uma sub criada por payment link. Ativa o plano, carimba o user na Stripe e regista o pagamento no histórico.",
     "linkSubPlaceholder": "sub_...",

@@ -19,16 +19,19 @@ function isRiokoUserId(id: string | null | undefined): id is string {
     return !!id && id.startsWith("user_");
 }
 
-// When a user's subscription becomes paid/active, release any connection that was
-// paused pending payment and stamp the subscription start as the invoice cutoff.
-// WHERE status='paused' makes it idempotent — first activation wins, later webhook
-// re-runs never overwrite an existing cutoff. Users without a paused connection
-// (e.g. Shopify merchants) simply match 0 rows.
+// When a user's subscription becomes paid/active, release anything that was paused
+// pending payment: (1) new-model connections (stamping the subscription start as
+// the invoice cutoff), and (2) the legacy integrations row's is_paused flag (e.g. a
+// Shopify merchant suspended for non-payment). Both are idempotent — 0 rows matched
+// when nothing was paused. First activation wins the cutoff; re-runs never overwrite.
 async function activatePausedConnections(db: D1Database, userId: string, cutoffIso: string | null) {
     await db.prepare(
         `UPDATE connections SET status='active', invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
          WHERE user_id=? AND status='paused'`
     ).bind(cutoffIso, userId).run();
+    await db.prepare(
+        `UPDATE integrations SET is_paused=0, updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND is_paused=1`
+    ).bind(userId).run();
 }
 
 async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, sub: Stripe.Subscription) {

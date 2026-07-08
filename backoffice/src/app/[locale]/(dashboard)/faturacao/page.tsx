@@ -110,6 +110,18 @@ export default function FaturacaoPage() {
         }
     };
 
+    const handleManageSubscription = async () => {
+        setActing("portal");
+        try {
+            const r = await fetch("/api/billing/portal", { method: "POST" });
+            const d: any = await r.json();
+            if (d.url) window.location.href = d.url;
+            else alert(d.error || t("genericError"));
+        } finally {
+            setActing(null);
+        }
+    };
+
     const handleCancel = async () => {
         if (!confirm(t("confirmCancel"))) return;
         setActing("cancel");
@@ -215,11 +227,28 @@ export default function FaturacaoPage() {
                             </div>
                             <h3 className="text-2xl font-medium tracking-tight">{s?.name || t("subscriptionName")}</h3>
                             {s?.email && <p className="text-sm text-fg-40 font-medium">{s.email}{s.nif && <> · {t("nif")} {s.nif}</>}</p>}
+                            {hasSubscription && (
+                                <div className="flex flex-wrap gap-x-6 gap-y-1 pt-1 text-[11px] text-fg-40 font-mono">
+                                    {s?.current_period_end && (
+                                        <span>{t("nextCharge")}: <span className="text-fg-60">{new Date(s.current_period_end).toLocaleDateString("pt-PT")}</span></span>
+                                    )}
+                                    {s?.stripe_subscription_id && (
+                                        <span>{t("subLabel")}: <span className="text-fg-60 break-all">{s.stripe_subscription_id}</span></span>
+                                    )}
+                                    {s?.stripe_customer_id && (
+                                        <span>{t("customerLabel")}: <span className="text-fg-60 break-all">{s.stripe_customer_id}</span></span>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     {hasSubscription && (
                         <div className="flex flex-wrap gap-3">
+                            <button onClick={handleManageSubscription} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-accent/15 border border-accent/30 text-accent font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent/25 transition-all flex items-center gap-2 disabled:opacity-50">
+                                {acting === "portal" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                                {t("manageSubscription")}
+                            </button>
                             <button onClick={handleUpdateCard} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-white/5 border border-hairline text-fg font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-white/10 transition-all flex items-center gap-2 disabled:opacity-50">
                                 {acting === "update" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
                                 {t("changeCard")}

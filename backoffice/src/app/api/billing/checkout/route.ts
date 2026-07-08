@@ -35,16 +35,29 @@ export async function POST(req: NextRequest) {
         const source = body.source ?? "";
 
         const stripe = getStripe();
-        const isLodgify = source.startsWith("lodgify");
-        const isStripeMoloni = source === "stripe-moloni";
-        // stripe-moloni has its own price points (€5/mo, €50/yr). The lookup keys
-        // are stable and not secret, so they're hardcoded rather than env-gated —
-        // the checkout resolves lookup keys via the prices.list fallback below.
-        const lookupOrId = isStripeMoloni
-            ? (plan === "annual" ? "stripe-moloni-yearly" : "stripe-moloni-monthly")
-            : plan === "annual"
-            ? (isLodgify ? getStripeEnv("STRIPE_PRICE_LODGIFY_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP"))
-            : (isLodgify ? getStripeEnv("STRIPE_PRICE_LODGIFY_MONTHLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP"));
+
+        // Each integration bills its OWN price. Explicit source → lookup mapping;
+        // an unknown source is rejected (400) rather than silently defaulting to the
+        // Shopify price. Lookups resolve lazily so a missing env var only affects the
+        // source that needs it. (stripe-moloni / stripe-ix keys are stable literals.)
+        let lookupOrId: string;
+        switch (source) {
+            case "":
+            case "faturacao":
+                lookupOrId = plan === "annual" ? getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP");
+                break;
+            case "lodgify-moloni":
+                lookupOrId = plan === "annual" ? getStripeEnv("STRIPE_PRICE_LODGIFY_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_LODGIFY_MONTHLY_LOOKUP");
+                break;
+            case "stripe-moloni":
+                lookupOrId = plan === "annual" ? "stripe-moloni-yearly" : "stripe-moloni-monthly";
+                break;
+            case "stripe-ix":
+                lookupOrId = plan === "annual" ? "stripe-ix-yearly" : "stripe-ix-monthly";
+                break;
+            default:
+                return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
+        }
 
         // Accept any of: real price ID (price_xxx), custom ID, or lookup_key.
         // Try retrieve first (works for any valid Stripe ID), then fall back to lookup_keys.
@@ -68,21 +81,11 @@ export async function POST(req: NextRequest) {
             "SELECT stripe_customer_id, stripe_subscription_id, status, early_bird, trial_end FROM subscriptions WHERE user_id = ?"
         ).bind(targetUserId).first();
 
-        // Determine trial config
-        const trialEndIso = getStripeEnvOptional("EARLY_BIRD_TRIAL_END") || "2026-08-01T00:00:00Z";
-        const trialEndDate = new Date(trialEndIso);
-        if (isNaN(trialEndDate.getTime())) {
-            return NextResponse.json({ error: `Invalid EARLY_BIRD_TRIAL_END: ${trialEndIso}` }, { status: 500 });
-        }
-        const trialEndUnix = Math.floor(trialEndDate.getTime() / 1000);
-        const nowUnix = Math.floor(Date.now() / 1000);
-
-        // Early bird / trial only ever apply to Shopify→InvoiceXpress billing
-        // (source "faturacao" / empty). Lodgify and Stripe→Moloni are always
-        // pay-to-activate: no trial, charged immediately on their own price.
-        const isShopifyDefault = !isLodgify && !isStripeMoloni;
-        const isEarlyBird = isShopifyDefault;
-        const useTrial = isEarlyBird && trialEndUnix > nowUnix;
+        // No Stripe trials — every subscription is charged immediately. The
+        // early-bird free-access grace (Shopify pilots) is granted BEFORE
+        // subscribing by the gate (early_bird flag + trial_end cutoff), never as a
+        // Stripe trial. early_bird metadata mirrors the DB flag for reference only.
+        const earlyBirdMeta = sub?.early_bird ? "1" : "0";
 
         const SOURCE_PATHS: Record<string, { ok: string; cancel: string }> = {
             "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
@@ -124,17 +127,16 @@ export async function POST(req: NextRequest) {
                 metadata: {
                     app: "rioko",
                     user_id: targetUserId,
-                    early_bird: isEarlyBird ? "1" : "0",
+                    early_bird: earlyBirdMeta,
                     plan,
                 },
-                trial_end: useTrial ? trialEndUnix : undefined,
             },
             payment_method_collection: "always",
             metadata: {
                 app: "rioko",
                 user_id: targetUserId,
                 plan,
-                early_bird: isEarlyBird ? "1" : "0",
+                early_bird: earlyBirdMeta,
             },
             success_url: successUrl,
             cancel_url: cancelUrl,

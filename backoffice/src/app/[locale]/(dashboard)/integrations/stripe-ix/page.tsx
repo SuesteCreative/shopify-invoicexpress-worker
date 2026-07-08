@@ -489,7 +489,7 @@ export default function StripeIXIntegration() {
                 </div>
             </div>
 
-            <SubscriptionCard onSuccess={stripeSuccess} />
+            <SubscriptionCard onSuccess={stripeSuccess} source="stripe-ix" />
 
             <div className="grid gap-8">
                 {steps.map((s) => {

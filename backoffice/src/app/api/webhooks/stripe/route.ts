@@ -51,7 +51,10 @@ async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, s
             current_period_end = excluded.current_period_end,
             trial_end = excluded.trial_end,
             cancel_at_period_end = excluded.cancel_at_period_end,
-            early_bird = CASE WHEN excluded.early_bird = 1 THEN 1 ELSE subscriptions.early_bird END,
+            -- early_bird is OWNED by our DB (set by onboarding / admin / migration),
+            -- never by stale Stripe metadata. Preserve it on every webhook so an
+            -- admin who turns it off isn't reverted to 1 by the next sub event.
+            early_bird = subscriptions.early_bird,
             updated_at = CURRENT_TIMESTAMP
     `).bind(
         userId,

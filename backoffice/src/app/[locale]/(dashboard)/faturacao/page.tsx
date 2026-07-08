@@ -80,6 +80,7 @@ export default function FaturacaoPage() {
     const [loading, setLoading] = useState(true);
     const [acting, setActing] = useState<string | null>(null);
     const [subscribing, setSubscribing] = useState<"monthly" | "annual" | null>(null);
+    const [linkSubId, setLinkSubId] = useState("");
 
     const load = async () => {
         try {
@@ -117,6 +118,31 @@ export default function FaturacaoPage() {
             const d: any = await r.json();
             if (d.url) window.location.href = d.url;
             else alert(d.error || t("genericError"));
+        } finally {
+            setActing(null);
+        }
+    };
+
+    const handleLinkSubscription = async () => {
+        const subId = linkSubId.trim();
+        if (!subId) return;
+        setActing("link");
+        try {
+            const r = await fetch("/api/admin/link-subscription", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: sub?.user_id, subscription_id: subId }),
+            });
+            const d: any = await r.json();
+            if (d.ok) {
+                setLinkSubId("");
+                alert(t("linkSubOk"));
+                await load();
+            } else {
+                alert(d.error || t("linkSubError"));
+            }
+        } catch (e: any) {
+            alert(e?.message || t("linkSubError"));
         } finally {
             setActing(null);
         }
@@ -268,6 +294,28 @@ export default function FaturacaoPage() {
                     )}
                 </div>
             </motion.div>
+
+            {/* Admin-only: manually associate a Stripe subscription (e.g. from a Payment Link) */}
+            {sub?.viewer_is_admin && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8 border border-[rgba(245,158,11,0.20)]">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="font-mono text-[11px] text-soon uppercase tracking-[0.22em]">{t("linkSubTitle")}</span>
+                    </div>
+                    <p className="text-[11px] text-fg-40 mb-4">{t("linkSubHint")}</p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <input
+                            value={linkSubId}
+                            onChange={(e) => setLinkSubId(e.target.value)}
+                            placeholder={t("linkSubPlaceholder")}
+                            className="flex-1 bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-sm font-mono focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all placeholder:text-fg-40"
+                        />
+                        <button onClick={handleLinkSubscription} disabled={!!acting || !linkSubId.trim()} className="px-6 py-3 rounded-2xl bg-[rgba(245,158,11,0.15)] border border-[rgba(245,158,11,0.30)] text-soon font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(245,158,11,0.25)] transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                            {acting === "link" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                            {t("linkSubButton")}
+                        </button>
+                    </div>
+                </motion.div>
+            )}
 
             {/* Subscribe CTA — shown only when user has no active subscription */}
             {showSubscribeCta && (

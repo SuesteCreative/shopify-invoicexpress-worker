@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
                 ui_state: "exempt",
                 blocked: false,
                 role: targetRole,
+                viewer_is_admin: viewerIsAdmin,
+                user_id: targetUserId,
             });
         }
 
@@ -53,6 +55,8 @@ export async function GET(req: NextRequest) {
             blocked: isSubscriptionBlocked(sub),
             role: targetRole,
             plan_source,
+            viewer_is_admin: viewerIsAdmin,
+            user_id: targetUserId,
         });
     } catch (e: any) {
         console.error("[billing/subscription] error", e);

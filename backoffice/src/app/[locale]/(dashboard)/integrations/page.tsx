@@ -35,12 +35,15 @@ export default function IntegrationsPage() {
     const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
     const [selectedInvoicing, setSelectedInvoicing] = useState<string | null>(null);
     const [activeIntegrations, setActiveIntegrations] = useState<any[]>([]);
+    const [subBlocked, setSubBlocked] = useState(false);
 
     useEffect(() => {
         Promise.all([
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
             fetch("/api/connections").then(r => r.json()).catch(() => ({ connections: [] })),
-        ]).then(([data, connData]: [any, any]) => {
+            fetch("/api/billing/subscription").then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([data, connData, subData]: [any, any, any]) => {
+            setSubBlocked(!!subData?.blocked);
             const list: any[] = [];
             if (data.shopify_domain && data.ix_account_name) {
                 list.push({
@@ -49,8 +52,10 @@ export default function IntegrationsPage() {
                     status: data.shopify_authorized && data.ix_authorized && data.webhooks_active ? "authorized" : "pending"
                 });
             }
-            const active = (connData.connections || []).filter((c: any) => c.status === "active");
-            for (const conn of active) {
+            // Show set-up integrations (active + paused); a paused one is set up but
+            // the subscription isn't active yet → shown as "incomplete". Drafts hidden.
+            const setup = (connData.connections || []).filter((c: any) => c.status === "active" || c.status === "paused");
+            for (const conn of setup) {
                 const id = `${conn.source_kind}-${conn.destination_kind}`;
                 if (list.find(i => i.id === id)) continue;
                 const dest = conn.destination_kind === "invoicexpress" ? "ix" : conn.destination_kind;
@@ -134,11 +139,11 @@ export default function IntegrationsPage() {
                                                 <div className="flex items-center gap-3">
                                                     <span className={cn(
                                                         "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border",
-                                                        ai.status === "authorized"
+                                                        !subBlocked && ai.status === "authorized"
                                                             ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
                                                             : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
                                                     )}>
-                                                        {ai.status === "authorized" ? t("statusAuthorized") : t("statusPending")}
+                                                        {subBlocked ? t("statusIncomplete") : ai.status === "authorized" ? t("statusAuthorized") : t("statusPending")}
                                                     </span>
                                                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("realtimeSync")}</span>
                                                 </div>

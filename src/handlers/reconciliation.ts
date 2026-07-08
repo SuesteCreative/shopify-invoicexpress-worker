@@ -29,10 +29,17 @@ export interface ReconOrder {
    * cancelled/declined, future Stripe amount_refunded, …) into this enum so the
    * reconciliation core — and the credit-note lookup below — stays generic.
    * `partial` = partly refunded, `full` = fully refunded, `cancelled` = order
-   * cancelled/booking declined. Null/absent = a normal live order. */
+   * cancelled (or a booking cancelled after being confirmed). Null/absent = a
+   * normal live order. A DECLINED booking is tracked separately (see `declined`),
+   * not as a cancellation. */
   refund_state?: "partial" | "full" | "cancelled" | null;
   /** ISO timestamp the order was cancelled (Shopify `cancelled_at`), if any. */
   cancelled_at?: string | null;
+  /** Lodgify booking whose status is `Declined` — an enquiry the host declined,
+   * never paid, never invoiced. Surfaced on conciliação as "fatura não
+   * necessária" instead of being dropped (the merchant asked to see these), and
+   * distinct from `cancelled` (which may hold an invoice needing a credit note). */
+  declined?: boolean | null;
 }
 
 /** A credit note (nota de crédito) issued against an order's invoice. Populated
@@ -251,32 +258,32 @@ async function fetchShopifyReconOrders(ctx: ReconContext, from: string, to: stri
 }
 
 // Live Lodgify fetch — used ONLY to bootstrap conciliação before the poll has
-// populated the local `lodgify_bookings` mirror. Uses updatedSince (one small
-// window, not a 7-page stayFilter=All burst that trips the 429) with 429
-// retry/backoff and a short KV cache so repeated pre-sync loads don't re-hit the
-// rate-limited API. Steady state reads D1, so this rarely runs.
-async function liveFetchLodgifyBookings(env: Env, ctx: ReconContext, fromYmd: string): Promise<any[]> {
+// populated the local `lodgify_bookings` mirror. Pulls the COMPLETE list from
+// the v1 `/v1/reservation` endpoint (offset/limit paging) — the same source the
+// poll uses — because the v2 list silently omits some bookings. 429 retry/backoff
+// plus a short KV cache so repeated pre-sync loads don't re-hit the rate-limited
+// API. Steady state reads D1, so this rarely runs. `_fromYmd` is unused (v1 has
+// no reliable updated filter); the window filter is applied by the caller.
+async function liveFetchLodgifyBookings(env: Env, ctx: ReconContext, _fromYmd: string): Promise<any[]> {
   const apiKey = ctx.sourceConfig?.api_key;
   if (!apiKey) return [];
-  const cacheKey = `lodgifylist:${ctx.userId ?? "x"}:${fromYmd}`;
+  const cacheKey = `lodgifylistv1:${ctx.userId ?? "x"}`;
   try {
     const cached = await env.INVOICE_KV.get(cacheKey);
     if (cached) return JSON.parse(cached) as any[];
   } catch { /* treat as miss */ }
 
   const items: any[] = [];
-  const size = 50;
+  const limit = 50;
   const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
-  for (let page = 1; page <= 40; page++) {
-    const qs = new URLSearchParams({ updatedSince: fromYmd, page: String(page), size: String(size), includeCount: "false" });
-    const url = `https://api.lodgify.com/v2/reservations/bookings?${qs.toString()}`;
+  for (let page = 0; page < 40; page++) {
+    const url = `https://api.lodgify.com/v1/reservation?offset=${page * limit}&limit=${limit}&trash=False`;
     let pageItems: any[] | null = null;
     for (let attempt = 0; attempt < 4; attempt++) {
       const res = await fetch(url, { headers });
       if (res.ok) {
         const data: any = await res.json().catch(() => null);
         pageItems = Array.isArray(data?.items) ? data.items
-          : Array.isArray(data?.bookings) ? data.bookings
           : Array.isArray(data) ? data
           : [];
         break;
@@ -286,12 +293,22 @@ async function liveFetchLodgifyBookings(env: Env, ctx: ReconContext, fromYmd: st
         await sleep(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1));
         continue;
       }
-      console.error(`[Recon] Lodgify live page ${page} → ${res.status} ${res.statusText}`);
+      console.error(`[Recon] Lodgify v1 live page ${page} → ${res.status} ${res.statusText}`);
       break;
     }
     if (pageItems == null) break;
-    items.push(...pageItems);
-    if (pageItems.length < size) break;
+    // Alias v1 payment/currency fields to the v2 shape fetchLodgifyReconOrders
+    // reads (amount_due drives the paid/pending split).
+    for (const it of pageItems) {
+      const cur = (it as any)?.currency;
+      items.push({
+        ...it,
+        amount_due: (it as any)?.amount_to_pay ?? (it as any)?.amount_due ?? null,
+        amount_paid: (it as any)?.total_paid ?? (it as any)?.amount_paid ?? null,
+        currency_code: typeof cur === "string" ? cur : (cur?.code ?? "EUR"),
+      });
+    }
+    if (pageItems.length < limit) break;
     await sleep(250);
   }
   if (items.length > 0) {
@@ -346,11 +363,14 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
   const rows: ReconOrder[] = [];
   for (const b of items) {
     const status = String(b.status ?? b.state ?? "").toLowerCase();
-    // Cancelled/declined bookings are no longer skipped outright — we tag them
-    // `cancelled` so an already-invoiced cancellation surfaces its credit note.
-    // (getReconciliation drops cancelled bookings that were never invoiced, so
-    // this doesn't reintroduce declined-booking noise.)
-    const isCancelled = status === "declined" || status === "cancelled" || status === "canceled";
+    // A cancelled booking that already holds an invoice needs its credit note
+    // surfaced, so tag it `cancelled` (getReconciliation drops cancelled bookings
+    // that were never invoiced). A DECLINED booking is different — an enquiry the
+    // host declined, never paid, never invoiced — so we DON'T drop it: mark it
+    // `declined` and the row builder renders it "fatura não necessária" (the
+    // merchant asked to see these on conciliação instead of them vanishing).
+    const isDeclined = status === "declined";
+    const isCancelled = status === "cancelled" || status === "canceled";
     const arrival = dateOnly(b.arrival ?? b.date_arrival ?? "");
     const created = dateOnly(b.created_at ?? b.date_created ?? "");
     // Include if made in-window OR arriving in-window (see fn comment).
@@ -388,6 +408,7 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
       financial_status: financial,
       channel: b.source ? String(b.source) : null,
       refund_state: isCancelled ? "cancelled" : null,
+      declined: isDeclined || undefined,
     });
   }
   return rows;
@@ -1149,6 +1170,18 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
         },
         invoice: unavailable,
         invoices: [unavailable],
+        candidates: [],
+      };
+    }
+
+    // Declined booking (enquiry the host declined) with no invoice — nothing to
+    // bill. Surface it as "não necessária" so the operator sees it was handled,
+    // not as a missing-invoice alarm or a payment still pending.
+    if (orderBlock.declined) {
+      return {
+        order: orderBlock,
+        match: { type: "not_needed", confidence: 0, reason: "Reserva recusada — fatura não necessária" },
+        invoice: null,
         candidates: [],
       };
     }

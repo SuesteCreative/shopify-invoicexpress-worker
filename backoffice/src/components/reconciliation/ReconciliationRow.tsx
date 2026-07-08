@@ -52,6 +52,8 @@ export type Row = {
         /** Normalized refund/cancel state (source-agnostic). */
         refund_state?: "partial" | "full" | "cancelled" | null;
         cancelled_at?: string | null;
+        /** Lodgify booking the host declined — shown as "fatura não necessária". */
+        declined?: boolean | null;
     };
     match: {
         type: "exact" | "approved" | "heuristic" | "not_needed" | "none" | "pending";
@@ -91,6 +93,10 @@ const REFUND_CHIP: Record<NonNullable<Row["order"]["refund_state"]>, { label: st
     partial: { label: "Reembolso parcial", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
     cancelled: { label: "Cancelado", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
 };
+
+// Source-side chip for a declined Lodgify booking (enquiry the host declined).
+// Neutral grey — it's not an error, just a booking that will never be invoiced.
+const DECLINED_CHIP = { label: "Recusada", cls: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]" };
 
 // Lodgify `source` codes → friendly channel labels shown as a chip on the row.
 const CHANNEL_LABELS: Record<string, string> = {
@@ -202,7 +208,9 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             {channelLabel(row.order.channel)}
                         </span>
                     )}
-                    {row.order.financial_status === "paid" ? (
+                    {row.order.declined ? (
+                        <span className="text-xs font-bold text-fg-60">{fmt(row.order.total)}</span>
+                    ) : row.order.financial_status === "paid" ? (
                         <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
                     ) : (
                         <span className="text-xs font-bold text-soon">Pendente · {fmt(row.order.total)}</span>
@@ -210,6 +218,11 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                     {row.order.refund_state && (
                         <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${REFUND_CHIP[row.order.refund_state].cls}`}>
                             {REFUND_CHIP[row.order.refund_state].label}
+                        </span>
+                    )}
+                    {row.order.declined && (
+                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${DECLINED_CHIP.cls}`}>
+                            {DECLINED_CHIP.label}
                         </span>
                     )}
                 </div>

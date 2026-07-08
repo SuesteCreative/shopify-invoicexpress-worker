@@ -65,8 +65,10 @@ export async function POST(req: Request) {
                 last_login = CURRENT_TIMESTAMP
         `).bind(id, email, name, email, name).run();
 
-        // On user.created: auto-seed early-bird trial if user signed up before the cutoff.
-        // This catches new signups that happen between migration deploy and "go live" announcement.
+        // On user.created: seed a trialing subscription row so the user has free
+        // access until the cutoff. early_bird itself is seeded 0 — it is ON by
+        // default only for Shopify→InvoiceXpress (decided at checkout by source),
+        // and enabled manually by an admin for any other integration.
         if (eventType === "user.created") {
             const trialEnd = process.env.EARLY_BIRD_TRIAL_END
                 || (env as any).EARLY_BIRD_TRIAL_END
@@ -75,7 +77,7 @@ export async function POST(req: Request) {
             if (!isNaN(trialEndDate.getTime()) && trialEndDate > new Date()) {
                 await db.prepare(`
                     INSERT OR IGNORE INTO subscriptions (user_id, status, trial_end, early_bird, created_at, updated_at)
-                    VALUES (?, 'trialing', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    VALUES (?, 'trialing', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 `).bind(id, trialEndDate.toISOString()).run();
             }
         }

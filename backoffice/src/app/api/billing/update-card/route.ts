@@ -1,28 +1,44 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
+import { isAdmin, getImpersonationId } from "@/lib/admin";
 
 export const runtime = "edge";
 
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
     try {
         const { userId } = await auth();
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+        // Admins acting on an impersonated account update that user's card.
+        let targetUserId = userId;
+        if (await isAdmin(userId)) {
+            const imp = await getImpersonationId(req);
+            if (imp) targetUserId = imp;
+        }
+
         const db = getDB();
         const sub: any = await db.prepare(
             "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ?"
-        ).bind(userId).first();
+        ).bind(targetUserId).first();
 
         let customerId = sub?.stripe_customer_id;
         if (!customerId) {
-            const user = await currentUser();
-            const email = user?.emailAddresses?.[0]?.emailAddress;
+            // Email for a new customer: the impersonated user's own (from the DB),
+            // falling back to the logged-in user's when acting on self.
+            let email: string | null = null;
+            if (targetUserId !== userId) {
+                const u: any = await db.prepare("SELECT email FROM users WHERE id = ?").bind(targetUserId).first();
+                email = u?.email || null;
+            } else {
+                const user = await currentUser();
+                email = user?.emailAddresses?.[0]?.emailAddress || null;
+            }
             if (!email) return NextResponse.json({ error: "No email" }, { status: 400 });
             const stripe = getStripe();
             const created = await stripe.customers.create({
                 email,
-                metadata: { user_id: userId },
+                metadata: { user_id: targetUserId },
             });
             customerId = created.id;
             await db.prepare(`
@@ -31,7 +47,7 @@ export async function POST(_req: NextRequest) {
                 ON CONFLICT(user_id) DO UPDATE SET
                     stripe_customer_id = excluded.stripe_customer_id,
                     updated_at = CURRENT_TIMESTAMP
-            `).bind(userId, customerId).run();
+            `).bind(targetUserId, customerId).run();
         }
 
         const stripe = getStripe();

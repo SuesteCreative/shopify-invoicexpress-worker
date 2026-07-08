@@ -24,6 +24,7 @@ export default function WelcomeDashboard() {
   const [loading, setLoading] = useState(true);
   const [integrationStatus, setIntegrationStatus] = useState<any>(null);
   const [activeConnections, setActiveConnections] = useState<any[]>([]);
+  const [subBlocked, setSubBlocked] = useState(false);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<any[] | null>(null);
   const [recentLogs, setRecentLogs] = useState<any[] | null>(null);
@@ -50,10 +51,18 @@ export default function WelcomeDashboard() {
     fetch("/api/connections")
       .then(r => r.ok ? r.json() : { connections: [] })
       .then((d: any) => {
-        const active = (d.connections || []).filter((c: any) => c.status === "active");
-        setActiveConnections(active);
+        // Show set-up integrations (active + paused) — a paused one is set up but
+        // the subscription isn't active yet, so it shows as "incomplete". Drafts
+        // (mid-setup) are hidden.
+        const setup = (d.connections || []).filter((c: any) => c.status === "active" || c.status === "paused");
+        setActiveConnections(setup);
       })
       .catch(() => setActiveConnections([]));
+
+    fetch("/api/billing/subscription")
+      .then(r => r.ok ? r.json() : null)
+      .then((d: any) => setSubBlocked(!!d?.blocked))
+      .catch(() => setSubBlocked(false));
 
     fetch("/api/dashboard/recent-invoices")
       .then(r => r.ok ? r.json() : { invoices: [] })
@@ -357,11 +366,11 @@ export default function WelcomeDashboard() {
                       <div className="flex items-center gap-3">
                         <span className={cn(
                           "px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border",
-                          conn.status === "active"
+                          !subBlocked && conn.status === "active"
                             ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
                             : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
                         )}>
-                          {conn.status === "active" ? t("activeAuthorized") : t("configPending")}
+                          {subBlocked ? t("incompleteSub") : conn.status === "active" ? t("activeAuthorized") : t("configPending")}
                         </span>
                       </div>
                     </div>

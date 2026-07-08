@@ -66,12 +66,12 @@ export interface SubscriptionRow {
 export function isSubscriptionBlocked(sub: SubscriptionRow | null | undefined): boolean {
     if (!sub) return true;
     if (["canceled", "unpaid", "incomplete_expired", "past_due", "incomplete"].includes(sub.status)) return true;
-    // For backfilled early-bird rows that never had a Stripe sub (stripe_subscription_id IS NULL),
-    // we still allow access while status='trialing' and trial_end is in the future.
-    // If trial_end is in the past and there's no Stripe sub, it means the user never added a payment method
-    // — block.
+    // Must pay to run: while trialing without a Stripe sub, only early-bird users
+    // inside their trial window keep access. Non-early-bird (or an expired
+    // early-bird trial) is suspended — they must subscribe to activate.
     if (sub.status === "trialing" && !sub.stripe_subscription_id) {
-        if (sub.trial_end && new Date(sub.trial_end) < new Date()) return true;
+        const earlyBirdActive = !!sub.early_bird && !!sub.trial_end && new Date(sub.trial_end) > new Date();
+        if (!earlyBirdActive) return true;
     }
     return false;
 }
@@ -81,10 +81,11 @@ export function subscriptionUIState(sub: SubscriptionRow | null | undefined): "a
     if (sub.status === "exempt") return "exempt";
     if (sub.status === "active") return "active";
     if (sub.status === "trialing") {
-        // For backfilled rows w/o Stripe sub: trial expiry blocks UI
-        const expired = !sub.stripe_subscription_id && sub.trial_end && new Date(sub.trial_end) < new Date();
-        if (expired) return "blocked";
-        return sub.early_bird ? "trialing_earlybird" : "trialing";
+        if (sub.stripe_subscription_id) return "trialing";  // paying inside a Stripe trial
+        // Only early-bird users inside their window keep trial access; everyone
+        // else (non-early-bird, or expired early-bird) is suspended → blocked.
+        if (sub.early_bird && sub.trial_end && new Date(sub.trial_end) > new Date()) return "trialing_earlybird";
+        return "blocked";
     }
     return "blocked";
 }

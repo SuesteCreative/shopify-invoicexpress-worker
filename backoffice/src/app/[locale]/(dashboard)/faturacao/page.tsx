@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw, CheckCheck, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
+import SuspendedBanner from "@/components/SuspendedBanner";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -242,6 +243,7 @@ export default function FaturacaoPage() {
             {/* Subscribe CTA — shown only when user has no active subscription */}
             {showSubscribeCta && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                    <SuspendedBanner />
                     <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{t("subscribeHeading")}</h2>
                     <div className="grid sm:grid-cols-2 gap-4">
                         <div className="glass rounded-[2rem] p-6 sm:p-8 flex flex-col gap-6 border border-hairline">

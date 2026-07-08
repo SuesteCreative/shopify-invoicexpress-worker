@@ -749,6 +749,8 @@
     "heuristicTooltip": "Match heurístico · score {score}",
     "processing": "A processar",
     "stripeSuccess": "Subscrição ativada",
+    "suspendedTitle": "Subscrição inativa — sistema suspenso",
+    "suspendedBody": "Enquanto a subscrição estiver inativa, o sistema está suspenso e não são emitidas faturas. Ativa uma subscrição abaixo e o processamento de faturas recomeça automaticamente.",
     "subscribeHeading": "Ativar subscrição",
     "monthlyPlan": "Mensal",
     "monthlyPrice": "7,50 €/mês + IVA",

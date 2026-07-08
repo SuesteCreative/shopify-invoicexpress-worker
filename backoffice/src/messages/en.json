@@ -749,6 +749,8 @@
     "heuristicTooltip": "Heuristic match · score {score}",
     "processing": "Processing",
     "stripeSuccess": "Subscription activated",
+    "suspendedTitle": "Subscription inactive — system suspended",
+    "suspendedBody": "While the subscription is inactive the system is suspended and no invoices are issued. Activate a subscription below and invoice processing resumes automatically.",
     "subscribeHeading": "Activate subscription",
     "monthlyPlan": "Monthly",
     "monthlyPrice": "€7.50/month + VAT",

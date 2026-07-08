@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { getDB, isSubscriptionBlocked, subscriptionUIState, SubscriptionRow } from "@/lib/stripe";
+import { getDB, getStripe, isSubscriptionBlocked, subscriptionUIState, SubscriptionRow } from "@/lib/stripe";
 import { isAdmin, getImpersonationId, getRole } from "@/lib/admin";
 
 export const runtime = "edge";
@@ -37,16 +37,21 @@ export async function GET(req: NextRequest) {
             "SELECT * FROM subscriptions WHERE user_id = ?"
         ).bind(targetUserId).first();
 
-        // Plan pricing is per-integration (stripe-moloni is €5/€50, not the
-        // default €7.50/€75). Surface the customer's integration so the billing
-        // page can label the plan with the right price. Keyed on the connection,
-        // since the subscription row itself carries no source.
-        let plan_source: string | null = null;
-        if (sub) {
-            const conn: any = await db.prepare(
-                "SELECT 1 FROM connections WHERE user_id = ? AND source_kind = 'stripe' AND destination_kind = 'moloni' LIMIT 1"
-            ).bind(targetUserId).first();
-            if (conn) plan_source = "stripe-moloni";
+        // The plan price is read DIRECTLY from the subscription's Stripe price
+        // (source of truth), so the billing card shows the real amount per
+        // integration (€7.50 Lodgify/Shopify, €5 Stripe-Moloni, …) instead of
+        // guessing from the connection. Best-effort: a Stripe hiccup or a legacy
+        // lookup-key price_id just leaves plan_price null (UI falls back).
+        let plan_price: { amount_cents: number; currency: string; interval: string | null } | null = null;
+        if (sub?.price_id) {
+            try {
+                const price = await getStripe().prices.retrieve(sub.price_id);
+                plan_price = {
+                    amount_cents: price.unit_amount ?? 0,
+                    currency: price.currency ?? "eur",
+                    interval: price.recurring?.interval ?? null,
+                };
+            } catch { /* fall back to static label in the UI */ }
         }
 
         return NextResponse.json({
@@ -54,7 +59,7 @@ export async function GET(req: NextRequest) {
             ui_state: subscriptionUIState(sub),
             blocked: isSubscriptionBlocked(sub),
             role: targetRole,
-            plan_source,
+            plan_price,
             viewer_is_admin: viewerIsAdmin,
             user_id: targetUserId,
         });

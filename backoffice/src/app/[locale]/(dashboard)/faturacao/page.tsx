@@ -243,8 +243,8 @@ export default function FaturacaoPage() {
                                 </span>
                                 {s?.plan && (
                                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
-                                        {sub?.plan_source === "stripe-moloni"
-                                            ? (s.plan === "annual" ? t("planAnnualStripeMoloni") : t("planMonthlyStripeMoloni"))
+                                        {sub?.plan_price
+                                            ? t(sub.plan_price.interval === "year" ? "planDynamicAnnual" : "planDynamicMonthly", { amount: (sub.plan_price.amount_cents / 100).toFixed(2) })
                                             : (s.plan === "annual" ? t("planAnnual") : t("planMonthly"))}
                                     </span>
                                 )}

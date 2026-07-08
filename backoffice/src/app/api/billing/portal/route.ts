@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
+import { isAdmin, getImpersonationId } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -10,15 +11,22 @@ export const runtime = "edge";
  * plus invoice history. Requires the Customer Portal to be enabled/configured in
  * the Stripe dashboard (Settings → Billing → Customer portal).
  */
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
     try {
         const { userId } = await auth();
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+        // Admins acting on an impersonated account open that user's portal.
+        let targetUserId = userId;
+        if (await isAdmin(userId)) {
+            const imp = await getImpersonationId(req);
+            if (imp) targetUserId = imp;
+        }
+
         const db = getDB();
         const sub: any = await db.prepare(
             "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ?"
-        ).bind(userId).first();
+        ).bind(targetUserId).first();
 
         const customerId = sub?.stripe_customer_id;
         if (!customerId) {

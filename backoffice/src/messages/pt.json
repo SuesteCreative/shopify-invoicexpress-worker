@@ -723,6 +723,8 @@
     "planMonthly": "Mensal · 7,50€/mês",
     "planAnnualStripeMoloni": "Anual · 50€/ano + IVA",
     "planMonthlyStripeMoloni": "Mensal · 5€/mês + IVA",
+    "planDynamicMonthly": "Mensal · {amount}€/mês + IVA",
+    "planDynamicAnnual": "Anual · {amount}€/ano + IVA",
     "cancels": "Cancela {date}",
     "subscriptionName": "Subscrição Rioko 2.0",
     "nif": "NIF",

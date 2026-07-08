@@ -76,6 +76,20 @@ export class IxBuilder {
     return "RIOKO-SHIPPING";
   }
 
+  // Book (ISBN) reduced-rate rule. When the merchant defines the synthetic
+  // `RIOKO-ISBN-BOOK` override (tax_rate = e.g. 6), any line whose SKU is an
+  // ISBN-13 (978…/979…) is billed at that rate. This lets a bookseller charge
+  // books at 6% and everything else at the forced/collected rate WITHOUT a
+  // per-title override for every ISBN in the catalog (thousands). A specific
+  // per-SKU override still wins over this; and it only applies to merchants who
+  // opt in by creating the RIOKO-ISBN-BOOK row, so other shops are unaffected.
+  private isbnBookRate(li: any): number | undefined {
+    const rate = this.overrides?.get("RIOKO-ISBN-BOOK")?.tax_rate;
+    if (rate == null) return undefined;
+    const sku = (li?.sku ?? "").toString().replace(/[-\s]/g, "");
+    return /^97[89]\d{10}$/.test(sku) ? Number(rate) : undefined;
+  }
+
   shouldRequestTaxExemptionReason(items: IxInvoice["items"]) {
     return items.some(item =>
       (typeof item.tax === "number"
@@ -182,11 +196,13 @@ export class IxBuilder {
       // priced gross at 17€ with 6% baked in), the math rate was 0 so the gross
       // was kept as net while 6% was stamped on top → IX total 72.08 vs paid
       // 68.00 → "Invoice total mismatch" drift, invoice never issued.
+      // Precedence: per-SKU override > ISBN book rate (if SKU is an ISBN and the
+      // merchant opted into RIOKO-ISBN-BOOK) > merchant force_tax_rate > collected.
       const effectiveRate = forceZeroTax
         ? 0
         : (override?.tax_rate != null
           ? Number(override.tax_rate)
-          : (forceTaxProducts != null ? forceTaxProducts : shopifyRate));
+          : (this.isbnBookRate(li) ?? (forceTaxProducts != null ? forceTaxProducts : shopifyRate)));
       const variantTitle = li?.variant_title ? ` / ${li.variant_title}` : "";
       const defaultName = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
       const name = (override?.name_override ?? defaultName).slice(0, 200);

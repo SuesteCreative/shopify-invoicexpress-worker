@@ -77,11 +77,11 @@ export async function POST(req: NextRequest) {
         const trialEndUnix = Math.floor(trialEndDate.getTime() / 1000);
         const nowUnix = Math.floor(Date.now() / 1000);
 
-        // Early bird is ON by default only for Shopify→InvoiceXpress billing
-        // (source "faturacao" / empty). Other integrations (Lodgify, Stripe→Moloni)
-        // get it only when the per-user flag was explicitly enabled by an admin.
+        // Early bird / trial only ever apply to Shopify→InvoiceXpress billing
+        // (source "faturacao" / empty). Lodgify and Stripe→Moloni are always
+        // pay-to-activate: no trial, charged immediately on their own price.
         const isShopifyDefault = !isLodgify && !isStripeMoloni;
-        const isEarlyBird = isShopifyDefault || !!sub?.early_bird;
+        const isEarlyBird = isShopifyDefault;
         const useTrial = isEarlyBird && trialEndUnix > nowUnix;
 
         const SOURCE_PATHS: Record<string, { ok: string; cancel: string }> = {

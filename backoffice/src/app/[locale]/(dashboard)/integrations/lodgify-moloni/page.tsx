@@ -9,8 +9,15 @@ import { Hotel, Building2, Loader2, Check, AlertTriangle, ChevronRight, Settings
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
+import { RIOKO_CONFIG } from "@/lib/config";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
+
+// Moloni requires a Callback URL on the developer app to activate API access.
+// Our integration uses the OAuth password grant, which never consumes a redirect,
+// so this URL is only there to satisfy Moloni's "activate the app" requirement —
+// any reachable value works; we hand clients a stable, shared one.
+const MOLONI_CALLBACK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/moloni/callback`;
 
 const exemptionOptions = [
     { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
@@ -51,6 +58,7 @@ export default function LodgifyMoloniIntegration() {
     const [webhookUrl, setWebhookUrl] = useState("");
     const [webhookManual, setWebhookManual] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [callbackCopied, setCallbackCopied] = useState(false);
 
     // Moloni creds
     const [clientId, setClientId] = useState("");
@@ -197,6 +205,15 @@ export default function LodgifyMoloniIntegration() {
             if (password) setHasSavedPassword(true);
             setClientSecret("");
             setPassword("");
+            // Validate the credentials actually authenticate against Moloni (a
+            // background grant via the companies proxy) before advancing — instant
+            // ✓/✗ instead of discovering a bad login at invoice time.
+            const valRes = await fetch("/api/integrations/moloni-destination/companies?source_kind=lodgify");
+            if (!valRes.ok) {
+                const vjson: any = await valRes.json().catch(() => ({}));
+                setMoloniError(vjson.error ?? t("errorMoloniAuth"));
+                return;
+            }
             setStep(3);
         } catch (e: any) {
             setMoloniError(e?.message ?? "Unknown error");
@@ -258,6 +275,10 @@ export default function LodgifyMoloniIntegration() {
     const copyWebhookUrl = () => {
         if (!webhookUrl) return;
         navigator.clipboard.writeText(webhookUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    };
+
+    const copyCallbackUrl = () => {
+        navigator.clipboard.writeText(MOLONI_CALLBACK_URL).then(() => { setCallbackCopied(true); setTimeout(() => setCallbackCopied(false), 2000); });
     };
 
     if (loading) {
@@ -356,6 +377,19 @@ export default function LodgifyMoloniIntegration() {
             errorMsg: moloniError,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
+                    <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] rounded-2xl px-6 py-4">
+                        <Info className="w-5 h-5 text-soon shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-soon">{t("moloniCallbackTitle")}</p>
+                            <p className="text-[11px] text-fg-60 mt-1 leading-relaxed">{t("moloniCallbackBody")}</p>
+                            <div className="flex items-center gap-2 bg-surface-2 border border-hairline rounded-xl px-4 py-3 mt-3">
+                                <code className="flex-1 text-xs text-fg font-mono break-all">{MOLONI_CALLBACK_URL}</code>
+                                <button type="button" onClick={copyCallbackUrl} className="p-2 rounded-lg hover:bg-surface transition-colors flex-shrink-0">
+                                    {callbackCopied ? <Check className="w-4 h-4 text-accent-hot" /> : <Copy className="w-4 h-4 text-fg-60" />}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("clientIdLabel")}</label>
                         <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="rioko-app" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />

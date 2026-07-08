@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
     const rawSource = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
-    const sourceKind = rawSource === "shopify" ? "shopify" : "stripe";
+    const sourceKind = ["shopify", "stripe", "lodgify"].includes(rawSource) ? rawSource : "stripe";
 
     const row: any = await db.prepare(
         `SELECT destination_config_json FROM connections

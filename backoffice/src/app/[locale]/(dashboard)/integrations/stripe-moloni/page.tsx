@@ -13,6 +13,10 @@ import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/In
 
 const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_SOURCE_ENABLED === "1";
 const WEBHOOK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/webhooks/stripe`;
+// Moloni requires a Callback URL on the developer app to activate API access.
+// The OAuth password grant never consumes a redirect, so this is only there to
+// satisfy Moloni's "activate the app" requirement — any reachable value works.
+const MOLONI_CALLBACK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/moloni/callback`;
 const RECOMMENDED_EVENTS = ["payment_intent.succeeded", "charge.succeeded", "charge.refunded"];
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
@@ -60,6 +64,7 @@ export default function StripeMoloniIntegration() {
     const [installError, setInstallError] = useState("");
     const [showManualFallback, setShowManualFallback] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [callbackCopied, setCallbackCopied] = useState(false);
 
     // Moloni creds
     const [clientId, setClientId] = useState("");
@@ -338,6 +343,16 @@ export default function StripeMoloniIntegration() {
             await navigator.clipboard.writeText(WEBHOOK_URL);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
+        } catch {
+            /* clipboard unavailable — no-op */
+        }
+    };
+
+    const copyCallbackUrl = async () => {
+        try {
+            await navigator.clipboard.writeText(MOLONI_CALLBACK_URL);
+            setCallbackCopied(true);
+            setTimeout(() => setCallbackCopied(false), 2000);
         } catch { }
     };
 
@@ -481,6 +496,19 @@ export default function StripeMoloniIntegration() {
             errorMsg: moloniError,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
+                    <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] rounded-2xl px-6 py-4">
+                        <Info className="w-5 h-5 text-soon shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-soon">{t("moloniCallbackTitle")}</p>
+                            <p className="text-[11px] text-fg-60 mt-1 leading-relaxed">{t("moloniCallbackBody")}</p>
+                            <div className="flex items-center gap-2 bg-surface-2 border border-hairline rounded-xl px-4 py-3 mt-3">
+                                <code className="flex-1 text-xs text-fg font-mono break-all">{MOLONI_CALLBACK_URL}</code>
+                                <button type="button" onClick={copyCallbackUrl} className="p-2 rounded-lg hover:bg-surface transition-colors flex-shrink-0">
+                                    {callbackCopied ? <Check className="w-4 h-4 text-accent-hot" /> : <Copy className="w-4 h-4 text-fg-60" />}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("clientIdLabel")}</label>
                         <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder={t("clientIdPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />

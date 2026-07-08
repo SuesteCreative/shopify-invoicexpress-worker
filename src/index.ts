@@ -1929,33 +1929,66 @@ function firstNum(...vals: unknown[]): number | null {
   return null;
 }
 
+// First non-empty trimmed string among vals, or null. Used to pull the guest
+// comment (where the NIF is typed) out of whichever field Lodgify carries it in.
+function firstStr(...vals: unknown[]): string | null {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s.length > 0) return s;
+  }
+  return null;
+}
+
 function ymd(input: unknown): string {
   const s = String(input ?? "");
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : "";
 }
 
-// List Lodgify bookings with the given query params (paginated, resilient). The
-// v2 list item is rich — status, totals, amount_due, guest, property, source —
-// so no per-booking detail fetch is needed here; LodgifySource still enriches
-// the guest address from the v1 endpoint downstream. Retries 429 (rate-limited
-// integration) with Retry-After backoff and paces pages; on exhaustion it
-// returns what it has rather than throwing (background sync should never crash
-// the whole poll over a transient limit).
-async function listLodgifyBookings(apiKey: string, params: Record<string, string>): Promise<any[]> {
+// Normalize a v1 `/v1/reservation` item to the v2-shaped fields the poll, the
+// invoice gate (bookingAmountDue) and the D1 mirror (upsertLodgifyBookings) were
+// written against. The v1 list is the COMPLETE booking set (see
+// listLodgifyBookings) but names its payment fields differently; alias them so
+// nothing downstream needs to change:
+//   amount_to_pay → amount_due   (outstanding balance; ≈0 ⇒ settled, incl. OTA
+//                                 stays where Booking.com/Airbnb collected)
+//   total_paid    → amount_paid
+//   currency{code}→ currency_code (v1 nests currency as an object)
+// Every original v1 field is preserved (status, guest.name/email, property_id,
+// source, arrival/departure, created_at, rooms) — those already line up.
+function normalizeLodgifyV1Item(v1: any): any {
+  const cur = v1?.currency;
+  const currency_code = typeof cur === "string" ? cur : (cur?.code ?? "EUR");
+  return {
+    ...v1,
+    amount_due: firstNum(v1?.amount_to_pay, v1?.amount_due),
+    amount_paid: firstNum(v1?.total_paid, v1?.amount_paid),
+    currency_code,
+  };
+}
+
+// List ALL Lodgify bookings for the account via the v1 `/v1/reservation`
+// endpoint (offset/limit paging, exposes a `total`). We use v1 — NOT v2
+// `/v2/reservations/bookings` — because the v2 list silently OMITS bookings
+// (confirmed live: OTA reservations absent from v2 even with a wide
+// updatedSince, which left them off conciliação AND un-invoiced). v1 returns the
+// full set; each item is normalized to the v2 shape the rest of the poll reads.
+// `trash=False` drops trashed bookings. Retries 429 with Retry-After backoff and
+// paces pages; on exhaustion returns what it has rather than throwing (a
+// background sync must never crash the whole poll over a transient limit).
+async function listLodgifyBookings(apiKey: string): Promise<any[]> {
   const out: any[] = [];
-  const size = 50;
+  const limit = 50;
   const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
-  for (let page = 1; page <= 40; page++) {
-    const qs = new URLSearchParams({ ...params, page: String(page), size: String(size), includeCount: "false" });
-    const url = `${LODGIFY_API}/v2/reservations/bookings?${qs.toString()}`;
+  for (let page = 0; page < 40; page++) {
+    const url = `${LODGIFY_API}/v1/reservation?offset=${page * limit}&limit=${limit}&trash=False`;
     let items: any[] | null = null;
     for (let attempt = 0; attempt < 4; attempt++) {
       const res = await fetch(url, { headers });
       if (res.ok) {
         const data: any = await res.json().catch(() => null);
         items = Array.isArray(data?.items) ? data.items
-          : Array.isArray(data?.bookings) ? data.bookings
           : Array.isArray(data) ? data
           : [];
         break;
@@ -1965,12 +1998,12 @@ async function listLodgifyBookings(apiKey: string, params: Record<string, string
         await delay(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1));
         continue;
       }
-      console.error(`[LodgifyPoll] list ${res.status} ${res.statusText}`);
+      console.error(`[LodgifyPoll] v1 list ${res.status} ${res.statusText}`);
       break;
     }
     if (items == null) break;
-    out.push(...items);
-    if (items.length < size) break;
+    for (const it of items) out.push(normalizeLodgifyV1Item(it));
+    if (items.length < limit) break;
     await delay(250); // pace pages to avoid re-tripping the rate limit
   }
   return out;
@@ -2010,6 +2043,13 @@ function toPreloadedFromItem(item: any): Record<string, unknown> {
     property_id: item?.property_id ?? null,
     source: item?.source ?? null,
     room_type_id: item?.rooms?.[0]?.room_type_id ?? item?.room_types?.[0]?.room_type_id ?? null,
+    // Guest comment (the booking-form "Comentários" box where guests type their
+    // NIF). Lodgify's field name varies by payload shape, so scan the likely
+    // ones; LodgifySource reads booking.notes → order.note → extractPtNif.
+    notes: firstStr(
+      item?.notes, item?.source_text, item?.comment, item?.message,
+      item?.guest?.comment, item?.guest?.notes, item?.guest?.message,
+    ),
   };
 }
 
@@ -2135,28 +2175,15 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
       continue;
     }
 
-    // Incremental catch-up sync: fetch only what changed since the last
-    // successful sync (minus a 2-day safety margin), NOT a wide 120-day burst.
-    // A 120-day sweep is ~3 pages and reliably tripped Lodgify's 429, which
-    // returned an empty page and froze the mirror. Anchoring on the last
-    // synced_at keeps each sweep tiny in steady state (≈2 days of changes) yet
-    // still catches up automatically after an outage. First-ever sync (empty
-    // mirror) backfills 120 days.
-    const DAY = 86_400_000;
-    let sinceMs: number;
-    try {
-      const last: any = await env.DB.prepare(
-        "SELECT MAX(synced_at) AS m FROM lodgify_bookings WHERE user_id = ?"
-      ).bind(conn.user_id).first();
-      const lastMs = last?.m ? Date.parse(String(last.m).replace(" ", "T") + "Z") : NaN;
-      sinceMs = Number.isFinite(lastMs) ? lastMs - 2 * DAY : Date.now() - 120 * DAY;
-    } catch {
-      sinceMs = Date.now() - 7 * DAY;
-    }
-    const sinceYmd = new Date(sinceMs).toISOString().slice(0, 10);
+    // Full-list sync from Lodgify v1 (`/v1/reservation`). v1 has no reliable
+    // updated-since filter (its `updated_at` is frequently unset), and the list
+    // is small enough (a few offset pages) to pull whole each poll — the upsert
+    // is idempotent and the invoice loop dedups, so re-seeing a booking is cheap.
+    // Pulling the full v1 set is what makes EVERY booking reach the mirror /
+    // conciliação; the old v2 list silently dropped some.
     let bookings: any[];
     try {
-      bookings = await listLodgifyBookings(apiKey, { updatedSince: sinceYmd });
+      bookings = await listLodgifyBookings(apiKey);
     } catch (e: any) {
       console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${e?.message ?? e}`);
       continue;
@@ -2245,6 +2272,16 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
       // Shared dedup with the webhook path — invoice a booking at most once.
       const { isProcessed, state } = await appStorage.isWebhookProcessed(bookingId, storageTopic);
       if (isProcessed && state !== "failed") { result.skipped++; continue; }
+
+      // Defensive dedup: the v1 list surfaces bookings the old v2 list omitted —
+      // some already invoiced out-of-band (a manual admin re-emit, or a run whose
+      // webhook_info write was lost). If an invoice is already mapped for this
+      // booking, don't create a second one; heal the processed marker instead.
+      const existingInvoice = await appStorage.getInvoiceByOrderId(bookingId);
+      if (existingInvoice?.invoice_id) {
+        await appStorage.markWebhookAsProcessed(bookingId, storageTopic, "success");
+        result.skipped++; continue;
+      }
 
       await appStorage.markWebhookAsProcessing(bookingId, storageTopic);
       const body = { event: "booking_new_status_booked", data: { bookingId }, _preloaded_booking: toPreloadedFromItem(item) };

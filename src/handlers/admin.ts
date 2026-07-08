@@ -117,6 +117,30 @@ async function findIxInvoiceByReference(
   return null;
 }
 
+/**
+ * IX rejects `changeState → finalized` on a document that is ALREADY finalized /
+ * has payments, with a stable set of messages (EN direct + PT via the proxy):
+ * `DOC001 "Document already paid. Cannot be edited"`, `"has payments and can't be
+ * edited"`, `"O documento já contém pagamentos. Não pode ser editado"`. The
+ * reconciliation sweep re-finalizes every already-issued invoice in its window,
+ * so these are HEALTHY documents, not failures — detecting them lets the caller
+ * report an idempotent skip instead of flooding the ops report with false errors.
+ */
+function isAlreadyFinalizedIxError(error: unknown): boolean {
+  const s = JSON.stringify(error ?? "").toLowerCase();
+  return (
+    s.includes("doc001") ||
+    s.includes("already paid") ||
+    s.includes("cannot be edited") ||
+    s.includes("can't be edited") ||
+    s.includes("has payments") ||
+    s.includes("já contém pagamentos") ||
+    s.includes("ja contem pagamentos") ||
+    s.includes("não pode ser editado") ||
+    s.includes("nao pode ser editado")
+  );
+}
+
 export async function getUnprocessedOrders(env: Env, config: IRequestConfig, from: string, to: string) {
   const appStorage = new AppStorage(env, config.shopify_domain!);
 
@@ -980,6 +1004,13 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
     });
 
     if (error) {
+      // Already finalized / has payments = a HEALTHY, issued document — not a
+      // failure. The sweep re-finalizes every processed order in its window, so
+      // without this it reports hundreds of false "errors" on good invoices.
+      // Report an idempotent skip instead.
+      if (isAlreadyFinalizedIxError(error)) {
+        return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Already finalized (document has payments / cannot be edited)" };
+      }
       return { order_id: order.id, order_number: order.order_number, status: "error", message: `Finalize failed: ${JSON.stringify(error)}` };
     }
 

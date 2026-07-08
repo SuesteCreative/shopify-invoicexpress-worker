@@ -184,6 +184,32 @@ export class AppStorage {
     }));
   }
 
+  /**
+   * Resolve human-facing merchant names for a set of user_ids in one query.
+   * Priority: `admin_label` (superadmin override) → `company_name` → `name`.
+   * Returns a Map<user_id, displayName>; callers fall back to the store domain
+   * for any id absent from the map. Used by the reconciliation sweep + incident
+   * emails so reports read "Salted Books" / "Zoo de Lagos" instead of the raw
+   * `*.myshopify.com` slug.
+   */
+  async getMerchantDisplayNames(userIds: Array<string | null | undefined>): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((x): x is string => !!x))];
+    const out = new Map<string, string>();
+    if (ids.length === 0) return out;
+    const placeholders = ids.map(() => "?").join(",");
+    const res = await this.db.prepare(
+      `SELECT id, name, company_name, admin_label FROM users WHERE id IN (${placeholders})`
+    ).bind(...ids).all();
+    for (const r of ((res.results as any[]) ?? [])) {
+      const label =
+        (r.admin_label && String(r.admin_label).trim())
+        || (r.company_name && String(r.company_name).trim())
+        || (r.name && String(r.name).trim());
+      if (label) out.set(String(r.id), label);
+    }
+    return out;
+  }
+
   async saveLog(data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number; user_id?: string | null }) {
     try {
       await this.db.prepare(

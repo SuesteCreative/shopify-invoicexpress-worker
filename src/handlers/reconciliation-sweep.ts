@@ -43,6 +43,8 @@ export interface ReconSweepOptions {
 
 interface ShopSweepRow {
   shop: string;
+  /** Human-facing merchant name (admin_label/company_name/name), else the shop domain. */
+  displayName: string;
   created: number;
   finalized: number;
   skipped: number;
@@ -76,6 +78,10 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
   const active = await root.listActiveShopifyIntegrations();
   const shops = allowSet ? active.filter((s) => allowSet.has(s.shopify_domain)) : active;
 
+  // Resolve registered merchant names once (one query) so the report + incidents
+  // read "Salted Books" / "Zoo de Lagos" instead of the raw myshopify slug.
+  const nameByUser = await root.getMerchantDisplayNames(shops.map((s) => s.user_id));
+
   const result: ReconSweepResult = {
     ranAt: toIso,
     dryRun,
@@ -93,7 +99,8 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     if (Number(config.is_paused) === 1) continue;
     result.shopsScanned++;
 
-    const row: ShopSweepRow = { shop: shopify_domain, created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0, errorSamples: [] };
+    const displayName = (config.user_id && nameByUser.get(config.user_id)) || shopify_domain;
+    const row: ShopSweepRow = { shop: shopify_domain, displayName, created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0, errorSamples: [] };
 
     try {
       // CREATE pass — reuses the double-guarded reemit path.
@@ -133,11 +140,11 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
           user_id: config.user_id,
           severity: "error",
           kind: "queue_retry_exhausted",
-          summary: `Reconciliation sweep: ${row.errors} order(s) could not be auto-invoiced for ${shopify_domain}`.slice(0, 500),
-          detail: { shop: shopify_domain, window: { from: fromIso, to: toIso }, errors: row.errorSamples },
+          summary: `Reconciliation sweep: ${row.errors} order(s) could not be auto-invoiced for ${row.displayName}`.slice(0, 500),
+          detail: { shop: shopify_domain, merchant: row.displayName, window: { from: fromIso, to: toIso }, errors: row.errorSamples },
           affected_ids: row.errorSamples.map((s) => String(s.order_number)),
           connection_label: "shopify → invoicexpress",
-          merchant_name: shopify_domain,
+          merchant_name: row.displayName,
           bucket: "daily",
         });
       } catch (incErr: any) {
@@ -181,7 +188,7 @@ async function notifyOps(env: Env, result: ReconSweepResult): Promise<void> {
     const items = s.errorSamples.slice(0, 10)
       .map((e) => `<li><strong>#${e.order_number}</strong>: ${escapeHtml(e.message)}</li>`)
       .join("");
-    return `<h3 style="margin:16px 0 4px">${escapeHtml(s.shop)} — ${s.errors} order(s) need attention</h3><ul>${items}</ul>`;
+    return `<h3 style="margin:16px 0 4px">${escapeHtml(s.displayName)} <span style="color:#94a3b8;font-weight:normal">(${escapeHtml(s.shop)})</span> — ${s.errors} order(s) need attention</h3><ul>${items}</ul>`;
   }).join("");
 
   const html = `

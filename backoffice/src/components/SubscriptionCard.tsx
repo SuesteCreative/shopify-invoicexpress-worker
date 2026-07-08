@@ -27,7 +27,7 @@ function daysUntil(iso?: string | null): number | null {
     return Math.max(0, Math.ceil(diff / 86400000));
 }
 
-export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean }) {
+export default function SubscriptionCard({ onSuccess, source }: { onSuccess?: boolean; source?: string }) {
     const t = useTranslations("subscriptionCard");
     const dateLocale = t("dateLocale");
     const formatDate = (iso?: string | null): string => {
@@ -65,7 +65,7 @@ export default function SubscriptionCard({ onSuccess }: { onSuccess?: boolean })
             const res = await fetch("/api/billing/checkout", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ plan: selectedPlan }),
+                body: JSON.stringify({ plan: selectedPlan, source: source ?? "faturacao" }),
             });
             const d = (await res.json()) as { url?: string; error?: string };
             if (d.url) {

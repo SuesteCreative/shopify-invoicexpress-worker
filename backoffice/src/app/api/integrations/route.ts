@@ -190,6 +190,25 @@ export async function POST(request: NextRequest) {
                 .run();
         }
 
+        // Shopify merchants are early-bird by default: grant the free-access grace
+        // until the cutoff. The gate reads early_bird + trial_end, so this is what
+        // makes "Shopify → early bird by default" true in the DB (single source of
+        // truth). Idempotent; the subscription row is normally seeded at signup.
+        const earlyBirdCutoff = (env as any).EARLY_BIRD_TRIAL_END || process.env.EARLY_BIRD_TRIAL_END || "2026-08-01T00:00:00Z";
+        try {
+            await db.prepare(`
+                INSERT INTO subscriptions (user_id, status, trial_end, early_bird, created_at, updated_at)
+                VALUES (?, 'trialing', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    early_bird = 1,
+                    trial_end = COALESCE(subscriptions.trial_end, excluded.trial_end),
+                    updated_at = CURRENT_TIMESTAMP
+            `).bind(targetUserId, earlyBirdCutoff).run();
+        } catch (e: any) {
+            // Non-fatal: the integration was saved; early-bird grant is best-effort.
+            console.error("[integrations] early-bird grant failed:", e?.message ?? e);
+        }
+
         return NextResponse.json({ success: true });
     } catch (error: any) {
         console.error("D1 Error:", error);

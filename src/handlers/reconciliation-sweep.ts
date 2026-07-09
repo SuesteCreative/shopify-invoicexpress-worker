@@ -77,6 +77,15 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
   const now = new Date();
   const fromIso = new Date(now.getTime() - days * 864e5).toISOString();
   const toIso = now.toISOString();
+  // The FINALIZE pass stays on a short window even when CREATE drains 90 days.
+  // Two reasons: (1) re-scanning every processed order over 90 days would make
+  // the nightly run on high-volume auto_finalize shops (thousands of orders) slow
+  // and subrequest-heavy for no gain — old invoices are already finalized; (2) IX
+  // rejects backdated finalization, so a freshly-drained 50-day-old draft can't be
+  // auto-finalized cleanly anyway — it's left as a draft for a human to finalize
+  // with the right series/date strategy. Capped at RECON_SWEEP_DAYS (7).
+  const finalizeDays = Math.min(days, Number(env.RECON_SWEEP_DAYS) || 7);
+  const finalizeFromIso = new Date(now.getTime() - finalizeDays * 864e5).toISOString();
 
   // Allowlist: explicit option beats env; empty = all active shops.
   const envAllow = (env.RECON_SWEEP_SHOPS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -125,11 +134,12 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
       collectErrors(row, created.results);
 
       // FINALIZE pass — only for shops that auto-finalize (fiscal-validity parity).
+      // Short window (finalizeFromIso), independent of the create drain window.
       if (Number(config.auto_finalize) === 1) {
-        const finalized = await processOrders(env, config, "finalize_orders", undefined, fromIso, toIso, {
+        const finalized = await processOrders(env, config, "finalize_orders", undefined, finalizeFromIso, toIso, {
           dry_run: dryRun,
           triggered_by: "recon-sweep-cron",
-          reason: `Auto reconciliation sweep finalize (${days}d window)`,
+          reason: `Auto reconciliation sweep finalize (${finalizeDays}d window)`,
         });
         row.finalized += finalized.success ?? 0;
         row.skipped += finalized.skipped ?? 0;

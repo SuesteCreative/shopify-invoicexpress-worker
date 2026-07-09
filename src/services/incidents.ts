@@ -529,21 +529,30 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
 
   if (rows.length === 0) return empty;
 
-  // Verify against processed_orders in one batched lookup: any affected id that
-  // now has an invoice is no longer "unprocessed". getProcessedOrderIds keys by
-  // the same external id the pipeline writes (saveProcessedInvoice(externalId)).
+  // Verify against ALL invoice-mapping tables in one batched lookup: an affected
+  // id counts as invoiced if it has an invoice in processed_orders,
+  // reconciliation_match (manual re-emit), OR lodgify_partial_invoices. Checking
+  // only processed_orders (the old behaviour) left orders resolved by a manual
+  // match or Lodgify partial counted as "missing" forever — the main driver of
+  // the inflated "faturas por emitir" numbers.
   const allAffected = new Set<string>();
   for (const r of rows) for (const id of parseAffectedIds(r.affected_ids_json)) allAffected.add(id);
-  const processed = await new AppStorage(env).getProcessedOrderIds([...allAffected]);
+  const processed = await new AppStorage(env).getInvoicedOrderIdsAnySource([...allAffected]);
 
   const byUser = new Map<string, WeeklyDigestItem[]>();
+  const resolvedIncidentIds: string[] = []; // fully-invoiced incidents to auto-close
   for (const r of rows) {
     const affected = parseAffectedIds(r.affected_ids_json);
     // Order-scoped incident: keep only the ids still missing an invoice.
     // Account-level incident (no affected ids, e.g. subscription_inactive):
     // can't verify per order, so always keep it.
     const missing = affected.filter((id) => !processed.has(id));
-    if (affected.length > 0 && missing.length === 0) continue; // fully resolved
+    if (affected.length > 0 && missing.length === 0) {
+      // Every affected order now has an invoice — close the incident so it stops
+      // recurring in future digests instead of just skipping it this run.
+      resolvedIncidentIds.push(String(r.id));
+      continue;
+    }
     const userId = String(r.user_id);
     if (!byUser.has(userId)) byUser.set(userId, []);
     byUser.get(userId)!.push({
@@ -553,6 +562,28 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
       severity: r.severity,
       missingIds: missing,
     });
+  }
+
+  // Auto-close incidents whose affected orders are now ALL invoiced, so a
+  // resolved-elsewhere miss stops re-surfacing every Friday. We mark 'resolved'
+  // (not 'auto_resolved') on purpose: reportIncident's ON CONFLICT reopens a
+  // 'resolved' bucket to 'open' if the SAME failure genuinely recurs, so closing
+  // here can never swallow a future real miss. Best-effort + chunked; a failure
+  // only means the incident lingers one more week.
+  if (resolvedIncidentIds.length > 0) {
+    const nowIso = new Date().toISOString();
+    for (let i = 0; i < resolvedIncidentIds.length; i += 50) {
+      const chunk = resolvedIncidentIds.slice(i, i + 50);
+      const ph = chunk.map(() => "?").join(",");
+      try {
+        await env.DB.prepare(
+          `UPDATE incidents SET status = 'resolved', resolved_at = ?
+           WHERE status IN ('open','acknowledged') AND id IN (${ph})`
+        ).bind(nowIso, ...chunk).run();
+      } catch (e: any) {
+        console.error(`[weekly-digest] auto-close failed: ${e.message}`);
+      }
+    }
   }
 
   if (byUser.size === 0) return empty;

@@ -1024,6 +1024,39 @@ export class AppStorage {
     return processed;
   }
 
+  /**
+   * Like getProcessedOrderIds, but treats an order as invoiced if it has an
+   * invoice in ANY mapping table the pipeline writes to:
+   *   - processed_orders.id             (Shopify→IX/Moloni auto-create)
+   *   - reconciliation_match.order_id   (manual re-emit / operator match)
+   *   - lodgify_partial_invoices.booking_id (Lodgify partial invoices)
+   * The weekly digest used to verify against processed_orders ONLY, so an order
+   * resolved by a manual match or a Lodgify partial stayed counted as "missing"
+   * forever — the main driver of the inflated "faturas por emitir" numbers.
+   * processed_orders is the authoritative base; the aux tables are added under a
+   * guard so a schema hiccup there can never lose the core truth. Keying on the
+   * id columns directly makes this safe to call with a mixed set of order/booking
+   * ids spanning multiple shops/users.
+   */
+  async getInvoicedOrderIdsAnySource(orderIds: string[]): Promise<Set<string>> {
+    const invoiced = await this.getProcessedOrderIds(orderIds);
+    for (let i = 0; i < orderIds.length; i += 50) {
+      const chunk = orderIds.slice(i, i + 50);
+      const ph = chunk.map(() => "?").join(",");
+      try {
+        const result = await this.db.prepare(
+          `SELECT order_id AS oid FROM reconciliation_match WHERE invoice_id IS NOT NULL AND order_id IN (${ph})
+           UNION
+           SELECT booking_id AS oid FROM lodgify_partial_invoices WHERE invoice_id IS NOT NULL AND booking_id IN (${ph})`
+        ).bind(...chunk, ...chunk).all();
+        for (const row of result.results) invoiced.add(String((row as any).oid));
+      } catch (e) {
+        console.warn("[Rioko] getInvoicedOrderIdsAnySource aux lookup failed (processed_orders still applied):", e);
+      }
+    }
+    return invoiced;
+  }
+
   async isWebhookProcessed(webhookId: string, topic: string): Promise<{ isProcessed: boolean; state?: string }> {
     try {
       const row: any = await this.db.prepare(

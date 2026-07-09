@@ -36,7 +36,9 @@ export interface Env {
   // paid Shopify order missing its InvoiceXpress invoice, via the double-guarded
   // reemit path (no duplicates, drift-guarded). Ships DARK.
   RECON_SWEEP_ENABLED?: string;           // "1" enables the 04:00 cron; default off
-  RECON_SWEEP_DAYS?: string;              // lookback window in days; default "7"
+  RECON_SWEEP_DAYS?: string;              // legacy short window (days); fallback only
+  RECON_SWEEP_DRAIN_DAYS?: string;        // effective lookback (days); default "90" — must match the
+                                          // weekly-digest horizon so reported drops actually get healed
   RECON_SWEEP_SHOPS?: string;             // CSV allowlist of shopify_domains; empty = all active shops
   // Shopify→IX CREATE-path normalization source. "1" builds the Normalized shape
   // in-worker from the raw Shopify order (no external Hostinger call); default/"0"

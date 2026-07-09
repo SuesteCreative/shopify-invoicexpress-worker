@@ -50,7 +50,7 @@ interface ShopSweepRow {
   skipped: number;
   errors: number;
   wouldCreate: number;
-  errorSamples: Array<{ order_number: number; message: string }>;
+  errorSamples: Array<{ order_number: number; order_id?: string; message: string }>;
 }
 
 export interface ReconSweepResult {
@@ -64,7 +64,16 @@ export interface ReconSweepResult {
 
 export async function runReconciliationSweep(env: Env, options: ReconSweepOptions = {}): Promise<ReconSweepResult> {
   const dryRun = !!options.dryRun;
-  const days = options.days && options.days > 0 ? options.days : (Number(env.RECON_SWEEP_DAYS) || 7);
+  // Window must match the weekly-digest horizon (WEEKLY_LOOKBACK_DAYS=90): a drop
+  // reported as "por emitir" for up to 90 days but only re-fetched for 7 days is
+  // the root cause of backlogs that get flagged forever yet never auto-heal.
+  // Widened to a 90-day drain. The fetch is cheap (paginated Shopify list); the
+  // expensive IX work self-limits to genuinely-missing orders (dedup vs
+  // processed_orders + adminCreateOrder's IX-by-reference guard syncs phantoms
+  // instead of double-invoicing), so a healed shop converges to ~0 work per run.
+  const days = options.days && options.days > 0
+    ? options.days
+    : (Number(env.RECON_SWEEP_DRAIN_DAYS) || Number(env.RECON_SWEEP_DAYS) || 90);
   const now = new Date();
   const fromIso = new Date(now.getTime() - days * 864e5).toISOString();
   const toIso = now.toISOString();
@@ -142,7 +151,11 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
           kind: "queue_retry_exhausted",
           summary: `Reconciliation sweep: ${row.errors} order(s) could not be auto-invoiced for ${row.displayName}`.slice(0, 500),
           detail: { shop: shopify_domain, merchant: row.displayName, window: { from: fromIso, to: toIso }, errors: row.errorSamples },
-          affected_ids: row.errorSamples.map((s) => String(s.order_number)),
+          // Use the Shopify order_id (what processed_orders is keyed by) so the
+          // weekly digest can verify these against invoices and auto-close them
+          // once healed. Fall back to order_number only when id is unknown
+          // (shop-level sweep failure); drop the placeholder "0".
+          affected_ids: row.errorSamples.map((s) => s.order_id ?? String(s.order_number)).filter((id) => id && id !== "0"),
           connection_label: "shopify → invoicexpress",
           merchant_name: row.displayName,
           bucket: "daily",
@@ -169,9 +182,9 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
   return result;
 }
 
-function collectErrors(row: ShopSweepRow, results: Array<{ order_number: number; status: string; message: string }> | undefined) {
+function collectErrors(row: ShopSweepRow, results: Array<{ order_id?: string | number; order_number: number; status: string; message: string }> | undefined) {
   for (const r of results ?? []) {
-    if (r.status === "error") row.errorSamples.push({ order_number: r.order_number, message: String(r.message).slice(0, 300) });
+    if (r.status === "error") row.errorSamples.push({ order_number: r.order_number, order_id: r.order_id != null ? String(r.order_id) : undefined, message: String(r.message).slice(0, 300) });
   }
 }
 

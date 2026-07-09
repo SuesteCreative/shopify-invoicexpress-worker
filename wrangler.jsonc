@@ -30,7 +30,7 @@
     "RESEND_FROM_EMAIL": "noreply@rioko.online",
     "KAPTA_DEV_EMAILS": "pedrotovarporto@gmail.com",
     "INCIDENT_DIGEST_ENABLED": "0",
-    "WEEKLY_MERCHANT_DIGEST_ENABLED": "0",
+    "WEEKLY_MERCHANT_DIGEST_ENABLED": "1",
     "AI_PATTERN_REPORT_ENABLED": "1",
     "RECON_SWEEP_ENABLED": "1",
     "RECON_SWEEP_DAYS": "7",

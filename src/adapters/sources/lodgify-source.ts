@@ -95,6 +95,13 @@ export class LodgifySource implements SourceAdapter {
         property_id: wb.property_id,
         source: wb.source,
         room_type_id: wb.room_types?.[0]?.room_type_id ?? null,
+        // Guest comment (booking-form "Comentários" box → NIF). `note` is the only
+        // free-text guest field Lodgify exposes on the booking; the rest are
+        // future-proofing. NOT source_text — that is the channel label.
+        notes: firstNonEmpty(
+          wb.note, wb.notes, parsedBody.note, parsedBody.notes, parsedBody.comment,
+          parsedBody.guest?.comment, parsedBody.guest?.notes, parsedBody.guest?.message,
+        ),
       };
     } else {
       // Thin envelope (data.bookingId only) — fetch from v2 API.
@@ -159,9 +166,17 @@ export class LodgifySource implements SourceAdapter {
     const countryName = countryCodeToName(rawCountry);
     const guestPhone = enriched?.phone ?? booking.guest?.phone ?? null;
     // NIF is not a native Lodgify field; it only appears when the guest typed it
-    // into the booking notes. Surface notes so the destination's extractPtNif
-    // (which scans order.note for a valid 9-digit PT NIF) can pick it up.
-    const guestNote = enriched?.note ?? (booking.notes ? String(booking.notes) : null) ?? null;
+    // into the booking-form "Comentários" box (data-testid contact-comments-input).
+    // Surface that comment on order.note so the destination's extractPtNif (which
+    // scans order.note for a valid 9-digit PT NIF) picks it up. We combine BOTH
+    // the v1-enriched note and the webhook/poll `booking.notes` because the
+    // comment can arrive via either — the poll path has no v1 call to depend on.
+    // If the guest typed "N/A" (or a variant, or nothing), no valid NIF is found
+    // and the destination falls back to the generic consumer VAT (999999990).
+    const guestNote = stripNaOnly(firstNonEmpty(
+      enriched?.note,
+      booking.notes != null ? String(booking.notes) : null,
+    ));
 
     const arrival = String(booking.arrival ?? "");
     const departure = String(booking.departure ?? "");
@@ -224,6 +239,13 @@ export class LodgifySource implements SourceAdapter {
     }
     if (booking.room_type_id != null) {
       noteAttrs.push({ name: "room_type_id", value: String(booking.room_type_id) });
+    }
+    // Also expose the guest comment as a "nif" attribute. extractPtNif's keyword
+    // branch strips ALL non-digits and takes the last 9, so this catches NIFs
+    // glued to text (e.g. "NIF123456789") that the order.note word-boundary scan
+    // (\b\d{9}\b) would miss. Only added when the comment survived the N/A strip.
+    if (guestNote) {
+      noteAttrs.push({ name: "nif", value: guestNote });
     }
 
     const order: Order = {
@@ -294,6 +316,30 @@ export class LodgifySource implements SourceAdapter {
   }
 }
 
+// First non-empty trimmed string among vals, or null.
+function firstNonEmpty(...vals: Array<unknown>): string | null {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s.length > 0) return s;
+  }
+  return null;
+}
+
+// If the comment is ONLY an "N/A" variant (guest has no NIF), drop it so it
+// isn't stamped on the invoice as a bogus note. A comment that also carries a
+// real NIF (e.g. "N/A depois 123456789") is kept intact for extractPtNif.
+// The generic-VAT fallback (999999990) then applies when no valid NIF remains.
+function stripNaOnly(note: string | null): string | null {
+  if (!note) return null;
+  const t = note.trim();
+  // n/a, na, n.a., "não tenho", "sem nif", "nao possuo", "-", "—" …
+  if (/^(n\.?\/?\s*a\.?|n[aã]o\s+(tenho|possuo|tem)|sem\s+nif|nenhum|none|[-–—.]+)$/i.test(t)) {
+    return null;
+  }
+  return note;
+}
+
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -350,7 +396,13 @@ async function fetchGuestDetails(bookingId: string, apiKey: string): Promise<Gue
       zip: clean(g.postal_code),
       state: clean(g.state),
       countryCode: clean(g.country_code),
-      note: clean(data?.note),
+      // Guest comment. `data.note` is the only free-text guest field the v1
+      // booking exposes (verified live); the rest are future-proofing. NOT
+      // source_text — that is the channel label ("Direto", "*.lodgify.com").
+      note: firstNonEmpty(
+        clean(data?.note), clean(data?.comment), clean(data?.message),
+        clean(g.comment), clean(g.notes), clean(g.message),
+      ),
     };
   } catch {
     // Non-fatal: enrichment is additive; invoice still issues without it.

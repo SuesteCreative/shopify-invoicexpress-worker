@@ -476,6 +476,8 @@ export interface WeeklyDigestResult {
   merchantsNotified: number;
   totalMissing: number;
   skippedNoEmail: number;
+  /** On dryRun: the per-merchant breakdown that WOULD be sent (nothing sent). */
+  preview?: Array<{ userId: string; merchantName: string; recipients: string[]; missingCount: number; subject: string }>;
 }
 
 function parseAffectedIds(json: string | null): string[] {
@@ -505,8 +507,8 @@ function parseAffectedIds(json: string | null): string[] {
  * ground-truth processed_orders table on each run, which makes it
  * self-correcting (a re-emitted order silently drops off next Friday).
  */
-export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestResult> {
-  const empty: WeeklyDigestResult = { merchantsNotified: 0, totalMissing: 0, skippedNoEmail: 0 };
+export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean; userId?: string } = {}): Promise<WeeklyDigestResult> {
+  const empty: WeeklyDigestResult = { merchantsNotified: 0, totalMissing: 0, skippedNoEmail: 0, preview: [] };
   const cutoffIso = new Date(Date.now() - WEEKLY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const kindPlaceholders = INVOICE_FAILURE_KINDS.map(() => "?").join(",");
 
@@ -528,6 +530,12 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
   }
 
   if (rows.length === 0) return empty;
+
+  // Optional scope to a single merchant (manual trigger / targeted preview).
+  if (opts.userId) {
+    rows = rows.filter((r) => String(r.user_id) === String(opts.userId));
+    if (rows.length === 0) return empty;
+  }
 
   // Verify against ALL invoice-mapping tables in one batched lookup: an affected
   // id counts as invoiced if it has an invoice in processed_orders,
@@ -570,7 +578,7 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
   // 'resolved' bucket to 'open' if the SAME failure genuinely recurs, so closing
   // here can never swallow a future real miss. Best-effort + chunked; a failure
   // only means the incident lingers one more week.
-  if (resolvedIncidentIds.length > 0) {
+  if (!opts.dryRun && resolvedIncidentIds.length > 0) {
     const nowIso = new Date().toISOString();
     for (let i = 0; i < resolvedIncidentIds.length; i += 50) {
       const chunk = resolvedIncidentIds.slice(i, i + 50);
@@ -588,13 +596,46 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
 
   if (byUser.size === 0) return empty;
 
+  // Skip merchants whose shops are ALL paused: a paused integration isn't being
+  // invoiced on purpose, so a "faturas por emitir" nag is wrong. We only skip a
+  // user who HAS integration rows and every one of them is paused — a user with
+  // no integration row (e.g. a different source) is left untouched.
+  const usersWithIntegrations = new Set<string>();
+  const activeUsers = new Set<string>();
+  {
+    const userIds = [...byUser.keys()];
+    for (let i = 0; i < userIds.length; i += 50) {
+      const chunk = userIds.slice(i, i + 50);
+      const ph = chunk.map(() => "?").join(",");
+      try {
+        const res = await env.DB.prepare(
+          `SELECT user_id, COALESCE(is_paused,0) AS is_paused FROM integrations WHERE user_id IN (${ph})`
+        ).bind(...chunk).all();
+        for (const r of res.results as any[]) {
+          usersWithIntegrations.add(String(r.user_id));
+          if (Number(r.is_paused) === 0) activeUsers.add(String(r.user_id));
+        }
+      } catch (e: any) {
+        console.error(`[weekly-digest] paused-shop lookup failed: ${e.message}`);
+      }
+    }
+  }
+
   const devEmails = parseEmailList(env.KAPTA_DEV_EMAILS);
   const { tplWeeklyUnprocessed } = await import("./email-templates");
   let merchantsNotified = 0;
   let totalMissing = 0;
   let skippedNoEmail = 0;
+  let skippedPaused = 0;
+  const preview: WeeklyDigestResult["preview"] = [];
 
   for (const [userId, items] of byUser) {
+    // Paused-only merchant → don't nag about invoices they intentionally aren't issuing.
+    if (usersWithIntegrations.has(userId) && !activeUsers.has(userId)) {
+      console.log(`[weekly-digest] user ${userId} has only paused shop(s); skipping (${items.length} item(s))`);
+      skippedPaused++;
+      continue;
+    }
     // Strict isolation: resolve recipients per user so a merchant can only ever
     // receive their own list.
     const recipients = await resolveMerchantEmails(env, userId);
@@ -617,6 +658,14 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
     const merchantName = await resolveMerchantName(env, userId);
     const tpl = tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount });
 
+    // Dry-run: record what WOULD be sent, send nothing.
+    if (opts.dryRun) {
+      preview!.push({ userId, merchantName, recipients, missingCount, subject: tpl.subject });
+      merchantsNotified++;
+      totalMissing += missingCount;
+      continue;
+    }
+
     const result = await sendEmail(env, {
       to: recipients,
       bcc: devEmails.length ? devEmails : undefined,
@@ -631,5 +680,6 @@ export async function runWeeklyMerchantDigest(env: Env): Promise<WeeklyDigestRes
     }
   }
 
-  return { merchantsNotified, totalMissing, skippedNoEmail };
+  if (skippedPaused) console.log(`[weekly-digest] skipped ${skippedPaused} paused-only merchant(s)`);
+  return { merchantsNotified, totalMissing, skippedNoEmail, preview };
 }

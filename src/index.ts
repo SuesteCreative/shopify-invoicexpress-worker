@@ -817,6 +817,26 @@ app.post("/admin/run-reconciliation-sweep", async (c) => {
   }
 })
 
+// Admin: run the weekly merchant digest on demand. dry_run:true previews the
+// per-merchant recipients + counts and sends NOTHING (also skips incident
+// auto-close). user_id scopes to a single merchant. Same code the Friday 16:00
+// cron runs.
+app.post("/admin/run-weekly-digest", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { dry_run?: boolean; user_id?: string } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  try {
+    const result = await runWeeklyMerchantDigest(c.env, {
+      dryRun: body.dry_run === true,
+      userId: body.user_id,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Weekly digest failed");
+  }
+})
+
 // Admin: process (create or finalize) orders
 app.post("/admin/process-orders", async (c) => {
   const unauth = await requireAdmin(c);
@@ -2068,10 +2088,11 @@ function toPreloadedFromItem(item: any): Record<string, unknown> {
     source: item?.source ?? null,
     room_type_id: item?.rooms?.[0]?.room_type_id ?? item?.room_types?.[0]?.room_type_id ?? null,
     // Guest comment (the booking-form "Comentários" box where guests type their
-    // NIF). Lodgify's field name varies by payload shape, so scan the likely
-    // ones; LodgifySource reads booking.notes → order.note → extractPtNif.
+    // NIF). `note` is the only free-text guest field the Lodgify booking object
+    // exposes (verified against live payloads); the rest are future-proofing.
+    // NOT source_text — that is the channel label ("Direto", "*.lodgify.com").
     notes: firstStr(
-      item?.notes, item?.source_text, item?.comment, item?.message,
+      item?.note, item?.notes, item?.comment, item?.message,
       item?.guest?.comment, item?.guest?.notes, item?.guest?.message,
     ),
   };

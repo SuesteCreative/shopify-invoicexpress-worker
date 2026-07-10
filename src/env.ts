@@ -40,6 +40,7 @@ export interface Env {
   RECON_SWEEP_DRAIN_DAYS?: string;        // effective lookback (days); default "90" — must match the
                                           // weekly-digest horizon so reported drops actually get healed
   RECON_SWEEP_SHOPS?: string;             // CSV allowlist of shopify_domains; empty = all active shops
+  RECON_SWEEP_BUDGET_MS?: string;         // wall-clock cap for the full-scan backstop; default 480000 (8m)
   // Shopify→IX CREATE-path normalization source. "1" builds the Normalized shape
   // in-worker from the raw Shopify order (no external Hostinger call); default/"0"
   // keeps the external normalize service. Refund + adapter paths are unaffected.

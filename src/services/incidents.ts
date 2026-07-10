@@ -423,7 +423,7 @@ export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number
  * excluded: the merchant's weekly email is about *missing invoices*, not
  * infrastructure alerts (those go to the Rioko team in real time).
  */
-const INVOICE_FAILURE_KINDS: IncidentKind[] = [
+export const INVOICE_FAILURE_KINDS: IncidentKind[] = [
   "queue_retry_exhausted",
   "destination_reject",
   "normalize_fail",

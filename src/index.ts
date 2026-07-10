@@ -27,7 +27,7 @@ import {
   getShopForUser,
 } from "./handlers/reconciliation";
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
-import { runReconciliationSweep } from "./handlers/reconciliation-sweep";
+import { runReconciliationSweep, runIncidentDrivenHeal } from "./handlers/reconciliation-sweep";
 import { delay } from "./utils";
 import { errorResponse, requireAdminAuth } from "./security";
 import {
@@ -814,6 +814,27 @@ app.post("/admin/run-reconciliation-sweep", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Reconciliation sweep failed");
+  }
+})
+
+// Admin: run the incident-driven auto-heal on demand. dry_run:true reports what
+// WOULD be re-emitted (the open-incident orders still missing an invoice) and
+// writes nothing. shops:[] restricts to specific domains. This is the reliable
+// nightly primary — bounded to the flagged-missing set, so it completes even for
+// high-volume shops the full scan can't finish.
+app.post("/admin/run-incident-heal", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { dry_run?: boolean; shops?: string[] | string } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  const shops = Array.isArray(body.shops)
+    ? body.shops
+    : (typeof body.shops === "string" ? body.shops.split(",").map((s) => s.trim()).filter(Boolean) : undefined);
+  try {
+    const result = await runIncidentDrivenHeal(c.env, { dryRun: body.dry_run === true, shops });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Incident-driven heal failed");
   }
 })
 
@@ -2420,6 +2441,18 @@ export default {
     // its own cron so it never rides the 08:00 ops sweep. Ships dark.
     if (event.cron === "0 4 * * *") {
       if (env.RECON_SWEEP_ENABLED === "1") {
+        // PRIMARY: incident-driven heal — re-attempts exactly the orders with an
+        // open failure incident. Bounded + reliable, so high-volume shops always
+        // get healed (the full scan below can't finish for them). Runs first so
+        // the critical work is done even if the backstop later hits its budget.
+        try {
+          const h = await runIncidentDrivenHeal(env);
+          console.log(`[Cron] Incident-driven heal: shops=${h.shopsScanned} candidates=${h.totals.candidates} created=${h.totals.created} skipped=${h.totals.skipped} errors=${h.totals.errors}`);
+        } catch (e: any) {
+          console.error(`[Cron] Incident-driven heal failed: ${e.message}`);
+        }
+        // BACKSTOP: full 90-day history scan for anything that dropped without an
+        // incident. Time-budgeted so it can never starve the fleet.
         try {
           const r = await runReconciliationSweep(env);
           console.log(`[Cron] Reconciliation sweep: shops=${r.shopsScanned} created=${r.totals.created} finalized=${r.totals.finalized} skipped=${r.totals.skipped} errors=${r.totals.errors}`);

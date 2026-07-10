@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { processOrders } from "./admin";
-import { reportIncident } from "../services/incidents";
+import { reportIncident, INVOICE_FAILURE_KINDS } from "../services/incidents";
 import { sendEmail } from "../services/email";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,16 +64,16 @@ export interface ReconSweepResult {
 
 export async function runReconciliationSweep(env: Env, options: ReconSweepOptions = {}): Promise<ReconSweepResult> {
   const dryRun = !!options.dryRun;
-  // Window must match the weekly-digest horizon (WEEKLY_LOOKBACK_DAYS=90): a drop
-  // reported as "por emitir" for up to 90 days but only re-fetched for 7 days is
-  // the root cause of backlogs that get flagged forever yet never auto-heal.
-  // Widened to a 90-day drain. The fetch is cheap (paginated Shopify list); the
-  // expensive IX work self-limits to genuinely-missing orders (dedup vs
-  // processed_orders + adminCreateOrder's IX-by-reference guard syncs phantoms
-  // instead of double-invoicing), so a healed shop converges to ~0 work per run.
+  // NIGHTLY window is SMALL on purpose. This full-history-style scan only needs to
+  // catch FRESH drops (a normalize outage / lost webhook in the last few days);
+  // re-reading 90 days of a high-volume shop's orders every night (20k+) just to
+  // find the 2-3 missing ones is what made the cron unable to finish. Aged drops
+  // are healed by runIncidentDrivenHeal (which targets the flagged order_ids of
+  // ANY age, bounded). A larger one-time drain is still available by passing an
+  // explicit `days` (e.g. 90) to this function / the admin endpoint.
   const days = options.days && options.days > 0
     ? options.days
-    : (Number(env.RECON_SWEEP_DRAIN_DAYS) || Number(env.RECON_SWEEP_DAYS) || 90);
+    : (Number(env.RECON_SWEEP_DAYS) || 3);
   const now = new Date();
   const fromIso = new Date(now.getTime() - days * 864e5).toISOString();
   const toIso = now.toISOString();
@@ -109,7 +109,18 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     perShop: [],
   };
 
+  // Time budget: this full-history scan is a best-effort backstop (the
+  // incident-driven heal is the reliable primary). Cap wall-clock so one
+  // high-volume shop can't starve the rest of the fleet or blow the cron's
+  // runtime; skipped shops are covered by incident-heal + the next run.
+  const startMs = Date.now();
+  const budgetMs = Number(env.RECON_SWEEP_BUDGET_MS) || 8 * 60 * 1000;
+
   for (const { shopify_domain } of shops) {
+    if (!dryRun && Date.now() - startMs > budgetMs) {
+      console.warn(`[ReconSweep] time budget (${budgetMs}ms) reached; skipping remaining shops this run`);
+      break;
+    }
     const config = await new AppStorage(env, shopify_domain).loadConfig();
     if (!config) continue;
     // Defense-in-depth: never invoice a paused shop even if it slipped past the
@@ -187,6 +198,109 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
   // Silent on clean / all-healed runs. Never on dry-run.
   if (!dryRun && result.totals.errors > 0) {
     await notifyOps(env, result).catch((e) => console.error(`[ReconSweep] ops email failed: ${e?.message ?? e}`));
+  }
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Incident-driven auto-heal (the reliable nightly primary).
+//
+// WHY: the full 90-day history rescan (runReconciliationSweep) can't finish for
+// high-volume shops (thousands of orders fetched per night just to find the 2-3
+// that are missing), so those shops never auto-heal and a human ends up draining
+// them by hand every week. This pass instead re-attempts EXACTLY the orders that
+// already have an open invoice-failure incident — a small, bounded set that
+// always completes. Every silent drop logs such an incident (queue retry
+// exhausted / normalize fail / destination reject), so this heals them without
+// re-reading the whole order history. The full scan stays on as a periodic
+// backstop for the theoretical drop that never logged anything.
+//
+// Same safety as the sweep: guarded reemit path (no duplicates, drift-guarded),
+// paid-only, paused shops skipped. Converges to zero work once healed (the
+// weekly digest then auto-closes the now-invoiced incidents).
+// ─────────────────────────────────────────────────────────────────────────────
+export interface IncidentHealResult {
+  ranAt: string;
+  dryRun: boolean;
+  shopsScanned: number;
+  totals: { candidates: number; created: number; skipped: number; errors: number; wouldCreate: number };
+  perShop: Array<{ shop: string; displayName: string; candidates: number; created: number; skipped: number; errors: number; wouldCreate: number; sampleIds: string[] }>;
+}
+
+export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolean; shops?: string[] } = {}): Promise<IncidentHealResult> {
+  const dryRun = !!options.dryRun;
+  const now = new Date();
+  const cutoffIso = new Date(now.getTime() - 90 * 864e5).toISOString();
+  const root = new AppStorage(env);
+  const active = await root.listActiveShopifyIntegrations();
+  const allow = options.shops?.length ? new Set(options.shops) : null;
+  const shops = allow ? active.filter((s) => allow.has(s.shopify_domain)) : active;
+  const nameByUser = await root.getMerchantDisplayNames(shops.map((s) => s.user_id));
+
+  const result: IncidentHealResult = {
+    ranAt: now.toISOString(), dryRun, shopsScanned: 0,
+    totals: { candidates: 0, created: 0, skipped: 0, errors: 0, wouldCreate: 0 }, perShop: [],
+  };
+  const kindPh = INVOICE_FAILURE_KINDS.map(() => "?").join(",");
+
+  for (const { shopify_domain } of shops) {
+    const config = await new AppStorage(env, shopify_domain).loadConfig();
+    if (!config || Number(config.is_paused) === 1) continue;
+
+    // Open invoice-failure incidents for this merchant, within the reporting horizon.
+    let incRows: any[] = [];
+    try {
+      const res = await env.DB.prepare(
+        `SELECT affected_ids_json FROM incidents
+         WHERE status IN ('open','acknowledged') AND user_id = ? AND last_seen_at >= ?
+           AND kind IN (${kindPh})`
+      ).bind(config.user_id, cutoffIso, ...INVOICE_FAILURE_KINDS).all();
+      incRows = (res.results ?? []) as any[];
+    } catch (e: any) {
+      console.error(`[IncidentHeal] incident query failed for ${shopify_domain}: ${e?.message ?? e}`);
+      continue;
+    }
+
+    // Collect Shopify order-IDs only (>=10 digits): excludes legacy order-numbers
+    // and non-Shopify refs (pi_*, Lodgify booking ids). Post-fix incidents store
+    // the order_id, so this is the healable set.
+    const ids = new Set<string>();
+    for (const r of incRows) {
+      let arr: any[] = [];
+      try { arr = JSON.parse(r.affected_ids_json || "[]"); } catch { /* skip malformed */ }
+      for (const raw of arr) { const s = String(raw); if (/^\d{10,}$/.test(s)) ids.add(s); }
+    }
+    if (ids.size === 0) continue;
+
+    result.shopsScanned++;
+    const displayName = (config.user_id && nameByUser.get(config.user_id)) || shopify_domain;
+    // Drop any already invoiced (via ANY mapping table) so we don't re-hit IX for them.
+    const invoiced = await new AppStorage(env, shopify_domain).getInvoicedOrderIdsAnySource([...ids]);
+    const missing = [...ids].filter((x) => !invoiced.has(x));
+    const row = { shop: shopify_domain, displayName, candidates: missing.length, created: 0, skipped: 0, errors: 0, wouldCreate: 0, sampleIds: missing.slice(0, 10) };
+    result.totals.candidates += missing.length;
+
+    if (missing.length > 0) {
+      const numeric = missing.map(Number).filter((n) => Number.isFinite(n));
+      try {
+        const res = await processOrders(env, config, "create_orders", numeric, undefined, undefined, {
+          dry_run: dryRun, paid_only: true, triggered_by: "incident-heal-cron", reason: "Incident-driven auto-heal",
+        });
+        row.created += res.success ?? 0;
+        row.skipped += res.skipped ?? 0;
+        row.errors += res.errors ?? 0;
+        row.wouldCreate += res.would_create ?? 0;
+      } catch (e: any) {
+        row.errors++;
+        console.error(`[IncidentHeal] processOrders failed for ${shopify_domain}: ${e?.message ?? e}`);
+      }
+    }
+    result.totals.created += row.created;
+    result.totals.skipped += row.skipped;
+    result.totals.errors += row.errors;
+    result.totals.wouldCreate += row.wouldCreate;
+    result.perShop.push(row);
   }
 
   return result;

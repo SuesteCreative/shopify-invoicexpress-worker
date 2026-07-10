@@ -33,6 +33,9 @@ export interface ProcessOrdersOptions {
   notify_emails?: string[];
   triggered_by?: string | null;
   reason?: string | null;
+  /** Explicit-id path only: keep only financial_status=paid orders. Auto-heal
+   *  must never invoice an order that has since been refunded/cancelled. */
+  paid_only?: boolean;
 }
 
 async function fetchShopifyOrders(config: IRequestConfig, from: string, to: string): Promise<any[]> {
@@ -200,6 +203,9 @@ export async function processOrders(
 
   if (orderIds && orderIds.length > 0) {
     orders = await fetchOrdersByIds(config, orderIds);
+    if (options.paid_only && type === "create_orders") {
+      orders = orders.filter((o) => o.financial_status === "paid");
+    }
   } else {
     if (options.since_last_processed) {
       const last = await appStorage.getLastProcessedDate();

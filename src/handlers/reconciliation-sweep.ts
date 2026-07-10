@@ -335,8 +335,8 @@ export interface StripeHealResult {
   dryRun: boolean;
   window: { from: string; to: string };
   connectionsScanned: number;
-  totals: { created: number; skipped: number; errors: number; wouldCreate: number };
-  perConnection: Array<{ user_id: string; displayName: string; destination: string; created: number; skipped: number; errors: number; wouldCreate: number; errorSamples: string[] }>;
+  totals: { created: number; skipped: number; errors: number; wouldCreate: number; connectionsSkipped: number };
+  perConnection: Array<{ user_id: string; displayName: string; destination: string; from: string; created: number; skipped: number; errors: number; wouldCreate: number; errorSamples: string[]; note?: string }>;
 }
 
 export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?: number; users?: string[] } = {}): Promise<StripeHealResult> {
@@ -357,14 +357,26 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
   const result: StripeHealResult = {
     ranAt: toIso, dryRun, window: { from: fromIso, to: toIso },
     connectionsScanned: 0,
-    totals: { created: 0, skipped: 0, errors: 0, wouldCreate: 0 },
+    totals: { created: 0, skipped: 0, errors: 0, wouldCreate: 0, connectionsSkipped: 0 },
     perConnection: [],
   };
+
+  const fromMs = new Date(fromIso).getTime();
 
   for (const conn of conns) {
     result.connectionsScanned++;
     const displayName = nameByUser.get(conn.user_id) || conn.user_id;
-    const row = { user_id: conn.user_id, displayName, destination: conn.destination_kind, created: 0, skipped: 0, errors: 0, wouldCreate: 0, errorSamples: [] as string[] };
+
+    // CRITICAL safety bound: never heal payments from BEFORE the integration went
+    // live. A Stripe account carries the merchant's whole payment history; a payment
+    // predating the connection was invoiced manually/elsewhere (or intentionally not
+    // at all), so re-emitting it would mint a DUPLICATE. Start the window no earlier
+    // than the connection's invoice_cutoff (explicit) or its created_at (activation).
+    const cutoffRaw = conn.invoice_cutoff ?? conn.created_at;
+    const cutoffMs = cutoffRaw ? Date.parse(String(cutoffRaw).replace(" ", "T")) : NaN;
+    const effFromIso = Number.isFinite(cutoffMs) && cutoffMs > fromMs ? new Date(cutoffMs).toISOString() : fromIso;
+
+    const row = { user_id: conn.user_id, displayName, destination: conn.destination_kind, from: effFromIso, created: 0, skipped: 0, errors: 0, wouldCreate: 0, errorSamples: [] as string[], note: undefined as string | undefined };
 
     // Minimal config: processStripeBackfill + the pipeline resolve the real
     // destination, credentials and auto_finalize from the connection itself
@@ -373,12 +385,19 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
     const config = { user_id: conn.user_id, shopify_domain: null, b2b_reverse_charge: 0, ix_send_email: 0, auto_finalize: 0 } as any;
     try {
       const r: any = await processStripeBackfill(env, config, {
-        from: fromIso, to: toIso, dry_run: dryRun,
-        triggered_by: "stripe-heal-cron", reason: `Stripe auto-heal (${days}d window)`,
+        from: effFromIso, to: toIso, dry_run: dryRun,
+        triggered_by: "stripe-heal-cron", reason: `Stripe auto-heal (since ${effFromIso.slice(0, 10)})`,
       });
       if (r?.error) {
-        row.errors++;
-        row.errorSamples.push(String(r.error).slice(0, 300));
+        // A connection without saved Stripe credentials isn't a failure to alert on —
+        // it's simply not ready. Skip it quietly instead of raising a nightly incident.
+        if (/restricted_key|credentials/i.test(String(r.error))) {
+          row.note = "skipped: no Stripe credentials on connection";
+          result.totals.connectionsSkipped++;
+        } else {
+          row.errors++;
+          row.errorSamples.push(String(r.error).slice(0, 300));
+        }
       } else {
         row.created += r.success ?? 0;
         row.skipped += r.skipped ?? 0;

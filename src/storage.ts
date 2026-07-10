@@ -190,15 +190,17 @@ export class AppStorage {
    * reconcile. Returns the user_id + destination_kind; callers resolve the rest of
    * the config from the connection itself (mirrors the live Stripe queue path).
    */
-  async listActiveConnections(sourceKind: SourceKind): Promise<Array<{ user_id: string; destination_kind: string }>> {
+  async listActiveConnections(sourceKind: SourceKind): Promise<Array<{ user_id: string; destination_kind: string; created_at: string | null; invoice_cutoff: string | null }>> {
     const res = await this.db.prepare(
-      `SELECT user_id, destination_kind FROM connections
+      `SELECT user_id, destination_kind, created_at, invoice_cutoff FROM connections
        WHERE source_kind = ? AND status = 'active' AND user_id IS NOT NULL AND user_id != ''
        ORDER BY created_at`
     ).bind(sourceKind).all();
     return ((res.results as any[]) ?? []).map((r) => ({
       user_id: String(r.user_id),
       destination_kind: String(r.destination_kind ?? ""),
+      created_at: r.created_at != null ? String(r.created_at) : null,
+      invoice_cutoff: r.invoice_cutoff != null ? String(r.invoice_cutoff) : null,
     }));
   }
 

@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { processOrders } from "./admin";
+import { processStripeBackfill } from "./admin-stripe";
 import { reportIncident, INVOICE_FAILURE_KINDS } from "../services/incidents";
 import { sendEmail } from "../services/email";
 
@@ -301,6 +302,121 @@ export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolea
     result.totals.errors += row.errors;
     result.totals.wouldCreate += row.wouldCreate;
     result.perShop.push(row);
+  }
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stripe self-heal (Stripe→Moloni / IX / Vendus).
+//
+// WHY: the live Stripe path is sound — every succeeded payment fires
+// payment_intent.succeeded, the pipeline creates one doc, and the duplicate
+// charge.succeeded event dedups. But a doc can still end up MISSING after the
+// fact: a draft deleted during setup/cleanup leaving the payment orphaned, or the
+// rare webhook Stripe never manages to deliver. This is the automatic backstop —
+// once a day it re-derives the truth from Stripe (succeeded PIs in the window) vs
+// what we invoiced (processed_orders) and re-emits any gap.
+//
+// SAFETY (this is invoicing — it must not misfire):
+//   • No duplicates. Only PIs with NO processed_orders row are re-emitted; the
+//     re-emit itself runs the same guarded pipeline (D1 dedup + destination
+//     findByReference). A payment that already has a doc is filtered out.
+//   • Real destination. processStripeBackfill now routes to the connection's own
+//     destination (Moloni/IX/Vendus), not a hardcoded one.
+//   • Drafts preserved. auto_finalize is projected from the connection's config,
+//     so a heal never finalizes a client that issues drafts (it stays a draft).
+//   • Bounded. Stripe-source connections are low volume; a 30-day rescan filtered
+//     to the un-invoiced few is cheap and always finishes.
+// Fully additive, flag-gated (STRIPE_HEAL_ENABLED), reversible.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface StripeHealResult {
+  ranAt: string;
+  dryRun: boolean;
+  window: { from: string; to: string };
+  connectionsScanned: number;
+  totals: { created: number; skipped: number; errors: number; wouldCreate: number };
+  perConnection: Array<{ user_id: string; displayName: string; destination: string; created: number; skipped: number; errors: number; wouldCreate: number; errorSamples: string[] }>;
+}
+
+export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?: number; users?: string[] } = {}): Promise<StripeHealResult> {
+  const dryRun = !!options.dryRun;
+  const days = options.days && options.days > 0 ? options.days : (Number(env.STRIPE_HEAL_DAYS) || 30);
+  const now = new Date();
+  const fromIso = new Date(now.getTime() - days * 864e5).toISOString();
+  const toIso = now.toISOString();
+
+  const root = new AppStorage(env);
+  let conns = await root.listActiveConnections("stripe");
+  // Allowlist: explicit option beats env; empty = all active Stripe connections.
+  const envAllow = (env.STRIPE_HEAL_USERS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const allow = options.users?.length ? options.users : envAllow;
+  if (allow.length) { const allowSet = new Set(allow); conns = conns.filter((c) => allowSet.has(c.user_id)); }
+  const nameByUser = await root.getMerchantDisplayNames(conns.map((c) => c.user_id));
+
+  const result: StripeHealResult = {
+    ranAt: toIso, dryRun, window: { from: fromIso, to: toIso },
+    connectionsScanned: 0,
+    totals: { created: 0, skipped: 0, errors: 0, wouldCreate: 0 },
+    perConnection: [],
+  };
+
+  for (const conn of conns) {
+    result.connectionsScanned++;
+    const displayName = nameByUser.get(conn.user_id) || conn.user_id;
+    const row = { user_id: conn.user_id, displayName, destination: conn.destination_kind, created: 0, skipped: 0, errors: 0, wouldCreate: 0, errorSamples: [] as string[] };
+
+    // Minimal config: processStripeBackfill + the pipeline resolve the real
+    // destination, credentials and auto_finalize from the connection itself
+    // (Stripe-only clients have no legacy `integrations` row). Mirrors the live
+    // queue path's synthesized config.
+    const config = { user_id: conn.user_id, shopify_domain: null, b2b_reverse_charge: 0, ix_send_email: 0, auto_finalize: 0 } as any;
+    try {
+      const r: any = await processStripeBackfill(env, config, {
+        from: fromIso, to: toIso, dry_run: dryRun,
+        triggered_by: "stripe-heal-cron", reason: `Stripe auto-heal (${days}d window)`,
+      });
+      if (r?.error) {
+        row.errors++;
+        row.errorSamples.push(String(r.error).slice(0, 300));
+      } else {
+        row.created += r.success ?? 0;
+        row.skipped += r.skipped ?? 0;
+        row.errors += r.errors ?? 0;
+        row.wouldCreate += r.would_create ?? 0;
+        for (const res of (r.results ?? [])) {
+          if (res.status === "error") row.errorSamples.push(`${res.external_id}: ${res.message}`.slice(0, 300));
+        }
+      }
+    } catch (e: any) {
+      row.errors++;
+      row.errorSamples.push(`heal failed for connection: ${String(e?.message ?? e).slice(0, 300)}`);
+    }
+
+    // Escalate genuinely-stuck payments to the incidents table (daily bucket).
+    // Not on dry-run — nothing was attempted.
+    if (!dryRun && row.errors > 0) {
+      try {
+        await reportIncident(env, {
+          user_id: conn.user_id,
+          severity: "error",
+          kind: "queue_retry_exhausted",
+          summary: `Stripe auto-heal: ${row.errors} payment(s) could not be auto-invoiced for ${displayName}`.slice(0, 500),
+          detail: { user_id: conn.user_id, merchant: displayName, destination: conn.destination_kind, window: { from: fromIso, to: toIso }, errors: row.errorSamples },
+          connection_label: `stripe → ${conn.destination_kind}`,
+          merchant_name: displayName,
+          bucket: "daily",
+        });
+      } catch (incErr: any) {
+        console.error(`[StripeHeal] reportIncident failed for ${conn.user_id}: ${incErr?.message ?? incErr}`);
+      }
+    }
+
+    result.totals.created += row.created;
+    result.totals.skipped += row.skipped;
+    result.totals.errors += row.errors;
+    result.totals.wouldCreate += row.wouldCreate;
+    result.perConnection.push(row);
   }
 
   return result;

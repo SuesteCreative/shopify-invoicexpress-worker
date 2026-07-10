@@ -185,6 +185,24 @@ export class AppStorage {
   }
 
   /**
+   * List every ACTIVE connection for a given source kind (e.g. "stripe") from the
+   * `connections` table. Used by the Stripe self-heal to know which connections to
+   * reconcile. Returns the user_id + destination_kind; callers resolve the rest of
+   * the config from the connection itself (mirrors the live Stripe queue path).
+   */
+  async listActiveConnections(sourceKind: SourceKind): Promise<Array<{ user_id: string; destination_kind: string }>> {
+    const res = await this.db.prepare(
+      `SELECT user_id, destination_kind FROM connections
+       WHERE source_kind = ? AND status = 'active' AND user_id IS NOT NULL AND user_id != ''
+       ORDER BY created_at`
+    ).bind(sourceKind).all();
+    return ((res.results as any[]) ?? []).map((r) => ({
+      user_id: String(r.user_id),
+      destination_kind: String(r.destination_kind ?? ""),
+    }));
+  }
+
+  /**
    * Resolve human-facing merchant names for a set of user_ids in one query.
    * Priority: `admin_label` (superadmin override) → `company_name` → `name`.
    * Returns a Map<user_id, displayName>; callers fall back to the store domain

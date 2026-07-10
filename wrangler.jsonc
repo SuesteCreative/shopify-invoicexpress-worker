@@ -36,7 +36,10 @@
     "RECON_SWEEP_DAYS": "7",
     "RECON_SWEEP_DRAIN_DAYS": "90",
     "RECON_SWEEP_SHOPS": "",
-    "NORMALIZE_IN_WORKER": "1"
+    "NORMALIZE_IN_WORKER": "1",
+    "STRIPE_HEAL_ENABLED": "0",
+    "STRIPE_HEAL_DAYS": "30",
+    "STRIPE_HEAL_USERS": ""
   },
   "kv_namespaces": [
     {

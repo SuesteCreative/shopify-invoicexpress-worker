@@ -19,14 +19,6 @@ interface StripeConnConfig {
   webhook_endpoint_id?: string;
 }
 
-async function loadStripeConnectionConfig(env: Env, userId: string): Promise<StripeConnConfig | null> {
-  const row: any = await env.DB.prepare(
-    "SELECT source_config_json FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1"
-  ).bind(userId).first();
-  if (!row?.source_config_json) return null;
-  try { return JSON.parse(row.source_config_json) as StripeConnConfig; } catch { return null; }
-}
-
 interface StripeConnFull {
   destinationKind: string;
   sourceConfig: StripeConnConfig;
@@ -108,11 +100,16 @@ async function fetchStripeObject(restrictedKey: string, stripeId: string, stripe
 }
 
 // Returns the externalId the pipeline would dedup on for a given event payload.
-// Mirrors StripeSource.externalId so backfill can pre-check processed_orders.
+// MUST mirror StripeSource.externalId exactly, otherwise a force re-emit deletes
+// the wrong dedup key: a card payment fires BOTH charge.succeeded and
+// payment_intent.succeeded, and the pipeline keys the processed_orders row (D1 +
+// KV) on the PAYMENT INTENT. Re-emitting by the charge id must therefore also
+// resolve to the PI, or `force` clears a `ch_…` key that was never written and
+// the pipeline skips the real `pi_…` row as "Already processed".
 function externalIdFromEvent(event: any): string {
   const obj = event?.data?.object;
   if (!obj) return String(event?.id ?? "");
-  if (event.type === "charge.refunded" && obj.payment_intent) return String(obj.payment_intent);
+  if ((event.type === "charge.succeeded" || event.type === "charge.refunded") && obj.payment_intent) return String(obj.payment_intent);
   if (event.type === "checkout.session.completed" && obj.payment_intent) return String(obj.payment_intent);
   return String(obj.id ?? "");
 }
@@ -135,9 +132,20 @@ export async function processStripeBackfill(
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined, config.user_id);
   const dryRun = !!options.dry_run;
 
-  const connCfg = await loadStripeConnectionConfig(env, config.user_id);
-  if (!connCfg?.restricted_key) {
+  // Full connection view so backfill routes to the SAME destination the live
+  // webhook path would (Moloni/Vendus/IX). Loading source-only used to force
+  // destination:"invoicexpress" below, which silently mis-issued a Moloni
+  // connection's backfilled payments to InvoiceXpress.
+  const conn = await loadStripeConnectionFull(env, config.user_id);
+  const connCfg = conn?.sourceConfig;
+  if (!conn || !connCfg?.restricted_key) {
     return { error: "No Stripe restricted_key on connection. Save Stripe credentials first." };
+  }
+  // Non-IX destinations store auto_finalize in destination_config (the wizard writes
+  // it there); the pipeline reads config.auto_finalize, so project it — this keeps a
+  // healed/backfilled payment a DRAFT when the client hasn't opted into auto-finalize.
+  if (conn.destinationConfig && typeof conn.destinationConfig.auto_finalize === "boolean") {
+    (config as any).auto_finalize = conn.destinationConfig.auto_finalize ? 1 : 0;
   }
 
   let effectiveFrom = options.from;
@@ -182,9 +190,11 @@ export async function processStripeBackfill(
     try {
       const event = { type: "payment_intent.succeeded", data: { object: pi }, ...(connCfg.stripe_account_id ? { account: connCfg.stripe_account_id } : {}) };
       await runAdapterPipeline({
-        env, config, source: "stripe", destination: "invoicexpress",
+        env, config, source: "stripe",
+        destination: (conn.destinationKind as any) ?? "invoicexpress",
         topic: "created", webhookId: null, body: event,
         sourceConfig: connCfg,
+        destinationConfig: conn.destinationConfig,
       });
       results.push({ external_id: externalId, status: "created", message: "Invoice created via backfill" });
     } catch (e: any) {

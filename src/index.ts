@@ -27,7 +27,7 @@ import {
   getShopForUser,
 } from "./handlers/reconciliation";
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
-import { runReconciliationSweep, runIncidentDrivenHeal } from "./handlers/reconciliation-sweep";
+import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { delay } from "./utils";
 import { errorResponse, requireAdminAuth } from "./security";
 import {
@@ -1172,6 +1172,23 @@ app.post("/admin/stripe/backfill", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to run Stripe backfill");
+  }
+})
+
+// Admin: Stripe self-heal on demand (parity with the Shopify reconciliation
+// sweep). Re-emits any succeeded Stripe payment in the window with no
+// processed_orders row, across all active Stripe connections (or a user
+// allowlist). dry_run=true reports what WOULD be created without writing.
+//   { dry_run?: boolean, days?: number, users?: string[] }
+app.post("/admin/stripe/heal", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ dry_run?: boolean; days?: number; users?: string[] }>().catch(() => ({} as any));
+  try {
+    const result = await runStripeHeal(c.env, { dryRun: body.dry_run === true, days: body.days, users: body.users });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to run Stripe heal");
   }
 })
 
@@ -2461,6 +2478,18 @@ export default {
         }
       } else {
         console.log("[Cron] Reconciliation sweep disabled (RECON_SWEEP_ENABLED != 1)");
+      }
+      // Stripe→(Moloni/IX/Vendus) self-heal — independent flag so it ships dark and
+      // runs separately from the Shopify sweep. Re-emits any succeeded Stripe
+      // payment in the window that has no processed_orders row (orphan from a
+      // deleted draft or an undelivered webhook). Keeps drafts; no finalize.
+      if (env.STRIPE_HEAL_ENABLED === "1") {
+        try {
+          const s = await runStripeHeal(env);
+          console.log(`[Cron] Stripe heal: connections=${s.connectionsScanned} created=${s.totals.created} skipped=${s.totals.skipped} errors=${s.totals.errors}`);
+        } catch (e: any) {
+          console.error(`[Cron] Stripe heal failed: ${e.message}`);
+        }
       }
       return;
     }

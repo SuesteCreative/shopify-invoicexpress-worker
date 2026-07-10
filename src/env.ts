@@ -41,6 +41,13 @@ export interface Env {
                                           // weekly-digest horizon so reported drops actually get healed
   RECON_SWEEP_SHOPS?: string;             // CSV allowlist of shopify_domains; empty = all active shops
   RECON_SWEEP_BUDGET_MS?: string;         // wall-clock cap for the full-scan backstop; default 480000 (8m)
+  // Stripe→(Moloni/IX/Vendus) self-heal. Same backstop idea as the Shopify sweep but
+  // for Stripe-source connections: re-emits any succeeded Stripe payment in the window
+  // that has no processed_orders row (an orphan — e.g. a setup-day draft later deleted).
+  // Routes to the connection's real destination; keeps drafts (never finalizes). Ships DARK.
+  STRIPE_HEAL_ENABLED?: string;           // "1" enables the Stripe heal in the 04:00 cron; default off
+  STRIPE_HEAL_DAYS?: string;              // lookback window (days); default "30"
+  STRIPE_HEAL_USERS?: string;             // CSV allowlist of user_ids; empty = all active Stripe connections
   // Shopify→IX CREATE-path normalization source. "1" builds the Normalized shape
   // in-worker from the raw Shopify order (no external Hostinger call); default/"0"
   // keeps the external normalize service. Refund + adapter paths are unaffected.

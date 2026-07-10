@@ -18,7 +18,8 @@ export async function GET(req: NextRequest) {
     const db = getDB();
     const pending: any = await db.prepare(`
         SELECT e.id, e.user_id, e.type, e.stripe_object_id, e.payment_intent_id, e.amount_cents,
-               s.nif, s.email, s.name, s.address
+               e.created_at,
+               s.nif, s.email, s.name, s.address, s.zip
         FROM billing_events e
         LEFT JOIN subscriptions s ON s.user_id = e.user_id
         WHERE e.ix_invoice_id IS NULL
@@ -46,8 +47,12 @@ export async function GET(req: NextRequest) {
                     email: row.email,
                     name: row.name,
                     address: row.address,
+                    zip: row.zip,
                     amount_cents: row.amount_cents || 0,
-                    paid_at: new Date(),
+                    // Use the real payment timestamp (not "now") so the IX
+                    // document's date-proximity signal survives the retry —
+                    // a payment retried days later must still score the doc.
+                    paid_at: row.created_at ? new Date(row.created_at) : new Date(),
                 },
             });
             if (result.ix_invoice_id) {

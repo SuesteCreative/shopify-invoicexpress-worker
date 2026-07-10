@@ -280,14 +280,15 @@ export async function POST(req: NextRequest) {
                 // For paid invoices: try IX matching. Errors here MUST NOT bubble (cron retries).
                 if (event.type === "invoice.paid" && piId) {
                     try {
-                        const sub: any = await db.prepare("SELECT nif, name, email, address FROM subscriptions WHERE user_id = ?").bind(userId).first();
+                        const sub: any = await db.prepare("SELECT nif, name, email, address, zip FROM subscriptions WHERE user_id = ?").bind(userId).first();
                         const match = await matchStripeChargeToIX({
                             payment_intent_id: piId,
                             candidate: {
                                 nif: sub?.nif || invoice.customer_tax_ids?.[0]?.value || null,
                                 email: sub?.email || invoice.customer_email || null,
                                 name: sub?.name || invoice.customer_name || null,
-                                address: sub?.address || null,
+                                address: sub?.address || invoice.customer_address?.line1 || null,
+                                zip: sub?.zip || invoice.customer_address?.postal_code || null,
                                 amount_cents: invoice.amount_paid || 0,
                                 paid_at: new Date((invoice.status_transitions?.paid_at || Date.now() / 1000) * 1000),
                             },
@@ -342,7 +343,7 @@ export async function POST(req: NextRequest) {
 
                 // Try to match IX credit note for this refund
                 try {
-                    const subRow: any = await db.prepare("SELECT nif, name, email, address FROM subscriptions WHERE user_id = ?").bind(userId).first();
+                    const subRow: any = await db.prepare("SELECT nif, name, email, address, zip FROM subscriptions WHERE user_id = ?").bind(userId).first();
                     const match = await matchStripeChargeToIX({
                         payment_intent_id: piId,
                         doc_type: "credit_note",
@@ -352,6 +353,7 @@ export async function POST(req: NextRequest) {
                             email: subRow?.email || charge.billing_details?.email || null,
                             name: subRow?.name || charge.billing_details?.name || null,
                             address: subRow?.address || charge.billing_details?.address?.line1 || null,
+                            zip: subRow?.zip || charge.billing_details?.address?.postal_code || null,
                             amount_cents: refundAmount,
                             paid_at: new Date(charge.created * 1000),
                         },

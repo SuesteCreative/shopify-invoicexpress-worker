@@ -177,7 +177,11 @@ export async function processStripeBackfill(
   }
 
   const ids = pis.map(pi => String(pi.id));
-  const existing = await appStorage.getProcessedOrderIds(ids);
+  // Freshness gate excludes not only already-invoiced payments but also those an
+  // operator hand-matched or marked "não necessária" (NOT_NEEDED) — otherwise a
+  // re-run (esp. the nightly heal) would resurrect an invoice they deliberately
+  // excluded. See AppStorage.getResolvedStripeOrderIds.
+  const existing = await appStorage.getResolvedStripeOrderIds(ids, config.user_id);
   const fresh = pis.filter(pi => !existing.has(String(pi.id)));
 
   const results: OrderResult[] = [];

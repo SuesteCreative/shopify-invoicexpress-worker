@@ -1028,6 +1028,43 @@ export class AppStorage {
     return map;
   }
 
+  /**
+   * Stripe-heal freshness gate. Returns the subset of `orderIds` (Stripe PI ids)
+   * that must NOT be re-emitted because they are already resolved one of three ways:
+   *   1. processed_orders.id                         — we already invoiced it
+   *   2. reconciliation_match.order_id (approved)     — operator hand-matched it to
+   *                                                     an existing destination doc
+   *   3. reconciliation_decision NOT_NEEDED           — operator explicitly said this
+   *                                                     payment needs no invoice
+   * Without (2)+(3) the nightly heal would resurrect invoices an operator
+   * deliberately excluded (marcar "não necessária") or matched by hand — turning a
+   * safety backstop into a recurring bug. Match/decision rows for a connection-based
+   * source are scoped by `u:<userId>` (no shopify_domain). processed_orders is the
+   * authoritative base; the aux tables are added under a guard so a schema hiccup
+   * there can never lose the core truth.
+   */
+  async getResolvedStripeOrderIds(orderIds: string[], userId: string): Promise<Set<string>> {
+    const resolved = await this.getProcessedOrderIds(orderIds);
+    const scope = `u:${userId}`;
+    for (let i = 0; i < orderIds.length; i += 50) {
+      const chunk = orderIds.slice(i, i + 50);
+      const ph = chunk.map(() => "?").join(",");
+      try {
+        const res = await this.db.prepare(
+          `SELECT order_id AS oid FROM reconciliation_match
+             WHERE shopify_domain = ? AND invoice_id IS NOT NULL AND order_id IN (${ph})
+           UNION
+           SELECT order_id AS oid FROM reconciliation_decision
+             WHERE shopify_domain = ? AND UPPER(decision) = 'NOT_NEEDED' AND order_id IN (${ph})`
+        ).bind(scope, ...chunk, scope, ...chunk).all();
+        for (const row of res.results) resolved.add(String((row as any).oid));
+      } catch (e) {
+        console.warn("[Rioko] getResolvedStripeOrderIds aux lookup failed (processed_orders still applied):", e);
+      }
+    }
+    return resolved;
+  }
+
   async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {
     const processed = new Set<string>();
     // Batch in chunks of 50 to avoid SQL parameter limits

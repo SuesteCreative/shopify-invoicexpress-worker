@@ -85,6 +85,7 @@ export default function StripeMoloniIntegration() {
     const [documentSetName, setDocumentSetName] = useState("");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
+    const [partialInvoicing, setPartialInvoicing] = useState(false);
     // Stripe payments are always settled, so Fatura-Recibo is the natural default.
     const [documentType, setDocumentType] = useState<"invoice" | "invoice_receipt">("invoice_receipt");
     const [exemptionReason, setExemptionReason] = useState("M01");
@@ -132,6 +133,7 @@ export default function StripeMoloniIntegration() {
                 setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
                 if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
                 if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
+                if (typeof cfg.moloni_partial_invoicing === "boolean") setPartialInvoicing(cfg.moloni_partial_invoicing);
                 if (typeof cfg.moloni_document_type === "string") setDocumentType(cfg.moloni_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice");
                 if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
                 if (cfg.default_vat_rate != null) setDefaultVatRate(String(cfg.default_vat_rate));
@@ -294,6 +296,7 @@ export default function StripeMoloniIntegration() {
                 moloni_document_type: documentType,
                 vat_included: vatIncluded,
                 auto_finalize: autoFinalize,
+                moloni_partial_invoicing: partialInvoicing,
                 exemption_reason: exemptionReason,
                 default_vat_rate: defaultVatRate.trim() === "" ? null : Number(defaultVatRate),
                 status: "draft",
@@ -584,6 +587,16 @@ export default function StripeMoloniIntegration() {
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                         </div>
                         <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${autoFinalize ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} /></button>
+                    </div>
+                    <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
+                        <div>
+                            <div className="flex items-center gap-1.5">
+                                <h3 className="font-bold text-sm">{t("partialInvoicing")}</h3>
+                                <span title={t("partialInvoicingTooltip")} className="inline-flex cursor-help"><Info className="w-3.5 h-3.5 text-fg-40 shrink-0" /></span>
+                            </div>
+                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{partialInvoicing ? t("partialInvoicingOn") : t("partialInvoicingOff")}</p>
+                        </div>
+                        <button onClick={() => setPartialInvoicing(!partialInvoicing)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${partialInvoicing ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${partialInvoicing ? "left-7" : "left-1"}`} /></button>
                     </div>
                     <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-3">
                         <h3 className="font-bold text-sm">{t("documentTypeTitle")}</h3>

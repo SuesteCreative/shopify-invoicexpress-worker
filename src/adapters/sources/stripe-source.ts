@@ -135,6 +135,36 @@ async function fetchCustomerTaxIds(customerId: string, restrictedKey: string): P
 }
 
 /**
+ * Recover the buyer's name from the charge's billing_details. A
+ * `payment_intent.succeeded` payload only carries a name when `pi.shipping.name`
+ * is set; the real buyer name usually lives on the underlying charge, which the
+ * PI event does not include. Without this the Moloni customer falls back to
+ * "Consumidor Final". Expands `latest_charge` off the PI. Failures are swallowed
+ * (name stays empty → "Consumidor Final"), never blocking the invoice.
+ */
+async function fetchChargeBillingName(paymentIntentId: string, restrictedKey: string): Promise<string | null> {
+  try {
+    const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge`;
+    const res = await fetch(url, {
+      headers: {
+        "Authorization": `Bearer ${restrictedKey}`,
+        "Stripe-Version": "2024-12-18.acacia",
+      },
+    });
+    if (!res.ok) {
+      console.warn(`[Stripe] latest_charge expand failed (${res.status}) for ${paymentIntentId}`);
+      return null;
+    }
+    const body: any = await res.json();
+    const name = body?.latest_charge?.billing_details?.name;
+    return typeof name === "string" && name.trim() ? name.trim() : null;
+  } catch (e: any) {
+    console.warn(`[Stripe] latest_charge expand network error for ${paymentIntentId}: ${e?.message ?? e}`);
+    return null;
+  }
+}
+
+/**
  * Map Stripe's billing_details (or shipping) into our address shape AND
  * surface the company field so the PT NIF extractor can scan it.
  */
@@ -576,6 +606,26 @@ export class StripeSource implements SourceAdapter {
           ...(normalized.order.note_attributes ?? []),
           ...extra,
         ];
+      }
+    }
+
+    // Buyer-name enrichment: a PaymentIntent event only carries a name when
+    // pi.shipping.name is set, so PI-triggered invoices often come out nameless
+    // ("Consumidor Final"). The buyer name lives on the charge's billing_details —
+    // expand latest_charge to recover it when the normalized name is empty.
+    const isPI = typeof event?.type === "string" && event.type.startsWith("payment_intent.");
+    const isCharge = typeof event?.type === "string" && event.type.startsWith("charge.");
+    const nameEmpty = !normalized.order.customer?.name?.trim() && !normalized.order.billing_address?.name?.trim();
+    if (nameEmpty && restrictedKey && (isPI || isCharge)) {
+      const piId = isPI ? obj?.id : obj?.payment_intent;
+      const name = piId ? await fetchChargeBillingName(String(piId), restrictedKey) : null;
+      if (name) {
+        if (normalized.order.customer) normalized.order.customer.name = name;
+        if (normalized.order.billing_address) {
+          normalized.order.billing_address.name = name;
+          normalized.order.billing_address.first_name = name.split(" ")[0] ?? "";
+          normalized.order.billing_address.last_name = name.split(" ").slice(1).join(" ");
+        }
       }
     }
 

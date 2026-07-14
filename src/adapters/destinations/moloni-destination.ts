@@ -1142,11 +1142,16 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    // Moloni's `invoices/update` flips status from 0 (draft) to 1 (closed).
-    // Once status=1 the document is fiscally locked and gets an AT-validated
-    // hash. Mirrors IX's `change_state -> finalized` flow.
+    // Flip status 0 (draft) → 1 (closed); the document is then fiscally locked
+    // with an AT-validated hash. MUST target the SAME document type the draft was
+    // created as — an invoice_receipt connection issues /invoiceReceipts/, so
+    // /invoices/update/ would 404 the id and auto-finalize would silently fail.
+    // Mirrors insertMoloniDoc's path pick.
+    const updatePath = cfg.documentType === "invoice_receipt"
+      ? "/invoiceReceipts/update/"
+      : "/invoices/update/";
     await moloniCall(
-      cfg, token, "/invoices/update/",
+      cfg, token, updatePath,
       { document_id: Number(invoiceId), status: 1 },
       "finalize",
     );

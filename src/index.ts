@@ -818,6 +818,24 @@ app.post("/admin/run-reconciliation-sweep", async (c) => {
   }
 })
 
+// Admin: run the Lodgify booking poll on demand.
+//
+// Lodgify is the only source with no webhook and no healer — the */30 cron is
+// the sole path by which a booking ever becomes an invoice. That left no way to
+// recover a backlog without waiting for the next tick, or to tell "the cron
+// isn't firing" apart from "the poll runs but emits nothing". Same function the
+// cron calls, so behaviour is identical.
+app.post("/admin/lodgify/poll", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  try {
+    const result = await pollLodgifyBookings(c.env);
+    return c.json({ ranAt: new Date().toISOString(), ...result });
+  } catch (e) {
+    return errorResponse(c, e, "Lodgify poll failed");
+  }
+})
+
 // Admin: run the incident-driven auto-heal on demand. dry_run:true reports what
 // WOULD be re-emitted (the open-incident orders still missing an invoice) and
 // writes nothing. shops:[] restricts to specific domains. This is the reliable

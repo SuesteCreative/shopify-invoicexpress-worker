@@ -2191,7 +2191,18 @@ async function emitLodgifyPartialInvoice(env: Env, o: {
   // Normalize the v2 item to the shape LodgifySource reads (maps total_amount →
   // total, rooms[].room_type_id, keeps property_id/source for tag-routing). The
   // _partial.amount then overrides the gross with this instalment's delta.
-  const body = { _preloaded_booking: toPreloadedFromItem(o.bookingItem), _partial: { seq: o.seq, amount: o.deltaAmount, reference, note } };
+  // `data.bookingId` is REQUIRED: LodgifySource.externalId() reads booking.id /
+  // data.bookingId / bookingId and throws without one. Omitting it made every
+  // progressive invoice throw "Lodgify webhook missing booking.id /
+  // data.bookingId" before it reached the destination — the standard path has
+  // always sent it, this path never did, and the swallowed catch meant
+  // progressive invoicing failed 100% of the time in silence.
+  const body = {
+    event: "booking_new_status_booked",
+    data: { bookingId: o.bookingId },
+    _preloaded_booking: toPreloadedFromItem(o.bookingItem),
+    _partial: { seq: o.seq, amount: o.deltaAmount, reference, note },
+  };
   const normalized = await sourceAdapter.toNormalized(body, ctx);
   if (!normalized) throw new Error(`[LodgifyPoll] partial normalize failed for ${o.bookingId} seq ${o.seq}`);
 

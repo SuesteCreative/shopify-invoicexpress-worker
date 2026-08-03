@@ -828,8 +828,13 @@ app.post("/admin/run-reconciliation-sweep", async (c) => {
 app.post("/admin/lodgify/poll", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
+  let body: { user_id?: string; bookings?: any[] } = {};
+  try { body = await c.req.json(); } catch { /* empty body = poll every connection */ }
+  if (body.bookings && !body.user_id) {
+    return c.json({ error: "bookings requires user_id" }, 400);
+  }
   try {
-    const result = await pollLodgifyBookings(c.env);
+    const result = await pollLodgifyBookings(c.env, { userId: body.user_id, bookings: body.bookings });
     return c.json({ ranAt: new Date().toISOString(), ...result });
   } catch (e) {
     return errorResponse(c, e, "Lodgify poll failed");
@@ -2254,13 +2259,29 @@ async function hasEverInvoiced(env: Env, userId: string): Promise<boolean> {
   }
 }
 
-async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
+export interface LodgifyPollOptions {
+  /** Restrict the run to one connection. */
+  userId?: string;
+  /**
+   * RAW v1 `/v1/reservation` items, used INSTEAD of fetching from Lodgify.
+   * Requires userId. Recovery lever for when Lodgify rate-limits the Worker's
+   * egress (it 429s Cloudflare's shared IPs while the same key succeeds from
+   * elsewhere) — the caller fetches the list from a working network and the
+   * worker still runs the real normalization, cutoff, dedup and invoice logic,
+   * so nothing fiscal is reimplemented outside this code path.
+   */
+  bookings?: any[];
+}
+
+async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Promise<LodgifyPollResult> {
   const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0 };
 
-  const conns = await env.DB.prepare(
+  const baseSql =
     `SELECT id, user_id, source_config_json, destination_kind, destination_config_json, invoice_cutoff
-     FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`
-  ).all();
+     FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`;
+  const conns = opts.userId
+    ? await env.DB.prepare(`${baseSql} AND user_id = ?`).bind(opts.userId).all()
+    : await env.DB.prepare(baseSql).all();
   const rows = (conns?.results ?? []) as any[];
 
   for (const conn of rows) {
@@ -2330,7 +2351,12 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
     // Pulling the full v1 set is what makes EVERY booking reach the mirror /
     // conciliação; the old v2 list silently dropped some.
     let bookings: any[];
-    try {
+    if (opts.bookings && opts.userId === conn.user_id) {
+      // Caller supplied the raw v1 list; normalize it exactly as the fetch path
+      // does so every downstream rule behaves identically.
+      bookings = opts.bookings.map(normalizeLodgifyV1Item);
+      console.log(`[LodgifyPoll] user ${conn.user_id}: using ${bookings.length} caller-supplied booking(s)`);
+    } else try {
       bookings = await listLodgifyBookings(apiKey);
     } catch (e: any) {
       const msg = String(e?.message ?? e);

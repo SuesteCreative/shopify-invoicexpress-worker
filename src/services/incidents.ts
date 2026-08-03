@@ -67,6 +67,7 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
   const detailJson = input.detail != null ? JSON.stringify(input.detail) : null;
 
   let wasNew = false;
+  let notifyNow = false;
 
   try {
     const result = await env.DB.prepare(
@@ -76,6 +77,14 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
          occurrences = incidents.occurrences + 1,
          last_seen_at = excluded.last_seen_at,
          summary = excluded.summary,
+         -- Escalate, never downgrade. The bucket keeps whichever severity is
+         -- highest for the hour: a generic 429 opening the bucket must not mask
+         -- the critical that follows it (a permanent Lodgify IP block landed as
+         -- "error" purely because a lesser incident got there first).
+         severity = CASE
+           WHEN (CASE excluded.severity  WHEN 'critical' THEN 4 WHEN 'error' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END)
+              > (CASE incidents.severity WHEN 'critical' THEN 4 WHEN 'error' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END)
+           THEN excluded.severity ELSE incidents.severity END,
          detail_json = COALESCE(excluded.detail_json, incidents.detail_json),
          affected_ids_json = CASE
            WHEN excluded.affected_ids_json IS NULL THEN incidents.affected_ids_json
@@ -84,7 +93,8 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
          END,
          status = CASE WHEN incidents.status = 'resolved' THEN 'open' ELSE incidents.status END,
          resolved_at = CASE WHEN incidents.status = 'resolved' THEN NULL ELSE incidents.resolved_at END
-       RETURNING occurrences = 1 AS was_new`
+       RETURNING occurrences = 1 AS was_new,
+                 (notified_at IS NULL AND severity = 'critical') AS notify_now`
     ).bind(
       id,
       input.user_id ?? null,
@@ -99,6 +109,10 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
       nowIso,
     ).first();
     wasNew = !!(result as any)?.was_new;
+    // True when the bucket now stands at critical and no email has gone out for
+    // it yet — covers a fresh critical, one that escalated into an existing
+    // bucket, and a retry after a send that failed.
+    notifyNow = !!(result as any)?.notify_now;
   } catch (e: any) {
     console.error(`[incidents] Failed to upsert: ${e.message}`);
     return;
@@ -107,7 +121,7 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
   // Email immediately on first occurrence of critical incidents AND of any
   // "order not invoiced" failure (even if a caller didn't mark it critical), so
   // ops are alerted in real time instead of waiting for the Friday digest.
-  if (wasNew && (input.severity === "critical" || REALTIME_OPS_ALERT_KINDS.has(input.kind))) {
+  if ((wasNew && (input.severity === "critical" || REALTIME_OPS_ALERT_KINDS.has(input.kind))) || notifyNow) {
     // P3 suppression: when destination auth fails (expired Moloni/IX token),
     // every queued order in the next hour creates a NEW bucket → fresh critical
     // email. The merchant only needs one ping to re-auth. Suppress repeats

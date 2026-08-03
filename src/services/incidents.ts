@@ -660,7 +660,9 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
 
     // Dry-run: record what WOULD be sent, send nothing.
     if (opts.dryRun) {
-      preview!.push({ userId, merchantName, recipients, missingCount, subject: tpl.subject });
+      // resolveMerchantName returns undefined for a user with no registered
+      // label; the preview row wants a displayable string.
+      preview!.push({ userId, merchantName: merchantName ?? userId, recipients, missingCount, subject: tpl.subject });
       merchantsNotified++;
       totalMissing += missingCount;
       continue;

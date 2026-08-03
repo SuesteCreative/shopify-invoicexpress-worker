@@ -7,6 +7,7 @@ import { getSourceAdapter, getDestinationAdapter } from "./adapters/registry";
 import { loadTagRoutingRules, matchTagRouting } from "./services/tag-routing";
 import { loadProductMappings } from "./services/product-mappings";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
+import { firstNum, bookingAmountDue, bookingPaidAmount } from "./services/lodgify-amounts";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -2000,17 +2001,6 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
 
 const LODGIFY_API = "https://api.lodgify.com";
 
-function firstNum(...vals: unknown[]): number | null {
-  for (const v of vals) {
-    if (v == null) continue;
-    const n = typeof v === "object" && v !== null && "amount" in (v as any)
-      ? Number((v as any).amount)
-      : Number(v as any);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-}
-
 // First non-empty trimmed string among vals, or null. Used to pull the guest
 // comment (where the NIF is typed) out of whichever field Lodgify carries it in.
 function firstStr(...vals: unknown[]): string | null {
@@ -2089,22 +2079,6 @@ async function listLodgifyBookings(apiKey: string): Promise<any[]> {
     await delay(250); // pace pages to avoid re-tripping the rate limit
   }
   return out;
-}
-
-// Outstanding balance in Lodgify for a v2 booking item, or null if undeterminable.
-// Policy (confirmed with merchant): invoice a booking only once it is PAID in
-// Lodgify — i.e. amount_due≈0. That covers both direct payments captured through
-// Lodgify AND OTA (Booking.com/Airbnb) stays that staff mark as paid, since
-// marking-as-paid raises amount_paid → amount_due drops to 0. Bookings with a
-// positive balance are skipped and re-evaluated on every poll (never marked
-// processed), so they invoice automatically on the poll after payment lands.
-function bookingAmountDue(item: any): number | null {
-  const due = firstNum(item?.amount_due, item?.balance_due);
-  if (due != null) return Math.round(due * 100) / 100;
-  const total = firstNum(item?.total_amount, item?.total);
-  const paid = firstNum(item?.amount_paid, item?.total_paid);
-  if (total != null && paid != null) return Math.round((total - paid) * 100) / 100;
-  return null;
 }
 
 // Map a v2 booking list item into the shape LodgifySource reads from
@@ -2216,6 +2190,33 @@ interface LodgifyPollResult {
   connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;
 }
 
+/**
+ * Has this connection ever actually issued an invoice?
+ *
+ * Distinguishes two states the gate treats identically: a merchant who was
+ * invoicing and went dark (a regression — alert), versus one who has never
+ * issued anything and is simply awaiting activation under pay-to-activate
+ * (expected — alerting daily on it is pure noise). Pre-existing external markers
+ * in lodgify_partial_invoices carry invoice_id NULL and don't count.
+ *
+ * Errs toward `true` on failure: the point of this whole path is to stop being
+ * silent, so an unknown state should alert rather than swallow.
+ */
+async function hasEverInvoiced(env: Env, userId: string): Promise<boolean> {
+  try {
+    const processed: any = await env.DB.prepare(
+      "SELECT 1 AS hit FROM processed_orders WHERE user_id = ? LIMIT 1"
+    ).bind(userId).first();
+    if (processed?.hit) return true;
+    const partial: any = await env.DB.prepare(
+      "SELECT 1 AS hit FROM lodgify_partial_invoices WHERE user_id = ? AND invoice_id IS NOT NULL LIMIT 1"
+    ).bind(userId).first();
+    return !!partial?.hit;
+  } catch {
+    return true;
+  }
+}
+
 async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
   const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0 };
 
@@ -2230,9 +2231,22 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
 
     let sourceCfg: Record<string, any> = {};
     try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+    // Connection-level failures below use a DAILY bucket: the poll runs every
+    // 30 min, so an hourly bucket would email 24×/day for one dead connection.
+    // Daily = one alert per day until it's fixed.
+    const connLabel = `lodgify → ${conn.destination_kind ?? "moloni"}`;
+
     const apiKey = sourceCfg.api_key;
     if (!apiKey) {
       console.warn(`[LodgifyPoll] user ${conn.user_id}: no api_key in source_config — skipping`);
+      await reportIncident(env, {
+        user_id: conn.user_id,
+        severity: "critical",
+        kind: "auth_failure_source",
+        summary: "Ligação Lodgify sem chave de API — nenhuma reserva pode ser facturada.",
+        connection_label: connLabel,
+        bucket: "daily",
+      });
       continue;
     }
 
@@ -2255,6 +2269,20 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
     const gate = await checkSubscriptionGate(env, legacy);
     if (!gate.allowed) {
       console.warn(`[LodgifyPoll] user ${conn.user_id}: subscription gate blocked (${gate.reason}) — skipping`);
+      // Previously console-only: a merchant that WAS invoicing and goes dark
+      // because its subscription lapsed did so in total silence. Alert on that.
+      // A connection that never issued anything is awaiting activation
+      // (pay-to-activate) — an expected state, not an incident.
+      if (await hasEverInvoiced(env, conn.user_id)) {
+        await reportIncident(env, {
+          user_id: conn.user_id,
+          severity: "critical",
+          kind: "subscription_inactive",
+          summary: `Subscrição inactiva (${gate.reason}). Reservas Lodgify deixaram de ser facturadas.`,
+          connection_label: connLabel,
+          bucket: "daily",
+        });
+      }
       continue;
     }
 
@@ -2268,7 +2296,23 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
     try {
       bookings = await listLodgifyBookings(apiKey);
     } catch (e: any) {
-      console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${e?.message ?? e}`);
+      const msg = String(e?.message ?? e);
+      console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${msg}`);
+      // A rejected key is permanent until re-authed; anything else is likely a
+      // transient Lodgify outage that the next poll clears. Both used to be
+      // console-only, so a revoked key looked identical to "nothing to do".
+      const isAuth = /\b(401|403)\b|unauthorized|forbidden|invalid api key/i.test(msg);
+      await reportIncident(env, {
+        user_id: conn.user_id,
+        severity: isAuth ? "critical" : "error",
+        kind: "auth_failure_source",
+        summary: isAuth
+          ? "Lodgify rejeitou a chave de API — reservas não estão a ser sincronizadas nem facturadas."
+          : `Não foi possível obter reservas do Lodgify: ${msg}`.slice(0, 500),
+        detail: { error: msg },
+        connection_label: connLabel,
+        bucket: "daily",
+      });
       continue;
     }
 
@@ -2316,8 +2360,10 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
       // ── Progressive path: bill each newly-paid delta ──────────────────────
       if (partialEnabled && partialCtx) {
         const total = Number(item?.total_amount ?? 0);
-        const paid = firstNum(item?.amount_paid) ?? 0;
-        if (paid <= 0.01) { result.skipped++; continue; }              // nothing paid yet
+        // Settlement-aware: an OTA booking reports amount_paid=0 / amount_due=0
+        // yet is fully collected. Reading amount_paid raw skipped it forever.
+        const paid = bookingPaidAmount(item);
+        if (paid <= 0.01) { result.skipped++; continue; }              // nothing collected yet
         const partials = await appStorage.getPartialInvoices(conn.user_id, bookingId);
         // Transition guard: a booking already invoiced by the STANDARD flow
         // lives under processed_orders / "Order #N" — the instalment dedup
@@ -2342,7 +2388,23 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
           await appStorage.upsertPartialInvoice(conn.user_id, bookingId, seq, invoiceId, delta, `Order #${orderNum}-${seq}`);
           result.invoiced++;
         } catch (e: any) {
-          console.error(`[LodgifyPoll] user ${conn.user_id}: partial invoice failed for ${bookingId} seq ${seq}: ${e?.message ?? e}`);
+          const msg = String(e?.message ?? e);
+          console.error(`[LodgifyPoll] user ${conn.user_id}: partial invoice failed for ${bookingId} seq ${seq}: ${msg}`);
+          // The progressive path calls emitLodgifyPartialInvoice directly rather
+          // than runAdapterPipeline, so it never inherited the pipeline's incident
+          // reporting — every failure here was swallowed into a counter. Report it
+          // the same way the standard path does.
+          const { kind, severity } = classifyPipelineError(e);
+          await reportIncident(env, {
+            user_id: conn.user_id,
+            severity,
+            kind,
+            summary: `Factura progressiva falhou para a reserva ${bookingId} (prestação ${seq}): ${msg}`.slice(0, 500),
+            detail: { booking_id: bookingId, seq, delta, error: msg },
+            affected_ids: [bookingId],
+            connection_label: connLabel,
+            order_ref: `#${bookingId}`,
+          });
           result.failed++;
         }
         continue;

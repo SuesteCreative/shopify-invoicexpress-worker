@@ -13,12 +13,15 @@
     "shadow:normalize": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-normalize.mjs",
     "shadow:refund": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-refund.mjs",
     "build": "wrangler deploy --dry-run -c wrangler.jsonc",
-    "preview": "wrangler dev -c wrangler.jsonc"
+    "preview": "wrangler dev -c wrangler.jsonc",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240101.0",
     "@hey-api/openapi-ts": "^0.94.1",
     "typescript": "^5.0.0",
+    "vitest": "^4.1.10",
     "wrangler": "^4.69.0"
   },
   "dependencies": {

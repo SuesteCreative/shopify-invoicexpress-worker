@@ -841,6 +841,61 @@ app.post("/admin/lodgify/poll", async (c) => {
   }
 })
 
+// Admin: diagnose Lodgify reachability FROM the Worker.
+//
+// Lodgify 429s the Worker's egress while the same API key returns 200 from a
+// normal network, so the difference cannot be reproduced locally — it has to be
+// measured here. Tries header variants and reports status + Cloudflare ray +
+// Retry-After so the cause (bot score, per-IP limit, WAF rule) is evidence
+// rather than guesswork. Read-only: fetches one item, invoices nothing.
+app.post("/admin/lodgify/diag", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { user_id?: string } = {};
+  try { body = await c.req.json(); } catch { /* */ }
+  if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT source_config_json FROM connections WHERE user_id = ? AND source_kind = 'lodgify' LIMIT 1`
+  ).bind(body.user_id).first();
+  if (!conn) return c.json({ error: "No Lodgify connection" }, 404);
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* */ }
+  const apiKey = sourceCfg.api_key;
+  if (!apiKey) return c.json({ error: "No api_key" }, 400);
+
+  const variants: Array<{ name: string; headers: Record<string, string> }> = [
+    { name: "current (no UA)", headers: { "X-ApiKey": apiKey, "Accept": "application/json" } },
+    { name: "with User-Agent", headers: { "X-ApiKey": apiKey, "Accept": "application/json", "User-Agent": "Rioko-Kapta/1.0 (+https://rioko.online)" } },
+    { name: "browser-like", headers: { "X-ApiKey": apiKey, "Accept": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36", "Accept-Language": "en-US,en;q=0.9" } },
+    { name: "v2 endpoint", headers: { "X-ApiKey": apiKey, "Accept": "application/json", "User-Agent": "Rioko-Kapta/1.0 (+https://rioko.online)" } },
+  ];
+
+  const out: any[] = [];
+  for (const v of variants) {
+    const url = v.name === "v2 endpoint"
+      ? `${LODGIFY_API}/v2/reservations/bookings?page=1&size=1`
+      : `${LODGIFY_API}/v1/reservation?offset=0&limit=1&trash=False`;
+    try {
+      const res = await fetch(url, { headers: v.headers });
+      const text = await res.text();
+      out.push({
+        variant: v.name,
+        status: res.status,
+        cf_ray: res.headers.get("cf-ray"),
+        server: res.headers.get("server"),
+        retry_after: res.headers.get("retry-after"),
+        cf_mitigated: res.headers.get("cf-mitigated"),
+        body: text.slice(0, 600),
+      });
+    } catch (e: any) {
+      out.push({ variant: v.name, error: String(e?.message ?? e) });
+    }
+    await delay(500);
+  }
+  return c.json({ ranAt: new Date().toISOString(), results: out });
+})
+
 // Admin: run the incident-driven auto-heal on demand. dry_run:true reports what
 // WOULD be re-emitted (the open-incident orders still missing an invoice) and
 // writes nothing. shops:[] restricts to specific domains. This is the reliable
@@ -2100,6 +2155,15 @@ async function listLodgifyBookings(apiKey: string): Promise<any[]> {
       }
       lastFailure = `${res.status} ${res.statusText}`;
       if (res.status === 429) {
+        // Lodgify returns 429 for BOTH a transient rate limit and a permanent IP
+        // block ("flagged as an unregistered API user requesting data for
+        // multiple Lodgify end users" → lodgify.com/partners). Retrying the
+        // latter is pointless and it needs a completely different response from
+        // us — partner registration, not backoff — so separate them here.
+        const blockBody = await res.text().catch(() => "");
+        if (/unregistered API user|lodgify\.com\/partners|has been blocked/i.test(blockBody)) {
+          throw new Error(`LODGIFY_IP_BLOCKED: ${blockBody.slice(0, 300)}`);
+        }
         const ra = Number(res.headers.get("retry-after"));
         await delay(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1));
         continue;
@@ -2375,14 +2439,19 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       // A rejected key is permanent until re-authed; anything else is likely a
       // transient Lodgify outage that the next poll clears. Both used to be
       // console-only, so a revoked key looked identical to "nothing to do".
+      const isBlocked = msg.includes("LODGIFY_IP_BLOCKED");
       const isAuth = /\b(401|403)\b|unauthorized|forbidden|invalid api key/i.test(msg);
       await reportIncident(env, {
         user_id: conn.user_id,
-        severity: isAuth ? "critical" : "error",
+        severity: isBlocked || isAuth ? "critical" : "error",
         kind: "auth_failure_source",
-        summary: isAuth
-          ? "Lodgify rejeitou a chave de API — reservas não estão a ser sincronizadas nem facturadas."
-          : `Não foi possível obter reservas do Lodgify: ${msg}`.slice(0, 500),
+        summary: isBlocked
+          // Names the actual remedy: no amount of retrying or redeploying fixes
+          // this, only registering as a Lodgify partner.
+          ? "Lodgify BLOQUEOU o IP do servidor: integrador não registado como parceiro. Nenhuma reserva pode ser sincronizada até registar em lodgify.com/partners."
+          : isAuth
+            ? "Lodgify rejeitou a chave de API — reservas não estão a ser sincronizadas nem facturadas."
+            : `Não foi possível obter reservas do Lodgify: ${msg}`.slice(0, 500),
         detail: { error: msg },
         connection_label: connLabel,
         bucket: "daily",

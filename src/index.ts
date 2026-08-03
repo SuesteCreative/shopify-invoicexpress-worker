@@ -2074,15 +2074,26 @@ async function listLodgifyBookings(apiKey: string): Promise<any[]> {
   for (let page = 0; page < 40; page++) {
     const url = `${LODGIFY_API}/v1/reservation?offset=${page * limit}&limit=${limit}&trash=False`;
     let items: any[] | null = null;
+    let lastFailure = "";
     for (let attempt = 0; attempt < 4; attempt++) {
       const res = await fetch(url, { headers });
       if (res.ok) {
-        const data: any = await res.json().catch(() => null);
+        const raw = await res.text();
+        let data: any = null;
+        try { data = JSON.parse(raw); } catch { /* handled below */ }
+        if (data == null) {
+          // A 200 whose body isn't JSON is a bot/WAF challenge or an outage
+          // page, NOT "this account has no bookings". Treating it as an empty
+          // list is how a dead poll looks identical to an idle one.
+          lastFailure = `200 with unparseable body: ${raw.slice(0, 120)}`;
+          break;
+        }
         items = Array.isArray(data?.items) ? data.items
           : Array.isArray(data) ? data
           : [];
         break;
       }
+      lastFailure = `${res.status} ${res.statusText}`;
       if (res.status === 429) {
         const ra = Number(res.headers.get("retry-after"));
         await delay(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1));
@@ -2091,7 +2102,15 @@ async function listLodgifyBookings(apiKey: string): Promise<any[]> {
       console.error(`[LodgifyPoll] v1 list ${res.status} ${res.statusText}`);
       break;
     }
-    if (items == null) break;
+    // Never return a short list as if it were the truth. Page 0 failing means we
+    // know nothing about this account — throw so the caller reports an incident
+    // instead of silently "finding no bookings" (the failure mode that let the
+    // poll look healthy while fetching nothing at all). A later page failing
+    // would silently truncate the set, which the invoice loop would read as
+    // "these bookings no longer exist", so treat it the same way.
+    if (items == null) {
+      throw new Error(`Lodgify v1 list failed at offset ${page * limit}: ${lastFailure || "no response"}`);
+    }
     for (const it of items) out.push(normalizeLodgifyV1Item(it));
     if (items.length < limit) break;
     await delay(250); // pace pages to avoid re-tripping the rate limit

@@ -2450,9 +2450,64 @@ async function pollLodgifyBookings(env: Env): Promise<LodgifyPollResult> {
         result.failed++;
       }
     }
+
+    // Backlog check — runs after the mirror is fresh for this connection.
+    await reportLodgifyBacklog(env, conn.user_id, conn.invoice_cutoff, connLabel);
   }
 
   return result;
+}
+
+/**
+ * Alert when settled bookings are piling up uninvoiced.
+ *
+ * The failure this catches: every per-poll counter can look healthy while
+ * nothing is actually being billed. Overbuilding sat at 269 bookings / 0
+ * invoices for 26 days and no metric noticed, because "skipped" is the normal
+ * outcome for most bookings on most polls. This asks the only question that
+ * matters — are there settled, post-cutoff bookings with no invoice? — straight
+ * against the D1 mirror, so it is immune to whichever code path is broken.
+ *
+ * 48h grace keeps brand-new bookings (payment still settling, OTA sync lag) out
+ * of the count. Daily bucket: one alert per day while a backlog persists.
+ */
+async function reportLodgifyBacklog(
+  env: Env,
+  userId: string,
+  invoiceCutoff: string | null,
+  connLabel: string,
+): Promise<void> {
+  const graceIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  try {
+    const row: any = await env.DB.prepare(
+      `SELECT COUNT(*) AS n, MIN(b.created_at) AS oldest, SUM(COALESCE(b.total_amount,0)) AS value
+         FROM lodgify_bookings b
+        WHERE b.user_id = ?1
+          AND b.status = 'Booked'
+          AND (?2 IS NULL OR b.created_at >= ?2)
+          AND COALESCE(b.amount_due, 0) <= 0.01
+          AND COALESCE(b.total_amount, 0) > 0
+          AND b.created_at <= ?3
+          AND NOT EXISTS (SELECT 1 FROM lodgify_partial_invoices p WHERE p.booking_id = b.id)
+          AND NOT EXISTS (SELECT 1 FROM processed_orders o WHERE o.id = b.id AND o.invoice_id IS NOT NULL)`
+    ).bind(userId, invoiceCutoff ?? null, graceIso).first();
+
+    const n = Number(row?.n ?? 0);
+    if (n <= 0) return;
+
+    console.warn(`[LodgifyPoll] user ${userId}: ${n} settled booking(s) still uninvoiced (oldest ${row?.oldest})`);
+    await reportIncident(env, {
+      user_id: userId,
+      severity: "critical",
+      kind: "queue_retry_exhausted",
+      summary: `${n} reserva(s) Lodgify pagas continuam por facturar (mais antiga: ${String(row?.oldest ?? "?").slice(0, 10)}).`,
+      detail: { uninvoiced: n, oldest: row?.oldest, value: row?.value },
+      connection_label: connLabel,
+      bucket: "daily",
+    });
+  } catch (e: any) {
+    console.error(`[LodgifyPoll] backlog check failed for ${userId}: ${e?.message ?? e}`);
+  }
 }
 
 export default {

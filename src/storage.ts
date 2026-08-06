@@ -43,6 +43,8 @@ export interface IRequestConfig {
   // (e.g. Multibanco) are not invoiced at orders/created; orders/paid emits them
   // on payment. Orthogonal to auto_finalize. Set to 0 to restore emit-at-create.
   only_invoice_when_paid: number | null;
+  /** 1 = document 100%-discounted orders instead of skipping them (wholesale). */
+  invoice_zero_total: number | null;
   // 0 or 1. When 1, invoices/credit notes whose exemption code is applied (any
   // 0%-tax line, non reverse-charge) also carry the bilingual legal mention for
   // that code in `observations` (see src/ix/exemption-mentions.ts). Off by
@@ -282,11 +284,11 @@ export class AppStorage {
     return false;
   }
 
-  async getInvoiceByOrderId(orderId: string): Promise<{ id: string; invoice_id: string } | null> {
+  async getInvoiceByOrderId(orderId: string): Promise<{ id: string; invoice_id: string; hold_reason: string | null } | null> {
     try {
-      const row: any = await this.db.prepare("SELECT id, invoice_id FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
+      const row: any = await this.db.prepare("SELECT id, invoice_id, hold_reason FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
       if (row && row.invoice_id) {
-        return { id: row.id, invoice_id: row.invoice_id };
+        return { id: row.id, invoice_id: row.invoice_id, hold_reason: row.hold_reason ?? null };
       }
       return null;
     } catch (e) {
@@ -295,7 +297,7 @@ export class AppStorage {
     }
   }
 
-  async saveProcessedInvoice(orderId: string, invoiceId: string, opts?: { sourceKind?: SourceKind; destinationKind?: DestinationKind }) {
+  async saveProcessedInvoice(orderId: string, invoiceId: string, opts?: { sourceKind?: SourceKind; destinationKind?: DestinationKind; holdReason?: string | null }) {
     const sourceKind = opts?.sourceKind ?? "shopify";
     const destinationKind = opts?.destinationKind ?? "invoicexpress";
     const key = `${sourceKind}_order:${orderId}`;
@@ -304,8 +306,11 @@ export class AppStorage {
     //    added in migration 0007 are nullable; we now populate them on new
     //    writes. Legacy rows with NULL are read as ("shopify","invoicexpress").
     try {
+      // hold_reason is written on every upsert, including as NULL. That is what
+      // makes a re-emit clear a previous hold: the merchant fixes the NIF in
+      // Shopify, the new build has no hold, and the row stops blocking finalize.
       await this.db.prepare(
-        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, user_id, created_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, user_id, created_at, source_kind, destination_kind, hold_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       ).bind(
         String(orderId),
         String(invoiceId),
@@ -314,6 +319,7 @@ export class AppStorage {
         new Date().toISOString(),
         sourceKind,
         destinationKind,
+        opts?.holdReason ?? null,
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to save processed invoice in D1:", e);
@@ -423,11 +429,11 @@ export class AppStorage {
     }
   }
 
-  async listProcessedInvoices(limit = 500, order: "asc" | "desc" = "desc"): Promise<Array<{ id: string; invoice_id: string; created_at: string | null }>> {
+  async listProcessedInvoices(limit = 500, order: "asc" | "desc" = "desc"): Promise<Array<{ id: string; invoice_id: string; created_at: string | null; hold_reason: string | null }>> {
     try {
-      const sql = `SELECT id, invoice_id, created_at FROM processed_orders WHERE shopify_domain = ? ORDER BY rowid ${order === "asc" ? "ASC" : "DESC"} LIMIT ?`;
+      const sql = `SELECT id, invoice_id, created_at, hold_reason FROM processed_orders WHERE shopify_domain = ? ORDER BY rowid ${order === "asc" ? "ASC" : "DESC"} LIMIT ?`;
       const result = await this.db.prepare(sql).bind(this.shopDomain, limit).all();
-      return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null }));
+      return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null, hold_reason: r.hold_reason ?? null }));
     } catch (e) {
       console.error("[Rioko] Failed to list processed invoices:", e);
       return [];

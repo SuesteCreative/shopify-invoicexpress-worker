@@ -7,7 +7,7 @@ import type { Normalized } from "../api/normalize-shopify";
 import type { PendingReverseChargeRow } from "../storage";
 import { AppStorage } from "../storage";
 import { IxApi } from "../api/ix";
-import { IxBuilder } from "../ix/builder";
+import { IxBuilder, nifHoldReason, type NifHold } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
 import { reportIncident } from "../services/incidents";
 
@@ -39,7 +39,7 @@ export async function submitInvoiceForPendingRow(
   }
 
   const builder = new IxBuilder(config);
-  let build: { invoice: any; requestTaxExemptionReason: boolean };
+  let build: { invoice: any; requestTaxExemptionReason: boolean; nifHold?: NifHold };
   if (disposition === "apply") {
     build = builder.buildReverseChargeInvoice(normalized, row.country_code, row.vat_id);
   } else {
@@ -66,7 +66,11 @@ export async function submitInvoiceForPendingRow(
     return { ok: false, error: "IX create returned no id" };
   }
 
-  await appStorage.saveProcessedInvoice(row.order_id, String(invoiceId));
+  // Carry any address-line NIF hold onto the row so the later finalize leaves
+  // this draft alone, exactly as the create path would have.
+  await appStorage.saveProcessedInvoice(row.order_id, String(invoiceId), {
+    holdReason: build.nifHold ? nifHoldReason(build.nifHold) : null,
+  });
   await appStorage.resolvePending(row.id, disposition === "apply" ? "approved" : "rejected");
   await appStorage.saveLog({
     shopify_domain: row.shopify_domain,

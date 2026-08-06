@@ -59,6 +59,11 @@ export interface NormalizedRefund {
 
 export interface DestinationInvoiceCreateResult {
   invoiceId: string;
+  /** Set when the document must stay a draft for a human to review — today
+   *  only "the buyer typed something into the address line that was meant to
+   *  be a NIF and doesn't validate". Persisted on processed_orders.hold_reason;
+   *  blocks finalize and the customer email until a re-emit clears it. */
+  holdReason?: string | null;
 }
 
 export interface DestinationCreditResult {
@@ -70,6 +75,9 @@ export interface DestinationAdapter {
   createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult>;
   finalize(invoiceId: string, ctx: AdapterCtx): Promise<void>;
   issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult>;
-  emailDocument?(invoiceId: string, ctx: AdapterCtx): Promise<void>;
+  /** Send the issued document to the buyer. Must not throw on a failed send —
+   *  the invoice already exists, so a bounced email is a log line, not a reason
+   *  to fail (and retry) the whole webhook. */
+  emailDocument?(invoiceId: string, ctx: AdapterCtx, opts?: { holdReason?: string | null }): Promise<void>;
   findByReference?(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null>;
 }

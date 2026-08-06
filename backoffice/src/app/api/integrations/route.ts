@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid } = body;
+        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid, ix_send_email, ix_email_subject, ix_email_body } = body;
 
         const clean_shopify_domain = shopify_domain ? shopify_domain.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
 
@@ -113,6 +113,14 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // Customer-facing invoice email. Opt-in only: an absent field must never
+        // flip it on, because turning it on starts sending mail to real buyers.
+        // Subject/body are optional overrides of InvoiceXpress's own template —
+        // empty string means "use the IX default", stored as NULL.
+        const sendEmailBit = ix_send_email !== undefined ? (ix_send_email ? 1 : 0) : null;
+        const emailSubject = ix_email_subject !== undefined ? (String(ix_email_subject).trim().slice(0, 200) || null) : undefined;
+        const emailBody = ix_email_body !== undefined ? (String(ix_email_body).trim().slice(0, 1000) || null) : undefined;
+
         // Check if integration exists
         const existing: any = await db
             .prepare("SELECT * FROM integrations WHERE user_id = ?")
@@ -133,7 +141,7 @@ export async function POST(request: NextRequest) {
             await db
                 .prepare(`
           UPDATE integrations
-          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, updated_at = CURRENT_TIMESTAMP
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, ix_send_email = ?, ix_email_subject = ?, ix_email_body = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 .bind(
@@ -155,6 +163,9 @@ export async function POST(request: NextRequest) {
                     retentionEnabledBit,
                     retentionValue,
                     only_invoice_when_paid !== undefined ? (only_invoice_when_paid ? 1 : 0) : (existing.only_invoice_when_paid ?? 0),
+                    sendEmailBit ?? (existing.ix_send_email ?? 0),
+                    emailSubject !== undefined ? emailSubject : (existing.ix_email_subject ?? null),
+                    emailBody !== undefined ? emailBody : (existing.ix_email_body ?? null),
                     targetUserId
                 )
                 .run();
@@ -162,8 +173,8 @@ export async function POST(request: NextRequest) {
             const id = crypto.randomUUID();
             await db
                 .prepare(`
-          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid, ix_send_email, ix_email_subject, ix_email_body)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
                 .bind(
                     id,
@@ -185,7 +196,10 @@ export async function POST(request: NextRequest) {
                     ix_sequence_name || null,
                     retentionEnabledBit,
                     retentionValue,
-                    only_invoice_when_paid ? 1 : 0
+                    only_invoice_when_paid ? 1 : 0,
+                    sendEmailBit ?? 0,
+                    emailSubject ?? null,
+                    emailBody ?? null
                 )
                 .run();
         }
@@ -194,14 +208,21 @@ export async function POST(request: NextRequest) {
         // until the cutoff. The gate reads early_bird + trial_end, so this is what
         // makes "Shopify → early bird by default" true in the DB (single source of
         // truth). Idempotent; the subscription row is normally seeded at signup.
+        //
+        // `admin_override_at` (migration 0028) opts a row out: once someone set the
+        // dates by hand in Dev Mode, this save must not re-assert early_bird = 1 nor
+        // restore the default cutoff. Rows without the marker behave exactly as before.
         const earlyBirdCutoff = (env as any).EARLY_BIRD_TRIAL_END || process.env.EARLY_BIRD_TRIAL_END || "2026-08-01T00:00:00Z";
         try {
             await db.prepare(`
                 INSERT INTO subscriptions (user_id, status, trial_end, early_bird, created_at, updated_at)
                 VALUES (?, 'trialing', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
-                    early_bird = 1,
-                    trial_end = COALESCE(subscriptions.trial_end, excluded.trial_end),
+                    early_bird = CASE WHEN subscriptions.admin_override_at IS NULL
+                                      THEN 1 ELSE subscriptions.early_bird END,
+                    trial_end = CASE WHEN subscriptions.admin_override_at IS NULL
+                                     THEN COALESCE(subscriptions.trial_end, excluded.trial_end)
+                                     ELSE subscriptions.trial_end END,
                     updated_at = CURRENT_TIMESTAMP
             `).bind(targetUserId, earlyBirdCutoff).run();
         } catch (e: any) {

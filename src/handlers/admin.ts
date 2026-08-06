@@ -3,9 +3,10 @@ import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
-import { IxBuilder } from "../ix/builder";
+import { IxBuilder, nifHoldReason } from "../ix/builder";
 import { createIxInvoiceWithFallback } from "../ix/create-invoice";
 import { sendDevModeEmail } from "./notify";
+import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
 
 interface ShopifyOrderSummary {
   id: number;
@@ -721,6 +722,14 @@ export async function finalizeDrafts(
 
   for (const row of processed) {
     try {
+      // Drafts parked for a human (invalid NIF in the address line) are exactly
+      // the drafts a bulk finalize must not touch — the hold exists precisely
+      // to stop the document being certified before someone looks at it.
+      if (row.hold_reason) {
+        results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Em rascunho por decisão: ${row.hold_reason}` });
+        continue;
+      }
+
       const { data: docData, error: docError } = await IxApi.v2.documents.byId.get({
         headers: ixHeaders,
         path: { id: Number(row.invoice_id) },
@@ -917,8 +926,10 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
     // Zero-amount short-circuit: PT fiscal rules don't require invoicing 0€
     // orders (gift cards, 100% discount, test orders). IX would also reject
     // the request, so we skip cleanly and log it so the merchant can see why.
+    // `invoice_zero_total` lets a wholesale shop document 100%-discounted
+    // orders (samples, replacements) instead of skipping them. See orders-created.ts.
     const orderTotal = parseFloat(String(order.total_price ?? order.current_total_price ?? "0"));
-    if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+    if ((!Number.isFinite(orderTotal) || orderTotal <= 0) && Number(config.invoice_zero_total) !== 1) {
       await appStorage.saveLog({
         shopify_domain: config.shopify_domain,
         topic: "orders/created",
@@ -961,7 +972,7 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
     }
 
     const ixBuilder = new IxBuilder(config);
-    const { invoice } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
+    const { invoice, nifHold } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
 
     const { res: ixCreateResponse, via } = await createIxInvoiceWithFallback(
       ixHeaders,
@@ -971,9 +982,14 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
     );
 
     if (ixCreateResponse.data?.data?.id) {
-      await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id));
+      // Writing the hold (or NULL) here is what makes a re-emit the fix for a
+      // held order: the merchant corrects the address in Shopify, re-emits, and
+      // the fresh build has no hold, so finalize is unblocked.
+      const holdReason = nifHold ? nifHoldReason(nifHold) : null;
+      await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id), { holdReason });
       const suffix = via !== "none" ? ` (cliente recriado via fallback: ${via})` : "";
-      return { order_id: order.id, order_number: order.order_number, status: "created", message: `Invoice ${ixCreateResponse.data.data.id} created${suffix}` };
+      const holdNote = holdReason ? ` — em rascunho: ${holdReason}` : "";
+      return { order_id: order.id, order_number: order.order_number, status: "created", message: `Invoice ${ixCreateResponse.data.data.id} created${suffix}${holdNote}` };
     }
 
     return { order_id: order.id, order_number: order.order_number, status: "error", message: `IX API returned no id: ${JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data)}` };
@@ -990,6 +1006,13 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
     const invoiceRef = await appStorage.getInvoiceByOrderId(orderId);
     if (!invoiceRef) {
       return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "No invoice found in DB — run create_orders first" };
+    }
+
+    // Held for a human (invalid NIF in the address line). Finalizing in bulk
+    // would certify exactly the documents someone asked us to hold. Correct the
+    // order in Shopify and re-emit — that clears the hold.
+    if (invoiceRef.hold_reason) {
+      return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Em rascunho por decisão: ${invoiceRef.hold_reason}. Corrija a encomenda e reemita.` };
     }
 
     const ixHeaders = {
@@ -1020,33 +1043,11 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
       return { order_id: order.id, order_number: order.order_number, status: "error", message: `Finalize failed: ${JSON.stringify(error)}` };
     }
 
-    // Send email if configured
-    if (config.ix_send_email) {
-      const { data: invoiceData, error: invoiceError } = await IxApi.v2.documents.byId.get({
-        headers: ixHeaders,
-        path: { id: Number(invoiceRef.invoice_id) },
-      });
-
-      if (!invoiceError && invoiceData?.data?.client?.email && invoiceData?.data?.client?.fiscal_id) {
-        await IxApi.v2.documents.byId.email.post({
-          body: {
-            message: {
-              client: {
-                email: invoiceData.data.client.email,
-                save: "0",
-              },
-              body: config.ix_email_body ?? undefined,
-              subject: config.ix_email_subject ?? undefined,
-            },
-          },
-          path: { id: Number(invoiceRef.invoice_id) },
-          query: {
-            type: config.ix_document_type === "invoice_receipt" ? "invoice_receipts" : "invoices",
-          },
-          headers: ixHeaders,
-        });
-      }
-    }
+    // Send email if configured. Shared with the webhook paths so the admin
+    // tool can't drift from them again — it used to require the client to carry
+    // a fiscal_id, which silently emailed nobody on every Consumidor Final sale.
+    const emailOutcome = await sendIxDocumentEmail(config, invoiceRef.invoice_id);
+    console.log(`[Rioko] ${describeIxEmailOutcome(invoiceRef.invoice_id, emailOutcome)}`);
 
     return { order_id: order.id, order_number: order.order_number, status: "finalized", message: `Invoice ${invoiceRef.invoice_id} finalized` };
   } catch (e) {

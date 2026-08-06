@@ -10,6 +10,9 @@ export interface SendEmailParams {
   text?: string;
   fromEmail?: string;
   fromName?: string;
+  /** Where replies should land. Essential when sending as noreply@ — without it
+   *  a merchant hitting "Reply" writes into a mailbox nobody reads. */
+  replyTo?: string | string[];
   /** Override the provider chain for testing. */
   providerOverride?: "resend" | "mailchannels";
 }
@@ -45,6 +48,7 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
 
   const cc = normalize(params.cc);
   const bcc = normalize(params.bcc);
+  const replyTo = normalize(params.replyTo);
   const fromEmail = params.fromEmail ?? env.RESEND_FROM_EMAIL ?? "rioko-devmode@kapta.pt";
   const fromName = params.fromName ?? "Rioko";
   const text = params.text ?? stripHtml(params.html);
@@ -63,6 +67,7 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
         subject: params.subject,
         html: params.html,
         text,
+        ...(replyTo.length ? { replyTo } : {}),
       });
       if (error) return { ok: false, provider: "resend", detail: error.message };
       return { ok: true, provider: "resend", id: data?.id };
@@ -72,13 +77,14 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
     }
   }
 
-  return sendViaMailChannels({ to, cc, bcc, fromEmail, fromName, subject: params.subject, html: params.html, text });
+  return sendViaMailChannels({ to, cc, bcc, replyTo, fromEmail, fromName, subject: params.subject, html: params.html, text });
 }
 
 async function sendViaMailChannels(p: {
   to: string[];
   cc: string[];
   bcc: string[];
+  replyTo?: string[];
   fromEmail: string;
   fromName: string;
   subject: string;
@@ -92,6 +98,7 @@ async function sendViaMailChannels(p: {
   const payload = {
     personalizations: [personalization],
     from: { email: p.fromEmail, name: p.fromName },
+    ...(p.replyTo?.length ? { reply_to: { email: p.replyTo[0] } } : {}),
     subject: p.subject,
     content: [
       { type: "text/plain", value: p.text },

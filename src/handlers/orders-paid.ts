@@ -7,6 +7,7 @@ import { awaitInvoiceVisibility } from "../utils";
 import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { handleOrderCreated } from "./orders-created";
+import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -60,6 +61,24 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
       return;
     }
 
+    // Parked for a human (invalid NIF in the address line — see orders-created).
+    // The draft stays a draft: finalizing it would certify a document whose
+    // fiscal identity we know is in question, and emailing it would send the
+    // customer an invoice missing the NIF they asked for. The merchant was
+    // already told; they resolve it by correcting Shopify and re-emitting.
+    if (invoice.hold_reason) {
+      console.log(`[Rioko] Order ${orderId} invoice ${invoice.invoice_id} held (${invoice.hold_reason}) — not finalizing`);
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }),
+        response: `Held as draft: ${invoice.hold_reason}`,
+        status: 200,
+      });
+      return;
+    }
+
     // Check if auto_finalize is enabled
     const finalize = config.auto_finalize === 1;
 
@@ -99,56 +118,24 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
 
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }), response: "Finalized", status: 200 });
 
-    if (config.ix_send_email) {
-      const { data: invoiceData, error: invoiceError } = await ixCall(
-        () => IxApi.v2.documents.byId.get({
-          headers: ixHeaders,
-          path: {
-            id: Number(invoice.invoice_id)
-          }
-        }),
-        { isOk: (r) => !r.error, label: `get ${invoice.invoice_id}` },
-      );
-
-      if (invoiceError) {
-        console.error(`[Rioko] Failed to get invoice by id ${invoice.invoice_id}:`, invoiceError);
-        throw new Error(`Failed to get invoice by id ${invoice.invoice_id}`);
-      }
-
-      // if (!invoiceData.data.client.email || !invoiceData.data.client.fiscal_id) {
-      if (!invoiceData.data.client.email) {
-        // console.error(`[Rioko] Invoice ${invoice.invoice_id} has no email address or nif`);
-        console.error(`[Rioko] Invoice ${invoice.invoice_id} has no email address`);
-        return;
-      }
-
-      const { error } = await ixCall(
-        () => IxApi.v2.documents.byId.email.post({
-          body: {
-            message: {
-              client: {
-                email: invoiceData.data.client.email,
-                save: "0"
-              },
-              body: config.ix_email_body ?? undefined,
-              subject: config.ix_email_subject ?? undefined
-            }
-          },
-          path: {
-            id: Number(invoice.invoice_id)
-          },
-          query: {
-            type: config.ix_document_type === "invoice_receipt" ? "invoice_receipts" : "invoices"
-          },
-          headers: ixHeaders
-        }),
-        { isOk: (r) => !r.error, label: `email ${invoice.invoice_id}` },
-      );
-
-      if (error) {
-        console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);
-        throw new Error(`Failed to send invoice by id ${invoice.invoice_id}`);
-      }
+    // Send the finalized document to the buyer (opt-in per shop). InvoiceXpress
+    // sends it from the merchant's own account, and the body carries the
+    // document's quicklink for viewing and downloading the PDF.
+    //
+    // Deliberately non-fatal. This used to throw, which failed the whole
+    // orders/paid webhook AFTER the invoice had already been finalized — the
+    // retry then re-ran finalize on a document that could no longer be edited,
+    // turning "the email didn't go out" into a stream of false finalize errors.
+    const emailOutcome = await sendIxDocumentEmail(config, invoice.invoice_id, { holdReason: invoice.hold_reason });
+    console.log(`[Rioko] ${describeIxEmailOutcome(invoice.invoice_id, emailOutcome)}`);
+    if (!emailOutcome.sent && (emailOutcome.reason === "send_failed" || emailOutcome.reason === "lookup_failed")) {
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }),
+        response: describeIxEmailOutcome(invoice.invoice_id, emailOutcome),
+        status: 502,
+      });
     }
   } catch (e) {
     console.error(`[Rioko] Error finalizing invoice for order ${orderId}:`, e);

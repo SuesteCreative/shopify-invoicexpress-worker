@@ -19,6 +19,7 @@ import { checkSubscriptionGate } from "./services/subscription-gate";
 import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
 import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
+import { sendEmail as sendEmailDirect } from "./services/email";
 import {
   getReconciliation,
   resolveReconContext,
@@ -1290,6 +1291,22 @@ app.post("/admin/billing/renewal-reminders", async (c) => {
   }
 })
 
+// Admin: dry-run / force the early-bird wind-down sequence. `as_of` lets us
+// preview a future send date (e.g. 2026-08-15) without waiting for the cron.
+app.post("/admin/billing/early-bird-reminders", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ dry_run?: boolean; as_of?: string }>().catch(() => ({} as any));
+  try {
+    const asOf = body.as_of ? new Date(body.as_of) : undefined;
+    if (asOf && Number.isNaN(asOf.getTime())) return c.json({ error: "as_of is not a valid date" }, 400);
+    const result = await runEarlyBirdEndingReminders(c.env, { dryRun: body.dry_run !== false, now: asOf });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to run early-bird reminders");
+  }
+})
+
 app.post("/admin/stripe/reemit", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
@@ -1560,14 +1577,28 @@ app.get("/admin/user-shop", async (c) => {
   } catch (e) { return errorResponse(c, e, "Admin operation failed"); }
 })
 
-// Admin: ad-hoc test notify
+// Admin: ad-hoc notify. `from_name` / `from_email` are for merchant-facing mail —
+// the default sender is "Rioko Dev Mode", which is right for QA blasts and wrong
+// for anything a customer reads. `cc` lets ops stay on the thread.
 app.post("/admin/notify", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ recipients: string[]; subject: string; body?: string; html?: string }>();
+  const body = await c.req.json<{
+    recipients: string[]; subject: string; body?: string; html?: string;
+    cc?: string[]; from_name?: string; from_email?: string; reply_to?: string;
+  }>();
   if (!body.recipients?.length) return c.json({ error: "Missing recipients" }, 400);
-  const res = await sendDevModeEmail({ recipients: body.recipients, subject: body.subject, body: body.body ?? "", html: body.html, env: c.env });
-  return c.json(res, res.ok ? 200 : 500);
+  const res = await sendEmailDirect(c.env, {
+    to: body.recipients,
+    cc: body.cc,
+    subject: body.subject,
+    html: body.html ?? `<pre style="font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap">${body.body ?? ""}</pre>`,
+    text: body.body,
+    fromName: body.from_name ?? "Rioko Dev Mode",
+    fromEmail: body.from_email,
+    replyTo: body.reply_to,
+  });
+  return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
 })
 
 // Admin: render + send a quota email (warning|reached) for QA / preview.
@@ -1610,7 +1641,7 @@ app.post("/admin/test-incident-email", async (c) => {
 
   const kinds = [
     "auth_failure_destination", "auth_failure_source", "destination_reject",
-    "normalize_fail", "nif_invalid", "subscription_inactive",
+    "normalize_fail", "nif_invalid", "nif_invalid_draft", "subscription_inactive",
     "queue_retry_exhausted", "webhook_invalid_signature",
   ];
   const kind = body.kind && kinds.includes(body.kind) ? body.kind : "webhook_invalid_signature";
@@ -1876,7 +1907,9 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
             severity: permanent ? severity : "critical",
             kind: permanent ? kind : "queue_retry_exhausted",
             summary: `${topic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
-            detail: { message: (e as any)?.message, orderRef, clientName, externalId, topic, shopDomain, attempts, permanent },
+            // `raw` carries the offending address-line-2 text so the merchant
+            // email can quote the exact value instead of saying "invalid NIF".
+            detail: { message: (e as any)?.message, raw: (e as any)?.raw, field: (e as any)?.field, orderRef, clientName, externalId, topic, shopDomain, attempts, permanent },
             affected_ids: [externalId],
             connection_label: "shopify → invoicexpress",
             merchant_name: merchantName,
@@ -2801,8 +2834,8 @@ export default {
       }
     }
 
-    // Early-bird ending reminders — email each Shopify pilot ~1 day before their
-    // free early-bird grace (per-client trial_end) ends, prompting them to subscribe.
+    // Early-bird wind-down — three touches (17 / 7 / 1 days before each pilot's
+    // own trial_end) prompting them to pick a plan before invoicing pauses.
     if (env.RENEWAL_REMINDER_ENABLED !== "0") {
       try {
         const r = await runEarlyBirdEndingReminders(env);

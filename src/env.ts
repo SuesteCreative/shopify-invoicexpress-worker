@@ -41,6 +41,7 @@ export interface Env {
                                           // weekly-digest horizon so reported drops actually get healed
   RECON_SWEEP_SHOPS?: string;             // CSV allowlist of shopify_domains; empty = all active shops
   RECON_SWEEP_BUDGET_MS?: string;         // wall-clock cap for the full-scan backstop; default 480000 (8m)
+  RECON_SWEEP_STALE_HOURS?: string;       // alert when a shop hasn't completed a sweep pass in this long; default 48
   // Stripe→(Moloni/IX/Vendus) self-heal. Same backstop idea as the Shopify sweep but
   // for Stripe-source connections: re-emits any succeeded Stripe payment in the window
   // that has no processed_orders row (an orphan — e.g. a setup-day draft later deleted).

@@ -122,6 +122,8 @@ ${RIOKO_DOMAIN_KNOWLEDGE}
 - destination_reject / queue_retry_exhausted: interpreta error_message — permanente (4xx) vs transitório
   (5xx/502/timeout) vs autenticação (401/token).
 - nif_invalid: o NIF não validou — confirmar com o cliente ou tratar como estrangeiro.
+- nif_invalid_draft: a segunda linha da morada trazia algo com forma de NIF que não validou; o documento
+  FOI emitido em rascunho sem esse número. Diz o que corrigir no Shopify e que basta reemitir.
 - currency_not_supported: moeda ≠ EUR.
 
 ## Regras de saída

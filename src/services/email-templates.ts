@@ -17,6 +17,12 @@ export type IncidentKind =
   | "destination_reject"
   | "normalize_fail"
   | "nif_invalid"
+  // The document WAS issued, but as a draft, because the buyer typed something
+  // into the address line that was meant to be a NIF and does not validate.
+  // Distinct from `nif_invalid` (nothing was issued at all) because the action
+  // the merchant has to take is different: correct and re-emit a draft that
+  // already exists, rather than chase an order with no document.
+  | "nif_invalid_draft"
   | "subscription_inactive"
   | "queue_retry_exhausted"
   | "webhook_invalid_signature"
@@ -501,6 +507,39 @@ export function tplNifInvalid(input: IncidentTemplateInput): RenderedTemplate {
   };
 }
 
+export function tplNifInvalidDraft(input: IncidentTemplateInput): RenderedTemplate {
+  const d = (input.detail ?? {}) as Record<string, any>;
+  const found = d.raw ? `<strong>${escapeHtml(String(d.raw))}</strong>` : "um valor";
+  const where = d.field ? ` (${escapeHtml(String(d.field))})` : "";
+  const body = `
+    ${paragraph(escapeHtml(input.summary))}
+    ${calloutBox(
+    "Porquê rascunho",
+    `A morada trazia ${found} na segunda linha${where}. Parece um contribuinte, mas não passa na validação portuguesa. `
+    + `A factura foi emitida <strong>sem esse número e em rascunho</strong> — nada foi comunicado à AT e nada foi enviado ao cliente.`,
+    BRAND.warning,
+  )}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
+    ${stepsList([
+    "Confirme o NIF junto do cliente.",
+    "Corrija a morada da encomenda no Shopify — ou apague o valor, se afinal não era um NIF.",
+    "Reemita a factura a partir do painel: o rascunho é substituído e finaliza normalmente.",
+    "Se o cliente não quer NIF, finalize o rascunho como está (Consumidor Final).",
+  ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
+    ${d.permalink ? ctaButton("Abrir rascunho na InvoiceXpress", String(d.permalink)) : ""}
+    ${affectedIdsBlock(input.affectedIds)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Factura em rascunho — NIF inválido na morada",
+    html: shell({
+      title: "Factura ficou em rascunho",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function tplSubscriptionInactive(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph("A subscrição Kapta associada à sua conta está inactiva. <strong>O Rioko 2.0 está a pausar a emissão de facturas</strong> até a situação ser regularizada.", { strong: true })}
@@ -626,6 +665,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "destination_reject": return tplDestinationReject(input);
     case "normalize_fail": return tplNormalizeFail(input);
     case "nif_invalid": return tplNifInvalid(input);
+    case "nif_invalid_draft": return tplNifInvalidDraft(input);
     case "subscription_inactive": return tplSubscriptionInactive(input);
     case "queue_retry_exhausted": return tplQueueRetryExhausted(input);
     case "webhook_invalid_signature": return tplWebhookInvalidSignature(input);

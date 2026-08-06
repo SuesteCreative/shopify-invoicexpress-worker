@@ -156,6 +156,134 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
       }
     }
   }
+
+  // Merchant-facing notice, deliberately narrow. The ops alert above stays
+  // internal (merchants were once flooded by per-failure email), but a held
+  // invoice caused by data only the merchant can correct is useless to them as
+  // a Friday digest line — they need it while the order is fresh. One email per
+  // incident bucket, so a burst of bad orders in the same hour is one message.
+  if (wasNew && MERCHANT_ACTIONABLE_KINDS.has(input.kind)) {
+    try {
+      await emailMerchantActionNeeded(env, input);
+    } catch (e: any) {
+      console.error(`[incidents] Merchant notice failed: ${e.message}`);
+    }
+  }
+}
+
+/**
+ * Failures the merchant — not us — has to resolve, and that block an invoice
+ * until they do. Keep this set very small; everything else belongs in the
+ * weekly digest.
+ */
+const MERCHANT_ACTIONABLE_KINDS = new Set<IncidentKind>(["nif_invalid", "nif_invalid_draft"]);
+
+async function emailMerchantActionNeeded(env: Env, input: ReportIncidentInput): Promise<void> {
+  const recipients = [...new Set(await resolveMerchantEmails(env, input.user_id))];
+  if (recipients.length === 0) {
+    console.warn(`[incidents] No merchant recipient for ${input.kind} (user ${input.user_id ?? "unknown"})`);
+    return;
+  }
+
+  const { subject, html } = renderMerchantActionNeeded(input);
+  await sendEmail(env, { to: recipients, subject, html });
+}
+
+/**
+ * The merchant-facing notice, as a pure function so its wording can be tested
+ * without a mail provider or a database. This is the message the shop owner
+ * actually receives — the incident template of the same kind is only used by
+ * the digest and the preview route.
+ */
+export function renderMerchantActionNeeded(input: ReportIncidentInput): { subject: string; html: string } {
+  const detail = (input.detail ?? {}) as Record<string, any>;
+  const orderRef = input.order_ref ?? detail.orderRef ?? null;
+  const client = input.client_name ?? detail.clientName ?? null;
+  const found = detail.raw ?? detail.invalidNif ?? null;
+  const orderLabel = orderRef ? `A encomenda <strong>${orderRef}</strong>` : "Uma encomenda";
+
+  // Two outcomes share this notice, and the merchant has to do different things
+  // in each: `nif_invalid_draft` means the document EXISTS as a draft and needs
+  // reviewing; `nif_invalid` means nothing was issued at all.
+  const isDraft = input.kind === "nif_invalid_draft";
+  const invoiceId = detail.invoiceId ?? detail.invoice_id ?? null;
+  const permalink = typeof detail.permalink === "string" ? detail.permalink : null;
+  const invoiceLabel = invoiceId ? `A factura <strong>${invoiceId}</strong>` : "A factura";
+
+  const subject = isDraft
+    ? (orderRef
+      ? `Factura de ${orderRef} ficou em rascunho (NIF inválido)`
+      : "Uma factura ficou em rascunho (NIF inválido)")
+    : (orderRef
+      ? `Ação necessária: ${orderRef} não foi faturada (NIF inválido)`
+      : "Ação necessária: uma encomenda não foi faturada (NIF inválido)");
+
+  const headline = isDraft
+    ? `${invoiceLabel}${orderRef ? `, referente a ${orderRef},` : ""} ficou em rascunho.`
+    : `${orderLabel} não foi faturada.`;
+
+  const consequence = isDraft
+    ? `<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3c4a5c;">
+          Emitimos a factura <strong>sem esse número e em rascunho</strong>, para que a decisão seja tua.
+          Nada foi comunicado à AT e o cliente não recebeu nada.
+        </p>`
+    : `<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3c4a5c;">
+          Como emitir uma fatura com um contribuinte errado não tem retorno, preferimos não a emitir.
+          A encomenda ficou em espera.
+        </p>`;
+
+  const steps = isDraft
+    ? `1. Confirma o NIF com o cliente.<br/>
+            2. Corrige a morada da encomenda no Shopify — ou apaga o valor, se afinal não era um NIF.<br/>
+            3. Reemite a partir do painel Rioko: o rascunho é substituído.<br/>
+            4. Se o cliente não quer NIF, finaliza o rascunho como está (Consumidor Final).`
+    : `1. Confirma o NIF com o cliente.<br/>
+            2. Corrige a morada da encomenda no Shopify — ou apaga o valor, se afinal não era um NIF.<br/>
+            3. Reemite a fatura a partir do painel Rioko.`;
+
+  const badge = isDraft ? "Em rascunho" : "Ação necessária";
+
+  const html = `<!-- merchant action needed · ${input.kind} -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f8fa;margin:0;padding:32px 12px;">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid #e3e8ee;border-radius:18px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+      <tr><td style="height:4px;background:#c2410c;font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="padding:30px 36px 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+          <td style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:#0b1524;padding-right:10px;">Rioko</td>
+          <td style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#c2410c;background:#fdf0e8;border-radius:999px;padding:4px 10px;">${badge}</td>
+        </tr></table>
+        <h1 style="margin:20px 0 14px;font-size:21px;line-height:1.32;font-weight:650;letter-spacing:-0.02em;color:#0b1524;">${headline}</h1>
+        <p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3c4a5c;">
+          No endereço${client ? ` de <strong>${client}</strong>` : ""} encontrámos ${found ? `<strong>${found}</strong>` : "um valor"}
+          no campo de segunda linha de morada. Parece um contribuinte, mas não é um NIF português válido.
+        </p>
+        ${consequence}
+      </td></tr>
+      <tr><td style="padding:6px 36px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fafbfc;border:1px solid #eceff3;border-radius:12px;">
+          <tr><td style="padding:16px;font-size:14px;line-height:1.7;color:#3c4a5c;">
+            <strong style="color:#0b1524;">O que fazer</strong><br/>
+            ${steps}
+          </td></tr>
+        </table>
+      </td></tr>
+      ${permalink ? `<tr><td style="padding:18px 36px 0;">
+        <a href="${permalink}" style="display:inline-block;background:#0b1524;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:11px 22px;border-radius:10px;">Ver rascunho</a>
+      </td></tr>` : ""}
+      <tr><td style="padding:24px 36px 32px;">
+        <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#5b6879;">
+          Se preferires que tratemos disto, responde a este email.
+        </p>
+        <div style="border-top:1px solid #eceff3;padding-top:16px;">
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">Equipa Rioko · Kapta<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>
+        </div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>`;
+
+  return { subject, html };
 }
 
 async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: string, firstSeenAt: string, lastSeenAt: string) {

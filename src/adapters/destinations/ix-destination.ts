@@ -7,8 +7,9 @@ import type {
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
-import { IxBuilder, type IxCreditNote } from "../../ix/builder";
+import { IxBuilder, nifHoldReason, type IxCreditNote } from "../../ix/builder";
 import { reconcileTotalOrThrow } from "../reconcile";
+import { sendIxDocumentEmail, describeIxEmailOutcome } from "../../services/ix-document-email";
 
 // Sequences cache: accountName → [{id, serie}]. Survives within a Worker isolate,
 // flushed on cold start. The sequences list changes rarely so this is safe.
@@ -73,7 +74,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   async createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult> {
     const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
     const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides);
-    const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
+    const { invoice, nifHold } = builder.createInvoiceFromNormalizedOrder(normalized);
 
     // IxBuilder reconciles internally on the raw_order path. For non-raw
     // sources (Stripe, EuPago) raw_order is absent, so we reconcile here
@@ -111,7 +112,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       const detail = JSON.stringify({ body: res.data, error: res.error });
       throw new Error(`InvoiceXpress create failed: ${detail.slice(0, 500)}`);
     }
-    return { invoiceId: String(id) };
+    return { invoiceId: String(id), holdReason: nifHold ? nifHoldReason(nifHold) : null };
   }
 
   async finalize(invoiceId: string, ctx: AdapterCtx): Promise<void> {
@@ -178,27 +179,8 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     return { creditId: String(creditId) };
   }
 
-  async emailDocument(invoiceId: string, ctx: AdapterCtx): Promise<void> {
-    const { data: invoiceData, error: getError } = await IxApi.v2.documents.byId.get({
-      headers: ixHeadersFromCtx(ctx),
-      path: { id: Number(invoiceId) },
-    });
-    if (getError) throw new Error(`InvoiceXpress fetch failed: ${JSON.stringify(getError)}`);
-
-    if (!invoiceData.data.client.email) return;
-
-    const { error } = await IxApi.v2.documents.byId.email.post({
-      body: {
-        message: {
-          client: { email: invoiceData.data.client.email, save: "0" },
-          body: ctx.config.ix_email_body ?? undefined,
-          subject: ctx.config.ix_email_subject ?? undefined,
-        },
-      },
-      path: { id: Number(invoiceId) },
-      query: { type: ctx.config.ix_document_type === "invoice_receipt" ? "invoice_receipts" : "invoices" },
-      headers: ixHeadersFromCtx(ctx),
-    });
-    if (error) throw new Error(`InvoiceXpress email failed: ${JSON.stringify(error)}`);
+  async emailDocument(invoiceId: string, ctx: AdapterCtx, opts?: { holdReason?: string | null }): Promise<void> {
+    const outcome = await sendIxDocumentEmail(ctx.config, invoiceId, { holdReason: opts?.holdReason });
+    console.log(`[IX] ${describeIxEmailOutcome(invoiceId, outcome)}`);
   }
 }

@@ -46,6 +46,11 @@ export default function ShopifyIXIntegration() {
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
     const [onlyInvoiceWhenPaid, setOnlyInvoiceWhenPaid] = useState(true);
+    // Customer-facing email. Off unless the merchant opts in — turning it on
+    // starts sending mail to real buyers, so it is never enabled for them.
+    const [ixSendEmail, setIxSendEmail] = useState(false);
+    const [ixEmailSubject, setIxEmailSubject] = useState("");
+    const [ixEmailBody, setIxEmailBody] = useState("");
     const [exemptionReason, setExemptionReason] = useState("M01");
 
     const [ixDocumentType, setIxDocumentType] = useState("invoice_receipt");
@@ -119,6 +124,9 @@ export default function ShopifyIXIntegration() {
                 if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
                 if (data.auto_finalize !== undefined) setAutoFinalize(data.auto_finalize === 1);
                 if (data.only_invoice_when_paid !== undefined) setOnlyInvoiceWhenPaid(data.only_invoice_when_paid === 1);
+                if (data.ix_send_email !== undefined) setIxSendEmail(data.ix_send_email === 1);
+                if (data.ix_email_subject) setIxEmailSubject(data.ix_email_subject);
+                if (data.ix_email_body) setIxEmailBody(data.ix_email_body);
                 if (data.shopify_authorized !== undefined) setShopifyAuthorized(data.shopify_authorized === 1);
                 if (data.ix_authorized !== undefined) setIxAuthorized(data.ix_authorized === 1);
                 if (data.ix_document_type) setIxDocumentType(data.ix_document_type);
@@ -165,7 +173,7 @@ export default function ShopifyIXIntegration() {
                     ix_exemption_reason: exemptionReason,
                     vat_included: vatIncluded,
                     auto_finalize: autoFinalize,
-                    only_invoice_when_paid: onlyInvoiceWhenPaid,
+                    only_invoice_when_paid: onlyInvoiceWhenPaid, ix_send_email: ixSendEmail ? 1 : 0, ix_email_subject: ixEmailSubject, ix_email_body: ixEmailBody,
                     ix_document_type: ixDocumentType,
                     ix_payment_term: ixPaymentTerm,
                     ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
@@ -205,7 +213,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid, ix_send_email: ixSendEmail ? 1 : 0, ix_email_subject: ixEmailSubject, ix_email_body: ixEmailBody,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -238,7 +246,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid, ix_send_email: ixSendEmail ? 1 : 0, ix_email_subject: ixEmailSubject, ix_email_body: ixEmailBody,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -283,7 +291,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid, ix_send_email: ixSendEmail ? 1 : 0, ix_email_subject: ixEmailSubject, ix_email_body: ixEmailBody,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -331,7 +339,7 @@ export default function ShopifyIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid,
+                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid, ix_send_email: ixSendEmail ? 1 : 0, ix_email_subject: ixEmailSubject, ix_email_body: ixEmailBody,
                     ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });
@@ -653,6 +661,31 @@ export default function ShopifyIXIntegration() {
                                                         <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{onlyInvoiceWhenPaid ? t("onlyInvoiceWhenPaidOn") : t("onlyInvoiceWhenPaidOff")}</p>
                                                     </div>
                                                     <button onClick={() => setOnlyInvoiceWhenPaid(!onlyInvoiceWhenPaid)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", onlyInvoiceWhenPaid ? "bg-accent shadow-[0_0_15px_rgba(56,189,248,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", onlyInvoiceWhenPaid ? "left-7" : "left-1")} /></button>
+                                                </div>
+                                                <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <div>
+                                                            <div className="flex items-center gap-3"><h3 className="font-bold text-sm">{t("sendEmail")}</h3></div>
+                                                            <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{ixSendEmail ? t("sendEmailOn") : t("sendEmailOff")}</p>
+                                                        </div>
+                                                        <button onClick={() => setIxSendEmail(!ixSendEmail)} className={cn("w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20", ixSendEmail ? "bg-accent shadow-[0_0_15px_rgba(56,189,248,0.3)]" : "bg-surface-2")}><div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 shadow-sm", ixSendEmail ? "left-7" : "left-1")} /></button>
+                                                    </div>
+                                                    <AnimatePresence>
+                                                        {ixSendEmail && (
+                                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-hairline space-y-4 overflow-hidden">
+                                                                <div>
+                                                                    <h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("sendEmailSubject")}</h4>
+                                                                    <p className="text-[10px] text-fg-40 font-bold uppercase mb-2">{t("sendEmailSubjectDesc")}</p>
+                                                                    <input value={ixEmailSubject} onChange={(e) => setIxEmailSubject(e.target.value)} maxLength={200} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-[rgba(56,189,248,0.20)] outline-none" />
+                                                                </div>
+                                                                <div>
+                                                                    <h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("sendEmailBody")}</h4>
+                                                                    <p className="text-[10px] text-fg-40 font-bold uppercase mb-2">{t("sendEmailBodyDesc")}</p>
+                                                                    <textarea value={ixEmailBody} onChange={(e) => setIxEmailBody(e.target.value)} rows={3} maxLength={1000} className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-[rgba(56,189,248,0.20)] outline-none resize-none" />
+                                                                </div>
+                                                            </motion.div>
+                                                        )}
+                                                    </AnimatePresence>
                                                 </div>
                                                 <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-6">
                                                     <div className="flex items-center justify-between">

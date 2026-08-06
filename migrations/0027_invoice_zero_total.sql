@@ -1,0 +1,14 @@
+-- Opt-in invoicing of zero-total orders.
+--
+-- The pipeline skips any order whose total is 0, on the assumption that those
+-- are gift cards or test orders. That holds for retail, but a wholesale shop
+-- issues plenty of 100%-discounted orders — samples, replacements, warranty
+-- swaps — where real goods move and the merchant still needs a document.
+-- Angel Piercing had 10 such orders (EUR 1,114 of goods) with no document at all.
+--
+-- The document produced is the goods at their real price with a 100% discount,
+-- totalling zero, which is the correct fiscal representation of a free transfer.
+--
+-- Default 0 preserves today's behaviour for every existing shop; it is enabled
+-- per merchant.
+ALTER TABLE integrations ADD COLUMN invoice_zero_total INTEGER DEFAULT 0;

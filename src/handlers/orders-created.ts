@@ -3,12 +3,53 @@ import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
-import { IxBuilder } from "../ix/builder";
+import { IxBuilder, nifHoldReason, type NifHold } from "../ix/builder";
 import { createIxInvoiceWithFallback } from "../ix/create-invoice";
 import { maybeSendQuotaReachedAlert } from "../services/quota-alert";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
+import { reportIncident } from "../services/incidents";
+import { describeOrder } from "../services/order-label";
+import { getIxDocumentPermalink } from "../services/ix-document-email";
+
+/**
+ * Tell the merchant a document was left as a draft because the buyer's address
+ * line 2 held something that was meant to be a NIF and did not validate. They
+ * are the only person who can resolve it, and only while the order is fresh —
+ * so this is a real-time email, not a digest line.
+ *
+ * Best-effort throughout: the invoice is already created and saved by the time
+ * we get here, so nothing in this function may fail the webhook.
+ */
+async function notifyNifHold(
+  env: Env,
+  config: IRequestConfig,
+  order: any,
+  invoiceId: string,
+  hold: NifHold,
+): Promise<void> {
+  try {
+    const { orderRef, clientName } = describeOrder(order);
+    const permalink = await getIxDocumentPermalink(config, invoiceId);
+    await reportIncident(env, {
+      user_id: config.user_id,
+      // Warning, not critical: the document exists and the money is accounted
+      // for. Critical is reserved for orders with no document at all, which
+      // page the ops team.
+      severity: "warning",
+      kind: "nif_invalid_draft",
+      summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque a morada trazia um NIF inválido ("${hold.raw}" em ${hold.field}).`,
+      detail: { invoiceId, raw: hold.raw, field: hold.field, permalink, orderRef, clientName, orderId: String(order?.id ?? "") },
+      affected_ids: [String(order?.id ?? invoiceId)],
+      connection_label: "shopify → invoicexpress",
+      order_ref: orderRef,
+      client_name: clientName,
+    });
+  } catch (e: any) {
+    console.error(`[Rioko] Failed to report NIF hold for invoice ${invoiceId}: ${e?.message ?? e}`);
+  }
+}
 
 export async function handleOrderCreated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/created";
@@ -29,11 +70,15 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     return;
   }
 
-  // Zero-amount short-circuit. PT fiscal rules don't require invoicing 0€
-  // orders (gift cards, 100% discount, test orders) and IX would reject the
-  // creation anyway. Mark the webhook as success so the queue stops retrying.
+  // Zero-amount short-circuit. For retail these are gift cards and test orders
+  // and no document is required. Wholesale is different: a 100%-discounted
+  // order is a sample or a warranty replacement, real goods leave the building,
+  // and the merchant needs a document for it — so shops can opt in via
+  // `invoice_zero_total` and get the goods listed at full price with a 100%
+  // discount, totalling zero. Off by default.
   const orderTotal = parseFloat(String(order.total_price ?? order.current_total_price ?? "0"));
-  if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+  const invoiceZero = Number(config.invoice_zero_total) === 1;
+  if ((!Number.isFinite(orderTotal) || orderTotal <= 0) && !invoiceZero) {
     console.log(`[Rioko] Skipping zero-amount order ${orderId} (total=${orderTotal})`);
     if (webhookId) {
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
@@ -147,7 +192,7 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     return;
   }
 
-  const { invoice, reverseCharge } = build;
+  const { invoice, reverseCharge, nifHold } = build;
 
   console.log(`[Rioko] Built follwoing invoice (reverseCharge=${reverseCharge})`);
   console.log(invoice);
@@ -160,10 +205,20 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
   );
 
   if (ixCreateResponse.data?.data?.id) {
+    const invoiceId = String(ixCreateResponse.data.data.id);
     console.log(`[Rioko] Invoice created for order ${orderId}${via !== "none" ? ` (via ${via} fallback)` : ""}`);
 
-    // Save processed invoice to database
-    await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id));
+    // Save processed invoice to database. A `hold_reason` parks the document as
+    // a draft: orders/paid will skip finalize and the customer email, and the
+    // merchant gets the notice below. A clean build writes NULL, which is also
+    // what clears a hold on re-emit.
+    await appStorage.saveProcessedInvoice(orderId, invoiceId, {
+      holdReason: nifHold ? nifHoldReason(nifHold) : null,
+    });
+
+    if (nifHold) {
+      await notifyNifHold(env, config, order, invoiceId, nifHold);
+    }
 
     // Mark webhook as processed
     if (webhookId) {
@@ -174,7 +229,7 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
       shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({
         orderId,
         invoice: ixCreateResponse.data?.data
-      }), response: "Created", status: 200
+      }), response: nifHold ? `Created (draft — ${nifHoldReason(nifHold)})` : "Created", status: 200
     });
   } else {
     // The IX rejection reason (tax not found, fiscal invalid, plan limit, …)

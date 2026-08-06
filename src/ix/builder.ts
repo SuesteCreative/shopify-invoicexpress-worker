@@ -2,11 +2,43 @@ import type { IRequestConfig } from "../storage";
 import type { Normalized } from "../api/normalize-shopify";
 import type { PostV2CreditNotesData, PostV2InvoicesData } from "../api/ix/client";
 import { validatePTNIF } from "./nif";
-import { isCrossBorderEU } from "./eu-countries";
+import { isCrossBorderEU, EU_COUNTRIES } from "./eu-countries";
 import { buildExemptionMention } from "./exemption-mentions";
 import type { ViesChecker } from "./vies";
 import { type ReconcileLine } from "../adapters/reconcile";
 import { format } from "date-fns";
+
+/** InvoiceXpress hard limit on the client name; longer values reject the document. */
+const IX_CLIENT_NAME_MAX = 100;
+
+/** Portuguese mobile ranges. Nine digits, same shape as a NIF — see inspectAddressTaxId. */
+const PT_MOBILE_PREFIX = /^9[1236]/;
+
+/** Outcome of reading a tax id out of an address line 2. See `inspectAddressTaxId`. */
+export type Address2TaxId =
+  | { kind: "none" }
+  | { kind: "valid"; nif: string; field: string }
+  | { kind: "invalid"; raw: string; field: string };
+
+/**
+ * Set on a build whose address line 2 held something meant to be a Portuguese
+ * tax id that failed validation. The document is still produced — as a draft —
+ * but must not be finalized or emailed to the customer until a human looks at
+ * it. Carries the offending text so the merchant email can quote it back:
+ * "encontrámos 500000001 na morada de entrega" is actionable, "NIF inválido"
+ * is not.
+ */
+export interface NifHold {
+  /** The exact text read out of the address line, e.g. "500000001". */
+  raw: string;
+  /** Which field it came from, e.g. "shipping.address2". */
+  field: string;
+}
+
+/** Human reason string persisted on processed_orders.hold_reason. */
+export function nifHoldReason(hold: NifHold): string {
+  return `nif_invalid: "${hold.raw}" em ${hold.field}`;
+}
 
 export type IxInvoice = NonNullable<PostV2InvoicesData["body"]>["invoice"];
 export type IxCreditNote = NonNullable<PostV2CreditNotesData["body"]>["credit_note"];
@@ -45,7 +77,7 @@ export type ReverseChargeDecision =
   | { status: "deferred"; countryCode: string; vatNumber: string };
 
 export type AsyncInvoiceBuild =
-  | { status: "ready"; invoice: IxInvoice; requestTaxExemptionReason: boolean; reverseCharge: boolean }
+  | { status: "ready"; invoice: IxInvoice; requestTaxExemptionReason: boolean; reverseCharge: boolean; nifHold?: NifHold }
   | { status: "deferred"; countryCode: string; vatNumber: string };
 
 export interface IxProductOverride {
@@ -460,6 +492,17 @@ export class IxBuilder {
   }
 
   createInvoiceFromNormalizedOrder(normalized: Normalized) {
+    // Address line 2 carries something clearly intended as a Portuguese tax id
+    // that does not validate. We still produce the document — withholding it
+    // entirely left paid orders uninvoiced and the merchant chasing them — but
+    // WITHOUT that number (buildInvoiceClient only ever uses an address-line
+    // tax id when it validates), and we flag the build. The caller creates it
+    // as a draft, skips finalize + the customer email, and tells the merchant.
+    const addressTaxId = this.inspectAddressTaxId(normalized);
+    const nifHold: NifHold | undefined = addressTaxId.kind === "invalid"
+      ? { raw: addressTaxId.raw, field: addressTaxId.field }
+      : undefined;
+
     const client = this.buildInvoiceClient(normalized);
     const usingRawPath = !!normalized.raw_order;
     const items = usingRawPath
@@ -536,7 +579,7 @@ export class IxBuilder {
         } : {})
     }
 
-    return { invoice, requestTaxExemptionReason };
+    return { invoice, requestTaxExemptionReason, nifHold };
   }
 
   buildInvoiceClient(normalized: Normalized): IxInvoice["client"] {
@@ -547,6 +590,14 @@ export class IxBuilder {
     // note_attributes, note). Picks the candidate matching the buyer's
     // billing country first, then any other. Essential for B2B intra-EU
     // (reverse charge) where IX needs a fiscal_id stamped to honour M16.
+    // Address line 2, under the explicit rule: a usable tax id there is used,
+    // plain address text is ignored. (`invalid` never reaches here — the build
+    // is refused upstream in createInvoiceFromNormalizedOrder.)
+    if (!nif) {
+      const fromAddress = this.inspectAddressTaxId(normalized);
+      if (fromAddress.kind === "valid") nif = fromAddress.nif;
+    }
+
     if (!nif) {
       const buyerCC = String(order.billing_address?.country_code ?? "").trim().toUpperCase();
       const euCandidates = this.extractEuVatCandidates(normalized);
@@ -554,10 +605,31 @@ export class IxBuilder {
       if (preferred) nif = `${preferred.countryCode}${preferred.vatNumber}`;
     }
 
+    // A Portuguese client's fiscal_id is nine bare digits. The EU fallback
+    // prefixes the country code, which turned real NIFs into "PT515640158" —
+    // accepted by IX but the wrong shape on a domestic document. Unwrap it.
+    if (nif && /^PT\d{9}$/i.test(nif) && validatePTNIF(nif.slice(2))) {
+      nif = nif.slice(2);
+    }
+
     const customerName = (order.customer?.name || "").trim();
     const billingName = (order.billing_address?.name || "").trim();
-    const email = (order.customer?.email || "").trim();
     const address = this.pickInvoiceAddress(normalized);
+
+    // The buyer's address, in the order Shopify actually fills these in.
+    // `customer.email` alone is not enough: a guest checkout can arrive with
+    // `customer: null` while the address the shopper typed sits on the order's
+    // own `email` / `contact_email`. Reading only the customer object meant such
+    // an order produced an IX client with no email at all — and an invoice we
+    // can never send anywhere. (POS counter sales legitimately have none of the
+    // three; those stay empty and are skipped by the sender.)
+    const email = [
+      order.customer?.email,
+      (normalized as any).raw_order?.email,
+      (normalized as any).raw_order?.contact_email,
+      (order as any).email,
+      (order as any).contact_email,
+    ].map(v => String(v ?? "").trim()).find(v => v.length > 0) ?? "";
 
     // Shopify customer profiles are often first-name-only while the checkout
     // addresses carry the full name. When the resolved name has no surname,
@@ -624,6 +696,17 @@ export class IxBuilder {
     // empty address, so resolve here instead of trusting the merge order.
     const postalCode = String(order.billing_address?.zip || address.zip || "").trim();
 
+    // InvoiceXpress caps the client name at 100 characters and rejects the whole
+    // document past it ("Nome é demasiado longo"), so the order never invoices at
+    // all. Trim to the last word boundary that fits rather than cutting a word in
+    // half, and drop any trailing separator. The NIF is already extracted above,
+    // so nothing fiscal is lost when a pasted tax number falls off the end.
+    if (name.length > IX_CLIENT_NAME_MAX) {
+      const cut = name.slice(0, IX_CLIENT_NAME_MAX);
+      const lastSpace = cut.lastIndexOf(" ");
+      name = (lastSpace > IX_CLIENT_NAME_MAX * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;.\-]+$/, "");
+    }
+
     return {
       name,
       email,
@@ -635,6 +718,91 @@ export class IxBuilder {
       country: toIxCountryName(rawCountry),
       phone: (order.customer?.phone ?? order.billing_address?.phone) ?? undefined
     };
+  }
+
+  /**
+   * What, if anything, the customer wrote into an address line 2.
+   *
+   * Three outcomes, matching the rule we operate under:
+   *   • `none`    — the field is ordinary address text ("Lote 1", "Silva",
+   *                 "4º andar"). Ignore it completely. This is the common case
+   *                 and the one that used to produce fiscal_id="SILVA".
+   *   • `valid`   — it holds a usable tax id: a checksum-valid PT NIF, or, for
+   *                 a non-PT buyer, a foreign id we pass through untouched
+   *                 (IX does not checksum those; an Italian 11-digit partita
+   *                 IVA is perfectly legitimate and must not be rejected).
+   *   • `invalid` — it is unmistakably *meant* to be a tax id (a 9+ digit run,
+   *                 or an EU-prefixed VAT) from a PT buyer, yet fails the PT
+   *                 checksum. The document is issued as a DRAFT without that
+   *                 number and the merchant is emailed (see `NifHold`).
+   *
+   * Note on VIES: it is deliberately NOT consulted for a Portuguese NIF. VIES
+   * only knows numbers registered for intra-EU operations, so an ordinary
+   * consumer's NIF — the overwhelming majority of B2C orders — comes back
+   * `valid: false` there. The mod-11 checksum is the only correct test for PT.
+   * Non-PT EU VAT numbers DO go through VIES, on the reverse-charge path
+   * (`resolveReverseCharge`), which is where that answer is meaningful.
+   *
+   * Caveat worth knowing: a Portuguese mobile number typed into address line 2
+   * is also a bare 9-digit run. We recognise the mobile prefixes and treat
+   * those as ordinary text; anything else that fails the checksum drafts the
+   * document, since we cannot tell a typo'd NIF from an unusual phone number.
+   */
+  inspectAddressTaxId(normalized: Normalized): Address2TaxId {
+    const order = normalized.order;
+    const buyerCC = String(order.billing_address?.country_code ?? "").trim().toUpperCase();
+    const isPortugueseOrUnknown = buyerCC === "" || buyerCC === "PT";
+
+    const sources: Array<{ field: string; value: unknown }> = [
+      { field: "billing.address2", value: order.billing_address?.address2 },
+      { field: "shipping.address2", value: (order as any).shipping_address?.address2 },
+    ];
+
+    let firstClaim: { field: string; token: string } | null = null;
+
+    for (const { field, value } of sources) {
+      const raw = String(value ?? "").trim();
+      if (!raw) continue;
+
+      // Bare digit runs, tolerating the separators people actually type
+      // ("123 456 789", "123.456.789"). Anything shorter than 9 digits is a
+      // door number or a postal code, never a tax id.
+      for (const m of raw.matchAll(/\d[\d .\-]{7,}\d/g)) {
+        const digits = m[0].replace(/\D/g, "");
+        if (digits.length < 9) continue;
+        if (digits.length === 9 && validatePTNIF(digits)) return { kind: "valid", nif: digits, field };
+        // Foreign buyer: their national id has its own length and checksum —
+        // pass it through rather than judging it by Portuguese rules.
+        if (!isPortugueseOrUnknown) return { kind: "valid", nif: digits, field };
+        // A Portuguese mobile number is also nine digits, and people put their
+        // phone in the address line constantly. When it starts with a mobile
+        // prefix AND fails the NIF checksum it is a phone, not a mistyped tax
+        // id — treat it as ordinary address text instead of holding the order.
+        // (A real NIF in the 9xx range still passes the checksum above.)
+        if (PT_MOBILE_PREFIX.test(digits)) continue;
+        firstClaim ??= { field, token: digits };
+      }
+
+      // Country-prefixed EU VAT ("PT123456789", "ESB12345678"). The country
+      // code must be a real member state and the remainder must actually carry
+      // digits — that pair of checks is what stops "SILVA" being read as
+      // SI + LVA, which is how address words became fiscal ids.
+      for (const m of raw.toUpperCase().matchAll(/\b([A-Z]{2})([A-Z0-9]{5,13})\b/g)) {
+        const [, cc, rest] = m;
+        if (!EU_COUNTRIES.has(cc)) continue;
+        if ((rest.match(/\d/g) ?? []).length < 5) continue;
+        if (cc === "PT") {
+          const digits = rest.replace(/\D/g, "");
+          if (validatePTNIF(digits)) return { kind: "valid", nif: digits, field };
+          firstClaim ??= { field, token: cc + rest };
+          continue;
+        }
+        return { kind: "valid", nif: cc + rest, field };
+      }
+    }
+
+    if (firstClaim) return { kind: "invalid", raw: firstClaim.token, field: firstClaim.field };
+    return { kind: "none" };
   }
 
   extractAndValidateNIF(normalized: Normalized): string | null {
@@ -686,18 +854,37 @@ export class IxBuilder {
       }
     }
 
-    // 5. Extract from Billing Address fields (Company, Address2)
-    const billing = order.billing_address;
-    if (billing) {
-      if (billing.company) {
-        const matches = billing.company.match(/\b\d{9}\b/g);
-        if (matches) candidates.push(...matches);
-      }
-      if (billing.address2) {
-        const matches = billing.address2.match(/\b\d{9}\b/g);
-        if (matches) candidates.push(...matches);
+    // 5. Extract from the address fields the buyer actually fills in.
+    //
+    // Both addresses, not just billing. Portuguese shoppers routinely type
+    // their NIF into the *delivery* address' "Apartamento, andar…" box, and a
+    // Shopify order without a separate billing address keeps that value only on
+    // shipping_address. Reading billing alone is why merchants saw invoices
+    // issued with no NIF at all while the number was sitting in the payload.
+    //
+    // Maximal digit runs, not \b\d{9}\b: customers write "NIF216010993" with no
+    // separator, and a word boundary needs a non-word char before the digits.
+    // That miss is what pushed the value into the EU-VAT fallback, which then
+    // read it as NI + F216010993. Taking whole runs and keeping the ones that
+    // are exactly nine digits captures the NIF and ignores longer ids (an
+    // 11-digit Italian VAT is not a sliding window of PT NIFs).
+    const ninesIn = (s: unknown): string[] =>
+      [...String(s ?? "").matchAll(/\d+/g)].map(m => m[0]).filter(d => d.length === 9);
+
+    const addrSources = [order.billing_address, (order as any).shipping_address];
+    for (const addr of addrSources) {
+      if (!addr) continue;
+      // `name` included deliberately: business buyers routinely paste company
+      // name + NIF into the name box ("… UNIPESSOAL LDA 519227921"). The number
+      // still has to pass the PT checksum below, so a house number or a phone
+      // in a name cannot become a fiscal id.
+      for (const field of [addr.company, addr.address2, addr.name] as Array<string | undefined>) {
+        candidates.push(...ninesIn(field));
       }
     }
+    candidates.push(...ninesIn(order.customer?.name));
+    // Some merchants keep the NIF on the customer record rather than the order.
+    candidates.push(...ninesIn((order.customer as any)?.note));
 
     // 6. Validate candidates for Portuguese algorithm
     for (const nif of candidates) {
@@ -727,8 +914,20 @@ export class IxBuilder {
   extractEuVatCandidates(normalized: Normalized): Array<{ countryCode: string; vatNumber: string }> {
     const out: Array<{ countryCode: string; vatNumber: string }> = [];
     const seen = new Set<string>();
+    // The two guards the old regex lacked, enforced here so every caller gets
+    // them: the prefix must be a real member state, and the number must carry
+    // enough digits to be a VAT number at all. Without these, "LASALLE College"
+    // yields LA+SALLE and "NIF216010993" yields NI+F216010993 — both of which
+    // were stamped onto real invoices as the customer's tax id.
     const push = (cc: string, num: string) => {
       const ccU = cc.toUpperCase();
+      if (!EU_COUNTRIES.has(ccU)) return;
+      if ((num.match(/\d/g) ?? []).length < 5) return;
+      // A Portuguese candidate has exactly one definition of correct, and we
+      // can check it here rather than shipping it to IX. Without this, a PT
+      // buyer whose company field held a checksum-failing 9-digit number came
+      // out as "PT131262550" on the invoice.
+      if (ccU === "PT" && !validatePTNIF(num.replace(/\D/g, ""))) return;
       const key = `${ccU}:${num}`;
       if (seen.has(key)) return;
       seen.add(key);
@@ -742,8 +941,12 @@ export class IxBuilder {
     const ptNif = this.extractAndValidateNIF(normalized);
     if (ptNif && buyerCC) push(buyerCC, ptNif);
 
-    // Broad EU-prefix regex. Final shape validated by VIES.
-    const VAT_RE = /\b([A-Z]{2})([A-Z0-9]{2,12})\b/g;
+    // EU-prefix regex. Two guards that were missing and cost us 200 documents:
+    // the prefix must be a real member-state code (otherwise "SILVA" parses as
+    // SI + LVA) and the remainder must carry at least five digits (otherwise
+    // any capitalised word qualifies). A VAT number without digits is not a
+    // VAT number. Final shape is still confirmed by VIES downstream.
+    const VAT_RE = /\b([A-Z]{2})([A-Z0-9]{5,13})\b/g;
     const sources: string[] = [];
     if (order.note_attributes && Array.isArray(order.note_attributes)) {
       for (const a of order.note_attributes) {
@@ -861,10 +1064,13 @@ export class IxBuilder {
       return { status: "deferred", countryCode: decision.countryCode, vatNumber: decision.vatNumber };
     }
     if (decision.status === "apply") {
+      // No nifHold here on purpose: VIES confirmed a real intra-EU VAT number,
+      // so whatever else the buyer typed into an address line is irrelevant to
+      // the document's fiscal identity.
       const { invoice, requestTaxExemptionReason } = this.buildReverseChargeInvoice(normalized, decision.countryCode, decision.vatNumber);
       return { status: "ready", invoice, requestTaxExemptionReason, reverseCharge: true };
     }
-    const { invoice, requestTaxExemptionReason } = this.createInvoiceFromNormalizedOrder(normalized);
-    return { status: "ready", invoice, requestTaxExemptionReason, reverseCharge: false };
+    const { invoice, requestTaxExemptionReason, nifHold } = this.createInvoiceFromNormalizedOrder(normalized);
+    return { status: "ready", invoice, requestTaxExemptionReason, reverseCharge: false, nifHold };
   }
 }

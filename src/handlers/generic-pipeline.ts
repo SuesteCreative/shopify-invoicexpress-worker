@@ -11,6 +11,7 @@ import { loadProductOverrides } from "../services/product-overrides";
 import { loadTagRoutingRules, matchTagRouting } from "../services/tag-routing";
 import { makeViesChecker } from "../ix/vies";
 import { describeOrder } from "../services/order-label";
+import { getIxDocumentPermalink } from "../services/ix-document-email";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
 
@@ -46,6 +47,11 @@ function looksPermanent4xx(msg: string): boolean {
 
 export function classifyPipelineError(err: any): { kind: IncidentKind; severity: Severity; permanent: boolean } {
   const msg = String(err?.message ?? err ?? "").toLowerCase();
+
+  // Note: an invalid tax id in address line 2 no longer reaches here. The
+  // builder used to refuse to produce a document at all; it now issues the
+  // document as a draft and flags it (see `NifHold`), so that case is handled
+  // on the success path, not as an error.
 
   // Reconcile-or-throw guard fired: the invoice total didn't match source paid.
   // Permanent — the math doesn't change between retries; merchant must override
@@ -200,7 +206,9 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
         severity,
         kind,
         summary: `${logTopic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(err as any)?.message ?? String(err)}`.slice(0, 500),
-        detail: { message: (err as any)?.message, orderRef, clientName, externalId, topic, source, destination },
+        // `raw`/`field` are set by InvalidAddressNifError so the merchant email
+        // can quote the exact address-line-2 value that blocked the invoice.
+        detail: { message: (err as any)?.message, raw: (err as any)?.raw, field: (err as any)?.field, orderRef, clientName, externalId, topic, source, destination },
         affected_ids: [externalId],
         connection_label: connectionLabel,
         order_ref: orderRef,
@@ -222,6 +230,30 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     }
 
     throw err; // transient — re-throw so queue handler retries
+  }
+}
+
+/**
+ * Send the issued document to the buyer without ever failing the caller.
+ *
+ * By the time this runs the invoice exists and is finalized. Letting a bounced
+ * or refused email throw would fail the webhook, and the retry would re-run
+ * finalize on a document that can no longer be edited — a missed email turning
+ * into a stream of false finalize errors.
+ */
+async function emailDocumentBestEffort(
+  destAdapter: ReturnType<typeof getDestinationAdapter>,
+  invoiceId: string,
+  ctx: any,
+  config: IRequestConfig,
+  holdReason?: string | null,
+): Promise<void> {
+  if (Number(config.ix_send_email) !== 1 || !destAdapter.emailDocument) return;
+  if (holdReason) return;
+  try {
+    await destAdapter.emailDocument(invoiceId, ctx, { holdReason });
+  } catch (e: any) {
+    console.warn(`[Pipeline] Customer email failed for document ${invoiceId} (non-fatal): ${e?.message ?? e}`);
   }
 }
 
@@ -325,8 +357,10 @@ async function runPipelineCore(
       // Zero-amount short-circuit. PT fiscal rules don't require invoicing 0€
       // orders and destinations (IX, Moloni, Vendus) reject zero-total payloads.
       // Treat as success-skip so the queue stops retrying.
+      // See orders-created.ts: wholesale shops opt in to documenting
+      // 100%-discounted orders via `invoice_zero_total`.
       const orderTotal = Number(normalized.order?.total ?? 0);
-      if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+      if ((!Number.isFinite(orderTotal) || orderTotal <= 0) && Number(config.invoice_zero_total) !== 1) {
         if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
         await appStorage.saveLog({
           shopify_domain: config.shopify_domain,
@@ -338,20 +372,41 @@ async function runPipelineCore(
         return;
       }
 
-      const { invoiceId } = await destAdapter.createDraft(normalized, ctx);
-      await appStorage.saveProcessedInvoice(externalId, invoiceId, { sourceKind: source, destinationKind: destination });
+      const { invoiceId, holdReason } = await destAdapter.createDraft(normalized, ctx);
+      await appStorage.saveProcessedInvoice(externalId, invoiceId, { sourceKind: source, destinationKind: destination, holdReason });
+
+      // Parked for a human: the buyer's address line 2 held something meant to
+      // be a NIF that doesn't validate. The document exists as a draft and the
+      // merchant — the only person who can resolve it — is told now, while the
+      // order is fresh.
+      if (holdReason) {
+        const { orderRef, clientName } = describeOrder(body);
+        const permalink = destination === "invoicexpress"
+          ? await getIxDocumentPermalink(config, invoiceId)
+          : null;
+        await reportIncident(env, {
+          user_id: config.user_id,
+          severity: "warning",
+          kind: "nif_invalid_draft",
+          summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque a morada trazia um NIF inválido (${holdReason}).`,
+          detail: { invoiceId, holdReason, permalink, orderRef, clientName, externalId, source, destination },
+          affected_ids: [externalId],
+          connection_label: connectionLabel,
+          order_ref: orderRef,
+          client_name: clientName,
+        });
+      }
 
       // Sources like Stripe Charges have no separate "paid" event — the
       // charge.succeeded event is also the payment confirmation. If the user
       // has auto_finalize on, finalize (and optionally email) in the same flow.
-      // Shopify's separate orders/paid webhook is unaffected.
-      const finalizeInSameFlow = source !== "shopify" && ctx.config.auto_finalize === 1;
-      let response = "Created";
+      // Shopify's separate orders/paid webhook is unaffected. A held document
+      // is never finalized or emailed here — that is the whole point of the hold.
+      const finalizeInSameFlow = source !== "shopify" && ctx.config.auto_finalize === 1 && !holdReason;
+      let response = holdReason ? `Created (draft — ${holdReason})` : "Created";
       if (finalizeInSameFlow) {
         await destAdapter.finalize(invoiceId, ctx);
-        if (config.ix_send_email && destAdapter.emailDocument) {
-          await destAdapter.emailDocument(invoiceId, ctx);
-        }
+        await emailDocumentBestEffort(destAdapter, invoiceId, ctx, config, holdReason);
         response = "Created+Finalized";
       }
 
@@ -370,15 +425,20 @@ async function runPipelineCore(
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for ${logTopic} ${externalId}`);
 
+      // Held for a human — leave the draft alone (see the `created` case).
+      if (invoice.hold_reason) {
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: `Held as draft: ${invoice.hold_reason}`, status: 200 });
+        return;
+      }
+
       if (ctx.config.auto_finalize !== 1) {
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Auto-finalize disabled", status: 200 });
         return;
       }
 
       await destAdapter.finalize(invoice.invoice_id, ctx);
-      if (config.ix_send_email && destAdapter.emailDocument) {
-        await destAdapter.emailDocument(invoice.invoice_id, ctx);
-      }
+      await emailDocumentBestEffort(destAdapter, invoice.invoice_id, ctx, config, invoice.hold_reason);
 
       if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
       await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Finalized", status: 200 });

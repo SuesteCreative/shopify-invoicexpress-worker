@@ -61,6 +61,8 @@ export interface ReconSweepResult {
   shopsScanned: number;
   totals: { created: number; finalized: number; skipped: number; errors: number; wouldCreate: number };
   perShop: ShopSweepRow[];
+  /** Shops the wall-clock budget did not reach this run. Empty = full coverage. */
+  skippedForBudget?: string[];
 }
 
 export async function runReconciliationSweep(env: Env, options: ReconSweepOptions = {}): Promise<ReconSweepResult> {
@@ -95,7 +97,14 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
 
   const root = new AppStorage(env);
   const active = await root.listActiveShopifyIntegrations();
-  const shops = allowSet ? active.filter((s) => allowSet.has(s.shopify_domain)) : active;
+  const selected = allowSet ? active.filter((s) => allowSet.has(s.shopify_domain)) : active;
+
+  // Starvation fix. The loop below stops when the wall-clock budget runs out,
+  // and the shop list arrives in a stable order — so the tail of the list was
+  // never reached on a busy night, every night. Ordering by "least recently
+  // completed" makes the budget rotate: whoever was starved last run goes first
+  // this run. An explicit `shops` option keeps the caller's own order.
+  const shops = options.shops?.length ? selected : await orderByStaleness(env, selected);
 
   // Resolve registered merchant names once (one query) so the report + incidents
   // read "Salted Books" / "Zoo de Lagos" instead of the raw myshopify slug.
@@ -117,9 +126,16 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
   const startMs = Date.now();
   const budgetMs = Number(env.RECON_SWEEP_BUDGET_MS) || 8 * 60 * 1000;
 
+  const skippedForBudget: string[] = [];
   for (const { shopify_domain } of shops) {
     if (!dryRun && Date.now() - startMs > budgetMs) {
-      console.warn(`[ReconSweep] time budget (${budgetMs}ms) reached; skipping remaining shops this run`);
+      // Record every shop we did not get to. Previously this was a console
+      // warning and nothing else, so a permanently-starved shop was
+      // indistinguishable from a healthy one.
+      const remaining = shops.slice(shops.findIndex((s) => s.shopify_domain === shopify_domain)).map((s) => s.shopify_domain);
+      skippedForBudget.push(...remaining);
+      console.warn(`[ReconSweep] time budget (${budgetMs}ms) reached; ${remaining.length} shop(s) not scanned this run: ${remaining.join(", ")}`);
+      for (const dom of remaining) await markSweep(env, dom, "skipped_budget", { budgetMs });
       break;
     }
     const config = await new AppStorage(env, shopify_domain).loadConfig();
@@ -193,7 +209,17 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     result.totals.errors += row.errors;
     result.totals.wouldCreate += row.wouldCreate;
     result.perShop.push(row);
+
+    // This shop got a full pass. Recording it is what lets the staleness check
+    // below tell "nothing to heal" apart from "never ran".
+    if (!dryRun) {
+      await markSweep(env, shopify_domain, row.errors > 0 ? "error" : "ok", {
+        created: row.created, finalized: row.finalized, errors: row.errors,
+      });
+    }
   }
+
+  result.skippedForBudget = skippedForBudget;
 
   // No-monitoring contract: email ops ONLY when something can't be auto-fixed.
   // Silent on clean / all-healed runs. Never on dry-run.
@@ -201,7 +227,87 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     await notifyOps(env, result).catch((e) => console.error(`[ReconSweep] ops email failed: ${e?.message ?? e}`));
   }
 
+  if (!dryRun) {
+    await reportStarvedShops(env, shops.map((s) => s.shopify_domain), nameByUser, shops)
+      .catch((e) => console.error(`[ReconSweep] staleness check failed: ${e?.message ?? e}`));
+  }
+
   return result;
+}
+
+/**
+ * Order shops by how long they have gone without a completed pass, oldest
+ * first. A shop that has never completed one sorts to the very front.
+ */
+async function orderByStaleness<T extends { shopify_domain: string }>(env: Env, shops: T[]): Promise<T[]> {
+  try {
+    const rows = await env.DB.prepare("SELECT shopify_domain, last_completed_at FROM sweep_state").all();
+    const seen = new Map<string, string>();
+    for (const r of (rows.results ?? []) as any[]) {
+      if (r?.shopify_domain) seen.set(String(r.shopify_domain), String(r.last_completed_at ?? ""));
+    }
+    return [...shops].sort((a, b) => (seen.get(a.shopify_domain) ?? "").localeCompare(seen.get(b.shopify_domain) ?? ""));
+  } catch (e: any) {
+    // Table missing (migration not applied yet) — keep the original order.
+    console.warn(`[ReconSweep] staleness ordering unavailable: ${e?.message ?? e}`);
+    return shops;
+  }
+}
+
+async function markSweep(env: Env, shop: string, status: "ok" | "error" | "skipped_budget", detail: unknown): Promise<void> {
+  const nowIso = new Date().toISOString();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sweep_state (shopify_domain, last_started_at, last_completed_at, last_status, last_detail_json)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(shopify_domain) DO UPDATE SET
+         last_started_at   = excluded.last_started_at,
+         -- A budget skip is NOT a completion; keep the previous timestamp so the
+         -- shop keeps ageing and eventually trips the alert.
+         last_completed_at = CASE WHEN excluded.last_status = 'skipped_budget'
+                                  THEN sweep_state.last_completed_at
+                                  ELSE excluded.last_completed_at END,
+         last_status       = excluded.last_status,
+         last_detail_json  = excluded.last_detail_json`
+    ).bind(shop, nowIso, status === "skipped_budget" ? null : nowIso, status, JSON.stringify(detail ?? null)).run();
+  } catch (e: any) {
+    console.warn(`[ReconSweep] markSweep(${shop}) failed: ${e?.message ?? e}`);
+  }
+}
+
+/**
+ * The part that makes the sweep trustworthy rather than best-effort: any live
+ * shop that has not completed a pass in STALE_HOURS raises a critical incident.
+ * Without this, a shop the budget never reaches heals nothing and says nothing.
+ */
+async function reportStarvedShops(
+  env: Env,
+  domains: string[],
+  nameByUser: Map<string, string>,
+  shops: Array<{ shopify_domain: string; user_id?: string | null }>,
+): Promise<void> {
+  const staleHours = Number(env.RECON_SWEEP_STALE_HOURS) || 48;
+  const cutoff = new Date(Date.now() - staleHours * 3600000).toISOString();
+  const rows = await env.DB.prepare("SELECT shopify_domain, last_completed_at FROM sweep_state").all();
+  const completed = new Map<string, string | null>();
+  for (const r of (rows.results ?? []) as any[]) completed.set(String(r.shopify_domain), r.last_completed_at ?? null);
+
+  for (const shop of shops) {
+    if (!domains.includes(shop.shopify_domain)) continue;
+    const last = completed.get(shop.shopify_domain) ?? null;
+    if (last && last >= cutoff) continue;
+    const displayName = (shop.user_id && nameByUser.get(shop.user_id)) || shop.shopify_domain;
+    await reportIncident(env, {
+      user_id: shop.user_id ?? undefined,
+      severity: "critical",
+      kind: "queue_retry_exhausted",
+      summary: `Sweep de reconciliação não completa há mais de ${staleHours}h para ${displayName} — faturas em falta podem não estar a ser recuperadas.`,
+      detail: { shop: shop.shopify_domain, last_completed_at: last, stale_hours: staleHours },
+      connection_label: "shopify → invoicexpress",
+      merchant_name: displayName,
+      bucket: "daily",
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

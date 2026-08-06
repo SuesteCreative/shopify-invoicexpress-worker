@@ -1641,6 +1641,7 @@
     "subscriptionDesc": "Controla early bird + data limite do trial deste user. Não cria sub no Stripe — apenas marca elegibilidade para checkout com trial.",
     "earlyBird": "Early Bird",
     "trialEnds": "Trial termina em",
+    "trialEndInvalid": "Data inválida ou em falta — confirma o dia e o mês (ex.: setembro só tem 30 dias).",
     "save": "Guardar",
     "saved": "Guardado",
     "statusNow": "Status atual:",

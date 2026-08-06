@@ -161,6 +161,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
     const [loaded, setLoaded] = useState(false);
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     const isAdminTarget = targetRole === "superadmin" || targetRole === "hiperadmin";
 
@@ -183,6 +184,15 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
     }, [targetUserId, isAdminTarget]);
 
     const save = async () => {
+        setError(null);
+        // An impossible date (e.g. 31/09 — September has 30 days) leaves the native
+        // date input with an EMPTY value while still showing the typed digits. Without
+        // this guard we'd POST trial_end:null, the API would 400, and the old code
+        // flashed "SAVED" anyway — the save silently never happened.
+        if (earlyBird && !trialEnd) {
+            setError(t("trialEndInvalid"));
+            return;
+        }
         setSaving(true);
         try {
             const trialEndIso = trialEnd ? `${trialEnd}T00:00:00Z` : null;
@@ -191,10 +201,23 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ user_id: targetUserId, early_bird: earlyBird, trial_end: trialEndIso }),
             });
-            const d: any = await res.json();
-            if (d.subscription) setSub(d.subscription);
+            const d: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(d?.error ?? `HTTP ${res.status}`);
+                return;
+            }
+            // Mirror what D1 actually holds, so the form can never show a value the
+            // database rejected or normalized differently.
+            if (d.subscription) {
+                setSub(d.subscription);
+                setEarlyBird(d.subscription.early_bird === 1);
+                setTrialEnd(d.subscription.trial_end ? String(d.subscription.trial_end).split("T")[0] : "");
+            }
             setSavedAt(Date.now());
-        } catch (e) { console.error(e); }
+        } catch (e: any) {
+            console.error(e);
+            setError(String(e?.message ?? e));
+        }
         finally { setSaving(false); }
     };
 
@@ -236,7 +259,8 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
                     <input
                         type="date"
                         value={trialEnd}
-                        onChange={e => setTrialEnd(e.target.value)}
+                        min={new Date().toISOString().split("T")[0]}
+                        onChange={e => { setTrialEnd(e.target.value); setError(null); }}
                         disabled={!loaded}
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white"
                     />
@@ -247,6 +271,12 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
                     {savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("save")}
                 </button>
             </div>
+            {error && (
+                <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] text-destructive text-xs font-bold">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
+                    <span>{error}</span>
+                </div>
+            )}
             {sub && (
                 <div className="text-[10px] text-fg-40 font-medium space-y-1">
                     <p><strong className="text-fg-60">{t("statusNow")}</strong> {sub.status}{sub.stripe_subscription_id && <span className="text-fg-40"> · {sub.stripe_subscription_id}</span>}</p>

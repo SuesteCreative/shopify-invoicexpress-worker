@@ -72,7 +72,10 @@ export async function POST(req: NextRequest) {
                 plan = excluded.plan,
                 price_id = excluded.price_id,
                 current_period_end = excluded.current_period_end,
-                trial_end = excluded.trial_end,
+                -- A NULL Stripe trial_end (the norm for Rioko subs) must not erase
+                -- an admin-set early-bird date. See migration 0028.
+                trial_end = CASE WHEN subscriptions.admin_override_at IS NOT NULL AND excluded.trial_end IS NULL
+                                 THEN subscriptions.trial_end ELSE excluded.trial_end END,
                 cancel_at_period_end = excluded.cancel_at_period_end,
                 updated_at = CURRENT_TIMESTAMP
         `).bind(

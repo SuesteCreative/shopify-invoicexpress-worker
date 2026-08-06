@@ -44,10 +44,13 @@ export async function POST(req: NextRequest) {
             "SELECT user_id, status, stripe_subscription_id FROM subscriptions WHERE user_id = ?"
         ).bind(targetUserId).first();
 
+        // `admin_override_at` marks these dates as deliberately set, so the
+        // integrations save, the Stripe webhook and link-subscription stop
+        // overwriting them (migration 0028).
         if (existing) {
             await db.prepare(`
                 UPDATE subscriptions
-                SET early_bird = ?, trial_end = ?, updated_at = CURRENT_TIMESTAMP
+                SET early_bird = ?, trial_end = ?, admin_override_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ?
             `).bind(
                 body.early_bird ? 1 : 0,
@@ -56,8 +59,8 @@ export async function POST(req: NextRequest) {
             ).run();
         } else {
             await db.prepare(`
-                INSERT INTO subscriptions (user_id, status, trial_end, early_bird, created_at, updated_at)
-                VALUES (?, 'trialing', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO subscriptions (user_id, status, trial_end, early_bird, admin_override_at, created_at, updated_at)
+                VALUES (?, 'trialing', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             `).bind(
                 targetUserId,
                 trialEndIso,
@@ -66,7 +69,7 @@ export async function POST(req: NextRequest) {
         }
 
         const updated: any = await db.prepare(
-            "SELECT user_id, status, trial_end, early_bird, stripe_subscription_id FROM subscriptions WHERE user_id = ?"
+            "SELECT user_id, status, trial_end, early_bird, stripe_subscription_id, admin_override_at FROM subscriptions WHERE user_id = ?"
         ).bind(targetUserId).first();
 
         return NextResponse.json({ success: true, subscription: updated });

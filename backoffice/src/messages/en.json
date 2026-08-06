@@ -934,6 +934,7 @@
     "sendEmailSubjectDesc": "Leave empty to use the InvoiceXpress default",
     "sendEmailBody": "Message",
     "sendEmailBodyDesc": "Text shown above the invoice link. Empty = InvoiceXpress default",
+    "sendEmailNeedsFinalize": "No effect while Auto-finalize is off: invoices stay as drafts, and a draft is never sent to the customer. Turn on Auto-finalize above for this to do anything.",
     "retention": "Withholding tax",
     "retentionOn": "ON: Apply {value}% IRS/IRC on every invoice",
     "retentionOff": "OFF: No withholding on issued invoices",

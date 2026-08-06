@@ -24,6 +24,19 @@ export interface ReportIncidentInput {
   order_ref?: string;
   /** End-customer name for the email (e.g. "João Silva"). */
   client_name?: string;
+  /**
+   * Narrows the dedup bucket to a single subject (an invoice id, an order id).
+   *
+   * The default bucket is `user:kind:hour`, which is right for outage-shaped
+   * failures — 200 orders failing on one expired token must not send 200
+   * emails. It is wrong for per-document notices: two invoices held in the same
+   * hour collapse into one bucket, and since the merchant email only fires on
+   * the bucket's FIRST occurrence, the merchant is told about the first invoice
+   * and never hears about the second. Passing the document id here gives each
+   * one its own bucket, while still swallowing a re-delivered webhook for the
+   * same document.
+   */
+  dedup_key?: string;
 }
 
 export interface IncidentRow {
@@ -44,12 +57,14 @@ export interface IncidentRow {
   resolved_at: string | null;
 }
 
-function bucketKeyFor(input: ReportIncidentInput, now: Date): string {
+export function bucketKeyFor(input: ReportIncidentInput, now: Date): string {
   const userPart = input.user_id ?? "none";
   const granularity = input.bucket ?? "hourly";
   const iso = now.toISOString();
   const bucketPart = granularity === "daily" ? iso.slice(0, 10) : iso.slice(0, 13); // YYYY-MM-DD or YYYY-MM-DD-HH (T as sep)
-  return `${userPart}:${input.kind}:${bucketPart}`;
+  // `dedup_key` splits the time bucket per subject — see ReportIncidentInput.
+  const subjectPart = input.dedup_key ? `:${input.dedup_key}` : "";
+  return `${userPart}:${input.kind}:${bucketPart}${subjectPart}`;
 }
 
 /**

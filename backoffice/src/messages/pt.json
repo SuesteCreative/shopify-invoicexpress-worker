@@ -934,6 +934,7 @@
     "sendEmailSubjectDesc": "Deixa vazio para usar o assunto predefinido da InvoiceXpress",
     "sendEmailBody": "Mensagem",
     "sendEmailBodyDesc": "Texto acima do link da fatura. Vazio = mensagem predefinida da InvoiceXpress",
+    "sendEmailNeedsFinalize": "Sem efeito enquanto o Auto Finalizar estiver desligado: as faturas ficam em rascunho e um rascunho nunca é enviado ao cliente. Liga o Auto Finalizar acima para isto funcionar.",
     "retention": "Retenção na Fonte",
     "retentionOn": "ON: Aplicar {value}% IRS/IRC em todas as faturas",
     "retentionOff": "OFF: Sem retenção na fonte nas faturas emitidas",

@@ -388,6 +388,8 @@ async function runPipelineCore(
           user_id: config.user_id,
           severity: "warning",
           kind: "nif_invalid_draft",
+          // One bucket per document — see orders-created.ts.
+          dedup_key: invoiceId,
           summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque a morada trazia um NIF inválido (${holdReason}).`,
           detail: { invoiceId, holdReason, permalink, orderRef, clientName, externalId, source, destination },
           affected_ids: [externalId],

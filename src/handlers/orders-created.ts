@@ -39,6 +39,10 @@ async function notifyNifHold(
       // page the ops team.
       severity: "warning",
       kind: "nif_invalid_draft",
+      // One bucket per document. Without this, a second order held in the same
+      // hour joins the first one's bucket and the merchant is never told about
+      // it — they would see one email and two stuck drafts.
+      dedup_key: invoiceId,
       summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque a morada trazia um NIF inválido ("${hold.raw}" em ${hold.field}).`,
       detail: { invoiceId, raw: hold.raw, field: hold.field, permalink, orderRef, clientName, orderId: String(order?.id ?? "") },
       affected_ids: [String(order?.id ?? invoiceId)],

@@ -673,6 +673,16 @@ export default function ShopifyIXIntegration() {
                                                     <AnimatePresence>
                                                         {ixSendEmail && (
                                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-hairline space-y-4 overflow-hidden">
+                                                                {/* Half the fleet runs with auto_finalize off. There the send is a
+                                                                    silent no-op forever — every path returns before it, because a
+                                                                    draft must never reach the customer. Say so instead of letting
+                                                                    the merchant think it is on. */}
+                                                                {!autoFinalize && (
+                                                                    <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                                                                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+                                                                        <p className="text-[11px] leading-relaxed font-medium text-amber-200/90">{t("sendEmailNeedsFinalize")}</p>
+                                                                    </div>
+                                                                )}
                                                                 <div>
                                                                     <h4 className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("sendEmailSubject")}</h4>
                                                                     <p className="text-[10px] text-fg-40 font-bold uppercase mb-2">{t("sendEmailSubjectDesc")}</p>

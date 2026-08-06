@@ -91,6 +91,23 @@ describe("incident dedup bucket", () => {
   });
 });
 
+describe("refund on a draft", () => {
+  it("explains that a credit note only corrects a finalized document", () => {
+    const tpl = renderIncidentTemplate("credit_note_on_draft", {
+      occurrences: 1,
+      firstSeenAt: "2026-08-06T10:00:00Z",
+      lastSeenAt: "2026-08-06T10:00:00Z",
+      summary: "Reembolso na encomenda #4692 não gerou nota de crédito.",
+      orderRef: "#4692",
+      detail: { invoiceId: "266153290", status: "draft" },
+    });
+    expect(tpl.subject).toContain("rascunho");
+    expect(tpl.html).toContain("266153290");
+    expect(tpl.html).toContain("apagá-lo");
+    expect(tpl.html).toContain("#4692");
+  });
+});
+
 describe("incident template for the digest / preview route", () => {
   it("renders the new kind instead of falling through to undefined", () => {
     const tpl = renderIncidentTemplate("nif_invalid_draft", {

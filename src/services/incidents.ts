@@ -191,7 +191,18 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
  * until they do. Keep this set very small; everything else belongs in the
  * weekly digest.
  */
-const MERCHANT_ACTIONABLE_KINDS = new Set<IncidentKind>(["nif_invalid", "nif_invalid_draft"]);
+const MERCHANT_ACTIONABLE_KINDS = new Set<IncidentKind>([
+  "nif_invalid",
+  "nif_invalid_draft",
+  // A refund landed on a document that is still a draft. No credit note is
+  // possible; the merchant edits or deletes the draft. Money has already gone
+  // back to the buyer, so this should not wait for the Friday digest.
+  "credit_note_on_draft",
+]);
+
+/** The two kinds that share the bespoke address-line-NIF notice. Everything
+ *  else in MERCHANT_ACTIONABLE_KINDS renders from its own incident template. */
+const NIF_NOTICE_KINDS = new Set<IncidentKind>(["nif_invalid", "nif_invalid_draft"]);
 
 async function emailMerchantActionNeeded(env: Env, input: ReportIncidentInput): Promise<void> {
   const recipients = [...new Set(await resolveMerchantEmails(env, input.user_id))];
@@ -200,7 +211,23 @@ async function emailMerchantActionNeeded(env: Env, input: ReportIncidentInput): 
     return;
   }
 
-  const { subject, html } = renderMerchantActionNeeded(input);
+  const now = new Date().toISOString();
+  const { subject, html } = NIF_NOTICE_KINDS.has(input.kind)
+    ? renderMerchantActionNeeded(input)
+    : renderIncidentTemplate(input.kind, {
+      occurrences: 1,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      summary: input.summary,
+      detail: input.detail,
+      orderRef: input.order_ref,
+      clientName: input.client_name,
+      connectionLabel: input.connection_label,
+      merchantName: input.merchant_name,
+      affectedIds: input.affected_ids?.map(String),
+      severity: input.severity,
+    });
+
   await sendEmail(env, { to: recipients, subject, html });
 }
 

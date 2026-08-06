@@ -368,13 +368,30 @@ export async function reemitOrder(
     return { job_id: jobId, status: "error", ...summary };
   }
 
+  // Force re-emit used to unlink the DB row and create a fresh document while
+  // leaving the previous one behind in InvoiceXpress — an orphan the merchant
+  // then found in their drafts with no idea what it was, and which the "por
+  // emitir" reporting could not account for. Clean it up first.
+  //
+  // Only ever a DRAFT. A finalized document is a certified fiscal record: it is
+  // corrected with a credit note, never deleted, so we leave it and say so.
+  let discarded: string | null = null;
+  let keptFinalized: string | null = null;
   if (options.force) {
+    const existing = await appStorage.getInvoiceByOrderId(String(order.id));
+    if (existing?.invoice_id) {
+      const outcome = await discardIxDraft(config, existing.invoice_id);
+      if (outcome === "deleted") discarded = existing.invoice_id;
+      else if (outcome === "finalized") keptFinalized = existing.invoice_id;
+    }
     await appStorage.deleteProcessedInvoice(String(order.id));
   }
 
   const result = await adminCreateOrder(env, config, order, { skipIxReferenceCheck: !!options.force });
   const status: "success" | "error" = result.status === "created" ? "success" : "error";
-  const summary = { result, force: !!options.force };
+  if (discarded) result.message = `${result.message} (rascunho anterior ${discarded} apagado)`;
+  if (keptFinalized) result.message = `${result.message} (ATENÇÃO: ${keptFinalized} já estava finalizado e foi mantido — emita nota de crédito se for duplicado)`;
+  const summary = { result, force: !!options.force, discarded_draft: discarded, kept_finalized: keptFinalized };
   await appStorage.finishDevJob(jobId, status === "success" ? "success" : "partial", summary, [result]);
 
   if (options.notify_emails && options.notify_emails.length > 0) {
@@ -910,6 +927,50 @@ async function fetchOrdersByIds(config: IRequestConfig, orderIds: number[]): Pro
 
   const data = await response.json() as { orders: any[] };
   return data.orders;
+}
+
+/**
+ * Delete an InvoiceXpress document, but only while it is still a draft.
+ *
+ * Returns what happened so the caller can report it:
+ *   "deleted"   — it was a draft and is now gone
+ *   "finalized" — a certified document; left untouched, needs a credit note
+ *   "gone"      — already deleted, or IX could not be reached
+ *
+ * Never throws: this runs as cleanup alongside an operation whose real work is
+ * creating the replacement, and failing that because a tidy-up failed would be
+ * the wrong trade.
+ */
+async function discardIxDraft(config: IRequestConfig, invoiceId: string): Promise<"deleted" | "finalized" | "gone"> {
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+  try {
+    const { data, error } = await IxApi.v2.documents.byId.get({ headers: ixHeaders, path: { id: Number(invoiceId) } });
+    if (error || !data?.data) return "gone";
+    const state = String((data.data as any).status ?? (data.data as any).state ?? "").toLowerCase();
+    if (state === "deleted") return "gone";
+    if (state !== "draft") return "finalized";
+
+    const { error: delError } = await IxApi.v2.changeState.post({
+      body: {
+        type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+        id: Number(invoiceId),
+        state: "deleted",
+      },
+      headers: ixHeaders,
+    });
+    if (delError) {
+      console.warn(`[Rioko] Could not delete stale draft ${invoiceId}: ${JSON.stringify(delError)}`);
+      return "gone";
+    }
+    return "deleted";
+  } catch (e: any) {
+    console.warn(`[Rioko] discardIxDraft(${invoiceId}) failed: ${e?.message ?? e}`);
+    return "gone";
+  }
 }
 
 async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, opts: { skipIxReferenceCheck?: boolean } = {}): Promise<OrderResult> {

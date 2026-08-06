@@ -23,6 +23,10 @@ export type IncidentKind =
   // the merchant has to take is different: correct and re-emit a draft that
   // already exists, rather than chase an order with no document.
   | "nif_invalid_draft"
+  // A refund arrived for an order whose document is still a draft. A credit
+  // note only exists to correct a finalized document, so the remedy is to edit
+  // or delete the draft — a decision only the merchant can make.
+  | "credit_note_on_draft"
   | "subscription_inactive"
   | "queue_retry_exhausted"
   | "webhook_invalid_signature"
@@ -540,6 +544,35 @@ export function tplNifInvalidDraft(input: IncidentTemplateInput): RenderedTempla
   };
 }
 
+export function tplCreditNoteOnDraft(input: IncidentTemplateInput): RenderedTemplate {
+  const d = (input.detail ?? {}) as Record<string, any>;
+  const body = `
+    ${paragraph(escapeHtml(input.summary))}
+    ${calloutBox(
+    "Porque não foi emitida",
+    "Uma nota de crédito só corrige um documento já finalizado. Sobre um rascunho não há nada a corrigir — "
+    + "basta editar o rascunho para o valor certo, ou apagá-lo se a encomenda deixou de existir.",
+    BRAND.warning,
+  )}
+    ${stepsList([
+    "Abra o rascunho na InvoiceXpress.",
+    "Corrija-o para o valor efectivamente cobrado — ou apague-o, se o reembolso foi total.",
+    "Se o documento devia ter sido finalizado antes do reembolso, active o Auto Finalizar para as próximas encomendas.",
+  ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
+    ${d.invoiceId ? paragraph(`Documento: <strong>${escapeHtml(String(d.invoiceId))}</strong>`) : ""}
+    ${affectedIdsBlock(input.affectedIds)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Reembolso sobre um rascunho — sem nota de crédito",
+    html: shell({
+      title: "Reembolso sobre um rascunho",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function tplSubscriptionInactive(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph("A subscrição Kapta associada à sua conta está inactiva. <strong>O Rioko 2.0 está a pausar a emissão de facturas</strong> até a situação ser regularizada.", { strong: true })}
@@ -666,6 +699,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "normalize_fail": return tplNormalizeFail(input);
     case "nif_invalid": return tplNifInvalid(input);
     case "nif_invalid_draft": return tplNifInvalidDraft(input);
+    case "credit_note_on_draft": return tplCreditNoteOnDraft(input);
     case "subscription_inactive": return tplSubscriptionInactive(input);
     case "queue_retry_exhausted": return tplQueueRetryExhausted(input);
     case "webhook_invalid_signature": return tplWebhookInvalidSignature(input);

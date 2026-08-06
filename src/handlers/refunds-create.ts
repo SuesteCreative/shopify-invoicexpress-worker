@@ -7,6 +7,7 @@ import { IxBuilder, type IxCreditNote } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
+import { reportIncident } from "../services/incidents";
 
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
@@ -56,6 +57,44 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         id: Number(invoice.invoice_id),
       }
     });
+
+    // A credit note can only be issued against a FINALIZED document — there is
+    // nothing to correct on a draft, and InvoiceXpress rejects the attempt. The
+    // remedy for a refunded draft is to edit it or delete it, which is a human
+    // decision (the merchant may want to reissue with the right amount, or drop
+    // the document entirely), so we surface it instead of guessing.
+    //
+    // This is not an edge case: 7 of the 14 Shopify shops run with auto_finalize
+    // off, so every one of their invoices is a draft. Without this guard each
+    // refund on those shops burned the full queue retry budget on an attempt IX
+    // was always going to refuse.
+    const ownerStatus = String((ixInvoice?.data as any)?.status ?? "").toLowerCase();
+    if (ownerStatus === "draft" || invoice.hold_reason) {
+      const why = invoice.hold_reason
+        ? `o documento está em rascunho retido (${invoice.hold_reason})`
+        : "o documento ainda está em rascunho";
+      console.log(`[Rioko] Refund for order ${orderId}: skipping credit note — ${why}`);
+      await reportIncident(env, {
+        user_id: config.user_id,
+        severity: "warning",
+        kind: "credit_note_on_draft",
+        dedup_key: String(invoice.invoice_id),
+        summary: `Reembolso na encomenda ${normalizedOrderResponse.normalized.order.order_number ?? orderId} não gerou nota de crédito porque ${why}. Corrija ou apague o rascunho ${invoice.invoice_id}.`,
+        detail: { orderId: String(orderId), invoiceId: String(invoice.invoice_id), status: ownerStatus, holdReason: invoice.hold_reason ?? null },
+        affected_ids: [String(orderId)],
+        connection_label: "shopify → invoicexpress",
+        order_ref: normalizedOrderResponse.normalized.order.order_number != null ? `#${normalizedOrderResponse.normalized.order.order_number}` : undefined,
+      });
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id, status: ownerStatus }),
+        response: `Skipped credit note: ${why} — corrigir/apagar o rascunho`,
+        status: 200,
+      });
+      return;
+    }
 
     // Get existing credit notes
     const { data: creditNotesData } = await IxApi.v2.documents.byId.related.get({

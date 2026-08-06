@@ -234,6 +234,24 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
 }
 
 /**
+ * Does this merchant want the issued document emailed to the buyer?
+ *
+ * The column is called `ix_send_email` for historical reasons — it predates
+ * every destination other than InvoiceXpress — but it is the merchant's single
+ * destination-agnostic preference, and the Moloni and Vendus adapters already
+ * read its companion `ix_email_subject` / `ix_email_body`. Reading it through
+ * one named accessor keeps that honest at every call site instead of leaving an
+ * `ix_`-prefixed field being tested on a Moloni order to look like a bug.
+ *
+ * Note for the Moloni/Vendus rollout: the flag is only exposed in the
+ * backoffice on the Shopify→IX page, so merchants on the other destinations
+ * cannot turn it on yet even though the pipeline honours it.
+ */
+export function customerEmailEnabled(config: IRequestConfig): boolean {
+  return Number(config.ix_send_email) === 1;
+}
+
+/**
  * Send the issued document to the buyer without ever failing the caller.
  *
  * By the time this runs the invoice exists and is finalized. Letting a bounced
@@ -248,7 +266,11 @@ async function emailDocumentBestEffort(
   config: IRequestConfig,
   holdReason?: string | null,
 ): Promise<void> {
-  if (Number(config.ix_send_email) !== 1 || !destAdapter.emailDocument) return;
+  if (!customerEmailEnabled(config) || !destAdapter.emailDocument) return;
+  // Never send a document parked for a human, whatever the destination. The IX
+  // adapter re-checks this (and the draft state) itself; Moloni and Vendus have
+  // no such gate of their own, so this is the only thing standing between a held
+  // document and the buyer's inbox on those paths.
   if (holdReason) return;
   try {
     await destAdapter.emailDocument(invoiceId, ctx, { holdReason });
@@ -453,6 +475,29 @@ async function runPipelineCore(
 
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for refund of ${externalId}`);
+
+      // A credit note only corrects a FINALIZED document. A held draft has
+      // nothing to correct — the merchant edits or deletes it. See the same
+      // guard in refunds-create.ts, which also catches plain (unheld) drafts
+      // because it has the destination document in hand.
+      if (invoice.hold_reason) {
+        const { orderRef, clientName } = describeOrder(body);
+        await reportIncident(env, {
+          user_id: config.user_id,
+          severity: "warning",
+          kind: "credit_note_on_draft",
+          dedup_key: String(invoice.invoice_id),
+          summary: `Reembolso em ${orderRef ?? externalId} não gerou nota de crédito porque o documento ${invoice.invoice_id} está em rascunho retido (${invoice.hold_reason}). Corrija ou apague o rascunho.`,
+          detail: { externalId, invoiceId: invoice.invoice_id, holdReason: invoice.hold_reason, source, destination },
+          affected_ids: [externalId],
+          connection_label: connectionLabel,
+          order_ref: orderRef,
+          client_name: clientName,
+        });
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: `Skipped credit note: held draft (${invoice.hold_reason})`, status: 200 });
+        return;
+      }
 
       // Per-credit dedup: query the destination by the canonical credit-note
       // reference. Without this, a re-delivered refund webhook would issue

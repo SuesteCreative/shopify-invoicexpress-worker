@@ -1641,7 +1641,7 @@ app.post("/admin/test-incident-email", async (c) => {
 
   const kinds = [
     "auth_failure_destination", "auth_failure_source", "destination_reject",
-    "normalize_fail", "nif_invalid", "nif_invalid_draft", "subscription_inactive",
+    "normalize_fail", "nif_invalid", "nif_invalid_draft", "credit_note_on_draft", "subscription_inactive",
     "queue_retry_exhausted", "webhook_invalid_signature",
   ];
   const kind = body.kind && kinds.includes(body.kind) ? body.kind : "webhook_invalid_signature";

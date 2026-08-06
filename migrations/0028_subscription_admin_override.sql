@@ -1,0 +1,21 @@
+-- Protect admin-set early_bird / trial_end from being clobbered.
+--
+-- `subscriptions.early_bird` and `subscriptions.trial_end` are written from five
+-- places, and three of them assume nobody has deliberately set a value:
+--
+--   1. POST /api/integrations re-asserts `early_bird = 1` unconditionally and
+--      `trial_end = COALESCE(trial_end, EARLY_BIRD_TRIAL_END)` on EVERY settings
+--      save — that is what makes "Shopify merchant ⇒ early bird by default" true,
+--      but it also silently undoes an admin who turned early bird off.
+--   2. The Stripe webhook (customer.subscription.* / checkout.session.completed)
+--      copies Stripe's `trial_end`, which is NULL for Rioko subs because access is
+--      granted by our own gate and never as a Stripe trial. That NULL wipes the
+--      admin date, which then lets (1) restore the default cutoff on the next save.
+--   3. POST /api/admin/link-subscription does the same as (2).
+--
+-- `admin_override_at` marks a row whose dates were set by hand in Dev Mode. The
+-- three paths above then leave those two columns alone. A real Stripe trial still
+-- wins — only a NULL is refused, since a NULL carries no information.
+--
+-- NULL for every existing row = today's behaviour, unchanged.
+ALTER TABLE subscriptions ADD COLUMN admin_override_at TEXT;

@@ -16,9 +16,13 @@
 // prints only shop domains, order numbers and monetary values.
 //
 //   DAYS=30 node scripts/audit-shopify.mjs
+//   SHOP=acme.myshopify.com DAYS=60 node scripts/audit-shopify.mjs   (single shop)
 import { execSync } from "node:child_process";
 import { IxBuilder } from "./.gen/builder.mjs";
 
+// Restrict the sweep to a single myshopify domain (same knob as shadow-normalize.mjs).
+// Unset = every configured shop, the original behaviour.
+const ONLY = process.env.SHOP || null;
 const DAYS = Number(process.env.DAYS ?? 30);
 const SINCE_MS = Date.now() - DAYS * 864e5;
 const SINCE_ISO = new Date(SINCE_MS).toISOString();
@@ -100,6 +104,7 @@ function loadShops() {
   return wq(
     "SELECT user_id, shopify_domain, is_paused, ix_environment, ix_document_type, shopify_api_version " +
     "FROM integrations WHERE shopify_domain IS NOT NULL AND shopify_token IS NOT NULL AND ix_api_key IS NOT NULL " +
+    (ONLY ? `AND shopify_domain = '${ONLY.replace(/'/g, "''")}' ` : "") +
     "ORDER BY shopify_domain"
   );
 }

@@ -52,7 +52,13 @@ async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, s
             plan = excluded.plan,
             price_id = excluded.price_id,
             current_period_end = excluded.current_period_end,
-            trial_end = excluded.trial_end,
+            -- Rioko never uses Stripe trials (access is granted by our own gate), so
+            -- Stripe reports trial_end = NULL and this used to WIPE an admin-set
+            -- early-bird date — which the next /api/integrations save then replaced
+            -- with the default cutoff. Refuse the NULL when the row is admin-owned;
+            -- a real Stripe trial still wins.
+            trial_end = CASE WHEN subscriptions.admin_override_at IS NOT NULL AND excluded.trial_end IS NULL
+                             THEN subscriptions.trial_end ELSE excluded.trial_end END,
             cancel_at_period_end = excluded.cancel_at_period_end,
             -- early_bird is OWNED by our DB (set by onboarding / admin / migration),
             -- never by stale Stripe metadata. Preserve it on every webhook so an
@@ -172,7 +178,10 @@ export async function POST(req: NextRequest) {
                         plan = excluded.plan,
                         price_id = excluded.price_id,
                         current_period_end = excluded.current_period_end,
-                        trial_end = excluded.trial_end,
+                        -- Same as upsertSubscriptionFromStripeSub: a NULL Stripe
+                        -- trial_end must not erase an admin-set early-bird date.
+                        trial_end = CASE WHEN subscriptions.admin_override_at IS NOT NULL AND excluded.trial_end IS NULL
+                                         THEN subscriptions.trial_end ELSE excluded.trial_end END,
                         cancel_at_period_end = excluded.cancel_at_period_end,
                         nif = COALESCE(excluded.nif, subscriptions.nif),
                         name = COALESCE(excluded.name, subscriptions.name),

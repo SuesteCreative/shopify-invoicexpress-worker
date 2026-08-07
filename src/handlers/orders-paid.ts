@@ -64,7 +64,14 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
     // instead of throwing into a permanent retry storm.
     if (!invoice || !invoice.invoice_id) {
       console.log(`[Rioko] No invoice row for order ${orderId}; self-healing via create flow`);
-      await handleOrderCreated(env, config, null, order);
+      const outcome = await handleOrderCreated(env, config, null, order);
+      // An orders/created delivery is mid-flight on this same order. It will
+      // record the invoice in a moment; throwing puts us back on the queue with
+      // backoff, which is the difference between finalizing today and waiting
+      // for the nightly sweep.
+      if (outcome === "claim_lost") {
+        throw new Error(`Order ${orderId} is being invoiced by another delivery — retrying finalize`);
+      }
       invoice = await appStorage.getInvoiceByOrderId(String(orderId));
     }
 

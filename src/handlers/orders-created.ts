@@ -56,7 +56,10 @@ async function notifyNifHold(
   }
 }
 
-export async function handleOrderCreated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
+/** "claim_lost" = another delivery is creating this order's document right now. */
+export type OrderCreatedOutcome = "claim_lost" | void;
+
+export async function handleOrderCreated(env: Env, config: IRequestConfig, webhookId: string | null, order: any): Promise<OrderCreatedOutcome> {
   const webhookTopic = "orders/created";
   const appStorage = new AppStorage(env, config.shopify_domain!);
 
@@ -103,6 +106,53 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: "", response: "Already processed", status: 401 });
     return;
   }
+
+  // Claim the order before doing anything that creates a document.
+  //
+  // The check above cannot stop a duplicate on its own: it reads, and the write
+  // that would make its answer "yes" only happens after a normalize and an IX
+  // round-trip. Two `orders/created` deliveries for the same order land in
+  // different queue batches that overlap across Worker invocations, so both read
+  // "not processed" and both create a document — 60 orphan duplicate drafts on
+  // one shop, ids consecutive, seconds apart. The IX reference lookup below does
+  // not save it either: a just-created document is not immediately findable by
+  // reference, which is exactly why the paid path pads with awaitInvoiceVisibility.
+  //
+  // `claimOrder` is a compare-and-swap, so exactly one delivery gets through.
+  if (!await appStorage.claimOrder(String(orderId))) {
+    console.log(`[Rioko] Order ${orderId} is being processed by another delivery — skipping`);
+    if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: "Skipped: another delivery holds this order", status: 200 });
+    // Reported to the caller because orders/paid calls this to self-heal: "no
+    // invoice" and "someone else is making the invoice right now" need
+    // different answers, and treating the second as the first would leave the
+    // document a draft until the nightly sweep.
+    return "claim_lost";
+  }
+
+  try {
+    await createInvoiceForOrder(env, config, webhookId, order, appStorage);
+  } finally {
+    // Release as soon as the outcome is durable in processed_orders. This is a
+    // lock held for seconds, never a second source of truth.
+    await appStorage.releaseOrderClaim(String(orderId));
+  }
+}
+
+/**
+ * Everything `handleOrderCreated` does once it holds the order's claim. Split
+ * out only so the claim has an honest `finally` around exactly the work it
+ * protects — the body is unchanged.
+ */
+async function createInvoiceForOrder(
+  env: Env,
+  config: IRequestConfig,
+  webhookId: string | null,
+  order: any,
+  appStorage: AppStorage,
+) {
+  const webhookTopic = "orders/created";
+  const orderId = order.id;
 
   // Zero-amount short-circuit. For retail these are gift cards and test orders
   // and no document is required. Wholesale is different: a 100%-discounted

@@ -89,6 +89,29 @@ describe("sendIxDocumentEmail", () => {
     expect(r).toMatchObject({ sent: false, reason: "send_failed" });
   });
 
+  it("treats the proxy's PARSE_FAILED-on-empty-body as the success it is", async () => {
+    // Verified live: IX answers this endpoint with an empty body, so the proxy
+    // reports `success: true` alongside a PARSE_FAILED error. Reading that error
+    // as a failure would report every successful send as failed.
+    getDoc.mockResolvedValue(doc());
+    postEmail.mockResolvedValue({
+      data: { data: null, success: true, error: { code: "PARSE_FAILED", message: "Failed to parse response" }, metadata: {} },
+      error: null,
+    });
+    const r = await sendIxDocumentEmail(cfg(), 1);
+    expect(r).toMatchObject({ sent: true, recipient: "buyer@example.com" });
+  });
+
+  it("catches a real failure reported inside a 200 envelope", async () => {
+    getDoc.mockResolvedValue(doc());
+    postEmail.mockResolvedValue({
+      data: { data: null, success: false, error: { code: "INVALID_EMAIL", message: "bad address" }, metadata: {} },
+      error: null,
+    });
+    const r = await sendIxDocumentEmail(cfg(), 1);
+    expect(r).toMatchObject({ sent: false, reason: "send_failed" });
+  });
+
   it("skips a document with no address on the client", async () => {
     getDoc.mockResolvedValue(doc({ client: { email: "" } }));
     const r = await sendIxDocumentEmail(cfg(), 1);

@@ -96,7 +96,7 @@ export async function sendIxDocumentEmail(
   // requiring one is why the admin path silently emailed nobody.
   if (!recipient) return { sent: false, reason: "no_recipient" };
 
-  const { error: sendError } = await ixCall(
+  const { data: sendData, error: sendError } = await ixCall(
     () => IxApi.v2.documents.byId.email.post({
       body: {
         message: {
@@ -114,6 +114,19 @@ export async function sendIxDocumentEmail(
 
   if (sendError) {
     return { sent: false, reason: "send_failed", detail: JSON.stringify(sendError).slice(0, 300) };
+  }
+
+  // The proxy wraps IX's reply in its own {data, success, error} envelope, and
+  // the SDK only populates `error` for a non-2xx status. So a failure reported
+  // INSIDE a 200 envelope would otherwise be read as a successful send.
+  //
+  // Verified live against a real finalized document: IX answers this endpoint
+  // with an EMPTY body, which the proxy cannot JSON-parse, so a good send comes
+  // back as `{ success: true, error: { code: "PARSE_FAILED" } }`. That error is
+  // therefore NOT a signal — only an explicit `success: false` is.
+  const envelope = sendData as any;
+  if (envelope && envelope.success === false) {
+    return { sent: false, reason: "send_failed", detail: JSON.stringify(envelope.error ?? envelope).slice(0, 300) };
   }
 
   return { sent: true, recipient, permalink };

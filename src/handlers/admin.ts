@@ -129,19 +129,58 @@ async function findIxInvoiceByReference(
  * reconciliation sweep re-finalizes every already-issued invoice in its window,
  * so these are HEALTHY documents, not failures — detecting them lets the caller
  * report an idempotent skip instead of flooding the ops report with false errors.
+ *
+ * The first four strings below were the only ones matched until 2026-08-07, and
+ * they miss the messages IX actually returns most of the time — "não pode ser
+ * ALTERADO" (not "editado"), "Document has been finalized so can't be changed
+ * anymore", and the DOC009 change-event wrapper for a settled document. That is
+ * why one nightly sweep reported "422 orders could not be auto-invoiced" for a
+ * shop whose real failures numbered two: the healthy documents were counted as
+ * errors and buried the genuine ones.
  */
 function isAlreadyFinalizedIxError(error: unknown): boolean {
   const s = JSON.stringify(error ?? "").toLowerCase();
   return (
     s.includes("doc001") ||
+    s.includes("doc009") ||
     s.includes("already paid") ||
     s.includes("cannot be edited") ||
     s.includes("can't be edited") ||
     s.includes("has payments") ||
+    s.includes("has been finalized") ||
+    s.includes("can't be changed") ||
+    s.includes("cannot be changed") ||
+    s.includes("in status 'settled'") ||
     s.includes("já contém pagamentos") ||
     s.includes("ja contem pagamentos") ||
     s.includes("não pode ser editado") ||
-    s.includes("nao pode ser editado")
+    s.includes("nao pode ser editado") ||
+    s.includes("já foi finalizado") ||
+    s.includes("ja foi finalizado") ||
+    s.includes("não pode ser alterado") ||
+    s.includes("nao pode ser alterado")
+  );
+}
+
+/**
+ * IX refused the document's DATE, not the document. Two shapes matter:
+ * "Vencimento deve ser igual ou posterior à data do documento" (the due date is
+ * behind the issue date) and the series' chronology rule (a finalized document
+ * may not predate the last one already issued in its series). Both are fixable
+ * by moving the document forward, so the caller retries with the next candidate
+ * date instead of giving up — see `finalizeDraftClosestToDate`.
+ */
+function isDateRejectionIxError(error: unknown): boolean {
+  const s = JSON.stringify(error ?? "").toLowerCase();
+  return (
+    s.includes("vencimento") ||
+    s.includes("due date") ||
+    s.includes("data do documento") ||
+    s.includes("document date") ||
+    s.includes("data de emiss") ||
+    s.includes("issue date") ||
+    s.includes("sequencial") ||
+    s.includes("sequential")
   );
 }
 
@@ -652,6 +691,180 @@ async function fetchSeriesLastFinalizedDate(
   }
 }
 
+/**
+ * Rebuilds a draft's editable payload with a new date. IX's PUT replaces the
+ * document, so client and items have to be sent back verbatim — dropping them
+ * would blank the document.
+ *
+ * `due_date` moves WITH `date`. That is not cosmetic: IX validates
+ * `due_date >= date` and answers "Vencimento deve ser igual ou posterior à data
+ * do documento" when it doesn't, which is exactly how every retro-finalize in
+ * the fleet was failing.
+ */
+function buildIxDatePutBody(
+  doc: any,
+  ixDocType: "invoice" | "invoice_receipt",
+  targetDate: string,
+  observations: string,
+): any {
+  const items = Array.isArray(doc.items) ? doc.items.map((it: any) => ({
+    quantity: Number(it.quantity),
+    name: String(it.name ?? ""),
+    ...(it.description ? { description: String(it.description) } : {}),
+    unit_price: Number(it.unit_price),
+    tax: it.tax?.id
+      ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
+      : { name: String(it.tax?.name ?? ""), value: Number(it.tax?.value ?? 0) },
+    ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
+  })) : [];
+
+  const client = doc.client ? {
+    ...(doc.client.id ? { id: Number(doc.client.id) } : {}),
+    ...(doc.client.name ? { name: String(doc.client.name) } : {}),
+    ...(doc.client.email ? { email: String(doc.client.email) } : {}),
+    ...(doc.client.fiscal_id ? { fiscal_id: String(doc.client.fiscal_id) } : {}),
+    ...(doc.client.address ? { address: String(doc.client.address) } : {}),
+    ...(doc.client.postal_code ? { postal_code: String(doc.client.postal_code) } : {}),
+    ...(doc.client.country ? { country: String(doc.client.country) } : {}),
+    ...(doc.client.city ? { city: String(doc.client.city) } : {}),
+    ...(doc.client.phone ? { phone: String(doc.client.phone) } : {}),
+  } : { name: "" };
+
+  return {
+    type: ixDocType,
+    data: {
+      date: targetDate,
+      due_date: targetDate,
+      client,
+      items,
+      observations,
+      ...(doc.reference ? { reference: String(doc.reference) } : {}),
+      ...(doc.tax_exemption ? { tax_exemption_reason: String(doc.tax_exemption) } : {}),
+    },
+  };
+}
+
+/** Note stamped when a document had to be issued later than the sale happened. */
+function transactionDateNote(doc: any, originalDate: string): string | null {
+  const m = /Order #(\d+)/i.exec(String(doc?.reference ?? ""));
+  return m ? `Fatura referente à encomenda #${m[1]} de ${formatPtDate(originalDate)}` : null;
+}
+
+export type DraftFinalizeOutcome =
+  | { status: "finalized"; date: string; originalDate: string; message: string }
+  | { status: "skipped"; message: string }
+  | { status: "error"; message: string };
+
+/**
+ * Finalize ONE draft, keeping the document as close to the transaction date as
+ * InvoiceXpress will accept.
+ *
+ * Until 2026-08-07 this was a bare `changeState` with `actualizeDateBeforeChange:
+ * true`. That flag makes IX push the document's `date` to today while leaving
+ * `due_date` on the original order date — and IX then rejects its own result with
+ * "Vencimento deve ser igual ou posterior à data do documento". Every draft older
+ * than the current day was therefore permanently un-finalizable through this
+ * path: five consecutive nightly sweeps finalized nothing while ~275 drafts sat
+ * across the fleet, and the noise from `isAlreadyFinalizedIxError` misses (see
+ * above) hid it.
+ *
+ * The date we try, in order of preference:
+ *   1. the draft's own date — the day the sale actually happened;
+ *   2. the series' most recent finalized date, when that is later, because IX
+ *      will not let a finalized document break its series' chronology;
+ *   3. today, and only if IX still refuses.
+ * Whenever the date moves, `due_date` moves with it and the real transaction
+ * date is stamped into the observations, so the document still says what it is
+ * for. We escalate ONLY on a date rejection: any other failure leaves the draft
+ * untouched rather than silently drifting its date for an unrelated reason.
+ */
+async function finalizeDraftClosestToDate(
+  config: IRequestConfig,
+  invoiceId: string,
+  ixDocType: "invoice" | "invoice_receipt",
+  ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
+  opts: { seriesLastFinalizedDate?: string | null } = {},
+): Promise<DraftFinalizeOutcome> {
+  const { data: docData, error: docError } = await IxApi.v2.documents.byId.get({
+    headers: ixHeaders,
+    path: { id: Number(invoiceId) },
+  });
+  if (docError || !docData?.data) {
+    return { status: "error", message: `Fetch failed: ${JSON.stringify(docError)}` };
+  }
+  const doc: any = docData.data;
+
+  // Not a draft = already issued. The sweep re-runs over every processed order
+  // in its window, so this is the common case and it is a skip, not an error.
+  const state = doc.status ?? doc.state;
+  if (state !== "draft") {
+    return { status: "skipped", message: `Already finalized (status=${state})` };
+  }
+
+  const originalDate = parseIxDate(doc.date);
+  if (!originalDate) {
+    return { status: "error", message: `Could not parse draft date '${doc.date}'` };
+  }
+
+  const seriesLast = opts.seriesLastFinalizedDate !== undefined
+    ? opts.seriesLastFinalizedDate
+    : await fetchSeriesLastFinalizedDate(config, ixDocType);
+  const today = todayUtcYmd();
+
+  // Ascending, de-duplicated, never earlier than the sale itself.
+  const candidates = [...new Set(
+    [originalDate, seriesLast, today]
+      .filter((d): d is string => !!d && d >= originalDate)
+      .sort(),
+  )];
+
+  const existingObs = typeof doc.observations === "string" ? doc.observations.trim() : "";
+  let currentDate = originalDate;
+  let lastError = "";
+
+  for (const targetDate of candidates) {
+    if (targetDate !== currentDate) {
+      const note = transactionDateNote(doc, originalDate);
+      const observations = note
+        ? (existingObs ? `${existingObs} | ${note}` : note).slice(0, 200)
+        : existingObs;
+      const { error: putError } = await IxApi.v2.documents.byId.put({
+        headers: ixHeaders,
+        path: { id: Number(invoiceId) },
+        body: buildIxDatePutBody(doc, ixDocType, targetDate, observations),
+      });
+      if (putError) {
+        return { status: "error", message: `PUT date ${formatPtDate(targetDate)} failed: ${JSON.stringify(putError)}` };
+      }
+      currentDate = targetDate;
+    }
+
+    const { error } = await IxApi.v2.changeState.post({
+      headers: ixHeaders,
+      body: { type: ixDocType, id: Number(invoiceId), state: "finalized" },
+    });
+    if (!error) {
+      return {
+        status: "finalized",
+        date: targetDate,
+        originalDate,
+        message: targetDate === originalDate
+          ? `Finalizada com a data da transacção (${formatPtDate(originalDate)})`
+          : `Finalizada em ${formatPtDate(targetDate)} — o IX recusou a data da transacção (${formatPtDate(originalDate)}), que ficou anotada no documento`,
+      };
+    }
+    if (isAlreadyFinalizedIxError(error)) {
+      return { status: "skipped", message: "Already finalized (document has payments / cannot be edited)" };
+    }
+    lastError = `Finalize failed: ${JSON.stringify(error)}`;
+    // Anything that is not a date complaint will not be fixed by moving the
+    // date, so stop here and leave the draft exactly as we found it.
+    if (!isDateRejectionIxError(error)) return { status: "error", message: lastError };
+  }
+
+  return { status: "error", message: lastError || "Finalize failed: no acceptable date" };
+}
+
 export async function finalizeDrafts(
   env: Env,
   config: IRequestConfig,
@@ -809,46 +1022,10 @@ export async function finalizeDrafts(
       }
 
       if (dateChanged) {
-        const items = Array.isArray(doc.items) ? doc.items.map((it: any) => ({
-          quantity: Number(it.quantity),
-          name: String(it.name ?? ""),
-          ...(it.description ? { description: String(it.description) } : {}),
-          unit_price: Number(it.unit_price),
-          tax: it.tax?.id
-            ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
-            : { name: String(it.tax?.name ?? ""), value: Number(it.tax?.value ?? 0) },
-          ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
-        })) : [];
-
-        const client = doc.client ? {
-          ...(doc.client.id ? { id: Number(doc.client.id) } : {}),
-          ...(doc.client.name ? { name: String(doc.client.name) } : {}),
-          ...(doc.client.email ? { email: String(doc.client.email) } : {}),
-          ...(doc.client.fiscal_id ? { fiscal_id: String(doc.client.fiscal_id) } : {}),
-          ...(doc.client.address ? { address: String(doc.client.address) } : {}),
-          ...(doc.client.postal_code ? { postal_code: String(doc.client.postal_code) } : {}),
-          ...(doc.client.country ? { country: String(doc.client.country) } : {}),
-          ...(doc.client.city ? { city: String(doc.client.city) } : {}),
-          ...(doc.client.phone ? { phone: String(doc.client.phone) } : {}),
-        } : { name: "" };
-
-        const putBody: any = {
-          type: ixDocType,
-          data: {
-            date: targetDate,
-            due_date: targetDate,
-            client,
-            items,
-            observations: newObservations,
-            ...(doc.reference ? { reference: String(doc.reference) } : {}),
-            ...(doc.tax_exemption ? { tax_exemption_reason: String(doc.tax_exemption) } : {}),
-          },
-        };
-
         const { error: putError } = await IxApi.v2.documents.byId.put({
           headers: ixHeaders,
           path: { id: Number(row.invoice_id) },
-          body: putBody,
+          body: buildIxDatePutBody(doc, ixDocType, targetDate, newObservations),
         });
         if (putError) {
           results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: `PUT date failed: ${JSON.stringify(putError)}`, original_date: originalDate, target_date: targetDate });
@@ -1082,26 +1259,17 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
       "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
     };
 
-    // Finalize the invoice
-    const { data, error } = await IxApi.v2.changeState.post({
-      body: {
-        type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
-        id: Number(invoiceRef.invoice_id),
-        state: "finalized",
-        actualizeDateBeforeChange: true
-      },
-      headers: ixHeaders,
-    });
+    // Finalize as close to the transaction date as IX will take. NOT
+    // `actualizeDateBeforeChange` — that flag moves `date` to today and leaves
+    // `due_date` behind, which IX then rejects; see finalizeDraftClosestToDate.
+    const ixDocType = config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
+    const outcome = await finalizeDraftClosestToDate(config, invoiceRef.invoice_id, ixDocType, ixHeaders);
 
-    if (error) {
-      // Already finalized / has payments = a HEALTHY, issued document — not a
-      // failure. The sweep re-finalizes every processed order in its window, so
-      // without this it reports hundreds of false "errors" on good invoices.
-      // Report an idempotent skip instead.
-      if (isAlreadyFinalizedIxError(error)) {
-        return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Already finalized (document has payments / cannot be edited)" };
-      }
-      return { order_id: order.id, order_number: order.order_number, status: "error", message: `Finalize failed: ${JSON.stringify(error)}` };
+    if (outcome.status === "skipped") {
+      return { order_id: order.id, order_number: order.order_number, status: "skipped", message: outcome.message };
+    }
+    if (outcome.status === "error") {
+      return { order_id: order.id, order_number: order.order_number, status: "error", message: outcome.message };
     }
 
     // Send email if configured. Shared with the webhook paths so the admin
@@ -1110,7 +1278,7 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
     const emailOutcome = await sendIxDocumentEmail(config, invoiceRef.invoice_id);
     console.log(`[Rioko] ${describeIxEmailOutcome(invoiceRef.invoice_id, emailOutcome)}`);
 
-    return { order_id: order.id, order_number: order.order_number, status: "finalized", message: `Invoice ${invoiceRef.invoice_id} finalized` };
+    return { order_id: order.id, order_number: order.order_number, status: "finalized", message: `Invoice ${invoiceRef.invoice_id}: ${outcome.message}` };
   } catch (e) {
     return { order_id: order.id, order_number: order.order_number, status: "error", message: String(e) };
   }

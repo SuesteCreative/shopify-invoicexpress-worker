@@ -8,6 +8,8 @@ import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { handleOrderCreated } from "./orders-created";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
+import { reportIncident } from "../services/incidents";
+import { describeOrder } from "../services/order-label";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -21,11 +23,25 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
   // user with an active subscription still short-circuits silently.
   if (await isIntegrationPaused(env, config, webhookTopic, orderId)) return;
 
-  // Subscription gate: block IX emission if user's Kapta subscription inactive (admins exempt)
+  // Subscription gate: block IX emission if user's Kapta subscription inactive
+  // (admins exempt). orders/created carries the same gate, so a blocked shop
+  // never gets this far with a document already created — but keep it here too:
+  // this webhook also self-heals missing invoices, which is creation by another
+  // name. The incident is not optional. Until 2026-08-07 this returned silently,
+  // and a gate that fired on the whole fleet went unnoticed for three days.
   const gate = await checkSubscriptionGate(env, config);
   if (!gate.allowed) {
     console.log(`[Rioko] Subscription gate blocked order ${orderId}: ${gate.reason}`);
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: `Blocked: ${gate.reason}`, status: 402 });
+    await reportIncident(env, {
+      user_id: config.user_id,
+      severity: "critical",
+      kind: "subscription_inactive",
+      summary: `Subscrição inactiva (${gate.reason}). Encomenda ${describeOrder(order).orderRef ?? orderId} não foi facturada.`,
+      detail: { orderId: String(orderId), reason: gate.reason },
+      affected_ids: [String(orderId)],
+      connection_label: "shopify → invoicexpress",
+    });
     return;
   }
 

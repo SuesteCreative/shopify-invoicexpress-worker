@@ -8,6 +8,7 @@ import { createIxInvoiceWithFallback } from "../ix/create-invoice";
 import { maybeSendQuotaReachedAlert } from "../services/quota-alert";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
+import { checkSubscriptionGate } from "../services/subscription-gate";
 import { loadProductOverrides } from "../services/product-overrides";
 import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
@@ -65,6 +66,35 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
 
   // Pause switch: merchant turned the integration off — log and exit.
   if (await isIntegrationPaused(env, config, webhookTopic, orderId)) return;
+
+  // Subscription gate. This has to be HERE, not only on orders/paid, because on
+  // the Shopify→IX path creation and finalization live in different webhooks:
+  // orders/created makes the document, orders/paid certifies it. With the gate
+  // on only one of the two, a blocked shop produced a draft that nothing would
+  // ever finalize — which is exactly what the trial-gate outage of 2026-08-01→04
+  // did to ~275 orders across the fleet, silently, because the merchant sees a
+  // document in InvoiceXpress and assumes it was issued.
+  //
+  // Blocking BEFORE creation is the honest behaviour: no half-document, and the
+  // order is picked up in full by the reconciliation sweep once the subscription
+  // is sorted out. The incident (mirroring generic-pipeline) is what turns this
+  // from a silent stop into something we and the merchant can see.
+  const gate = await checkSubscriptionGate(env, config);
+  if (!gate.allowed) {
+    console.log(`[Rioko] Subscription gate blocked order ${orderId}: ${gate.reason}`);
+    if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: `Blocked: ${gate.reason}`, status: 402 });
+    await reportIncident(env, {
+      user_id: config.user_id,
+      severity: "critical",
+      kind: "subscription_inactive",
+      summary: `Subscrição inactiva (${gate.reason}). Encomenda ${describeOrder(order).orderRef ?? orderId} não foi facturada.`,
+      detail: { orderId: String(orderId), reason: gate.reason },
+      affected_ids: [String(orderId)],
+      connection_label: "shopify → invoicexpress",
+    });
+    return;
+  }
 
   // Check if order was already processed.
   const alreadyExists = await appStorage.isInvoiceAlreadyProcessed(orderId);

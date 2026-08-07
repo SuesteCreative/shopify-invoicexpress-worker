@@ -265,9 +265,12 @@ export class AppStorage {
    * A claim left behind by an invocation that died is taken over once it is
    * older than `staleAfterMs` — otherwise a single crash would make an order
    * permanently un-invoiceable, which is a worse failure than a duplicate draft.
-   * ALWAYS pair a won claim with `releaseOrderClaim` in a finally.
+   * Three minutes: comfortably longer than a normalize plus an IX round trip
+   * (seconds, even with retries) and short enough that the queue has redeliveries
+   * left when it expires. ALWAYS pair a won claim with `releaseOrderClaim` in a
+   * finally.
    */
-  async claimOrder(orderId: string, staleAfterMs = 10 * 60_000): Promise<boolean> {
+  async claimOrder(orderId: string, staleAfterMs = 3 * 60_000): Promise<boolean> {
     const shop = this.shopDomain ?? "";
     const now = new Date();
     try {

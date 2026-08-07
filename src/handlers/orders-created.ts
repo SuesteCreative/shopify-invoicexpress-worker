@@ -56,10 +56,7 @@ async function notifyNifHold(
   }
 }
 
-/** "claim_lost" = another delivery is creating this order's document right now. */
-export type OrderCreatedOutcome = "claim_lost" | void;
-
-export async function handleOrderCreated(env: Env, config: IRequestConfig, webhookId: string | null, order: any): Promise<OrderCreatedOutcome> {
+export async function handleOrderCreated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/created";
   const appStorage = new AppStorage(env, config.shopify_domain!);
 
@@ -120,14 +117,18 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
   //
   // `claimOrder` is a compare-and-swap, so exactly one delivery gets through.
   if (!await appStorage.claimOrder(String(orderId))) {
-    console.log(`[Rioko] Order ${orderId} is being processed by another delivery — skipping`);
-    if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: "Skipped: another delivery holds this order", status: 200 });
-    // Reported to the caller because orders/paid calls this to self-heal: "no
-    // invoice" and "someone else is making the invoice right now" need
-    // different answers, and treating the second as the first would leave the
-    // document a draft until the nightly sweep.
-    return "claim_lost";
+    // THROW, do not ack. Acking here would be right for an ordinary duplicate —
+    // the winner is doing the work — but it is fatal in the case that matters:
+    // when the holder dies, the queue redelivers ITS message, that redelivery
+    // finds the dead holder's claim still warm, and acking would consume the
+    // only delivery left. The order would then never be invoiced.
+    //
+    // Retrying costs one cheap round trip on the duplicate path: by the time it
+    // comes back the winner has written processed_orders, so it exits at
+    // "Already processed" above.
+    console.log(`[Rioko] Order ${orderId} is claimed by another delivery — retrying`);
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: "Retry: another delivery holds this order", status: 409 });
+    throw new Error(`Order ${orderId} is claimed by another delivery — retrying`);
   }
 
   try {

@@ -861,11 +861,23 @@ async function finalizeDraftClosestToDate(
       const observations = note
         ? (existingObs ? `${existingObs} | ${note}` : note).slice(0, 200)
         : existingObs;
-      const { error: putError } = await IxApi.v2.documents.byId.put({
+      const putBody = buildIxDatePutBody(doc, ixDocType, targetDate, observations);
+      let { error: putError } = await IxApi.v2.documents.byId.put({
         headers: ixHeaders,
         path: { id: Number(invoiceId) },
-        body: buildIxDatePutBody(doc, ixDocType, targetDate, observations),
+        body: putBody,
       });
+      // The proxy occasionally rejects a well-formed body — observed live as a
+      // spurious "Tax name must be at least 1 character" on a document whose
+      // lines all carried IVA23, which succeeded unchanged on the next attempt.
+      // One retry; then leave the draft exactly as we found it.
+      if (putError) {
+        ({ error: putError } = await IxApi.v2.documents.byId.put({
+          headers: ixHeaders,
+          path: { id: Number(invoiceId) },
+          body: putBody,
+        }));
+      }
       if (putError) {
         return { status: "error", message: `PUT date ${formatPtDate(targetDate)} failed: ${JSON.stringify(putError)}` };
       }

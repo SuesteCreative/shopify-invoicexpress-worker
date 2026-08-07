@@ -39,7 +39,9 @@ const wq = (sql, attempt = 0) => {
     return JSON.parse(raw.slice(raw.indexOf("["), raw.lastIndexOf("]") + 1))[0].results;
   } catch (e) {
     if (attempt >= 3) throw e;
-    execSync(process.platform === "win32" ? "timeout /t 3 /nobreak > NUL" : "sleep 3", { stdio: "ignore" });
+    // Not `sleep`/`timeout`: neither is portable here, and Windows' `timeout`
+    // needs a console this process does not have.
+    execSync(`node -e "setTimeout(()=>{},3000)"`, { stdio: "ignore" });
     return wq(sql, attempt + 1);
   }
 };
@@ -199,8 +201,15 @@ async function finalizeClosest(cfg, doc, seriesLast) {
           ...(fd.tax_exemption ? { tax_exemption_reason: String(fd.tax_exemption) } : {}),
         },
       };
-      const put = await fetch(`${PROXY}/v2/documents/${doc.id}`, { method: "PUT", headers: ixHeaders(cfg), body: JSON.stringify(body) });
-      if (!put.ok) return { ok: false, error: `PUT ${fmtPt(target)}: HTTP ${put.status} ${(await put.text()).slice(0, 200)}` };
+      // The proxy occasionally rejects a well-formed body (seen live: a spurious
+      // "Tax name must be at least 1 character" on a document whose lines all
+      // carry IVA23). One retry, then give up and leave the draft alone.
+      let put = await fetch(`${PROXY}/v2/documents/${doc.id}`, { method: "PUT", headers: ixHeaders(cfg), body: JSON.stringify(body) });
+      if (!put.ok) {
+        await new Promise((r) => setTimeout(r, 1500));
+        put = await fetch(`${PROXY}/v2/documents/${doc.id}`, { method: "PUT", headers: ixHeaders(cfg), body: JSON.stringify(body) });
+      }
+      if (!put.ok) return { ok: false, error: `PUT ${fmtPt(target)}: HTTP ${put.status} ${(await put.text()).slice(0, 400)}` };
       current = target;
     }
     const chg = await fetch(`${PROXY}/v2/change_state`, {

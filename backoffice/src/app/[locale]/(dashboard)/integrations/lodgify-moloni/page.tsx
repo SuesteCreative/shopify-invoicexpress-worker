@@ -78,6 +78,7 @@ export default function LodgifyMoloniIntegration() {
     const [documentSetName, setDocumentSetName] = useState("");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
+    const [sendEmail, setSendEmail] = useState(false);
     const [partialInvoicing, setPartialInvoicing] = useState(false);
     const [documentType, setDocumentType] = useState<"invoice" | "invoice_receipt">("invoice_receipt");
     const [exemptionReason, setExemptionReason] = useState("M01");
@@ -138,6 +139,7 @@ export default function LodgifyMoloniIntegration() {
                 setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
                 if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
                 if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
+                if (typeof cfg.send_email === "boolean") setSendEmail(cfg.send_email);
                 if (typeof cfg.moloni_partial_invoicing === "boolean") setPartialInvoicing(cfg.moloni_partial_invoicing);
                 if (typeof cfg.moloni_document_type === "string") setDocumentType(cfg.moloni_document_type === "invoice" ? "invoice" : "invoice_receipt");
                 if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
@@ -243,6 +245,7 @@ export default function LodgifyMoloniIntegration() {
                     moloni_document_type: documentType,
                     vat_included: vatIncluded,
                     auto_finalize: autoFinalize,
+                    send_email: sendEmail,
                     moloni_partial_invoicing: partialInvoicing,
                     exemption_reason: exemptionReason,
                     status: "draft",
@@ -462,6 +465,18 @@ export default function LodgifyMoloniIntegration() {
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                         </div>
                         <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${autoFinalize ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} /></button>
+                    </div>
+                    <div className="glass p-6 rounded-2xl flex flex-col gap-3 border-hairline">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="font-bold text-sm">{t("sendEmail")}</h3>
+                                <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{sendEmail ? t("sendEmailOn") : t("sendEmailOff")}</p>
+                            </div>
+                            <button onClick={() => setSendEmail(!sendEmail)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 shrink-0 ${sendEmail ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${sendEmail ? "left-7" : "left-1"}`} /></button>
+                        </div>
+                        {sendEmail && !autoFinalize && (
+                            <p className="text-[10px] leading-relaxed font-medium text-amber-300/90 border-l-2 border-amber-500/40 pl-3">{t("sendEmailNeedsFinalize")}</p>
+                        )}
                     </div>
                     <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                         <div>

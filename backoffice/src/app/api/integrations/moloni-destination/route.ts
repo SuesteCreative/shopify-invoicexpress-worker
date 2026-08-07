@@ -43,6 +43,7 @@ type MoloniBody = {
     moloni_environment?: "production" | "sandbox";
     vat_included?: boolean;
     auto_finalize?: boolean;
+    send_email?: boolean;
     moloni_partial_invoicing?: boolean;
     exemption_reason?: string;
     default_vat_rate?: number | string | null;
@@ -63,6 +64,7 @@ function redactConfig(cfg: Record<string, unknown>) {
         moloni_environment: cfg.moloni_environment ?? "production",
         vat_included: cfg.vat_included !== false,
         auto_finalize: cfg.auto_finalize === true,
+        send_email: cfg.send_email === true,
         moloni_partial_invoicing: cfg.moloni_partial_invoicing === true,
         exemption_reason: cfg.exemption_reason ?? "M01",
         default_vat_rate: cfg.default_vat_rate ?? null,
@@ -175,6 +177,10 @@ export async function POST(request: NextRequest) {
         moloni_environment: env_,
         vat_included: body.vat_included !== undefined ? body.vat_included : (previousCfg.vat_included !== false),
         auto_finalize: body.auto_finalize !== undefined ? body.auto_finalize === true : (previousCfg.auto_finalize === true),
+        // Email the finalized document to the buyer. Opt-in: absent ⇒ keep
+        // whatever was stored, never flip it on, because turning it on starts
+        // mailing real customers. The worker projects this over ix_send_email.
+        send_email: body.send_email !== undefined ? body.send_email === true : (previousCfg.send_email === true),
         // Partial (instalment) invoicing — self-serve opt-in. Consumed by the
         // worker's Lodgify poll (pollLodgifyBookings). undefined ⇒ false.
         moloni_partial_invoicing: body.moloni_partial_invoicing !== undefined

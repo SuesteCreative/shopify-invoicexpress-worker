@@ -54,6 +54,7 @@ export default function ShopifyVendusIntegration() {
     const [seriesId, setSeriesId] = useState("");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
+    const [sendEmail, setSendEmail] = useState(false);
     const [exemptionReason, setExemptionReason] = useState("M01");
 
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
@@ -95,6 +96,7 @@ export default function ShopifyVendusIntegration() {
                         setEnvironment((cfg.vendus_environment as "production" | "sandbox") ?? "production");
                         if (typeof cfg.vat_included === "boolean") setVatIncluded(cfg.vat_included);
                         if (typeof cfg.auto_finalize === "boolean") setAutoFinalize(cfg.auto_finalize);
+                        if (typeof cfg.send_email === "boolean") setSendEmail(cfg.send_email);
                         if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
                         setConnectionStatus(data.connection.status);
                         credsOk = !!cfg.has_api_key;
@@ -195,6 +197,7 @@ export default function ShopifyVendusIntegration() {
                 vendus_series_id: seriesId,
                 vat_included: vatIncluded,
                 auto_finalize: autoFinalize,
+                send_email: sendEmail,
                 exemption_reason: exemptionReason,
                 status: "draft",
             };
@@ -360,6 +363,18 @@ export default function ShopifyVendusIntegration() {
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                         </div>
                         <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${autoFinalize ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} /></button>
+                    </div>
+                    <div className="glass p-6 rounded-2xl flex flex-col gap-3 border-hairline">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="font-bold text-sm">{t("sendEmail")}</h3>
+                                <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{sendEmail ? t("sendEmailOn") : t("sendEmailOff")}</p>
+                            </div>
+                            <button onClick={() => setSendEmail(!sendEmail)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 shrink-0 ${sendEmail ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${sendEmail ? "left-7" : "left-1"}`} /></button>
+                        </div>
+                        {sendEmail && !autoFinalize && (
+                            <p className="text-[10px] leading-relaxed font-medium text-amber-300/90 border-l-2 border-amber-500/40 pl-3">{t("sendEmailNeedsFinalize")}</p>
+                        )}
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-8 rounded-[2rem] border-hairline space-y-4">
                         <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3></div>

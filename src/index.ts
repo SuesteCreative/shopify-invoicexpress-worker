@@ -76,6 +76,26 @@ app.onError((err, c) => {
 });
 
 // Health check endpoint
+/**
+ * Project a connection's own "email the document to the buyer" preference onto
+ * the legacy config the pipeline reads.
+ *
+ * `ix_send_email` lives on the legacy `integrations` row, which only exists for
+ * clients who came in through Shopify→IX. A Moloni- or Vendus-only client has
+ * no such row, so the synthesized fallback pinned the flag to 0 and no toggle
+ * could ever turn it on. Their setting lives on the connection instead, next to
+ * `auto_finalize`, and the connection must win for its own traffic: one user can
+ * run a Shopify→IX shop that mails buyers and a Stripe→Moloni flow that does not.
+ *
+ * Absent key ⇒ leave the legacy value alone, so existing shops are unaffected.
+ */
+function applyConnectionEmailPref(legacy: any, destinationConfig?: Record<string, any>): any {
+  if (destinationConfig && typeof destinationConfig.send_email === "boolean") {
+    legacy.ix_send_email = destinationConfig.send_email ? 1 : 0;
+  }
+  return legacy;
+}
+
 app.get("/", (c) => c.text("OK"))
 
 async function enqueueWebhook(c: Context<{ Bindings: Env }>, topic: WebhookTopic) {
@@ -499,6 +519,7 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     b2b_reverse_charge: 0,
     ix_send_email: 0,
   };
+  applyConnectionEmailPref(legacy, destinationConfig);
 
   const gate = await checkSubscriptionGate(c.env, legacy);
   if (!gate.allowed) {
@@ -652,6 +673,7 @@ app.post("/admin/lodgify/replay", async (c) => {
     b2b_reverse_charge: 0,
     ix_send_email: 0,
   };
+  applyConnectionEmailPref(legacy, destinationConfig);
 
   const fakeBody: any = { event: "booking_new_booked", data: { bookingId: Number(body.bookingId) } };
   if (body.booking) fakeBody._preloaded_booking = body.booking;
@@ -1996,6 +2018,7 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       if (destinationConfig && typeof destinationConfig.auto_finalize === "boolean") {
         legacy.auto_finalize = destinationConfig.auto_finalize ? 1 : 0;
       }
+      applyConnectionEmailPref(legacy, destinationConfig);
 
       await runAdapterPipeline({
         env,
@@ -2432,6 +2455,7 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       b2b_reverse_charge: 0,
       ix_send_email: 0,
     };
+    applyConnectionEmailPref(legacy, destinationConfig);
     const gate = await checkSubscriptionGate(env, legacy);
     if (!gate.allowed) {
       console.warn(`[LodgifyPoll] user ${conn.user_id}: subscription gate blocked (${gate.reason}) — skipping`);

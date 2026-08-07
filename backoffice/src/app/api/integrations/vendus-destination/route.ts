@@ -35,6 +35,7 @@ type VendusBody = {
     vendus_environment?: "production" | "sandbox";
     vat_included?: boolean;
     auto_finalize?: boolean;
+    send_email?: boolean;
     exemption_reason?: string;
     status?: "draft" | "active" | "paused" | "error";
 };
@@ -47,6 +48,7 @@ function redactConfig(cfg: Record<string, unknown>) {
         vendus_environment: cfg.vendus_environment ?? "production",
         vat_included: cfg.vat_included !== false,
         auto_finalize: cfg.auto_finalize === true,
+        send_email: cfg.send_email === true,
         exemption_reason: cfg.exemption_reason ?? "M01",
     };
 }
@@ -116,6 +118,9 @@ export async function POST(request: NextRequest) {
         vendus_environment: (body.vendus_environment ?? previousCfg.vendus_environment) === "sandbox" ? "sandbox" : "production",
         vat_included: body.vat_included !== undefined ? body.vat_included : (previousCfg.vat_included !== false),
         auto_finalize: body.auto_finalize !== undefined ? body.auto_finalize === true : (previousCfg.auto_finalize === true),
+        // Email the finalized document to the buyer. Opt-in: absent ⇒ keep the
+        // stored value, never flip it on. Projected over ix_send_email by the worker.
+        send_email: body.send_email !== undefined ? body.send_email === true : (previousCfg.send_email === true),
         exemption_reason: typeof body.exemption_reason === "string" && body.exemption_reason.trim()
             ? body.exemption_reason.trim()
             : (previousCfg.exemption_reason ?? "M01"),

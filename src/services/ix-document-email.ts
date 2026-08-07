@@ -18,19 +18,46 @@ import { ixCall } from "../ix/ix-call";
 // had already been created and finalized — turning a missed email into a
 // retry storm and a duplicate-finalize attempt. Both are fixed here.
 //
-// Two hard gates, in this order, before anything is sent:
+// Three hard gates, in this order, before anything is sent:
 //   1. `holdReason` — the document is parked for a human (invalid NIF in the
 //      address line). The customer must not receive it.
 //   2. `status === "draft"` — a draft is not a legal document. Emailing one
 //      would hand the buyer a "rascunho" with no ATCUD.
+//   3. the document's age — a buyer hears from us about a purchase they just
+//      made, never about one from months ago. See DEFAULT_MAX_AGE_DAYS.
 
 export type IxEmailSkipReason =
   | "disabled"        // merchant has not opted in (ix_send_email != 1)
   | "held"            // parked for a human — see processed_orders.hold_reason
   | "draft"           // not finalized, so not a document we may send
+  | "backlog"         // the sale is old — see the age gate below
   | "no_recipient"    // IX has no email on the client
   | "lookup_failed"   // could not read the document back from IX
   | "send_failed";    // IX refused the send
+
+/**
+ * How old a sale may be and still have its invoice mailed to the buyer.
+ *
+ * This exists because turning the feature on is retroactive by accident. The
+ * flag `ix_send_email` had been set on a shop for days before the code that
+ * reads it was deployed; the moment it went live, a backlog re-finalization
+ * mailed four customers an invoice for a book they had bought in June. Nobody
+ * asked for that mail and nobody was expecting it.
+ *
+ * So the gate is on the DOCUMENT'S OWN DATE, not on which code path we came
+ * through: a buyer hears from us about a purchase they just made, and never
+ * about one they made months ago. Two days rather than one so a Multibanco
+ * order that confirms the next morning still counts as current.
+ */
+const DEFAULT_MAX_AGE_DAYS = 2;
+
+/** IX serves dates as DD/MM/YYYY. Returns null for anything else. */
+function ixDateToUtcMs(value: unknown): number | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(value ?? "").trim());
+  if (!m) return null;
+  const ms = Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  return Number.isFinite(ms) ? ms : null;
+}
 
 export type IxEmailOutcome =
   | { sent: true; recipient: string; permalink?: string }
@@ -62,6 +89,11 @@ export async function sendIxDocumentEmail(
     holdReason?: string | null;
     /** Force the send even for a draft. Only the admin tools pass this. */
     allowDraft?: boolean;
+    /**
+     * Override the age gate. `0` disables it — reserved for a human explicitly
+     * asking us to re-send one named document, never for a batch.
+     */
+    maxAgeDays?: number;
   },
 ): Promise<IxEmailOutcome> {
   if (Number(config.ix_send_email) !== 1) return { sent: false, reason: "disabled" };
@@ -88,6 +120,27 @@ export async function sendIxDocumentEmail(
 
   if (status === "draft" && !opts?.allowDraft) {
     return { sent: false, reason: "draft", detail: `document ${id} is still a draft` };
+  }
+
+  // Age gate — see DEFAULT_MAX_AGE_DAYS. Deliberately AFTER the draft check and
+  // before we look at the recipient, so a backlog document is reported as
+  // "backlog" rather than being mistaken for a missing address.
+  const maxAgeDays = opts?.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
+  if (maxAgeDays > 0) {
+    // Whole calendar days on both sides — IX gives a date, not a timestamp, so
+    // comparing it against "now" would make a two-day-old document three days
+    // old by the afternoon.
+    const docMs = ixDateToUtcMs(doc.date);
+    const now = new Date();
+    const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const ageDays = docMs == null ? null : Math.round((todayMs - docMs) / 864e5);
+    if (ageDays != null && ageDays > maxAgeDays) {
+      return {
+        sent: false,
+        reason: "backlog",
+        detail: `document ${id} is dated ${doc.date} (${ageDays}d old) — past sales are not mailed`,
+      };
+    }
   }
 
   const recipient = String(doc.client?.email ?? "").trim();

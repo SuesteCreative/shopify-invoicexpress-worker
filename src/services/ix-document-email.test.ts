@@ -68,6 +68,46 @@ describe("sendIxDocumentEmail", () => {
     expect(postEmail).not.toHaveBeenCalled();
   });
 
+  // A backlog re-finalization once mailed four buyers an invoice for a book
+  // they had bought two months earlier, the moment the feature was deployed on
+  // a shop whose flag had been on for days. The gate is on the document's own
+  // date so it holds for every call path, not just the one that caused it.
+  const ptDate = (daysAgo: number) => {
+    const d = new Date(Date.now() - daysAgo * 864e5);
+    return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+  };
+
+  it("mails a sale that just happened", async () => {
+    getDoc.mockResolvedValue(doc({ date: ptDate(0) }));
+    const r = await sendIxDocumentEmail(cfg(), 1);
+    expect(r).toMatchObject({ sent: true });
+  });
+
+  it("still mails a Multibanco order that confirmed the next morning", async () => {
+    getDoc.mockResolvedValue(doc({ date: ptDate(2) }));
+    const r = await sendIxDocumentEmail(cfg(), 1);
+    expect(r).toMatchObject({ sent: true });
+  });
+
+  it("never mails a backlog document", async () => {
+    getDoc.mockResolvedValue(doc({ date: ptDate(56) }));
+    const r = await sendIxDocumentEmail(cfg(), 1);
+    expect(r).toMatchObject({ sent: false, reason: "backlog" });
+    expect(postEmail).not.toHaveBeenCalled();
+  });
+
+  it("lets a human re-send one named old document by disabling the gate", async () => {
+    getDoc.mockResolvedValue(doc({ date: ptDate(56) }));
+    const r = await sendIxDocumentEmail(cfg(), 1, { maxAgeDays: 0 });
+    expect(r).toMatchObject({ sent: true });
+  });
+
+  it("does not withhold a document whose date IX did not give us", async () => {
+    getDoc.mockResolvedValue(doc({ date: undefined }));
+    const r = await sendIxDocumentEmail(cfg(), 1);
+    expect(r).toMatchObject({ sent: true });
+  });
+
   it("stays off unless the merchant opted in", async () => {
     for (const v of [0, null, undefined]) {
       const r = await sendIxDocumentEmail(cfg({ ix_send_email: v }), 1);

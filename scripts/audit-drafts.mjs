@@ -92,7 +92,11 @@ async function getDoc(cfg, id) {
   return j?.data ?? j ?? null;
 }
 
-/** Bounded parallelism — the IX proxy is fine with a handful of readers. */
+/**
+ * Bounded parallelism. Keep this small: the proxy starts answering well-formed
+ * writes with spurious VALIDATION_ERRORs when several batches hammer it, and
+ * never run two shops at once.
+ */
 async function mapPool(items, size, fn) {
   const out = new Array(items.length);
   let i = 0;
@@ -170,6 +174,14 @@ async function finalizeClosest(cfg, doc, seriesLast) {
     if (target !== current) {
       const note = om ? `Fatura referente à encomenda #${om[1]} de ${fmtPt(originalDate)}` : null;
       const observations = note ? (existingObs ? `${existingObs} | ${note}` : note).slice(0, 200) : existingObs;
+      // Mirrors buildIxDatePutBody in src/handlers/admin.ts. Every name must be
+      // non-empty or the proxy rejects the document with a message that does
+      // not say which field it meant.
+      const taxFor = (tax) => {
+        const value = Number(tax?.value ?? 0);
+        const name = String(tax?.name ?? "").trim() || (value > 0 ? `IVA${value}` : "Isento");
+        return tax?.id ? { id: Number(tax.id), name, value } : { name, value };
+      };
       const body = {
         type,
         data: {
@@ -177,7 +189,7 @@ async function finalizeClosest(cfg, doc, seriesLast) {
           due_date: target,
           client: fd.client ? {
             ...(fd.client.id ? { id: Number(fd.client.id) } : {}),
-            ...(fd.client.name ? { name: String(fd.client.name) } : {}),
+            name: String(fd.client.name ?? "").trim() || "Consumidor Final",
             ...(fd.client.email ? { email: String(fd.client.email) } : {}),
             ...(fd.client.fiscal_id ? { fiscal_id: String(fd.client.fiscal_id) } : {}),
             ...(fd.client.address ? { address: String(fd.client.address) } : {}),
@@ -185,15 +197,13 @@ async function finalizeClosest(cfg, doc, seriesLast) {
             ...(fd.client.country ? { country: String(fd.client.country) } : {}),
             ...(fd.client.city ? { city: String(fd.client.city) } : {}),
             ...(fd.client.phone ? { phone: String(fd.client.phone) } : {}),
-          } : { name: "" },
+          } : { name: "Consumidor Final" },
           items: (fd.items ?? []).map((it) => ({
             quantity: Number(it.quantity),
-            name: String(it.name ?? ""),
+            name: String(it.name ?? "").trim() || "Artigo",
             ...(it.description ? { description: String(it.description) } : {}),
             unit_price: Number(it.unit_price),
-            tax: it.tax?.id
-              ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
-              : { name: String(it.tax?.name ?? ""), value: Number(it.tax?.value ?? 0) },
+            tax: taxFor(it.tax),
             ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
           })),
           observations,
@@ -201,13 +211,16 @@ async function finalizeClosest(cfg, doc, seriesLast) {
           ...(fd.tax_exemption ? { tax_exemption_reason: String(fd.tax_exemption) } : {}),
         },
       };
-      // The proxy occasionally rejects a well-formed body (seen live: a spurious
-      // "Tax name must be at least 1 character" on a document whose lines all
-      // carry IVA23). One retry, then give up and leave the draft alone.
-      let put = await fetch(`${PROXY}/v2/documents/${doc.id}`, { method: "PUT", headers: ixHeaders(cfg), body: JSON.stringify(body) });
-      if (!put.ok) {
-        await new Promise((r) => setTimeout(r, 1500));
+      // Under load the proxy answers a well-formed body with a spurious
+      // VALIDATION_ERROR: on one run it rejected 81 documents for "Tax name
+      // must be at least 1 character" whose lines all carried IVA6, and the
+      // identical body was accepted first try once the run had stopped. Back
+      // off and retry; only then give up and leave the draft alone.
+      let put;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
         put = await fetch(`${PROXY}/v2/documents/${doc.id}`, { method: "PUT", headers: ixHeaders(cfg), body: JSON.stringify(body) });
+        if (put.ok) break;
       }
       if (!put.ok) return { ok: false, error: `PUT ${fmtPt(target)}: HTTP ${put.status} ${(await put.text()).slice(0, 400)}` };
       current = target;

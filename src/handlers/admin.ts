@@ -740,20 +740,31 @@ function buildIxDatePutBody(
   targetDate: string,
   observations: string,
 ): any {
+  // Every name we send has to be non-empty — the proxy rejects the whole
+  // document with "… name must be at least 1 character" and the message does
+  // not say which field it means. A Portuguese B2C sale legitimately has no
+  // buyer name, and that is exactly what "Consumidor Final" is for; a tax with
+  // no name is named after the rate it carries, the way IX names its own.
+  const taxFor = (tax: any) => {
+    const value = Number(tax?.value ?? 0);
+    const name = String(tax?.name ?? "").trim() || (value > 0 ? `IVA${value}` : "Isento");
+    // Prefer the id: it identifies the account's own tax, so IX resolves the
+    // rate from its own records rather than matching on our name.
+    return tax?.id ? { id: Number(tax.id), name, value } : { name, value };
+  };
+
   const items = Array.isArray(doc.items) ? doc.items.map((it: any) => ({
     quantity: Number(it.quantity),
-    name: String(it.name ?? ""),
+    name: String(it.name ?? "").trim() || "Artigo",
     ...(it.description ? { description: String(it.description) } : {}),
     unit_price: Number(it.unit_price),
-    tax: it.tax?.id
-      ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
-      : { name: String(it.tax?.name ?? ""), value: Number(it.tax?.value ?? 0) },
+    tax: taxFor(it.tax),
     ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
   })) : [];
 
   const client = doc.client ? {
     ...(doc.client.id ? { id: Number(doc.client.id) } : {}),
-    ...(doc.client.name ? { name: String(doc.client.name) } : {}),
+    name: String(doc.client.name ?? "").trim() || "Consumidor Final",
     ...(doc.client.email ? { email: String(doc.client.email) } : {}),
     ...(doc.client.fiscal_id ? { fiscal_id: String(doc.client.fiscal_id) } : {}),
     ...(doc.client.address ? { address: String(doc.client.address) } : {}),
@@ -761,7 +772,7 @@ function buildIxDatePutBody(
     ...(doc.client.country ? { country: String(doc.client.country) } : {}),
     ...(doc.client.city ? { city: String(doc.client.city) } : {}),
     ...(doc.client.phone ? { phone: String(doc.client.phone) } : {}),
-  } : { name: "" };
+  } : { name: "Consumidor Final" };
 
   return {
     type: ixDocType,
@@ -862,21 +873,20 @@ async function finalizeDraftClosestToDate(
         ? (existingObs ? `${existingObs} | ${note}` : note).slice(0, 200)
         : existingObs;
       const putBody = buildIxDatePutBody(doc, ixDocType, targetDate, observations);
-      let { error: putError } = await IxApi.v2.documents.byId.put({
-        headers: ixHeaders,
-        path: { id: Number(invoiceId) },
-        body: putBody,
-      });
-      // The proxy occasionally rejects a well-formed body — observed live as a
-      // spurious "Tax name must be at least 1 character" on a document whose
-      // lines all carried IVA23, which succeeded unchanged on the next attempt.
-      // One retry; then leave the draft exactly as we found it.
-      if (putError) {
+      // Under load the proxy answers a well-formed body with a spurious
+      // VALIDATION_ERROR — measured on a backlog run: 81 documents rejected for
+      // "Tax name must be at least 1 character" whose lines all carried IVA6,
+      // and the very same body accepted first try once the run had stopped. So
+      // back off and try again rather than writing off a document.
+      let putError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
         ({ error: putError } = await IxApi.v2.documents.byId.put({
           headers: ixHeaders,
           path: { id: Number(invoiceId) },
           body: putBody,
         }));
+        if (!putError) break;
       }
       if (putError) {
         return { status: "error", message: `PUT date ${formatPtDate(targetDate)} failed: ${JSON.stringify(putError)}` };

@@ -96,6 +96,15 @@ describe("sendIxDocumentEmail", () => {
     expect(postEmail).not.toHaveBeenCalled();
   });
 
+  it("judges a retro-finalized document by the sale, not by the date we moved it to", async () => {
+    // The document now reads as today's because the series rule forced it
+    // forward. The sale is still two months old and must not be mailed.
+    getDoc.mockResolvedValue(doc({ date: ptDate(0) }));
+    const r = await sendIxDocumentEmail(cfg(), 1, { saleDate: "2026-06-13" });
+    expect(r).toMatchObject({ sent: false, reason: "backlog" });
+    expect(postEmail).not.toHaveBeenCalled();
+  });
+
   it("lets a human re-send one named old document by disabling the gate", async () => {
     getDoc.mockResolvedValue(doc({ date: ptDate(56) }));
     const r = await sendIxDocumentEmail(cfg(), 1, { maxAgeDays: 0 });

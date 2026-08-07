@@ -94,6 +94,14 @@ export async function sendIxDocumentEmail(
      * asking us to re-send one named document, never for a batch.
      */
     maxAgeDays?: number;
+    /**
+     * When the sale happened (YYYY-MM-DD), when that differs from the date on
+     * the document. A retro-finalize moves the document's date forward to
+     * satisfy IX's series rule, which would make a two-month-old sale look
+     * like today's to the age gate — the very mail this is meant to prevent.
+     * Callers that move a date MUST pass the date they moved it from.
+     */
+    saleDate?: string;
   },
 ): Promise<IxEmailOutcome> {
   if (Number(config.ix_send_email) !== 1) return { sent: false, reason: "disabled" };
@@ -130,7 +138,8 @@ export async function sendIxDocumentEmail(
     // Whole calendar days on both sides — IX gives a date, not a timestamp, so
     // comparing it against "now" would make a two-day-old document three days
     // old by the afternoon.
-    const docMs = ixDateToUtcMs(doc.date);
+    const saleMs = opts?.saleDate ? Date.parse(`${opts.saleDate}T00:00:00Z`) : NaN;
+    const docMs = Number.isFinite(saleMs) ? saleMs : ixDateToUtcMs(doc.date);
     const now = new Date();
     const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const ageDays = docMs == null ? null : Math.round((todayMs - docMs) / 864e5);
@@ -138,7 +147,7 @@ export async function sendIxDocumentEmail(
       return {
         sent: false,
         reason: "backlog",
-        detail: `document ${id} is dated ${doc.date} (${ageDays}d old) — past sales are not mailed`,
+        detail: `document ${id} is for a sale on ${opts?.saleDate ?? doc.date} (${ageDays}d old) — past sales are not mailed`,
       };
     }
   }

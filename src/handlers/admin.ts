@@ -1339,7 +1339,12 @@ async function adminFinalizeOrder(
     // Send email if configured. Shared with the webhook paths so the admin
     // tool can't drift from them again — it used to require the client to carry
     // a fiscal_id, which silently emailed nobody on every Consumidor Final sale.
-    const emailOutcome = await sendIxDocumentEmail(config, invoiceRef.invoice_id);
+    //
+    // `saleDate` is the date the document had BEFORE we moved it. Without it a
+    // backlog document, whose date we just pushed to today to satisfy IX's
+    // series rule, reads as a fresh sale and the buyer gets mailed an invoice
+    // for something they bought months ago.
+    const emailOutcome = await sendIxDocumentEmail(config, invoiceRef.invoice_id, { saleDate: outcome.originalDate });
     console.log(`[Rioko] ${describeIxEmailOutcome(invoiceRef.invoice_id, emailOutcome)}`);
 
     return { order_id: order.id, order_number: order.order_number, status: "finalized", message: `Invoice ${invoiceRef.invoice_id}: ${outcome.message}`, finalized_date: outcome.date };

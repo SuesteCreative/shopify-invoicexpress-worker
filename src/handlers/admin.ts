@@ -26,6 +26,8 @@ type OrderResult = {
   order_number: number;
   status: "created" | "finalized" | "skipped" | "error" | "dry_run";
   message: string;
+  /** YYYY-MM-DD the document was actually issued with; feeds the series baseline. */
+  finalized_date?: string;
 };
 
 export interface ProcessOrdersOptions {
@@ -165,10 +167,15 @@ function isAlreadyFinalizedIxError(error: unknown): boolean {
 /**
  * IX refused the document's DATE, not the document. Two shapes matter:
  * "Vencimento deve ser igual ou posterior à data do documento" (the due date is
- * behind the issue date) and the series' chronology rule (a finalized document
- * may not predate the last one already issued in its series). Both are fixable
- * by moving the document forward, so the caller retries with the next candidate
- * date instead of giving up — see `finalizeDraftClosestToDate`.
+ * behind the issue date) and the series' chronology rule, which IX words as
+ * "Date cannot be earlier than the last invoice-receipt of this sequence[02 Aug
+ * 26]". Both are fixable by moving the document forward, so the caller retries
+ * with the next candidate date instead of giving up — see
+ * `finalizeDraftClosestToDate`.
+ *
+ * Verified live 2026-08-07: IX DOES accept a backdated finalize as long as the
+ * date is not behind the series' last issued document, so a draft can usually
+ * keep the day the sale actually happened.
  */
 function isDateRejectionIxError(error: unknown): boolean {
   const s = JSON.stringify(error ?? "").toLowerCase();
@@ -180,7 +187,12 @@ function isDateRejectionIxError(error: unknown): boolean {
     s.includes("data de emiss") ||
     s.includes("issue date") ||
     s.includes("sequencial") ||
-    s.includes("sequential")
+    s.includes("sequential") ||
+    s.includes("sequence") ||
+    s.includes("sequência") ||
+    s.includes("date cannot be earlier") ||
+    s.includes("não pode ser anterior") ||
+    s.includes("nao pode ser anterior")
   );
 }
 
@@ -281,13 +293,34 @@ export async function processOrders(
 
   const results: OrderResult[] = [];
 
+  // Finalize OLDEST FIRST, and read the series' last issued date once for the
+  // whole batch. IX refuses a document dated before the last one in its series,
+  // so working newest-first would push the baseline past every older draft and
+  // force them all onto today's date; going forward in time lets each document
+  // keep the day its sale actually happened. The baseline is also advanced
+  // locally after each success, so the next document aims at a date IX will
+  // take instead of burning a rejected attempt.
+  let seriesLastFinalizedDate: string | null = null;
+  if (!dryRun && type === "finalize_orders") {
+    orders = [...orders].sort((a, b) =>
+      String(a.processed_at ?? a.created_at ?? "").localeCompare(String(b.processed_at ?? b.created_at ?? "")));
+    seriesLastFinalizedDate = await fetchSeriesLastFinalizedDate(
+      config,
+      config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+    );
+  }
+
   for (const order of orders) {
     if (dryRun) {
       results.push(await adminDryRunCreate(env, config, order, type));
     } else if (type === "create_orders") {
       results.push(await adminCreateOrder(env, config, order));
     } else {
-      results.push(await adminFinalizeOrder(env, config, order));
+      const r = await adminFinalizeOrder(env, config, order, seriesLastFinalizedDate);
+      if (r.finalized_date && (!seriesLastFinalizedDate || r.finalized_date > seriesLastFinalizedDate)) {
+        seriesLastFinalizedDate = r.finalized_date;
+      }
+      results.push(r);
     }
   }
 
@@ -1236,7 +1269,12 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
   }
 }
 
-async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any): Promise<OrderResult> {
+async function adminFinalizeOrder(
+  env: Env,
+  config: IRequestConfig,
+  order: any,
+  seriesLastFinalizedDate?: string | null,
+): Promise<OrderResult> {
   const appStorage = new AppStorage(env, config.shopify_domain!);
   const orderId = String(order.id);
 
@@ -1263,7 +1301,11 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
     // `actualizeDateBeforeChange` — that flag moves `date` to today and leaves
     // `due_date` behind, which IX then rejects; see finalizeDraftClosestToDate.
     const ixDocType = config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
-    const outcome = await finalizeDraftClosestToDate(config, invoiceRef.invoice_id, ixDocType, ixHeaders);
+    const outcome = await finalizeDraftClosestToDate(config, invoiceRef.invoice_id, ixDocType, ixHeaders, {
+      // `undefined` = look it up; the batch caller passes it so we don't hit the
+      // series endpoint once per order.
+      ...(seriesLastFinalizedDate !== undefined ? { seriesLastFinalizedDate } : {}),
+    });
 
     if (outcome.status === "skipped") {
       return { order_id: order.id, order_number: order.order_number, status: "skipped", message: outcome.message };
@@ -1278,7 +1320,7 @@ async function adminFinalizeOrder(env: Env, config: IRequestConfig, order: any):
     const emailOutcome = await sendIxDocumentEmail(config, invoiceRef.invoice_id);
     console.log(`[Rioko] ${describeIxEmailOutcome(invoiceRef.invoice_id, emailOutcome)}`);
 
-    return { order_id: order.id, order_number: order.order_number, status: "finalized", message: `Invoice ${invoiceRef.invoice_id}: ${outcome.message}` };
+    return { order_id: order.id, order_number: order.order_number, status: "finalized", message: `Invoice ${invoiceRef.invoice_id}: ${outcome.message}`, finalized_date: outcome.date };
   } catch (e) {
     return { order_id: order.id, order_number: order.order_number, status: "error", message: String(e) };
   }

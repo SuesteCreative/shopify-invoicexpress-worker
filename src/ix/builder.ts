@@ -122,11 +122,45 @@ export class IxBuilder {
     return /^97[89]\d{10}$/.test(sku) ? Number(rate) : undefined;
   }
 
+  // IX refuses a document with a 0% line unless a razão de isenção travels with
+  // it (measured live: HTTP 400 "Razão de isenção deve ter uma opção
+  // selecionada"), so a zero rate here means the shop's configured exemption
+  // code gets stamped automatically. That is right for a shop that genuinely
+  // sells exempt (art. 53, exports, reverse charge) and WRONG for one that just
+  // failed to resolve its rate — see assertForcedRateApplied, which stops a
+  // forced-rate line ever reaching this point at zero.
   shouldRequestTaxExemptionReason(items: IxInvoice["items"]) {
     return items.some(item =>
       (typeof item.tax === "number"
         ? item.tax
         : item.tax.value) === 0
+    );
+  }
+
+  /**
+   * A shop that imposes a positive VAT rate has no exempt lines of that kind.
+   * If one lands at 0% anyway, something upstream failed — and stamping the
+   * shop's generic exemption code (M99) over it turns that failure into a
+   * legally exempt invoice that nobody notices. That is exactly what happened
+   * to Zoo de Lagos on 2026-08-02→05: 81 ticket sales (place of supply PT, 6%,
+   * never exempt) went out at 0% VAT, €235.88 of IVA undeclared, each document
+   * totalling less than the customer paid.
+   *
+   * Refusing here leaves the order visibly unbilled, which the sweep retries and
+   * the digest reports — a loud failure instead of a quiet wrong document.
+   * Explicit per-SKU overrides are exempt from this check: a merchant setting a
+   * rate by hand is a decision, not a resolution failure.
+   */
+  private assertForcedRateApplied(
+    rate: number,
+    forced: number | null | undefined,
+    kind: "produto" | "portes",
+    lineName: string,
+  ): void {
+    if (forced == null || !(forced > 0) || rate !== 0) return;
+    throw new Error(
+      `Linha "${lineName}" ficou a 0% de IVA numa loja que impõe ${forced}% em ${kind}. `
+      + `Recuso emitir um documento isento por falha de taxa — corrigir a configuração antes de faturar.`,
     );
   }
 
@@ -239,6 +273,9 @@ export class IxBuilder {
       const defaultName = `${li?.title ?? li?.name ?? "Item"}${variantTitle}`.slice(0, 200);
       const name = (override?.name_override ?? defaultName).slice(0, 200);
       const description = li?.sku ? `SKU: ${li.sku}`.slice(0, 200) : undefined;
+      if (!forceZeroTax && override?.tax_rate == null) {
+        this.assertForcedRateApplied(effectiveRate, forceTaxProducts, "produto", name);
+      }
       const item = buildLine(grossUnit, quantity, grossLineDiscount, effectiveRate, effectiveRate, name, description, lineIncluded);
       if (item) items.push(item);
     }
@@ -258,6 +295,7 @@ export class IxBuilder {
       // reconcile guard trips. force_shipping_tax_rate > collected shipping rate.
       const shipEffectiveRate = forceZeroTax ? 0 : (forceTaxShipping != null ? forceTaxShipping : shipCollectedRate);
       const name = `Portes de envio${sl?.title ? ` — ${sl.title}` : ""}`.slice(0, 200);
+      if (!forceZeroTax) this.assertForcedRateApplied(shipEffectiveRate, forceTaxShipping, "portes", name);
       // Shipping overrides keyed by RIOKO-SHIPPING — same semantics
       const shipOverride = this.overrides?.get("RIOKO-SHIPPING");
       const shipIncluded = shipOverride?.vat_inclusion === "inc"
@@ -433,6 +471,9 @@ export class IxBuilder {
         : (forceTax != null
           ? forceTax
           : (item.tax.unit_amount === 0 ? 0 : item.tax.value));
+      if (!forceZeroTax) {
+        this.assertForcedRateApplied(Number(tax), forceTax, isShipping ? "portes" : "produto", name);
+      }
       const allocation = !forceZeroTax && typeof item.discount_allocation_amount === "number" && item.discount_allocation_amount > 0
         ? Math.round(item.discount_allocation_amount * 100) / 100
         : 0;

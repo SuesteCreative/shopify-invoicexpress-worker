@@ -3,6 +3,7 @@ import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { IxApi } from "../api/ix";
 import { runAdapterPipeline } from "./generic-pipeline";
+import { buildIxDatePutBody, fetchAccountTaxes } from "./admin";
 import { sendDevModeEmail } from "./notify";
 import { stripeFetch } from "../services/stripe";
 
@@ -618,6 +619,10 @@ export async function finalizeStripeDrafts(
     : null;
   let lastFinalizedDate: string | null = seriesLastFinalizedDate;
 
+  // The account's tax table, once, so a document rebuild can restore a line
+  // whose read-back carries a null rate instead of zeroing it.
+  const accountTaxes = await fetchAccountTaxes(ixHeaders);
+
   for (const row of processed) {
     try {
       const { data: docData, error: docError } = await IxApi.v2.documents.byId.get({
@@ -674,41 +679,19 @@ export async function finalizeStripeDrafts(
       }
 
       if (dateChanged) {
-        const items = Array.isArray(doc.items) ? doc.items.map((it: any) => ({
-          quantity: Number(it.quantity),
-          name: String(it.name ?? ""),
-          ...(it.description ? { description: String(it.description) } : {}),
-          unit_price: Number(it.unit_price),
-          tax: it.tax?.id
-            ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
-            : { name: String(it.tax?.name ?? ""), value: Number(it.tax?.value ?? 0) },
-          ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
-        })) : [];
-
-        const client = doc.client ? {
-          ...(doc.client.id ? { id: Number(doc.client.id) } : {}),
-          ...(doc.client.name ? { name: String(doc.client.name) } : {}),
-          ...(doc.client.email ? { email: String(doc.client.email) } : {}),
-          ...(doc.client.fiscal_id ? { fiscal_id: String(doc.client.fiscal_id) } : {}),
-          ...(doc.client.address ? { address: String(doc.client.address) } : {}),
-          ...(doc.client.postal_code ? { postal_code: String(doc.client.postal_code) } : {}),
-          ...(doc.client.country ? { country: String(doc.client.country) } : {}),
-          ...(doc.client.city ? { city: String(doc.client.city) } : {}),
-          ...(doc.client.phone ? { phone: String(doc.client.phone) } : {}),
-        } : { name: "" };
-
-        const putBody: any = {
-          type: ixDocType,
-          data: {
-            date: targetDate,
-            due_date: targetDate,
-            client,
-            items,
-            observations: newObservations,
-            ...(doc.reference ? { reference: String(doc.reference) } : {}),
-            ...(doc.tax_exemption ? { tax_exemption_reason: String(doc.tax_exemption) } : {}),
-          },
-        };
+        // Shared with the Shopify path on purpose: this used to be a copy of the
+        // rebuild that read a null line tax as 0% and renamed it "Isento", which
+        // would restate a taxed document as exempt just to move its date.
+        let putBody: any;
+        try {
+          putBody = buildIxDatePutBody(doc, ixDocType, targetDate, newObservations, {
+            accountTaxes,
+            exemptionReason: config.ix_exemption_reason ?? null,
+          });
+        } catch (e: any) {
+          results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "error", message: String(e?.message ?? e), original_date: originalDate, target_date: targetDate });
+          continue;
+        }
 
         const { error: putError } = await IxApi.v2.documents.byId.put({
           headers: ixHeaders,

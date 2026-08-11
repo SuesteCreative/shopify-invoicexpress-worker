@@ -66,12 +66,14 @@ export interface SubscriptionRow {
 export function isSubscriptionBlocked(sub: SubscriptionRow | null | undefined): boolean {
     if (!sub) return true;
     if (["canceled", "unpaid", "incomplete_expired", "past_due", "incomplete"].includes(sub.status)) return true;
-    // Must pay to run: while trialing without a Stripe sub, only early-bird users
-    // inside their trial window keep access. Non-early-bird (or an expired
-    // early-bird trial) is suspended — they must subscribe to activate.
+    // Must pay to run: while trialing without a Stripe sub, access comes from the
+    // free-access window alone — a future `trial_end`. `early_bird` only records
+    // WHY it was granted, so an admin grace date works the same as a pilot's.
+    // Must stay identical to checkSubscriptionGate() in src/services/subscription-gate.ts:
+    // the worker decides whether invoices are issued, this decides what the UI says.
     if (sub.status === "trialing" && !sub.stripe_subscription_id) {
-        const earlyBirdActive = !!sub.early_bird && !!sub.trial_end && new Date(sub.trial_end) > new Date();
-        if (!earlyBirdActive) return true;
+        const windowOpen = !!sub.trial_end && new Date(sub.trial_end) > new Date();
+        if (!windowOpen) return true;
     }
     return false;
 }
@@ -82,9 +84,10 @@ export function subscriptionUIState(sub: SubscriptionRow | null | undefined): "a
     if (sub.status === "active") return "active";
     if (sub.status === "trialing") {
         if (sub.stripe_subscription_id) return "trialing";  // paying inside a Stripe trial
-        // Only early-bird users inside their window keep trial access; everyone
-        // else (non-early-bird, or expired early-bird) is suspended → blocked.
-        if (sub.early_bird && sub.trial_end && new Date(sub.trial_end) > new Date()) return "trialing_earlybird";
+        // Inside the free-access window → covered ("trialing_earlybird" is the
+        // historical name for that state, granted by early bird or admin grace).
+        // Past it, or no date at all → suspended.
+        if (sub.trial_end && new Date(sub.trial_end) > new Date()) return "trialing_earlybird";
         return "blocked";
     }
     return "blocked";

@@ -11,6 +11,7 @@ import { useTranslations } from "next-intl";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import SuspendedBanner from "@/components/SuspendedBanner";
+import TrialBanner from "@/components/TrialBanner";
 
 const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_SOURCE_ENABLED === "1";
 const WEBHOOK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/webhooks/stripe`;
@@ -383,6 +384,9 @@ export default function StripeMoloniIntegration() {
     const uiState = sub?.ui_state;
     const hasActiveSub = !!subData?.stripe_subscription_id && (uiState === "active" || uiState === "trialing" || uiState === "trialing_earlybird" || uiState === "exempt");
     const showSubCta = sub !== null && !hasActiveSub && uiState !== "exempt";
+    // An admin-granted early bird has no Stripe subscription but is NOT blocked —
+    // invoices flow normally. Only a truly blocked account gets the red banner.
+    const subBlocked = !!sub?.blocked;
 
     if (!STRIPE_ENABLED) {
         return (
@@ -730,7 +734,7 @@ export default function StripeMoloniIntegration() {
                         </div>
                     ) : showSubCta && (
                         <div className="space-y-4">
-                            <SuspendedBanner />
+                            {subBlocked ? <SuspendedBanner /> : <TrialBanner trialEnd={subData?.trial_end} />}
                             <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{tB("subscribeHeading")}</h2>
                             <div className="grid sm:grid-cols-2 gap-4">
                                 <div className="rounded-2xl p-5 flex flex-col gap-4 border border-hairline bg-surface-2/30">

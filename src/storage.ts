@@ -250,6 +250,69 @@ export class AppStorage {
     }
   }
 
+  /**
+   * Claim the exclusive right to create a document for this order.
+   *
+   * `isInvoiceAlreadyProcessed` cannot stop a duplicate on its own: it reads,
+   * and the write that would make the answer "yes" happens much later, after a
+   * normalize and an IX round-trip. Two deliveries of the same order arrive in
+   * different queue batches that overlap across Worker invocations, so both read
+   * "no" and both create a document — 60 orphan duplicate drafts on one shop.
+   *
+   * `INSERT OR IGNORE` on a primary key is a compare-and-swap: exactly one
+   * caller sees `changes === 1` and proceeds. Returns false for the loser.
+   *
+   * A claim left behind by an invocation that died is taken over once it is
+   * older than `staleAfterMs` — otherwise a single crash would make an order
+   * permanently un-invoiceable, which is a worse failure than a duplicate draft.
+   * Three minutes: comfortably longer than a normalize plus an IX round trip
+   * (seconds, even with retries) and short enough that the queue has redeliveries
+   * left when it expires. ALWAYS pair a won claim with `releaseOrderClaim` in a
+   * finally.
+   */
+  async claimOrder(orderId: string, staleAfterMs = 3 * 60_000): Promise<boolean> {
+    const shop = this.shopDomain ?? "";
+    const now = new Date();
+    try {
+      const res = await this.db
+        .prepare("INSERT OR IGNORE INTO order_claims (shopify_domain, order_id, claimed_at) VALUES (?, ?, ?)")
+        .bind(shop, String(orderId), now.toISOString())
+        .run();
+      if ((res.meta?.changes ?? 0) > 0) return true;
+
+      // Someone holds it. Take it over only if it is stale — the UPDATE is
+      // itself the compare-and-swap, so two workers racing to steal the same
+      // dead claim cannot both win.
+      const cutoff = new Date(now.getTime() - staleAfterMs).toISOString();
+      const steal = await this.db
+        .prepare("UPDATE order_claims SET claimed_at = ? WHERE shopify_domain = ? AND order_id = ? AND claimed_at < ?")
+        .bind(now.toISOString(), shop, String(orderId), cutoff)
+        .run();
+      if ((steal.meta?.changes ?? 0) > 0) {
+        console.warn(`[Rioko] Took over a stale order claim for ${orderId}`);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      // A claim table we cannot reach must not stop invoicing. Fail OPEN: a
+      // duplicate draft is recoverable, an order that never invoices is not.
+      console.error("[Rioko] Order claim failed (proceeding without it):", e);
+      return true;
+    }
+  }
+
+  /** Release a claim won by `claimOrder`. Best-effort; stale claims expire anyway. */
+  async releaseOrderClaim(orderId: string): Promise<void> {
+    try {
+      await this.db
+        .prepare("DELETE FROM order_claims WHERE shopify_domain = ? AND order_id = ?")
+        .bind(this.shopDomain ?? "", String(orderId))
+        .run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to release order claim (it will expire):", e);
+    }
+  }
+
   async isInvoiceAlreadyProcessed(orderId: string, sourceKind?: SourceKind) {
     const newKey = `${sourceKind ?? "shopify"}_order:${orderId}`;
     const legacyKey = `shopify_order:${orderId}`;

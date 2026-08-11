@@ -4,7 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder, nifHoldReason } from "../ix/builder";
-import { createIxInvoiceWithFallback } from "../ix/create-invoice";
+import { createIxInvoiceWithFallback, ixExpectedTotals } from "../ix/create-invoice";
 import { sendDevModeEmail } from "./notify";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
 
@@ -734,23 +734,36 @@ async function fetchSeriesLastFinalizedDate(
  * do documento" when it doesn't, which is exactly how every retro-finalize in
  * the fleet was failing.
  */
-function buildIxDatePutBody(
+export function buildIxDatePutBody(
   doc: any,
   ixDocType: "invoice" | "invoice_receipt",
   targetDate: string,
   observations: string,
+  ctx: { accountTaxes: Map<number, { name: string; value: number }>; exemptionReason?: string | null },
 ): any {
   // Every name we send has to be non-empty — the proxy rejects the whole
   // document with "… name must be at least 1 character" and the message does
   // not say which field it means. A Portuguese B2C sale legitimately has no
-  // buyer name, and that is exactly what "Consumidor Final" is for; a tax with
-  // no name is named after the rate it carries, the way IX names its own.
+  // buyer name, and that is exactly what "Consumidor Final" is for.
+  //
+  // The tax is the dangerous one. IX resolves a line by the NAME and VALUE we
+  // send (verified live: send the Isento id with name IVA6/value 6 and you get
+  // IVA6 back), and its read-back sometimes carries `{id, name: null, value:
+  // null}` on lines whose stored amounts are perfectly correct. The old code
+  // read that null as zero and renamed the line "Isento" — so a date change
+  // would have restated a 6% document as exempt. Resolve the id against the
+  // account's own tax table instead, and refuse the document when we cannot.
   const taxFor = (tax: any) => {
-    const value = Number(tax?.value ?? 0);
-    const name = String(tax?.name ?? "").trim() || (value > 0 ? `IVA${value}` : "Isento");
-    // Prefer the id: it identifies the account's own tax, so IX resolves the
-    // rate from its own records rather than matching on our name.
-    return tax?.id ? { id: Number(tax.id), name, value } : { name, value };
+    const rawValue = Number(tax?.value);
+    const rawName = String(tax?.name ?? "").trim();
+    if (Number.isFinite(rawValue) && rawName) {
+      return tax?.id ? { id: Number(tax.id), name: rawName, value: rawValue } : { name: rawName, value: rawValue };
+    }
+    const resolved = tax?.id != null ? ctx.accountTaxes.get(Number(tax.id)) : undefined;
+    if (resolved) return { id: Number(tax.id), name: resolved.name, value: resolved.value };
+    throw new Error(
+      `Não consigo reler a taxa da linha (${JSON.stringify(tax ?? null)}) — não reescrevo o documento às cegas`,
+    );
   };
 
   const items = Array.isArray(doc.items) ? doc.items.map((it: any) => ({
@@ -774,6 +787,33 @@ function buildIxDatePutBody(
     ...(doc.client.phone ? { phone: String(doc.client.phone) } : {}),
   } : { name: "Consumidor Final" };
 
+  // A date change must never move money. If the payload we just rebuilt would
+  // total something other than what the document already holds, the read-back
+  // did not give us the document we think it did — stop.
+  //
+  // The tolerance is rounding noise, not slack: IX hands `unit_price` back
+  // rounded to 2dp while computing its own subtotal in full precision, so a
+  // faithful rebuild can land a cent or two off on a multi-line document. What
+  // this has to catch is a whole VAT band going missing (3.28€ on a 58€ sale),
+  // which is orders of magnitude larger.
+  const rebuilt = ixExpectedTotals(items);
+  const storedTotal = Number(doc.total);
+  const tolerance = 0.02 + 0.01 * items.length;
+  if (Number.isFinite(storedTotal) && Math.abs(rebuilt.gross - storedTotal) > tolerance) {
+    throw new Error(
+      `Reconstrução do documento dá ${rebuilt.gross.toFixed(2)}€ mas o documento tem ${storedTotal.toFixed(2)}€ `
+      + `— não altero a data à custa do valor`,
+    );
+  }
+
+  // IX rejects a document with a 0% line unless a razão de isenção travels with
+  // it — the PUT included. Without this, an exempt document (art. 53, exports,
+  // reverse charge) could never have its date moved: every retro-finalize died
+  // on "Razão de isenção deve ter uma opção selecionada". Prefer the code the
+  // document already carries, fall back to the shop's configured one.
+  const isExemptDocument = items.some((it: any) => Number(it?.tax?.value ?? 0) === 0);
+  const exemptionReason = doc.tax_exemption ?? (isExemptDocument ? ctx.exemptionReason ?? null : null);
+
   return {
     type: ixDocType,
     data: {
@@ -783,9 +823,35 @@ function buildIxDatePutBody(
       items,
       observations,
       ...(doc.reference ? { reference: String(doc.reference) } : {}),
-      ...(doc.tax_exemption ? { tax_exemption_reason: String(doc.tax_exemption) } : {}),
+      ...(exemptionReason ? { tax_exemption_reason: String(exemptionReason) } : {}),
     },
   };
+}
+
+/**
+ * The account's own tax table, id → {name, value}. Fetched once per run and
+ * handed to every document rebuild so a line whose read-back carries a null
+ * rate can be restored to the rate it actually has, instead of being renamed
+ * "Isento" and silently zeroed.
+ */
+export async function fetchAccountTaxes(
+  ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
+): Promise<Map<number, { name: string; value: number }>> {
+  const map = new Map<number, { name: string; value: number }>();
+  try {
+    const { data, error } = await IxApi.v2.taxes.get({ headers: ixHeaders });
+    if (error) return map;
+    const list: any[] = (data as any)?.taxes ?? (data as any)?.data?.taxes ?? (data as any)?.data ?? [];
+    for (const t of Array.isArray(list) ? list : []) {
+      const id = Number(t?.id);
+      const value = Number(t?.value);
+      const name = String(t?.name ?? "").trim();
+      if (Number.isFinite(id) && Number.isFinite(value) && name) map.set(id, { name, value });
+    }
+  } catch (e) {
+    console.error("[Rioko] could not read the account tax table:", e);
+  }
+  return map;
 }
 
 /** Note stamped when a document had to be issued later than the sale happened. */
@@ -827,7 +893,12 @@ async function finalizeDraftClosestToDate(
   invoiceId: string,
   ixDocType: "invoice" | "invoice_receipt",
   ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
-  opts: { seriesLastFinalizedDate?: string | null } = {},
+  opts: {
+    seriesLastFinalizedDate?: string | null;
+    accountTaxes?: Map<number, { name: string; value: number }>;
+    /** What the customer actually paid, when the caller knows it. */
+    paidTotal?: number | null;
+  } = {},
 ): Promise<DraftFinalizeOutcome> {
   const { data: docData, error: docError } = await IxApi.v2.documents.byId.get({
     headers: ixHeaders,
@@ -843,6 +914,20 @@ async function finalizeDraftClosestToDate(
   const state = doc.status ?? doc.state;
   if (state !== "draft") {
     return { status: "skipped", message: `Already finalized (status=${state})` };
+  }
+
+  // Finalizing is irreversible: a wrong document can only be undone with a
+  // credit note. A draft whose total is not the amount the customer paid is
+  // never certified here — it is the 0%-VAT drafts of 2026-08-02→05 (gross
+  // 54.72€ on a 58.00€ sale) that this stops, and any future drift too.
+  const paid = opts.paidTotal;
+  const docTotal = Number(doc.total);
+  if (typeof paid === "number" && Number.isFinite(paid) && paid > 0 && Number.isFinite(docTotal)
+    && Math.abs(docTotal - paid) > 0.011) {
+    return {
+      status: "error",
+      message: `Total do documento (${docTotal.toFixed(2)}€) não é o valor pago (${paid.toFixed(2)}€) — não certifico`,
+    };
   }
 
   const originalDate = parseIxDate(doc.date);
@@ -863,6 +948,7 @@ async function finalizeDraftClosestToDate(
   )];
 
   const existingObs = typeof doc.observations === "string" ? doc.observations.trim() : "";
+  const accountTaxes = opts.accountTaxes ?? await fetchAccountTaxes(ixHeaders);
   let currentDate = originalDate;
   let lastError = "";
 
@@ -872,7 +958,17 @@ async function finalizeDraftClosestToDate(
       const observations = note
         ? (existingObs ? `${existingObs} | ${note}` : note).slice(0, 200)
         : existingObs;
-      const putBody = buildIxDatePutBody(doc, ixDocType, targetDate, observations);
+      let putBody: any;
+      try {
+        putBody = buildIxDatePutBody(doc, ixDocType, targetDate, observations, {
+          accountTaxes,
+          exemptionReason: config.ix_exemption_reason ?? null,
+        });
+      } catch (e: any) {
+        // The rebuild refused (unreadable tax, or a payload that would change
+        // the money). Leave the draft exactly as it is.
+        return { status: "error", message: String(e?.message ?? e) };
+      }
       // Under load the proxy answers a well-formed body with a spurious
       // VALIDATION_ERROR — measured on a backlog run: 81 documents rejected for
       // "Tax name must be at least 1 character" whose lines all carried IVA6,
@@ -1005,6 +1101,25 @@ export async function finalizeDrafts(
     : null;
   let lastFinalizedDate: string | null = seriesLastFinalizedDate;
 
+  // The account's tax table, once, for every rebuild in this run.
+  const accountTaxes = await fetchAccountTaxes(ixHeaders);
+
+  // What each order actually paid. Certifying a draft that disagrees with it is
+  // irreversible, so the amounts are looked up before anything is finalized; a
+  // failed lookup leaves the map empty and each row is then judged on the rest.
+  const paidByOrderId = new Map<string, number>();
+  if (!dryRun && processed.length > 0) {
+    try {
+      const raw = await fetchOrdersByIds(config, processed.map((r) => Number(r.id)).filter((n) => Number.isFinite(n)));
+      for (const o of raw) {
+        const total = Number(o?.total_price);
+        if (o?.id != null && Number.isFinite(total)) paidByOrderId.set(String(o.id), total);
+      }
+    } catch (e) {
+      console.error("[Rioko] finalizeDrafts paid-total lookup failed:", e);
+    }
+  }
+
   for (const row of processed) {
     try {
       // Drafts parked for a human (invalid NIF in the address line) are exactly
@@ -1027,6 +1142,17 @@ export async function finalizeDrafts(
       const state = doc.status ?? doc.state;
       if (state !== "draft") {
         results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Not draft (status=${state})` });
+        continue;
+      }
+
+      // Never certify a draft that does not total what the customer paid.
+      const paid = paidByOrderId.get(String(row.id));
+      const docTotal = Number(doc.total);
+      if (paid != null && paid > 0 && Number.isFinite(docTotal) && Math.abs(docTotal - paid) > 0.011) {
+        results.push({
+          order_id: row.id, invoice_id: row.invoice_id, status: "error",
+          message: `Total do documento (${docTotal.toFixed(2)}€) não é o valor pago (${paid.toFixed(2)}€) — não certifico`,
+        });
         continue;
       }
 
@@ -1077,10 +1203,20 @@ export async function finalizeDrafts(
       }
 
       if (dateChanged) {
+        let putBody: any;
+        try {
+          putBody = buildIxDatePutBody(doc, ixDocType, targetDate, newObservations, {
+            accountTaxes,
+            exemptionReason: config.ix_exemption_reason ?? null,
+          });
+        } catch (e: any) {
+          results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: String(e?.message ?? e), original_date: originalDate, target_date: targetDate });
+          continue;
+        }
         const { error: putError } = await IxApi.v2.documents.byId.put({
           headers: ixHeaders,
           path: { id: Number(row.invoice_id) },
-          body: buildIxDatePutBody(doc, ixDocType, targetDate, newObservations),
+          body: putBody,
         });
         if (putError) {
           results.push({ order_id: row.id, invoice_id: row.invoice_id, status: "error", message: `PUT date failed: ${JSON.stringify(putError)}`, original_date: originalDate, target_date: targetDate });
@@ -1327,6 +1463,9 @@ async function adminFinalizeOrder(
       // `undefined` = look it up; the batch caller passes it so we don't hit the
       // series endpoint once per order.
       ...(seriesLastFinalizedDate !== undefined ? { seriesLastFinalizedDate } : {}),
+      // The Shopify order is right here, so the draft can be checked against
+      // what was actually paid before anything is certified.
+      paidTotal: Number.isFinite(Number(order?.total_price)) ? Number(order.total_price) : null,
     });
 
     if (outcome.status === "skipped") {

@@ -19,6 +19,7 @@ interface RegistrationFormProps {
 export function RegistrationForm({ onComplete, initialEmail, initialName }: RegistrationFormProps) {
     const t = useTranslations("registrationForm");
     const [loading, setLoading] = useState(false);
+    const [saveError, setSaveError] = useState(false);
     const [formData, setFormData] = useState({
         nif: "",
         name: initialName || "",
@@ -39,6 +40,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setSaveError(false);
         try {
             const res = await fetch("/api/user/profile", {
                 method: "POST",
@@ -47,9 +49,15 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
             });
             if (res.ok) {
                 onComplete();
+            } else {
+                // Never swallow this: a silent failure looks like a successful
+                // save until the form comes back empty on the next login.
+                console.error("Error saving profile:", res.status, await res.text());
+                setSaveError(true);
             }
         } catch (error) {
             console.error("Error saving profile:", error);
+            setSaveError(true);
         } finally {
             setLoading(false);
         }
@@ -198,6 +206,12 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                             </span>
                         </label>
                     </div>
+
+                    {saveError && (
+                        <div className="md:col-span-2 rounded-2xl border border-[rgba(220,38,38,0.35)] bg-[rgba(220,38,38,0.08)] px-5 py-4 text-sm font-medium text-[#f87171]">
+                            {t("saveError")}
+                        </div>
+                    )}
 
                     {/* Submit */}
                     <button

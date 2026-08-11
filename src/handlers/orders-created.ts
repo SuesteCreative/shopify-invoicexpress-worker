@@ -104,6 +104,57 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
     return;
   }
 
+  // Claim the order before doing anything that creates a document.
+  //
+  // The check above cannot stop a duplicate on its own: it reads, and the write
+  // that would make its answer "yes" only happens after a normalize and an IX
+  // round-trip. Two `orders/created` deliveries for the same order land in
+  // different queue batches that overlap across Worker invocations, so both read
+  // "not processed" and both create a document — 60 orphan duplicate drafts on
+  // one shop, ids consecutive, seconds apart. The IX reference lookup below does
+  // not save it either: a just-created document is not immediately findable by
+  // reference, which is exactly why the paid path pads with awaitInvoiceVisibility.
+  //
+  // `claimOrder` is a compare-and-swap, so exactly one delivery gets through.
+  if (!await appStorage.claimOrder(String(orderId))) {
+    // THROW, do not ack. Acking here would be right for an ordinary duplicate —
+    // the winner is doing the work — but it is fatal in the case that matters:
+    // when the holder dies, the queue redelivers ITS message, that redelivery
+    // finds the dead holder's claim still warm, and acking would consume the
+    // only delivery left. The order would then never be invoiced.
+    //
+    // Retrying costs one cheap round trip on the duplicate path: by the time it
+    // comes back the winner has written processed_orders, so it exits at
+    // "Already processed" above.
+    console.log(`[Rioko] Order ${orderId} is claimed by another delivery — retrying`);
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: "Retry: another delivery holds this order", status: 409 });
+    throw new Error(`Order ${orderId} is claimed by another delivery — retrying`);
+  }
+
+  try {
+    await createInvoiceForOrder(env, config, webhookId, order, appStorage);
+  } finally {
+    // Release as soon as the outcome is durable in processed_orders. This is a
+    // lock held for seconds, never a second source of truth.
+    await appStorage.releaseOrderClaim(String(orderId));
+  }
+}
+
+/**
+ * Everything `handleOrderCreated` does once it holds the order's claim. Split
+ * out only so the claim has an honest `finally` around exactly the work it
+ * protects — the body is unchanged.
+ */
+async function createInvoiceForOrder(
+  env: Env,
+  config: IRequestConfig,
+  webhookId: string | null,
+  order: any,
+  appStorage: AppStorage,
+) {
+  const webhookTopic = "orders/created";
+  const orderId = order.id;
+
   // Zero-amount short-circuit. For retail these are gift cards and test orders
   // and no document is required. Wholesale is different: a 100%-discounted
   // order is a sample or a warranty replacement, real goods leave the building,

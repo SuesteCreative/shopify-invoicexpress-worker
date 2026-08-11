@@ -10,6 +10,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import SuspendedBanner from "@/components/SuspendedBanner";
+import TrialBanner from "@/components/TrialBanner";
 import { RIOKO_CONFIG } from "@/lib/config";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
@@ -591,6 +592,9 @@ export default function LodgifyMoloniIntegration() {
     const uiState = sub?.ui_state;
     const hasActiveSub = !!subData?.stripe_subscription_id && (uiState === "active" || uiState === "trialing" || uiState === "trialing_earlybird" || uiState === "exempt");
     const showSubCta = sub !== null && !hasActiveSub && uiState !== "exempt";
+    // An admin-granted early bird has no Stripe subscription but is NOT blocked —
+    // invoices flow normally. Only a truly blocked account gets the red banner.
+    const subBlocked = !!sub?.blocked;
 
     return (
         <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -624,7 +628,7 @@ export default function LodgifyMoloniIntegration() {
                         </div>
                     ) : showSubCta && (
                         <div className="space-y-4">
-                            <SuspendedBanner />
+                            {subBlocked ? <SuspendedBanner /> : <TrialBanner trialEnd={subData?.trial_end} />}
                             <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{tB("subscribeHeading")}</h2>
                             <div className="grid sm:grid-cols-2 gap-4">
                                 <div className="rounded-2xl p-5 flex flex-col gap-4 border border-hairline bg-surface-2/30">

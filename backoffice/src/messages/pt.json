@@ -143,7 +143,8 @@
         "websitePlaceholder": "https://exemplo.com",
         "privacyAccept": "Concordo com a política de privacidade e tratamento de dados.",
         "saving": "A guardar...",
-        "submit": "Concluir Registo e Desbloquear"
+        "submit": "Concluir Registo e Desbloquear",
+        "saveError": "Não foi possível guardar os seus dados. Tente novamente ou contacte o suporte."
     },
     "integrationSetupModal": {
         "pending": "Configuração Pendente",
@@ -807,6 +808,9 @@
         "heuristicTooltip": "Match heurístico · score {score}",
         "processing": "A processar",
         "stripeSuccess": "Subscrição ativada",
+        "trialActiveTitle": "Acesso gratuito ativo — sem pagamento necessário",
+        "trialActiveBody": "As faturas estão a ser emitidas normalmente até {date}. Pode subscrever quando quiser; até essa data não é cobrado nada.",
+        "trialActiveBodyNoDate": "As faturas estão a ser emitidas normalmente. Pode subscrever quando quiser.",
         "suspendedTitle": "Subscrição inativa — sistema suspenso",
         "suspendedBody": "Enquanto a subscrição estiver inativa, o sistema está suspenso e não são emitidas faturas. Ativa uma subscrição abaixo e o processamento de faturas recomeça automaticamente.",
         "subscribeHeading": "Ativar subscrição",

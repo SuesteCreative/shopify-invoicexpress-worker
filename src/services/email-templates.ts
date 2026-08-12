@@ -27,6 +27,14 @@ export type IncidentKind =
   // note only exists to correct a finalized document, so the remedy is to edit
   // or delete the draft — a decision only the merchant can make.
   | "credit_note_on_draft"
+  // A booking was cancelled after we had already issued a FINALIZED document
+  // for it. Drafts are deleted automatically; a closed document is AT-hashed and
+  // only a credit note undoes it, which is the merchant's call to make.
+  | "booking_cancelled_after_invoice"
+  // Stays that already ended with no payment recorded in Lodgify. Invoicing is
+  // triggered by the merchant marking a booking paid, so a forgotten one is
+  // never billed at all — this is what keeps that from being silent.
+  | "lodgify_payment_not_marked"
   | "subscription_inactive"
   | "queue_retry_exhausted"
   | "webhook_invalid_signature"
@@ -573,6 +581,67 @@ export function tplCreditNoteOnDraft(input: IncidentTemplateInput): RenderedTemp
   };
 }
 
+export function tplBookingCancelledAfterInvoice(input: IncidentTemplateInput): RenderedTemplate {
+  const d = (input.detail ?? {}) as Record<string, any>;
+  const finalized: string[] = Array.isArray(d.finalized) ? d.finalized.map(String) : [];
+  const body = `
+    ${paragraph(escapeHtml(input.summary))}
+    ${calloutBox(
+    "Porque não foi anulado automaticamente",
+    "Um documento finalizado está fiscalmente fechado e comunicado à AT — não pode ser apagado. "
+    + "A única forma correcta de o anular é emitir uma nota de crédito, e essa decisão é sua. "
+    + "Os rascunhos da mesma reserva, esses, já foram removidos automaticamente.",
+    BRAND.warning,
+  )}
+    ${stepsList([
+    "Confirme no Lodgify que a reserva está mesmo cancelada.",
+    "Emita uma nota de crédito no destino para o(s) documento(s) abaixo.",
+    "Se o cancelamento implicou penalização cobrada ao hóspede, credite só a diferença.",
+  ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
+    ${finalized.length ? paragraph(`Documentos finalizados: <strong>${escapeHtml(finalized.join(", "))}</strong>`) : ""}
+    ${affectedIdsBlock(input.affectedIds)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Reserva cancelada com factura já finalizada",
+    html: shell({
+      title: "Reserva cancelada depois de facturada",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
+export function tplLodgifyPaymentNotMarked(input: IncidentTemplateInput): RenderedTemplate {
+  const d = (input.detail ?? {}) as Record<string, any>;
+  const body = `
+    ${paragraph(escapeHtml(input.summary))}
+    ${calloutBox(
+    "Porque não foram facturadas",
+    "A factura só é emitida depois de o pagamento estar registado no Lodgify — é isso que evita facturar "
+    + "reservas que ainda podem ser canceladas. Nas reservas de canais (Airbnb, Booking.com) o dinheiro nunca "
+    + "passa pelo Lodgify, por isso é preciso marcá-las como pagas à mão quando o canal transfere.",
+    BRAND.warning,
+  )}
+    ${stepsList([
+    "Abra o Lodgify e confirme quais destas reservas já recebeu.",
+    "Registe o pagamento nessas reservas.",
+    "Nada mais a fazer: as facturas saem sozinhas na sincronização seguinte (até 30 min).",
+  ])}
+    ${d.oldest_departure ? paragraph(`Saída mais antiga por regularizar: <strong>${escapeHtml(String(d.oldest_departure).slice(0, 10))}</strong>`) : ""}
+    ${d.value != null ? paragraph(`Valor total envolvido: <strong>${escapeHtml(String(d.value))}</strong>`) : ""}
+    ${affectedIdsBlock(input.affectedIds)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Reservas terminadas sem pagamento registado no Lodgify",
+    html: shell({
+      title: "Pagamentos por registar no Lodgify",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function tplSubscriptionInactive(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph("A subscrição Kapta associada à sua conta está inactiva. <strong>O Rioko 2.0 está a pausar a emissão de facturas</strong> até a situação ser regularizada.", { strong: true })}
@@ -700,6 +769,8 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "nif_invalid": return tplNifInvalid(input);
     case "nif_invalid_draft": return tplNifInvalidDraft(input);
     case "credit_note_on_draft": return tplCreditNoteOnDraft(input);
+    case "booking_cancelled_after_invoice": return tplBookingCancelledAfterInvoice(input);
+    case "lodgify_payment_not_marked": return tplLodgifyPaymentNotMarked(input);
     case "subscription_inactive": return tplSubscriptionInactive(input);
     case "queue_retry_exhausted": return tplQueueRetryExhausted(input);
     case "webhook_invalid_signature": return tplWebhookInvalidSignature(input);

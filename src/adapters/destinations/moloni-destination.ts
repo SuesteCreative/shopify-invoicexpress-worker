@@ -259,7 +259,7 @@ export async function moloniCall<T = unknown>(
   token: string,
   path: string,
   body: Record<string, unknown>,
-  opName: "create" | "finalize" | "credit create" | "email" | "lookup",
+  opName: "create" | "finalize" | "credit create" | "email" | "lookup" | "delete",
 ): Promise<T> {
   const url = `${cfg.baseUrl}${path}?access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url, {
@@ -1136,6 +1136,38 @@ export class MoloniDestination implements DestinationAdapter {
       throw new Error(`Moloni create failed: insert returned no document_id — ${safeErrorJson(res)}`);
     }
     return { invoiceId: String(id) };
+  }
+
+  /**
+   * Delete a document that is still a draft. Used to take back a document whose
+   * underlying sale evaporated (a cancelled booking) before it was ever closed.
+   *
+   * Refuses anything already finalized: a closed document is fiscally locked and
+   * AT-hashed, and the only lawful way to undo it is a credit note. Returns
+   * "already_gone" when the id resolves nowhere, so a retry after a partial
+   * failure is a no-op rather than an error.
+   */
+  async deleteDraft(invoiceId: string, ctx: AdapterCtx): Promise<"deleted" | "already_gone" | "finalized"> {
+    const cfg = await getMoloniCfg(ctx);
+    const token = await getAccessToken(cfg);
+
+    // Moloni scopes document_id per collection, so an id only resolves in the
+    // family it was inserted into. Try the connection's own type first, then the
+    // others — tag routing can put a document in a family the config doesn't name.
+    const families = cfg.documentType === "invoice_receipt"
+      ? ["invoiceReceipts", "invoices"]
+      : ["invoices", "invoiceReceipts"];
+
+    for (const family of families) {
+      const doc = await moloniCall<any>(
+        cfg, token, `/${family}/getOne/`, { document_id: Number(invoiceId) }, "lookup",
+      ).catch(() => null);
+      if (!doc || typeof doc !== "object" || Array.isArray(doc) || doc.document_id == null) continue;
+      if (Number(doc.status ?? 0) !== 0) return "finalized";
+      await moloniCall(cfg, token, `/${family}/delete/`, { document_id: Number(invoiceId) }, "delete");
+      return "deleted";
+    }
+    return "already_gone";
   }
 
   async finalize(invoiceId: string, ctx: AdapterCtx): Promise<void> {

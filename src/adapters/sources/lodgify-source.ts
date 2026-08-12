@@ -1,5 +1,6 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized, Order } from "../../api/normalize-shopify";
+import { bookingCollectedAmount } from "../../services/lodgify-amounts";
 
 /**
  * LodgifySource — Lodgify PMS webhook integration.
@@ -124,10 +125,31 @@ export class LodgifySource implements SourceAdapter {
       return null;
     }
 
-    // Payment gate (invoice path only): only invoice when fully paid.
-    if (!isDeclined && balanceDue !== null && balanceDue > 0) {
-      console.log(`[Lodgify] Booking ${bookingId} balance_due=${balanceDue} — not yet fully paid, skipping`);
-      return null;
+    // Payment gate (invoice path only).
+    //
+    // This ran as `balanceDue > 0 ⇒ skip`, which passes a booking whose balance
+    // is zero because nobody ever owed Lodgify anything — the OTA case that
+    // billed a fleet of future reservations through the poll. The poll is fixed;
+    // this door has to be shut too, or registering Lodgify webhooks (partner
+    // OAuth, still pending) would silently reintroduce the same bug.
+    //
+    // Only applies to real webhook payloads. `_preloaded_booking` arrives from
+    // the poll, which has ALREADY applied this rule — and on the progressive
+    // path deliberately bills a partial amount, which this gate would reject.
+    if (!isDeclined && !parsedBody._preloaded_booking && !parsedBody._force) {
+      const settlement = bookingCollectedAmount({
+        total_amount: Number(booking.total ?? 0),
+        // Webhook payloads carry the amounts at the envelope level; a thin
+        // envelope resolved through the v2 API carries them on the booking
+        // itself. Read both, or the gate judges a v2-fetched booking on nulls
+        // and holds everything.
+        amount_paid: totalTransactions ?? booking.amount_paid ?? booking.total_paid,
+        amount_due: balanceDue ?? booking.amount_due ?? booking.balance_due,
+      });
+      if (settlement.collected + 0.01 < Number(booking.total ?? 0)) {
+        console.log(`[Lodgify] Booking ${bookingId} not billable yet (${settlement.basis}, due=${balanceDue}) — skipping`);
+        return null;
+      }
     }
 
     // Refund path: only issue credit note when something was actually paid.
@@ -180,7 +202,15 @@ export class LodgifySource implements SourceAdapter {
 
     const arrival = String(booking.arrival ?? "");
     const departure = String(booking.departure ?? "");
-    const bookingDateIso = arrival ? `${arrival}T12:00:00Z` : new Date().toISOString();
+    // Document date = the date of ISSUE, not the check-in date.
+    //
+    // This used to be the arrival date, which put a FUTURE date on every
+    // document for a stay that had not happened yet — the merchant's Moloni list
+    // showed invoices dated in September, issued in August. A fiscal document is
+    // dated when it is issued; the stay it covers is expressed in the line
+    // description ("Alojamento <arrival> - <departure>"), which is where a
+    // reader looks for it.
+    const bookingDateIso = new Date().toISOString();
 
     const refStr = `LOD-${bookingId}`;
     const orderNumeric = numericFromId(bookingId);

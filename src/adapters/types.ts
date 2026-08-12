@@ -80,4 +80,8 @@ export interface DestinationAdapter {
    *  to fail (and retry) the whole webhook. */
   emailDocument?(invoiceId: string, ctx: AdapterCtx, opts?: { holdReason?: string | null }): Promise<void>;
   findByReference?(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null>;
+  /** Take back a document that is still a draft, when the sale behind it went
+   *  away (e.g. a cancelled booking). Must refuse a finalized document — that
+   *  one is fiscally locked and can only be undone with a credit note. */
+  deleteDraft?(invoiceId: string, ctx: AdapterCtx): Promise<"deleted" | "already_gone" | "finalized">;
 }

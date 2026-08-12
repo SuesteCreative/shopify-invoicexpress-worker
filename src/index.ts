@@ -24,7 +24,7 @@ import { handleRefundCreate } from "./handlers/refunds-create";
 import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
 import { checkSubscriptionGate } from "./services/subscription-gate";
 import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
-import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts } from "./handlers/admin-stripe";
+import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts, externalIdFromEvent } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
 import { sendEmail as sendEmailDirect } from "./services/email";
 import {
@@ -2179,7 +2179,18 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
       body?.eventId ? "stripeeventsqueue"
       : body?.shopDomain ? "shopifyordersqueue"
       : "unknown";
-    const externalId: string = String(body?.eventId ?? body?.body?.id ?? body?.body?.order_number ?? "unknown");
+    // The affected id must be the SALE the merchant can look up — the payment
+    // intent / order — never the Stripe *event* id. `evt_…` exists in no
+    // invoice table, so an incident carrying it can never be verified as
+    // resolved and nags in the weekly digest until the 90-day window expires
+    // (seen live: a refund whose credit note DID get issued still reported as
+    // "por emitir" for weeks). Fall back to the event id only when the body was
+    // spilled to KV and we have nothing else.
+    const stripeSaleId = sourceQueue === "stripeeventsqueue" && body?.body
+      ? externalIdFromEvent(body.body)
+      : "";
+    const externalId: string = String(stripeSaleId || body?.eventId || body?.body?.id || body?.body?.order_number || "unknown");
+    const eventId: string | null = body?.eventId ? String(body.eventId) : null;
     const topic: string = String(body?.topic ?? "unknown");
     const shopDomain: string | null = body?.shopDomain ?? null;
 
@@ -2206,8 +2217,13 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
         user_id: userId,
         severity: "critical",
         kind: "queue_retry_exhausted",
-        summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${orderLabel}${clientName ? ` — ${clientName}` : ""}. Encomenda NÃO foi facturada.`,
-        detail: { sourceQueue, topic, orderRef, clientName, externalId, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
+        // A refund that dies in the DLQ leaves the SALE invoiced and the credit
+        // note missing — saying "não foi facturada" there sends the merchant
+        // hunting for an invoice that exists.
+        summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${orderLabel}${clientName ? ` — ${clientName}` : ""}. ${
+          topic.toLowerCase().includes("refund") ? "Nota de crédito NÃO foi emitida." : "Encomenda NÃO foi facturada."
+        }`,
+        detail: { sourceQueue, topic, orderRef, clientName, externalId, eventId, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
         affected_ids: [externalId],
         connection_label: sourceQueue === "stripeeventsqueue" ? "stripe → invoicexpress" : "shopify → invoicexpress",
         merchant_name: shopDomain ?? undefined,

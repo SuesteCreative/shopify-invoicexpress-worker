@@ -75,6 +75,9 @@ export type Row = {
         confidence: number;
         reason: string;
     }>;
+    /** Sale older than the connection's invoice cutoff — never Rioko's to issue.
+     * Softens the missing-invoice alarm into "anterior à integração". */
+    pre_cutoff?: boolean;
 };
 
 const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
@@ -118,9 +121,15 @@ const fmtDate = (s: string | null | undefined) => {
     return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-PT");
 };
 
+// A sale that predates the integration and has no invoice is NOT our miss — the
+// merchant's previous process owned it. Amber, not red, and worded so nobody
+// reads it as a Rioko failure.
+const PRE_CUTOFF_BADGE = { label: "Anterior à integração", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" };
+
 export function ReconciliationRow({ row, onChanged, source, destination }: { row: Row; onChanged: () => void; source: string; destination: string }) {
     const [acting, setActing] = useState(false);
-    const badge = BADGE[row.match.type];
+    const preCutoffUnbilled = !!row.pre_cutoff && !row.invoice;
+    const badge = preCutoffUnbilled && row.match.type === "none" ? PRE_CUTOFF_BADGE : BADGE[row.match.type];
     const srcLabel = sourceLabel(source);
     const dstLabel = destLabel(destination);
     const SourceIcon = sourceIcon(source);
@@ -364,9 +373,22 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                     </>
                 ) : (
                     <>
-                        <p className="text-sm font-bold text-destructive flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4" /> Sem fatura emitida
-                        </p>
+                        {preCutoffUnbilled ? (
+                            <>
+                                <p className="text-sm font-bold text-soon flex items-center gap-2">
+                                    <AlertCircle className="w-4 h-4" /> Sem fatura — anterior à integração
+                                </p>
+                                <p className="text-xs text-fg-40">
+                                    Este pagamento é anterior à ligação do Rioko, por isso não foi faturado por nós
+                                    (fazê-lo automaticamente duplicaria o que já tenha sido emitido). Verifique no seu
+                                    software se a fatura existe; se não existir, emita-a ou peça-nos para a emitir.
+                                </p>
+                            </>
+                        ) : (
+                            <p className="text-sm font-bold text-destructive flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4" /> Sem fatura emitida
+                            </p>
+                        )}
                         {row.candidates.length > 0 && (
                             <div className="space-y-2 mt-1">
                                 <p className="text-[9px] font-black uppercase tracking-widest text-fg-40">Candidatos heurísticos:</p>

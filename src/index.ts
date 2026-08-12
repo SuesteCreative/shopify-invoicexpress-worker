@@ -7,7 +7,14 @@ import { getSourceAdapter, getDestinationAdapter } from "./adapters/registry";
 import { loadTagRoutingRules, matchTagRouting } from "./services/tag-routing";
 import { loadProductMappings } from "./services/product-mappings";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
-import { firstNum, bookingAmountDue, bookingPaidAmount } from "./services/lodgify-amounts";
+import {
+  firstNum,
+  bookingCollectedAmount,
+  isBookingFullyCollected,
+  collectedSqlPredicate,
+  awaitingPaymentMarkSqlPredicate,
+} from "./services/lodgify-amounts";
+import type { AdapterCtx, DestinationKind } from "./adapters/types";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -651,7 +658,7 @@ app.post("/admin/stripe/replay", async (c) => {
 app.post("/admin/lodgify/replay", async (c) => {
   const unauth = await requireAdminAuth(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ userId: string; bookingId: string | number; booking?: Record<string, unknown> }>();
+  const body = await c.req.json<{ userId: string; bookingId: string | number; booking?: Record<string, unknown>; force?: boolean }>();
   if (!body.userId || !body.bookingId) return c.json({ error: "Missing userId or bookingId" }, 400);
 
   const conn: any = await c.env.DB.prepare(
@@ -675,7 +682,11 @@ app.post("/admin/lodgify/replay", async (c) => {
   };
   applyConnectionEmailPref(legacy, destinationConfig);
 
-  const fakeBody: any = { event: "booking_new_booked", data: { bookingId: Number(body.bookingId) } };
+  // `_force` skips the settlement gate, for the same reason this route skips
+  // signature verification: an admin asking for a specific booking by id has
+  // already made the judgement the gate exists to make. Without it, replaying a
+  // booking whose payment Lodgify does not expose would silently do nothing.
+  const fakeBody: any = { event: "booking_new_booked", data: { bookingId: Number(body.bookingId) }, _force: body.force !== false };
   if (body.booking) fakeBody._preloaded_booking = body.booking;
   const externalId = String(body.bookingId);
   const topic = "lodgify/created" as any;
@@ -862,6 +873,93 @@ app.post("/admin/lodgify/poll", async (c) => {
   } catch (e) {
     return errorResponse(c, e, "Lodgify poll failed");
   }
+})
+
+// Admin: take back Lodgify documents that were issued before the booking was
+// paid for — the cleanup for reservations billed under the old settlement rule
+// (`amount_due == 0` read as "paid", which fires the day an OTA booking is
+// created). Re-asks the CURRENT rule about every booking that has a document and
+// removes the ones that should never have had one; they re-issue by themselves
+// on the poll once the merchant records the payment, so nothing is lost.
+//
+// dry_run defaults to TRUE — this deletes documents from a merchant's account,
+// so it reports first and only acts when explicitly told to.
+app.post("/admin/lodgify/unbill-premature", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { user_id?: string; dry_run?: boolean } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
+  const dryRun = body.dry_run !== false;
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT user_id, source_config_json, destination_kind, destination_config_json
+       FROM connections WHERE user_id = ? AND source_kind = 'lodgify' AND status = 'active' LIMIT 1`
+  ).bind(body.user_id).first();
+  if (!conn) return c.json({ error: "No active Lodgify connection" }, 404);
+
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+  let destinationConfig: Record<string, any> | undefined;
+  try { destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined; } catch { destinationConfig = undefined; }
+  const destination: DestinationKind = (conn.destination_kind as DestinationKind) ?? "moloni";
+  const legacy: any = (await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(body.user_id).first()) ?? {
+    user_id: body.user_id, shopify_domain: null,
+    auto_finalize: destinationConfig?.auto_finalize ? 1 : 0, b2b_reverse_charge: 0, ix_send_email: 0,
+  };
+
+  const rows = ((await c.env.DB.prepare(
+    `SELECT id, status, total_amount, amount_paid, amount_due, arrival, departure, guest_name
+       FROM lodgify_bookings WHERE user_id = ?`
+  ).bind(body.user_id).all())?.results ?? []) as any[];
+
+  const report: any[] = [];
+  let deleted = 0, finalized = 0;
+  for (const b of rows) {
+    const bookingId = String(b.id);
+    const storage = new AppStorage(c.env, null, body.user_id);
+    const partials = await storage.getPartialInvoices(body.user_id, bookingId);
+    const standard = await storage.getInvoiceByOrderId(bookingId);
+    if (!standard?.invoice_id && partials.length === 0) continue;
+
+    // How much this booking has been billed so far, across both paths.
+    const billed = partials.length > 0
+      ? partials.reduce((s, p) => s + p.invoiced_amount, 0)
+      : Number(b.total_amount ?? 0);
+
+    // Premature = we billed more than the current rule says has been collected.
+    // Covers "billed 100% while nothing was recorded" AND the subtler "billed
+    // the full total when only a deposit had landed".
+    const { collected, basis } = bookingCollectedAmount(b);
+    if (billed <= collected + 0.01) continue;
+
+    const entry: any = {
+      booking_id: bookingId, guest: b.guest_name, status: b.status,
+      total: b.total_amount, arrival: b.arrival, departure: b.departure,
+      billed, collected, basis,
+    };
+    const r = await takeBackLodgifyDocuments(c.env, {
+      userId: body.user_id, bookingId, destination, config: legacy,
+      sourceCfg, destinationConfig, dryRun,
+    });
+    entry.invoice_ids = r.invoiceIds;
+    if (!dryRun) {
+      entry.deleted = r.deleted;
+      entry.finalized = r.finalized;
+      deleted += r.deleted.length;
+      finalized += r.finalized.length;
+    }
+    report.push(entry);
+  }
+
+  return c.json({
+    dry_run: dryRun,
+    bookings_scanned: rows.length,
+    premature: report.length,
+    documents_deleted: dryRun ? null : deleted,
+    documents_finalized_left: dryRun ? null : finalized,
+    rows: report,
+  });
 })
 
 // Admin: diagnose Lodgify reachability FROM the Worker.
@@ -2359,8 +2457,135 @@ async function emitLodgifyPartialInvoice(env: Env, o: {
   return invoiceId;
 }
 
+/**
+ * Take back the documents issued for a booking that has since been cancelled.
+ *
+ * The merchant's objection, in their words: "até lá podem ainda ser canceladas e
+ * depois já temos as faturas emitidas." Waiting for the payment to be recorded
+ * (see `bookingCollectedAmount`) makes this rare, but not impossible — a guest
+ * can still cancel a stay that was already paid and billed, and the fleet has
+ * older documents issued under the previous rule.
+ *
+ * Drafts are deleted outright: nothing fiscal has happened to them, so removing
+ * one is a clean undo. A FINALIZED document is never touched — it is AT-hashed
+ * and only a credit note can undo it, which is a decision with a human on the
+ * other end of it, so that raises an incident instead.
+ *
+ * Returns true when something was actually reversed.
+ */
+async function reverseCancelledLodgifyBooking(env: Env, o: {
+  userId: string;
+  bookingId: string;
+  connLabel: string;
+  destination: DestinationKind;
+  config: any;
+  sourceCfg: Record<string, any>;
+  destinationConfig: Record<string, any> | undefined;
+}): Promise<boolean> {
+  const r = await takeBackLodgifyDocuments(env, { ...o, dryRun: false });
+  if (r.invoiceIds.length === 0) return false;
+
+  if (r.finalized.length > 0) {
+    await reportIncident(env, {
+      user_id: o.userId,
+      severity: "error",
+      kind: "booking_cancelled_after_invoice",
+      summary: `Reserva ${o.bookingId} foi cancelada mas ${r.finalized.length} documento(s) já estão finalizados — é preciso emitir nota de crédito manualmente.`,
+      detail: { booking_id: o.bookingId, finalized: r.finalized, deleted: r.deleted },
+      affected_ids: [o.bookingId],
+      connection_label: o.connLabel,
+      order_ref: `#${o.bookingId}`,
+      // The poll runs every 30 min and a finalized document stays finalized, so
+      // this condition re-fires forever until a human issues the credit note.
+      // Daily bucket = one reminder a day, not 48.
+      bucket: "daily",
+    });
+  } else {
+    console.log(`[LodgifyPoll] booking ${o.bookingId} cancelled — removed ${r.deleted.length} draft(s)`);
+  }
+  return true;
+}
+
+interface TakeBackResult {
+  /** Everything we had on record for this booking. */
+  invoiceIds: string[];
+  /** Gone from the destination (or already absent). */
+  deleted: string[];
+  /** Fiscally locked — left standing, needs a credit note by hand. */
+  finalized: string[];
+}
+
+/**
+ * Remove the documents recorded for one booking from the destination, and then
+ * forget them, so the booking is back to "never billed".
+ *
+ * Shared by the cancellation path and by `/admin/lodgify/unbill-premature`,
+ * which cleans up documents issued under the old settlement rule. Both need the
+ * exact same care, and it is not the kind of code to have two copies of.
+ *
+ * Our records are only cleared when EVERY document is gone: a booking still
+ * carrying a finalized document must keep its rows, or the next poll would see
+ * "no invoice" and cheerfully issue a second one.
+ */
+async function takeBackLodgifyDocuments(env: Env, o: {
+  userId: string;
+  bookingId: string;
+  destination: DestinationKind;
+  config: any;
+  sourceCfg: Record<string, any>;
+  destinationConfig: Record<string, any> | undefined;
+  dryRun: boolean;
+}): Promise<TakeBackResult> {
+  const appStorage = new AppStorage(env, null, o.userId);
+
+  // Both billing paths keep their own record of what was issued.
+  const partials = await appStorage.getPartialInvoices(o.userId, o.bookingId);
+  const standard = await appStorage.getInvoiceByOrderId(o.bookingId);
+  const invoiceIds = [
+    ...partials.map((p) => p.invoice_id).filter((id): id is string => !!id),
+    ...(standard?.invoice_id ? [standard.invoice_id] : []),
+  ];
+  const empty: TakeBackResult = { invoiceIds, deleted: [], finalized: [] };
+  if (invoiceIds.length === 0) return empty;
+
+  const destAdapter = getDestinationAdapter(o.destination);
+  if (!destAdapter.deleteDraft) {
+    console.warn(`[Lodgify] ${o.destination} cannot delete drafts — booking ${o.bookingId} left as-is`);
+    return empty;
+  }
+  if (o.dryRun) return empty;
+
+  const ctx: AdapterCtx = {
+    apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
+    config: o.config,
+    sourceConfig: o.sourceCfg,
+    destinationConfig: o.destinationConfig,
+  };
+
+  const deleted: string[] = [];
+  const finalized: string[] = [];
+  for (const invoiceId of invoiceIds) {
+    try {
+      const outcome = await destAdapter.deleteDraft(invoiceId, ctx);
+      if (outcome === "finalized") finalized.push(invoiceId);
+      else deleted.push(invoiceId); // "deleted" and "already_gone" both end here
+    } catch (e: any) {
+      console.error(`[Lodgify] taking back ${invoiceId} for booking ${o.bookingId} failed: ${e?.message ?? e}`);
+      finalized.push(invoiceId); // unknown state — escalate rather than forget
+    }
+  }
+
+  if (finalized.length === 0) {
+    await appStorage.deletePartialInvoices(o.userId, o.bookingId);
+    await appStorage.resetWebhookInfo(o.bookingId, "lodgify/created");
+  }
+  return { invoiceIds, deleted, finalized };
+}
+
 interface LodgifyPollResult {
   connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;
+  /** Documents taken back because their booking was cancelled after we billed it. */
+  reversed: number;
 }
 
 /**
@@ -2405,7 +2630,7 @@ export interface LodgifyPollOptions {
 }
 
 async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Promise<LodgifyPollResult> {
-  const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0 };
+  const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0, reversed: 0 };
 
   const baseSql =
     `SELECT id, user_id, source_config_json, destination_kind, destination_config_json, invoice_cutoff
@@ -2541,10 +2766,25 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       : null;
 
     for (const item of bookings) {
-      // Only confirmed stays are invoiceable (Open/Tentative/Declined are not).
-      if (String(item?.status ?? "").toLowerCase() !== "booked") continue;
+      const status = String(item?.status ?? "").toLowerCase();
       const bookingId = String(item?.id ?? item?.booking_id ?? item?.reservation_id ?? "");
       if (!bookingId) continue;
+
+      // A booking that stopped being "Booked" after we billed it must have that
+      // document taken back. The declined → credit-note branch lives on the
+      // Lodgify webhook, which never fires here (user API keys cannot register
+      // webhooks — partner OAuth only), so before this the poll simply skipped
+      // cancelled bookings and left their documents standing forever.
+      if (status !== "booked") {
+        if (status === "declined" || status === "cancelled" || status === "canceled") {
+          const reversed = await reverseCancelledLodgifyBooking(env, {
+            userId: conn.user_id, bookingId, connLabel, destination,
+            config: legacy, sourceCfg, destinationConfig,
+          });
+          if (reversed) result.reversed++;
+        }
+        continue;
+      }
       result.scanned++;
       const appStorage = new AppStorage(env, null, conn.user_id);
 
@@ -2560,10 +2800,15 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       // ── Progressive path: bill each newly-paid delta ──────────────────────
       if (partialEnabled && partialCtx) {
         const total = Number(item?.total_amount ?? 0);
-        // Settlement-aware: an OTA booking reports amount_paid=0 / amount_due=0
-        // yet is fully collected. Reading amount_paid raw skipped it forever.
-        const paid = bookingPaidAmount(item);
-        if (paid <= 0.01) { result.skipped++; continue; }              // nothing collected yet
+        // Money recorded in Lodgify is the only trigger. For OTA stays the
+        // merchant marks the booking paid by hand once the channel pays out;
+        // until then there is nothing to bill. Reading amount_due==0 as "paid"
+        // is what billed a fleet of future reservations.
+        const { collected: paid, basis } = bookingCollectedAmount(item);
+        if (paid <= 0.01) {
+          console.log(`[LodgifyPoll] booking ${bookingId} held (${basis})`);
+          result.skipped++; continue;
+        }
         const partials = await appStorage.getPartialInvoices(conn.user_id, bookingId);
         // Transition guard: a booking already invoiced by the STANDARD flow
         // lives under processed_orders / "Order #N" — the instalment dedup
@@ -2610,9 +2855,14 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
         continue;
       }
 
-      // ── Standard path: invoice once when settled in Lodgify (amount_due≈0) ─
-      const due = bookingAmountDue(item);
-      if (due != null && due > 0.01) { result.skipped++; continue; }
+      // ── Standard path: one document for the whole total, so it may only fire
+      // once the WHOLE total is collected. Same settlement rule as the
+      // progressive path above — the two must never disagree about whether a
+      // booking has been paid for, only about how many documents that produces.
+      if (!isBookingFullyCollected(item)) {
+        console.log(`[LodgifyPoll] booking ${bookingId} held (${bookingCollectedAmount(item).basis})`);
+        result.skipped++; continue;
+      }
 
       // Shared dedup with the webhook path — invoice a booking at most once.
       const { isProcessed, state } = await appStorage.isWebhookProcessed(bookingId, storageTopic);
@@ -2678,33 +2928,69 @@ async function reportLodgifyBacklog(
   connLabel: string,
 ): Promise<void> {
   const graceIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const notBilled =
+    `AND NOT EXISTS (SELECT 1 FROM lodgify_partial_invoices p WHERE p.booking_id = b.id)
+     AND NOT EXISTS (SELECT 1 FROM processed_orders o WHERE o.id = b.id AND o.invoice_id IS NOT NULL)`;
   try {
+    // (1) Money recorded in Lodgify that we never turned into a document. Same
+    // rule as the invoice gate, expressed against the mirror. This used to read
+    // `amount_due <= 0.01`, which counts every future OTA booking as "paid but
+    // unbilled" — it would have paged daily about precisely the reservations the
+    // poll is now correctly holding.
     const row: any = await env.DB.prepare(
       `SELECT COUNT(*) AS n, MIN(b.created_at) AS oldest, SUM(COALESCE(b.total_amount,0)) AS value
          FROM lodgify_bookings b
         WHERE b.user_id = ?1
           AND b.status = 'Booked'
           AND (?2 IS NULL OR b.created_at >= ?2)
-          AND COALESCE(b.amount_due, 0) <= 0.01
-          AND COALESCE(b.total_amount, 0) > 0
+          AND ${collectedSqlPredicate()}
           AND b.created_at <= ?3
-          AND NOT EXISTS (SELECT 1 FROM lodgify_partial_invoices p WHERE p.booking_id = b.id)
-          AND NOT EXISTS (SELECT 1 FROM processed_orders o WHERE o.id = b.id AND o.invoice_id IS NOT NULL)`
+          ${notBilled}`
     ).bind(userId, invoiceCutoff ?? null, graceIso).first();
 
     const n = Number(row?.n ?? 0);
-    if (n <= 0) return;
+    if (n > 0) {
+      console.warn(`[LodgifyPoll] user ${userId}: ${n} paid booking(s) still uninvoiced (oldest ${row?.oldest})`);
+      await reportIncident(env, {
+        user_id: userId,
+        severity: "critical",
+        kind: "queue_retry_exhausted",
+        summary: `${n} reserva(s) Lodgify pagas continuam por facturar (mais antiga: ${String(row?.oldest ?? "?").slice(0, 10)}).`,
+        detail: { uninvoiced: n, oldest: row?.oldest, value: row?.value },
+        connection_label: connLabel,
+        bucket: "daily",
+      });
+    }
 
-    console.warn(`[LodgifyPoll] user ${userId}: ${n} settled booking(s) still uninvoiced (oldest ${row?.oldest})`);
-    await reportIncident(env, {
-      user_id: userId,
-      severity: "critical",
-      kind: "queue_retry_exhausted",
-      summary: `${n} reserva(s) Lodgify pagas continuam por facturar (mais antiga: ${String(row?.oldest ?? "?").slice(0, 10)}).`,
-      detail: { uninvoiced: n, oldest: row?.oldest, value: row?.value },
-      connection_label: connLabel,
-      bucket: "daily",
-    });
+    // (2) The counterweight to a manual trigger. Invoicing waits for the
+    // merchant to mark a booking paid in Lodgify, so a forgotten booking is
+    // simply never billed — silently, which is exactly how 14 of 16 bookings
+    // went unbilled for 26 days. A stay that ended days ago with no payment
+    // recorded is the signature of that, so say so while it can still be fixed.
+    // Deliberately NOT a trigger to invoice: a finished stay is not a payment.
+    const stale: any = await env.DB.prepare(
+      `SELECT COUNT(*) AS n, MIN(b.departure) AS oldest, SUM(COALESCE(b.total_amount,0)) AS value
+         FROM lodgify_bookings b
+        WHERE b.user_id = ?1
+          AND b.status = 'Booked'
+          AND (?2 IS NULL OR b.created_at >= ?2)
+          AND ${awaitingPaymentMarkSqlPredicate(3)}
+          ${notBilled}`
+    ).bind(userId, invoiceCutoff ?? null).first();
+
+    const m = Number(stale?.n ?? 0);
+    if (m > 0) {
+      console.warn(`[LodgifyPoll] user ${userId}: ${m} finished stay(s) with no payment recorded (oldest ${stale?.oldest})`);
+      await reportIncident(env, {
+        user_id: userId,
+        severity: "warning",
+        kind: "lodgify_payment_not_marked",
+        summary: `${m} reserva(s) já terminadas continuam sem pagamento registado no Lodgify — não podem ser facturadas até serem marcadas como pagas (mais antiga saiu a ${String(stale?.oldest ?? "?").slice(0, 10)}).`,
+        detail: { awaiting_mark: m, oldest_departure: stale?.oldest, value: stale?.value },
+        connection_label: connLabel,
+        bucket: "daily",
+      });
+    }
   } catch (e: any) {
     console.error(`[LodgifyPoll] backlog check failed for ${userId}: ${e?.message ?? e}`);
   }
@@ -2736,7 +3022,7 @@ export default {
       }
       try {
         const r = await pollLodgifyBookings(env);
-        console.log(`[Cron] Lodgify poll: synced=${r.synced} scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} failed=${r.failed} across ${r.connections} connection(s)`);
+        console.log(`[Cron] Lodgify poll: synced=${r.synced} scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} reversed=${r.reversed} failed=${r.failed} across ${r.connections} connection(s)`);
       } catch (e: any) {
         console.error(`[Cron] Lodgify poll failed: ${e.message}`);
       }

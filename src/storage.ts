@@ -1076,6 +1076,22 @@ export class AppStorage {
     ).bind(String(bookingId), userId, seq, String(invoiceId), invoicedAmount, ourReference).run();
   }
 
+  /**
+   * Forget the instalments recorded for a booking, after their documents have
+   * been taken back. Leaving the rows would make `already` in the progressive
+   * path still count money against a booking that now has no document, so it
+   * could never be re-invoiced if it were reinstated.
+   */
+  async deletePartialInvoices(userId: string, bookingId: string): Promise<void> {
+    try {
+      await this.db.prepare(
+        "DELETE FROM lodgify_partial_invoices WHERE user_id = ? AND booking_id = ?"
+      ).bind(userId, String(bookingId)).run();
+    } catch (e) {
+      console.warn("[Rioko] Failed to delete partial invoices:", e);
+    }
+  }
+
   /** For reconciliation: booking_id → [invoice_id, …] across all instalments. */
   async getPartialInvoicesByBookingIds(userId: string, bookingIds: string[]): Promise<Map<string, string[]>> {
     const map = new Map<string, string[]>();

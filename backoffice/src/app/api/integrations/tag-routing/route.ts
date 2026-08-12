@@ -6,12 +6,36 @@ import { isAdmin, getImpersonationId } from "@/lib/admin";
 export const runtime = "edge";
 
 /**
- * Tag-based invoice routing rules for InvoiceXpress.
+ * Tag-based invoice routing rules.
  *
- * Stored in `tag_routing_rules` (migration 0017). When the source payload
- * contains a matching tag (Shopify order tag or Stripe metadata key:value),
- * the worker overrides ix_document_type and ix_sequence_name for that document.
+ * Stored in `tag_routing_rules` (migration 0017, extended by 0031). When the
+ * source payload carries a matching tag (Shopify order tag, or Stripe metadata
+ * as `key` / `key:value`), the worker overrides the destination's document
+ * type, series/document set and draft-vs-finalize for that one document.
+ *
+ * `finalize_mode` replaced the old `_draft` document-type suffix. Legacy values
+ * are still accepted on input and folded here, so a client that has not been
+ * redeployed keeps working.
  */
+
+const SOURCE_KINDS = ["shopify", "stripe", "lodgify", "eupago"];
+const DESTINATION_KINDS = ["invoicexpress", "moloni"];
+const DOC_TYPES = ["invoice", "invoice_receipt", "simplified_invoice"];
+const FINALIZE_MODES = ["finalize", "draft"];
+
+/** IX cannot issue simplified invoices — ix-proxy's contract has no such type. */
+const DOC_TYPES_BY_DESTINATION: Record<string, string[]> = {
+    invoicexpress: ["invoice", "invoice_receipt"],
+    moloni: DOC_TYPES,
+};
+
+/** Folds a legacy `<type>_draft` value into { document_type, finalize_mode }. */
+function splitLegacyDocType(raw: string | null | undefined): { documentType: string | null; legacyDraft: boolean } {
+    const v = String(raw ?? "").trim().toLowerCase();
+    if (!v) return { documentType: null, legacyDraft: false };
+    if (v.endsWith("_draft")) return { documentType: v.slice(0, -"_draft".length), legacyDraft: true };
+    return { documentType: v, legacyDraft: false };
+}
 
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
@@ -32,6 +56,7 @@ type Row = {
     tag_name: string;
     document_type: string | null;
     series_name: string | null;
+    finalize_mode: string | null;
     created_at: string;
     updated_at: string;
 };
@@ -49,7 +74,7 @@ export async function GET(request: NextRequest) {
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
     const rows = await db.prepare(
-        `SELECT id, source_kind, destination_kind, tag_name, document_type, series_name, created_at, updated_at
+        `SELECT id, source_kind, destination_kind, tag_name, document_type, series_name, finalize_mode, created_at, updated_at
          FROM tag_routing_rules
          WHERE user_id = ? AND source_kind = ? AND destination_kind = ?
          ORDER BY created_at ASC`,
@@ -64,6 +89,7 @@ type PostBody = {
     tag_name?: string;
     document_type?: string | null;
     series_name?: string | null;
+    finalize_mode?: string | null;
 };
 
 export async function POST(request: NextRequest) {
@@ -77,14 +103,39 @@ export async function POST(request: NextRequest) {
 
     if (!tagName) return NextResponse.json({ error: "tag_name required" }, { status: 400 });
 
-    const validDocTypes = ["invoice", "invoice_receipt", "invoice_draft", "invoice_receipt_draft"];
-    const documentType = body.document_type && validDocTypes.includes(body.document_type)
-        ? body.document_type
-        : null;
+    // These were validated client-side only, so a rule could be written against
+    // a source/destination the worker never reads — invisible dead config.
+    if (!SOURCE_KINDS.includes(sourceKind)) {
+        return NextResponse.json({ error: `Unknown source_kind: ${sourceKind}` }, { status: 400 });
+    }
+    if (!DESTINATION_KINDS.includes(destinationKind)) {
+        return NextResponse.json({ error: `Unknown destination_kind: ${destinationKind}` }, { status: 400 });
+    }
+
+    const { documentType: rawType, legacyDraft } = splitLegacyDocType(body.document_type);
+    const allowedTypes = DOC_TYPES_BY_DESTINATION[destinationKind] ?? DOC_TYPES;
+    if (rawType && !allowedTypes.includes(rawType)) {
+        return NextResponse.json(
+            { error: `document_type "${rawType}" is not supported by ${destinationKind}` },
+            { status: 400 },
+        );
+    }
+    const documentType = rawType;
+
+    const requestedMode = String(body.finalize_mode ?? "").trim().toLowerCase();
+    const finalizeMode = FINALIZE_MODES.includes(requestedMode)
+        ? requestedMode
+        : legacyDraft ? "draft" : null;
+
     const seriesName = (body.series_name ?? "").trim() || null;
 
-    if (!documentType && !seriesName) {
-        return NextResponse.json({ error: "At least document_type or series_name must be set" }, { status: 400 });
+    // finalize_mode alone is a legitimate rule: "same document type and series,
+    // just don't close it" is exactly the sales-channel case this exists for.
+    if (!documentType && !seriesName && !finalizeMode) {
+        return NextResponse.json(
+            { error: "At least one of document_type, series_name or finalize_mode must be set" },
+            { status: 400 },
+        );
     }
 
     const { env } = getRequestContext();
@@ -96,15 +147,16 @@ export async function POST(request: NextRequest) {
 
     await db.prepare(
         `INSERT INTO tag_routing_rules
-          (id, user_id, source_kind, destination_kind, tag_name, document_type, series_name, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, user_id, source_kind, destination_kind, tag_name, document_type, series_name, finalize_mode, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind, tag_name) DO UPDATE SET
            document_type = excluded.document_type,
            series_name = excluded.series_name,
+           finalize_mode = excluded.finalize_mode,
            updated_at = excluded.updated_at`,
     ).bind(
         id, authResult.targetUserId, sourceKind, destinationKind,
-        tagName, documentType, seriesName, now, now,
+        tagName, documentType, seriesName, finalizeMode, now, now,
     ).run();
 
     return NextResponse.json({ ok: true });

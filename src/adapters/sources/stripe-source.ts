@@ -389,7 +389,9 @@ export function stripeToNormalized(event: any): Normalized | null {
         order_number: Number((inv.number || "0").toString().replace(/\D/g, "")) || 0,
         created_at: new Date((inv.created ?? Date.now() / 1000) * 1000).toISOString(),
         note: inv.description ?? null,
-        note_attributes: [],
+        // Same reason as the charge shape: without this, a Stripe Invoice has no
+        // routable signal and every tag rule silently misses.
+        note_attributes: metadataToNoteAttributes(inv.metadata),
         metafields: null,
         tags: [],
         meta: {
@@ -463,7 +465,12 @@ export function stripeToNormalized(event: any): Normalized | null {
       order_number: 0,
       created_at: new Date((ch.created ?? Date.now() / 1000) * 1000).toISOString(),
       note: ch.description ?? null,
-      note_attributes: [],
+      // Charge metadata is the only routable signal on this shape. It used to be
+      // dropped, which made tag routing a coin flip: charge.succeeded and
+      // payment_intent.succeeded both map to canonical "created" and dedup
+      // against each other, so whichever Stripe delivered first decided whether
+      // the order had tags at all.
+      note_attributes: metadataToNoteAttributes(ch.metadata),
       metafields: null,
       tags: [],
       meta: {

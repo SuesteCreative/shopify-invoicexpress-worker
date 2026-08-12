@@ -4,7 +4,8 @@ import { Context, Hono } from "hono";
 import { AppStorage } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { getSourceAdapter, getDestinationAdapter } from "./adapters/registry";
-import { loadTagRoutingRules, matchTagRouting } from "./services/tag-routing";
+import type { AdapterCtx, DestinationKind } from "./adapters/types";
+import { loadTagRoutingRules, matchTagRouting, normalizeRule, applyTagRoute } from "./services/tag-routing";
 import { loadProductMappings } from "./services/product-mappings";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
 import {
@@ -14,7 +15,6 @@ import {
   collectedSqlPredicate,
   awaitingPaymentMarkSqlPredicate,
 } from "./services/lodgify-amounts";
-import type { AdapterCtx, DestinationKind } from "./adapters/types";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -2424,23 +2424,11 @@ async function emitLodgifyPartialInvoice(env: Env, o: {
   const normalized = await sourceAdapter.toNormalized(body, ctx);
   if (!normalized) throw new Error(`[LodgifyPoll] partial normalize failed for ${o.bookingId} seq ${o.seq}`);
 
-  // Tag routing (Moloni) — mirrors generic-pipeline.ts: route to the property's
-  // series / doc-type. `_draft` suffix forces draft; a plain type auto-finalizes.
+  // Tag routing — route this instalment to the property's series / doc type.
+  // Shares applyTagRoute with generic-pipeline.ts; this used to be a private
+  // copy that only handled Moloni and only understood the `_draft` suffix.
   const tagMatch = matchTagRouting(normalized.order, o.tagRoutingRules);
-  if (tagMatch && o.destination === "moloni") {
-    const rawType = tagMatch.document_type ?? "";
-    const isDraft = rawType.endsWith("_draft");
-    const baseType = isDraft ? rawType.slice(0, -"_draft".length) : rawType;
-    ctx = {
-      ...ctx,
-      ...(rawType ? { config: { ...ctx.config, auto_finalize: isDraft ? 0 : 1 } } : {}),
-      destinationConfig: {
-        ...ctx.destinationConfig,
-        ...(tagMatch.series_name ? { moloni_document_set_id: null, moloni_document_set_name: tagMatch.series_name } : {}),
-        ...(baseType ? { moloni_document_type: baseType } : {}),
-      },
-    };
-  }
+  if (tagMatch) ctx = applyTagRoute(ctx, o.destination, normalizeRule(tagMatch));
 
   // Idempotency: if this instalment's reference already exists at the
   // destination (crash after create, before we recorded it), reuse it.

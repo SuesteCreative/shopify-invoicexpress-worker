@@ -55,8 +55,24 @@ function ixHeadersFromCtx(ctx: AdapterCtx) {
   };
 }
 
-function ixDocType(ctx: AdapterCtx) {
-  return ctx.config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
+// The document types IX can issue through the proxy. `simplified_invoice` is
+// deliberately absent: ix-proxy.kapta.app's contract stops at
+// invoice | invoice_receipt | credit_note, so selecting it would 4xx. The
+// backoffice therefore offers Simplified for Moloni only.
+const IX_DOC_TYPES = ["invoice", "invoice_receipt"] as const;
+type IxDocType = typeof IX_DOC_TYPES[number];
+
+/**
+ * Unknown values fall back to `invoice`, as they always have.
+ *
+ * This used to be a bare `=== "invoice_receipt"` check, which meant a tag rule
+ * storing the legacy "invoice_receipt_draft" produced a finalized *invoice* —
+ * wrong collection and wrong state. normalizeRule now strips that suffix before
+ * it reaches config, and this stays permissive as a second line of defence.
+ */
+function ixDocType(ctx: AdapterCtx): IxDocType {
+  const t = String(ctx.config.ix_document_type ?? "").toLowerCase();
+  return (IX_DOC_TYPES as readonly string[]).includes(t) ? (t as IxDocType) : "invoice";
 }
 
 export class InvoiceXpressDestination implements DestinationAdapter {

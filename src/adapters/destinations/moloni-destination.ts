@@ -84,6 +84,74 @@ export type MoloniCfg = {
   documentType: string;
 };
 
+// Endpoint family per document type. Every operation on a document MUST use the
+// family it was inserted into — Moloni scopes document_id per collection, so
+// /invoices/update/ on an id that lives in /invoiceReceipts/ silently 404s and
+// auto-finalize fails without an error the merchant would ever see.
+const MOLONI_PATHS = {
+  invoice: {
+    insert: "/invoices/insert/", update: "/invoices/update/",
+    getOne: "/invoices/getOne/", getAll: "/invoices/getAll/",
+    delete: "/invoices/delete/",
+  },
+  invoice_receipt: {
+    insert: "/invoiceReceipts/insert/", update: "/invoiceReceipts/update/",
+    getOne: "/invoiceReceipts/getOne/", getAll: "/invoiceReceipts/getAll/",
+    delete: "/invoiceReceipts/delete/",
+  },
+  simplified_invoice: {
+    insert: "/simplifiedInvoices/insert/", update: "/simplifiedInvoices/update/",
+    getOne: "/simplifiedInvoices/getOne/", getAll: "/simplifiedInvoices/getAll/",
+    delete: "/simplifiedInvoices/delete/",
+  },
+} as const;
+
+type MoloniDocKind = keyof typeof MOLONI_PATHS;
+
+/** Unknown/absent type falls back to plain invoice, as it always has. */
+function docKind(cfg: Pick<MoloniCfg, "documentType">): MoloniDocKind {
+  const t = String(cfg.documentType ?? "").toLowerCase();
+  return (t in MOLONI_PATHS ? t : "invoice") as MoloniDocKind;
+}
+
+export function moloniPath(cfg: Pick<MoloniCfg, "documentType">, op: keyof typeof MOLONI_PATHS["invoice"]): string {
+  return MOLONI_PATHS[docKind(cfg)][op];
+}
+
+/**
+ * The configured collection first, then the others — a document created before
+ * the merchant changed the type (or routed by a tag rule to a different one)
+ * still has to be findable.
+ */
+export function moloniPathsWithFallback(cfg: Pick<MoloniCfg, "documentType">, op: keyof typeof MOLONI_PATHS["invoice"]): string[] {
+  const primary = docKind(cfg);
+  const rest = (Object.keys(MOLONI_PATHS) as MoloniDocKind[]).filter((k) => k !== primary);
+  return [primary, ...rest].map((k) => MOLONI_PATHS[k][op]);
+}
+
+// A simplified invoice is capped at 1.000 € (art. 40.º CIVA) and identifies the
+// buyer by NIF only — it cannot carry a full client record. Above the cap, or
+// when the buyer gave a NIF they will want on a proper invoice, we downgrade to
+// a full invoice instead of letting Moloni reject the insert.
+export const SIMPLIFIED_INVOICE_MAX_TOTAL = 1000;
+
+/**
+ * Why this sale cannot be a simplified invoice, or null if it can.
+ *
+ * A non-finite total is treated as unknown rather than "under the cap": we
+ * would rather issue a full invoice than gamble a fiscal document on a number
+ * we could not read.
+ */
+export function simplifiedInvoiceBlocker(
+  total: number,
+  buyerNif: string | null,
+): "over_cap" | "unknown_total" | "has_nif" | null {
+  if (!Number.isFinite(total)) return "unknown_total";
+  if (total > SIMPLIFIED_INVOICE_MAX_TOTAL) return "over_cap";
+  if (buyerNif) return "has_nif";
+  return null;
+}
+
 const DEFAULT_PAYMENT_METHOD_ID = 0; // 0 = unset; finalize accepts no method
 const NON_PT_GENERIC_VAT = "999999990";
 const MOLONI_PT_COUNTRY_ID = 1; // Portugal is always 1 in Moloni's fixed seed data
@@ -343,7 +411,7 @@ function isPortugal(countryCode: string | null | undefined): boolean {
 // Extracts a 9-digit PT NIF candidate from the same fields IX's builder reads.
 // Pared down from IxBuilder.extractAndValidateNIF — we only need a yes/no PT
 // fiscal id here, the heavy EU-VAT shape work is owned by IX.
-function extractPtNif(normalized: Normalized): string | null {
+export function extractPtNif(normalized: Normalized): string | null {
   const candidates: string[] = [];
   const order = normalized.order;
 
@@ -981,10 +1049,7 @@ async function fetchMoloniDocLines(
   token: string,
   documentId: string | number,
 ): Promise<MoloniBaseLine[]> {
-  const paths = cfg.documentType === "invoice_receipt"
-    ? ["/invoiceReceipts/getOne/", "/invoices/getOne/"]
-    : ["/invoices/getOne/", "/invoiceReceipts/getOne/"];
-  for (const path of paths) {
+  for (const path of moloniPathsWithFallback(cfg, "getOne")) {
     const d = await moloniCall<any>(cfg, token, path, { document_id: Number(documentId) }, "lookup").catch(() => null);
     if (d && typeof d === "object" && !Array.isArray(d) && d.document_id != null && Array.isArray(d.products)) {
       return (d.products as any[]).map((p) => ({
@@ -1041,9 +1106,7 @@ export class MoloniDestination implements DestinationAdapter {
       const isCreditRef = /^OrderRefund /i.test(reference);
       const getAllPath = isCreditRef
         ? "/creditNotes/getAll/"
-        : cfg.documentType === "invoice_receipt"
-          ? "/invoiceReceipts/getAll/"
-          : "/invoices/getAll/";
+        : moloniPath(cfg, "getAll");
       const found = await moloniCall<Array<{ document_id?: number; our_reference?: string }>>(
         cfg, token, getAllPath, {
           document_set_id: cfg.documentSetId,
@@ -1127,10 +1190,7 @@ export class MoloniDestination implements DestinationAdapter {
       ...(exchange ? { exchange_currency_id: exchange.currencyId, exchange_rate: exchange.rate } : {}),
     };
 
-    const insertPath = cfg.documentType === "invoice_receipt"
-      ? "/invoiceReceipts/insert/"
-      : "/invoices/insert/";
-    const res = await insertMoloniDoc(cfg, token, insertPath, payload);
+    const res = await insertMoloniDoc(cfg, token, moloniPath(cfg, "insert"), payload);
     const id = res?.document_id;
     if (!id) {
       throw new Error(`Moloni create failed: insert returned no document_id — ${safeErrorJson(res)}`);
@@ -1151,23 +1211,24 @@ export class MoloniDestination implements DestinationAdapter {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    // Moloni scopes document_id per collection, so an id only resolves in the
-    // family it was inserted into. Try the connection's own type first, then the
-    // others — tag routing can put a document in a family the config doesn't name.
-    const families = cfg.documentType === "invoice_receipt"
-      ? ["invoiceReceipts", "invoices"]
-      : ["invoices", "invoiceReceipts"];
-
-    for (const family of families) {
-      const doc = await moloniCall<any>(
-        cfg, token, `/${family}/getOne/`, { document_id: Number(invoiceId) }, "lookup",
-      ).catch(() => null);
-      if (!doc || typeof doc !== "object" || Array.isArray(doc) || doc.document_id == null) continue;
-      if (Number(doc.status ?? 0) !== 0) return "finalized";
-      await moloniCall(cfg, token, `/${family}/delete/`, { document_id: Number(invoiceId) }, "delete");
-      return "deleted";
+    // The id may live in any document family (tag routing picks per order), so
+    // look through them in the same order the rest of the adapter does.
+    let found: { path: string; status: number } | null = null;
+    for (const path of moloniPathsWithFallback(cfg, "getOne")) {
+      const d = await moloniCall<any>(cfg, token, path, { document_id: Number(invoiceId) }, "lookup").catch(() => null);
+      if (d && typeof d === "object" && !Array.isArray(d) && d.document_id != null) {
+        found = { path, status: Number(d.status ?? 0) };
+        break;
+      }
     }
-    return "already_gone";
+    if (!found) return "already_gone";
+    if (found.status !== 0) return "finalized";
+
+    // getOne and delete share a family, so derive the delete path from the
+    // endpoint that actually resolved the id rather than from the config.
+    const deletePath = found.path.replace(/getOne\/$/, "delete/");
+    await moloniCall(cfg, token, deletePath, { document_id: Number(invoiceId) }, "delete");
+    return "deleted";
   }
 
   async finalize(invoiceId: string, ctx: AdapterCtx): Promise<void> {
@@ -1178,12 +1239,10 @@ export class MoloniDestination implements DestinationAdapter {
     // with an AT-validated hash. MUST target the SAME document type the draft was
     // created as — an invoice_receipt connection issues /invoiceReceipts/, so
     // /invoices/update/ would 404 the id and auto-finalize would silently fail.
-    // Mirrors insertMoloniDoc's path pick.
-    const updatePath = cfg.documentType === "invoice_receipt"
-      ? "/invoiceReceipts/update/"
-      : "/invoices/update/";
+    // Mirrors the insert path pick — tag routing makes this three-way now, and
+    // the route is replayed from processed_orders.routed_json before we get here.
     await moloniCall(
-      cfg, token, updatePath,
+      cfg, token, moloniPath(cfg, "update"),
       { document_id: Number(invoiceId), status: 1 },
       "finalize",
     );

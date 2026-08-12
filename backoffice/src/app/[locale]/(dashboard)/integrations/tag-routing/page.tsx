@@ -17,15 +17,17 @@ type Rule = {
     tag_name: string;
     document_type: string | null;
     series_name: string | null;
+    finalize_mode: string | null;
 };
 
 type DraftRule = {
     tag_name: string;
     document_type: string;
     series_name: string;
+    finalize_mode: string;
 };
 
-const EMPTY_DRAFT: DraftRule = { tag_name: "", document_type: "", series_name: "" };
+const EMPTY_DRAFT: DraftRule = { tag_name: "", document_type: "", series_name: "", finalize_mode: "" };
 
 export default function TagRoutingPage() {
     const t = useTranslations("tagRouting");
@@ -91,7 +93,7 @@ export default function TagRoutingPage() {
 
     async function saveRule() {
         if (!draft.tag_name.trim()) { setError(t("tagNameRequired")); return; }
-        if (!draft.document_type && !draft.series_name.trim()) { setError(t("atLeastOne")); return; }
+        if (!draft.document_type && !draft.series_name.trim() && !draft.finalize_mode) { setError(t("atLeastOne")); return; }
         setSaving(true); setError("");
         try {
             const body: any = {
@@ -101,6 +103,7 @@ export default function TagRoutingPage() {
             };
             if (draft.document_type) body.document_type = draft.document_type;
             if (draft.series_name.trim()) body.series_name = draft.series_name.trim();
+            if (draft.finalize_mode) body.finalize_mode = draft.finalize_mode;
 
             const res = await fetch("/api/integrations/tag-routing", {
                 method: "POST",
@@ -132,17 +135,24 @@ export default function TagRoutingPage() {
         return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" /></div>;
     }
 
-    function typeLabel(dt: string, moloni: boolean): string {
-        if (moloni) {
-            switch (dt) {
-                case "invoice": return t("typeMoloniInvoice");
-                case "invoice_receipt": return t("typeMoloniReceipt");
-                case "invoice_draft": return t("typeMoloniInvoiceDraft");
-                case "invoice_receipt_draft": return t("typeMoloniReceiptDraft");
-                default: return dt;
-            }
+    // Rules written before migration 0031 may still carry a "_draft" suffix if
+    // the backfill has not run; strip it so the table never shows a raw value.
+    function typeLabel(dt: string): string {
+        const base = dt.endsWith("_draft") ? dt.slice(0, -"_draft".length) : dt;
+        switch (base) {
+            case "invoice": return t("typeInvoice");
+            case "invoice_receipt": return t("typeReceipt");
+            case "simplified_invoice": return t("typeSimplified");
+            default: return base;
         }
-        return dt === "invoice_receipt" ? t("typeReceipt") : t("typeInvoice");
+    }
+
+    function finalizeLabel(rule: Rule): string {
+        const mode = rule.finalize_mode
+            ?? (rule.document_type?.endsWith("_draft") ? "draft" : null);
+        if (mode === "draft") return t("finalizeDraft");
+        if (mode === "finalize") return t("finalizeClose");
+        return t("finalizeInherit");
     }
 
     const srcLabel = sourceKind === "stripe" ? "Stripe" : sourceKind === "lodgify" ? "Lodgify" : sourceKind === "eupago" ? "EuPago" : "Shopify";
@@ -174,22 +184,26 @@ export default function TagRoutingPage() {
             <div className="space-y-3">
                 {/* Header */}
                 {rules.length > 0 && (
-                    <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-5 py-2">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-5 py-2">
                         <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em]">{t("colTag")}</span>
                         <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] w-36 text-center">{t("colType")}</span>
+                        <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] w-28 text-center">{t("colFinalize")}</span>
                         <span className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] w-24 text-center">{seriesColLabel}</span>
                         <span className="w-8" />
                     </div>
                 )}
 
                 {rules.map((rule) => (
-                    <div key={rule.id} className="glass rounded-2xl p-5 border-hairline grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center">
+                    <div key={rule.id} className="glass rounded-2xl p-5 border-hairline grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 items-center">
                         <span className="font-mono text-sm truncate">{rule.tag_name}</span>
                         <span className="w-36 text-center">
                             {rule.document_type
-                                ? <Badge label={typeLabel(rule.document_type, isMoloni)} color="accent" />
+                                ? <Badge label={typeLabel(rule.document_type)} color="accent" />
                                 : <span className="text-[10px] text-fg-40 uppercase tracking-wider">{t("typeDefault")}</span>
                             }
+                        </span>
+                        <span className="w-28 text-center">
+                            <span className="text-[10px] text-fg-60 uppercase tracking-wider">{finalizeLabel(rule)}</span>
                         </span>
                         <span className="w-24 text-center">
                             {rule.series_name
@@ -214,7 +228,7 @@ export default function TagRoutingPage() {
                 {/* Inline add form */}
                 {adding && (
                     <div className="glass rounded-2xl p-5 border-accent ring-2 ring-accent/20 space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] block">{t("colTag")}</label>
                                 <input
@@ -232,21 +246,24 @@ export default function TagRoutingPage() {
                                     onChange={(e) => setDraft({ ...draft, document_type: e.target.value })}
                                     className="w-full bg-surface-2 border border-hairline rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
                                 >
-                                    {isMoloni ? (
-                                        <>
-                                            <option value="">{t("typeNoOverride")}</option>
-                                            <option value="invoice">{t("typeMoloniInvoice")}</option>
-                                            <option value="invoice_receipt">{t("typeMoloniReceipt")}</option>
-                                            <option value="invoice_draft">{t("typeMoloniInvoiceDraft")}</option>
-                                            <option value="invoice_receipt_draft">{t("typeMoloniReceiptDraft")}</option>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <option value="">{t("typeDefault")}</option>
-                                            <option value="invoice">{t("typeInvoice")}</option>
-                                            <option value="invoice_receipt">{t("typeReceipt")}</option>
-                                        </>
-                                    )}
+                                    <option value="">{t("typeDefault")}</option>
+                                    <option value="invoice">{t("typeInvoice")}</option>
+                                    <option value="invoice_receipt">{t("typeReceipt")}</option>
+                                    {/* InvoiceXpress cannot issue simplified invoices — the proxy
+                                        contract has no such type, so the option is Moloni-only. */}
+                                    {isMoloni && <option value="simplified_invoice">{t("typeSimplified")}</option>}
+                                </select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] block">{t("colFinalize")}</label>
+                                <select
+                                    value={draft.finalize_mode}
+                                    onChange={(e) => setDraft({ ...draft, finalize_mode: e.target.value })}
+                                    className="w-full bg-surface-2 border border-hairline rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                                >
+                                    <option value="">{t("finalizeInherit")}</option>
+                                    <option value="finalize">{t("finalizeClose")}</option>
+                                    <option value="draft">{t("finalizeDraft")}</option>
                                 </select>
                             </div>
                             <div className="space-y-1.5">

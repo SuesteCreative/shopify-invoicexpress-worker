@@ -40,7 +40,12 @@ export type IncidentKind =
   | "webhook_invalid_signature"
   | "vies_unconfirmed"
   | "reconcile_drift"
-  | "currency_not_supported";
+  | "currency_not_supported"
+  // A tag rule asked for a simplified invoice but the sale did not qualify
+  // (over the art. 40.º CIVA cap, or the buyer gave a NIF). The document WAS
+  // issued, as a full invoice — this tells the merchant their rule silently
+  // did not apply, so they can narrow the tag or accept the downgrade.
+  | "simplified_invoice_downgraded";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -760,6 +765,30 @@ export function tplCurrencyNotSupported(input: IncidentTemplateInput): RenderedT
   };
 }
 
+export function tplSimplifiedInvoiceDowngraded(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph("Uma regra de routing por tags pediu factura simplificada, mas esta venda não reúne as condições legais. Emitimos factura normal para não deixar a venda por facturar.")}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
+    ${stepsList([
+      "A factura simplificada está limitada a 1.000 € (art. 40.º do CIVA) e não admite dados completos de cliente.",
+      "Se o cliente indicou NIF, a factura tem de ser completa.",
+      "Se isto acontece com frequência, ajuste a regra para outro tipo de documento.",
+    ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Factura simplificada convertida em factura normal",
+    html: shell({
+      title: "Factura simplificada não aplicável",
+      preheader: "A venda foi facturada — mas não como simplificada.",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTemplateInput): RenderedTemplate {
   switch (kind) {
     case "auth_failure_destination": return tplAuthFailureDestination(input);
@@ -777,6 +806,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "vies_unconfirmed": return tplViesUnconfirmed(input);
     case "reconcile_drift": return tplReconcileDrift(input);
     case "currency_not_supported": return tplCurrencyNotSupported(input);
+    case "simplified_invoice_downgraded": return tplSimplifiedInvoiceDowngraded(input);
   }
 }
 

@@ -347,11 +347,11 @@ export class AppStorage {
     return false;
   }
 
-  async getInvoiceByOrderId(orderId: string): Promise<{ id: string; invoice_id: string; hold_reason: string | null } | null> {
+  async getInvoiceByOrderId(orderId: string): Promise<{ id: string; invoice_id: string; hold_reason: string | null; routed_json: string | null } | null> {
     try {
-      const row: any = await this.db.prepare("SELECT id, invoice_id, hold_reason FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
+      const row: any = await this.db.prepare("SELECT id, invoice_id, hold_reason, routed_json FROM processed_orders WHERE id = ?").bind(String(orderId)).first();
       if (row && row.invoice_id) {
-        return { id: row.id, invoice_id: row.invoice_id, hold_reason: row.hold_reason ?? null };
+        return { id: row.id, invoice_id: row.invoice_id, hold_reason: row.hold_reason ?? null, routed_json: row.routed_json ?? null };
       }
       return null;
     } catch (e) {
@@ -360,7 +360,7 @@ export class AppStorage {
     }
   }
 
-  async saveProcessedInvoice(orderId: string, invoiceId: string, opts?: { sourceKind?: SourceKind; destinationKind?: DestinationKind; holdReason?: string | null }) {
+  async saveProcessedInvoice(orderId: string, invoiceId: string, opts?: { sourceKind?: SourceKind; destinationKind?: DestinationKind; holdReason?: string | null; routedJson?: string | null }) {
     const sourceKind = opts?.sourceKind ?? "shopify";
     const destinationKind = opts?.destinationKind ?? "invoicexpress";
     const key = `${sourceKind}_order:${orderId}`;
@@ -372,8 +372,11 @@ export class AppStorage {
       // hold_reason is written on every upsert, including as NULL. That is what
       // makes a re-emit clear a previous hold: the merchant fixes the NIF in
       // Shopify, the new build has no hold, and the row stops blocking finalize.
+      // routed_json follows the same write-always-including-NULL rule: a re-emit
+      // whose order no longer matches a tag rule must forget the old route
+      // rather than keep finalizing against a series the merchant removed.
       await this.db.prepare(
-        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, user_id, created_at, source_kind, destination_kind, hold_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, user_id, created_at, source_kind, destination_kind, hold_reason, routed_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).bind(
         String(orderId),
         String(invoiceId),
@@ -383,6 +386,7 @@ export class AppStorage {
         sourceKind,
         destinationKind,
         opts?.holdReason ?? null,
+        opts?.routedJson ?? null,
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to save processed invoice in D1:", e);

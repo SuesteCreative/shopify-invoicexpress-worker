@@ -8,10 +8,11 @@ import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 import { loadProductMappings } from "../services/product-mappings";
 import { loadProductOverrides } from "../services/product-overrides";
-import { loadTagRoutingRules, matchTagRouting } from "../services/tag-routing";
+import { loadTagRoutingRules, matchTagRouting, normalizeRule, applyTagRoute, parseStoredRoute, type NormalizedRoute } from "../services/tag-routing";
 import { makeViesChecker } from "../ix/vies";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
+import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
 
@@ -292,6 +293,10 @@ async function runPipelineCore(
 ): Promise<void> {
   const { env, config, source, destination, topic, webhookId, body } = input;
 
+  // Set on `created` when a tag rule matched, then persisted so the later
+  // `paid` and `refund` deliveries can rebuild the same context.
+  let routedDecision: NormalizedRoute | null = null;
+
   switch (topic) {
     case "created": {
       const alreadyExists = await appStorage.isInvoiceAlreadyProcessed(externalId, source);
@@ -313,41 +318,46 @@ async function runPipelineCore(
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
 
-      // Tag routing: override destination-specific settings when the order carries
-      // a tag matching a merchant-configured routing rule.
-      // IX: overrides ix_document_type / ix_sequence_name in config.
-      // Moloni: overrides moloni_document_set_name in destinationConfig (clears
-      //   the numeric id so getMoloniCfg re-resolves via name).
+      // Tag routing: override the destination's document type, series and
+      // draft-vs-finalize when the order carries a tag matching a
+      // merchant-configured rule. applyTagRoute owns the per-destination key
+      // mapping — see src/services/tag-routing.ts.
       const tagMatch = matchTagRouting(normalized.order, tagRoutingRules);
       if (tagMatch) {
-        if (destination === "invoicexpress") {
-          ctx = {
-            ...ctx,
-            config: {
-              ...ctx.config,
-              ...(tagMatch.document_type ? { ix_document_type: tagMatch.document_type } : {}),
-              ...(tagMatch.series_name ? { ix_sequence_name: tagMatch.series_name } : {}),
-            },
-          };
-        } else if (destination === "moloni") {
-          const rawType = tagMatch.document_type ?? "";
-          const isDraft = rawType.endsWith("_draft");
-          const baseType = isDraft ? rawType.slice(0, -"_draft".length) : rawType;
-          ctx = {
-            ...ctx,
-            // _draft suffix forces draft; non-draft suffix forces auto-finalize.
-            // No suffix (series-only rule) leaves auto_finalize from config.
-            ...(rawType ? { config: { ...ctx.config, auto_finalize: isDraft ? 0 : 1 } } : {}),
-            destinationConfig: {
-              ...ctx.destinationConfig,
-              ...(tagMatch.series_name ? {
-                moloni_document_set_id: null,
-                moloni_document_set_name: tagMatch.series_name,
-              } : {}),
-              ...(baseType ? { moloni_document_type: baseType } : {}),
-            },
-          };
+        routedDecision = normalizeRule(tagMatch);
+
+        // A simplified invoice is capped at 1.000 € (art. 40.º CIVA) and cannot
+        // carry a client record. Rather than let the destination reject the
+        // insert — which would retry forever and leave the sale unbilled — we
+        // downgrade to a full invoice and tell the merchant why.
+        if (routedDecision.docType === "simplified_invoice") {
+          const total = Number(normalized.order?.total ?? 0);
+          const buyerNif = extractPtNif(normalized);
+          const blocker = simplifiedInvoiceBlocker(total, buyerNif);
+          if (blocker) {
+            const why = blocker === "over_cap"
+              ? `o total (${total.toFixed(2)} €) excede o limite de ${SIMPLIFIED_INVOICE_MAX_TOTAL} € da factura simplificada`
+              : blocker === "has_nif"
+                ? "o cliente indicou NIF, que exige factura completa"
+                : "não foi possível determinar o total da venda";
+            routedDecision = { ...routedDecision, docType: "invoice" };
+            const { orderRef, clientName } = describeOrder(body);
+            await reportIncident(env, {
+              user_id: config.user_id,
+              severity: "warning",
+              kind: "simplified_invoice_downgraded",
+              dedup_key: externalId,
+              summary: `${orderRef ?? externalId} foi facturado como factura normal em vez de simplificada porque ${why}.`,
+              detail: { externalId, total, buyerNif, blocker, tag: tagMatch.tag_name, source, destination },
+              affected_ids: [externalId],
+              connection_label: connectionLabel,
+              order_ref: orderRef,
+              client_name: clientName,
+            });
+          }
         }
+
+        ctx = applyTagRoute(ctx, destination, routedDecision);
       }
 
       // Currency guard. Moloni issues foreign-currency documents natively
@@ -395,7 +405,12 @@ async function runPipelineCore(
       }
 
       const { invoiceId, holdReason } = await destAdapter.createDraft(normalized, ctx);
-      await appStorage.saveProcessedInvoice(externalId, invoiceId, { sourceKind: source, destinationKind: destination, holdReason });
+      await appStorage.saveProcessedInvoice(externalId, invoiceId, {
+        sourceKind: source,
+        destinationKind: destination,
+        holdReason,
+        routedJson: routedDecision ? JSON.stringify(routedDecision) : null,
+      });
 
       // Parked for a human: the buyer's address line 2 held something meant to
       // be a NIF that doesn't validate. The document exists as a draft and the
@@ -456,6 +471,13 @@ async function runPipelineCore(
         return;
       }
 
+      // Rebuild the route the draft was created under. Two things depend on it:
+      // finalize must target the same document collection the draft lives in,
+      // and a rule that said "leave as draft" must survive orders/paid rather
+      // than being finalized by the connection's auto_finalize.
+      const paidRoute = parseStoredRoute(invoice.routed_json);
+      if (paidRoute) ctx = applyTagRoute(ctx, destination, paidRoute);
+
       if (ctx.config.auto_finalize !== 1) {
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Auto-finalize disabled", status: 200 });
         return;
@@ -498,6 +520,13 @@ async function runPipelineCore(
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: `Skipped credit note: held draft (${invoice.hold_reason})`, status: 200 });
         return;
       }
+
+      // Same as `paid`: the credit note must be raised against the document
+      // collection and series the original was routed to, not the connection
+      // default. The finalize half of the route is irrelevant here — a credit
+      // note is always finalized — but applying the whole route keeps one path.
+      const refundRoute = parseStoredRoute(invoice.routed_json);
+      if (refundRoute) ctx = applyTagRoute(ctx, destination, refundRoute);
 
       // Per-credit dedup: query the destination by the canonical credit-note
       // reference. Without this, a re-delivered refund webhook would issue

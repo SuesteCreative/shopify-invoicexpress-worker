@@ -1,5 +1,6 @@
 import { RIOKO_CONFIG } from "./config";
 import { getRequestContext } from "@cloudflare/next-on-pages";
+import { isAdmin } from "./admin";
 
 function getEnv(): { workerUrl: string; adminApiKey: string } {
     const ctx = (() => { try { return getRequestContext(); } catch { return null; } })();
@@ -40,15 +41,22 @@ export async function resolveShopForUser(userId: string): Promise<string | null>
 /** Impersonation-aware: returns the shop for whoever is currently viewing
  *  (impersonated user when admin is impersonating, else the auth user). */
 export async function resolveSelfShop(request: Request, fallbackUserId: string): Promise<string | null> {
-    return resolveShopForUser(resolveViewerId(request, fallbackUserId));
+    return resolveShopForUser(await resolveViewerId(request, fallbackUserId));
 }
 
 /** Impersonation-aware viewer id (impersonated user when an admin is
- *  impersonating, else the authenticated user). */
-export function resolveViewerId(request: Request, fallbackUserId: string): string {
+ *  impersonating, else the authenticated user).
+ *
+ *  The cookie is an attacker-controlled request header: any authenticated user
+ *  can send `rioko_impersonate_id=<someone else>`. It is therefore only honoured
+ *  after confirming the *authenticated* caller is an admin — otherwise a client
+ *  could read and act on another company's reconciliation. */
+export async function resolveViewerId(request: Request, fallbackUserId: string): Promise<string> {
     const cookieHeader = request.headers.get("cookie") ?? "";
     const m = cookieHeader.match(/rioko_impersonate_id=([^;]+)/);
-    return m ? m[1] : fallbackUserId;
+    if (!m) return fallbackUserId;
+    if (!(await isAdmin(fallbackUserId))) return fallbackUserId;
+    return m[1];
 }
 
 export type ConnectionSummary = {

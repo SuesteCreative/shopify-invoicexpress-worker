@@ -2,9 +2,8 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 import { getTranslations } from "next-intl/server";
-import { isAdmin, getRole } from "@/lib/admin";
+import { getRole } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
-import { cookies } from "next/headers";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { IntegrationSetupModal } from "@/components/IntegrationSetupModal";
 import { RIOKO_CONFIG } from "@/lib/config";
@@ -16,14 +15,14 @@ export default async function DashboardLayout({
     children: React.ReactNode;
 }) {
     const { userId } = await auth();
-    await isAdmin(userId);
 
-    const cookieStore = await cookies();
-    const impersonationId = cookieStore.get("rioko_impersonate_id")?.value;
-    const viewerUserId = impersonationId || userId;
-    const viewerRole = await getRole(viewerUserId);
-    const canAccessAdmin = viewerRole === "superadmin" || viewerRole === "hiperadmin";
-    const userIsHiperadmin = viewerRole === "hiperadmin";
+    // Admin nav follows the REAL role, never the impersonated one: impersonation
+    // must not be able to grant it (a forged cookie pointing at a superadmin) nor
+    // to take it away (an admin impersonating a client used to lose the sidebar
+    // and with it the way back to /superadmin).
+    const realRole = await getRole(userId);
+    const canAccessAdmin = realRole === "superadmin" || realRole === "hiperadmin";
+    const userIsHiperadmin = realRole === "hiperadmin";
 
     const t = await getTranslations("dashboardLayout");
 

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { resolveConnectionForUser } from "@/lib/worker";
+import { isAdmin } from "@/lib/admin";
 import { ReconciliationView } from "@/components/reconciliation/ReconciliationView";
 
 export const runtime = "edge";
@@ -12,9 +13,11 @@ export default async function ConciliacaoPage() {
     const { userId } = await auth();
     if (!userId) redirect("/sign-in");
 
+    // The impersonation cookie is only honoured for real admins — a client
+    // could otherwise forge it and read another company's reconciliation.
     const cookieStore = await cookies();
     const impersonationId = cookieStore.get("rioko_impersonate_id")?.value;
-    const viewerId = impersonationId || userId;
+    const viewerId = impersonationId && (await isAdmin(userId)) ? impersonationId : userId;
 
     const conn = await resolveConnectionForUser(viewerId);
     const t = await getTranslations("conciliacao");

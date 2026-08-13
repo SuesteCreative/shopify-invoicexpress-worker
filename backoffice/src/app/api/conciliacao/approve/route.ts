@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const viewerId = resolveViewerId(request, userId);
+    const viewerId = await resolveViewerId(request, userId);
     const body = await request.json() as { order_id: string; invoice_id: string };
     const me = await currentUser();
     const approvedBy = me?.emailAddresses?.[0]?.emailAddress ?? userId;
@@ -24,7 +24,7 @@ export async function DELETE(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const viewerId = resolveViewerId(request, userId);
+    const viewerId = await resolveViewerId(request, userId);
     const url = new URL(request.url);
     const orderId = url.searchParams.get("order_id");
     if (!orderId) return NextResponse.json({ error: "Missing order_id" }, { status: 400 });

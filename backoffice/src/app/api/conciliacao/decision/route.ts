@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const viewerId = resolveViewerId(request, userId);
+    const viewerId = await resolveViewerId(request, userId);
     const body = await request.json() as { order_id: string; decision: string | null; reason?: string };
     const me = await currentUser();
     const decidedBy = me?.emailAddresses?.[0]?.emailAddress ?? userId;

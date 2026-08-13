@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const viewerId = resolveViewerId(request, userId);
+    const viewerId = await resolveViewerId(request, userId);
 
     const url = new URL(request.url);
     const from = url.searchParams.get("from");

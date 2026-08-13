@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import {
+    buildRecoveryRequest, recordIdPayload, usesLegacyShopifyRoutes, connKey,
+    type Connection, type RecoveryAction,
+} from "@/lib/recovery-request";
+import { kindLabel, connectionLabel } from "@/lib/connection-kinds";
+import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
     PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2, Webhook
 } from "lucide-react";
@@ -22,52 +27,29 @@ type Target = {
     ix_error: string | null;
 };
 
-/** One connection and what the worker says can be done to it. */
-type Connection = {
-    source: string;
-    destination: string;
-    label: string;
-    external_id: { kind: string; label: string; placeholder: string };
-    capabilities: {
-        backfill: boolean;
-        reemit: boolean;
-        forceReemit: boolean;
-        deleteDraft: boolean;
-        creditNote: boolean;
-        finalizeDrafts: boolean;
-        orderNumberFilter: boolean;
-        paidTotals: boolean;
-    };
-};
-
-const connKey = (c: Connection) => `${c.source}:${c.destination}`;
-
 /**
- * Where a recovery action is sent.
+ * The names to put in a card's description.
  *
- * Shopify still goes to its legacy per-shop endpoints. The generic engine issues
- * documents through the adapter pipeline, while the legacy Shopify create path
- * has an InvoiceXpress client-recreate fallback that the adapter path does not —
- * losing that silently on the busiest source is worse than two code paths for
- * one more release. Everything else goes through the generic surface.
+ * The copy used to say "encomendas Shopify" and "InvoiceXpress" outright, so on
+ * a Stripe→Moloni connection every card described a system it was not talking
+ * to. The buttons were right and the words were wrong, which is worse than
+ * either.
  */
+const connNames = (c: Connection) => ({
+    source: kindLabel(c.source),
+    destination: kindLabel(c.destination),
+});
+
+/** Sending a recovery action. The routing decision itself lives in
+ *  @/lib/recovery-request, where it is unit-tested — the payload key for the
+ *  record differs per connection and a wrong one is invisible in the UI. */
 async function callRecovery(
     conn: Connection,
-    action: "backfill" | "reemit" | "delete-draft" | "issue-credit-note" | "finalize-drafts",
+    action: RecoveryAction,
     targetUserId: string,
     payload: Record<string, unknown>,
 ): Promise<JobResult> {
-    const legacy = conn.source === "shopify" && conn.destination === "invoicexpress";
-    const url = legacy
-        ? `/api/admin/dev-mode/${action}`
-        : `/api/admin/dev-mode/connection/${action}`;
-
-    // The legacy routes key on an order number; the generic ones on the source's
-    // own external id, which for Stripe is not a number at all.
-    const body = legacy
-        ? { targetUserId, ...payload }
-        : { targetUserId, source: conn.source, destination: conn.destination, ...payload };
-
+    const { url, body } = buildRecoveryRequest(conn, action, targetUserId, payload);
     const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -233,7 +215,7 @@ function ConnectionSelector({ connections, selected, onSelect }: {
                     return (
                         <button key={key} type="button" onClick={() => onSelect(key)}
                             className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${active ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
-                            {c.label}
+                            {connectionLabel(c.source, c.destination)}
                         </button>
                     );
                 })}
@@ -668,7 +650,7 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
     // "since last processed" and the create/finalize toggle are shapes of the
     // legacy Shopify backfill; the generic engine only ever creates, over an
     // explicit window.
-    const isLegacyShopify = conn.source === "shopify" && conn.destination === "invoicexpress";
+    const isLegacyShopify = usesLegacyShopifyRoutes(conn);
 
     const run = async () => {
         setLoading(true); setResult(null);
@@ -688,7 +670,7 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
     };
 
     return (
-        <Section icon={<PlayCircle className="w-5 h-5 text-accent-hot" />} title={t("backfillTitle")} desc={t("backfillDesc")}>
+        <Section icon={<PlayCircle className="w-5 h-5 text-accent-hot" />} title={t("backfillTitle")} desc={t("backfillDesc", connNames(conn))}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {isLegacyShopify && (
                     <>
@@ -723,7 +705,7 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
                 <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={dryRun} onChange={e => setDryRun(e.target.checked)} className="accent-soon w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
-                        {t("dryRunDesc")}
+                        {t("dryRunDesc", connNames(conn))}
                     </span>
                 </label>
 
@@ -940,14 +922,14 @@ function ReemitCard({ targetUserId, conn, notifyEmails }: { targetUserId: string
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<JobResult | null>(null);
 
-    const legacy = conn.source === "shopify" && conn.destination === "invoicexpress";
+
 
     const run = async () => {
         if (!externalId.trim()) return;
         setLoading(true); setResult(null);
         try {
             setResult(await callRecovery(conn, "reemit", targetUserId, {
-                ...(legacy ? { order_number: Number(externalId) } : { external_id: externalId.trim() }),
+                ...recordIdPayload(conn, externalId),
                 force, reason, notify_emails: notifyEmails,
             }));
         } catch (e: any) { setResult({ error: String(e) }); }
@@ -955,7 +937,7 @@ function ReemitCard({ targetUserId, conn, notifyEmails }: { targetUserId: string
     };
 
     return (
-        <Section icon={<RotateCw className="w-5 h-5 text-soon" />} title={t("reemitTitle")} desc={t("reemitDesc")}>
+        <Section icon={<RotateCw className="w-5 h-5 text-soon" />} title={t("reemitTitle")} desc={t("reemitDesc", connNames(conn))}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <ExternalIdInput conn={conn} value={externalId} onChange={setExternalId} className="md:col-span-1" />
                 {conn.capabilities.forceReemit && (
@@ -990,7 +972,7 @@ function CancelInvoiceCard({ targetUserId, conn, notifyEmails }: { targetUserId:
     const [confirm, setConfirm] = useState(false);
     const [result, setResult] = useState<JobResult | null>(null);
 
-    const legacy = conn.source === "shopify" && conn.destination === "invoicexpress";
+
     const isDelete = mode === "delete_draft";
 
     const run = async () => {
@@ -998,7 +980,7 @@ function CancelInvoiceCard({ targetUserId, conn, notifyEmails }: { targetUserId:
         setLoading(true); setResult(null); setConfirm(false);
         try {
             setResult(await callRecovery(conn, isDelete ? "delete-draft" : "issue-credit-note", targetUserId, {
-                ...(legacy ? { order_number: Number(externalId) } : { external_id: externalId.trim() }),
+                ...recordIdPayload(conn, externalId),
                 reason, notify_emails: notifyEmails,
             }));
         } catch (e: any) { setResult({ error: String(e) }); }
@@ -1008,7 +990,7 @@ function CancelInvoiceCard({ targetUserId, conn, notifyEmails }: { targetUserId:
         <Section
             icon={isDelete ? <Trash2 className="w-5 h-5 text-destructive" /> : <Receipt className="w-5 h-5 text-soon" />}
             title={t("cancelInvoiceTitle")}
-            desc={t("cancelInvoiceDesc")}
+            desc={t("cancelInvoiceDesc", connNames(conn))}
         >
             <div className="flex gap-2">
                 {(["delete_draft", "credit_note"] as const)
@@ -1090,7 +1072,7 @@ function FinalizeDraftsCard({ targetUserId, conn, notifyEmails }: { targetUserId
     };
 
     return (
-        <Section icon={<FileCheck2 className="w-5 h-5 text-accent" />} title={t("finalizeTitle")} desc={t("finalizeDesc")}>
+        <Section icon={<FileCheck2 className="w-5 h-5 text-accent" />} title={t("finalizeTitle")} desc={t("finalizeDesc", connNames(conn))}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-3 flex flex-col gap-2">
                     <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{t("dateStrategy")}</span>

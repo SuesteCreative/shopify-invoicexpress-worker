@@ -144,7 +144,14 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const sourceAdapter = getSourceAdapter(source);
   const destAdapter = getDestinationAdapter(destination);
   const externalId = sourceAdapter.externalId(body);
-  const appStorage = new AppStorage(env, config.shopify_domain ?? undefined);
+  // BOTH keys, always. Passing only the shop domain leaves every row this
+  // pipeline writes for a connection-based source (Stripe, Lodgify, EuPago)
+  // owned by nobody: they have no shopify_domain by nature, so the row lands
+  // with both scope columns NULL. `processed_orders`, `logs` and `webhook_info`
+  // were all affected, which is why listProcessedInvoicesByUser found nothing
+  // for a Moloni-only client and finalize-drafts reported zero drafts on a
+  // merchant that had them.
+  const appStorage = new AppStorage(env, config.shopify_domain ?? undefined, config.user_id);
 
   const { ctx, tagRoutingRules } = await buildAdapterCtx(env, {
     config, source, destination,

@@ -22,6 +22,60 @@ type Target = {
     ix_error: string | null;
 };
 
+/** One connection and what the worker says can be done to it. */
+type Connection = {
+    source: string;
+    destination: string;
+    label: string;
+    external_id: { kind: string; label: string; placeholder: string };
+    capabilities: {
+        backfill: boolean;
+        reemit: boolean;
+        forceReemit: boolean;
+        deleteDraft: boolean;
+        creditNote: boolean;
+        finalizeDrafts: boolean;
+        orderNumberFilter: boolean;
+        paidTotals: boolean;
+    };
+};
+
+const connKey = (c: Connection) => `${c.source}:${c.destination}`;
+
+/**
+ * Where a recovery action is sent.
+ *
+ * Shopify still goes to its legacy per-shop endpoints. The generic engine issues
+ * documents through the adapter pipeline, while the legacy Shopify create path
+ * has an InvoiceXpress client-recreate fallback that the adapter path does not —
+ * losing that silently on the busiest source is worse than two code paths for
+ * one more release. Everything else goes through the generic surface.
+ */
+async function callRecovery(
+    conn: Connection,
+    action: "backfill" | "reemit" | "delete-draft" | "issue-credit-note" | "finalize-drafts",
+    targetUserId: string,
+    payload: Record<string, unknown>,
+): Promise<JobResult> {
+    const legacy = conn.source === "shopify" && conn.destination === "invoicexpress";
+    const url = legacy
+        ? `/api/admin/dev-mode/${action}`
+        : `/api/admin/dev-mode/connection/${action}`;
+
+    // The legacy routes key on an order number; the generic ones on the source's
+    // own external id, which for Stripe is not a number at all.
+    const body = legacy
+        ? { targetUserId, ...payload }
+        : { targetUserId, source: conn.source, destination: conn.destination, ...payload };
+
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    return await res.json() as JobResult;
+}
+
 type JobResult = {
     job_id?: string;
     total?: number;
@@ -73,7 +127,24 @@ export function DevModePanel({ target }: { target: Target }) {
     };
     const removeEmail = (e: string) => saveEmails(notifyEmails.filter(x => x !== e));
 
-    const noShop = !target.shopify_domain;
+    const [connections, setConnections] = useState<Connection[] | null>(null);
+    const [selected, setSelected] = useState<string | null>(null);
+
+    useEffect(() => {
+        fetch(`/api/admin/dev-mode/connections?targetUserId=${target.id}`)
+            .then(r => r.json())
+            .then((d: any) => {
+                const list: Connection[] = d.connections ?? [];
+                setConnections(list);
+                // Prefer the shop the operator arrived from; otherwise the first.
+                const shopFirst = list.find(c => c.source === "shopify") ?? list[0];
+                setSelected(shopFirst ? connKey(shopFirst) : null);
+            })
+            .catch(() => setConnections([]));
+    }, [target.id]);
+
+    const conn = connections?.find(c => connKey(c) === selected) ?? null;
+    const cap = conn?.capabilities;
 
     return (
         <div className="space-y-10 animate-in fade-in duration-500">
@@ -98,31 +169,76 @@ export function DevModePanel({ target }: { target: Target }) {
                         </div>
                     </div>
                 </div>
-                {noShop && (
+                {connections !== null && connections.length === 0 && (
                     <div className="glass rounded-2xl p-5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.05)] flex items-center gap-3 text-soon text-sm font-bold">
                         <AlertCircle className="w-5 h-5" />
-                        {t("noShop")}
+                        {t("noConnections")}
                     </div>
                 )}
             </div>
 
-            <SubscriptionAdminCard targetUserId={target.id} targetRole={target.role} />
-            <LinkIxCard targetUserId={target.id} />
-            <StripeRecoveryCard targetUserId={target.id} />
+            {connections && connections.length > 0 && (
+                <ConnectionSelector connections={connections} selected={selected} onSelect={setSelected} />
+            )}
 
-            {!noShop && (
+            {/* Per-user, not per-connection: a merchant has one subscription and
+                one set of notification addresses however many pipes they run. */}
+            <SubscriptionAdminCard targetUserId={target.id} targetRole={target.role} />
+            <StripeRecoveryCard targetUserId={target.id} />
+            <NotifyEmailsCard emails={notifyEmails} input={emailInput} setInput={setEmailInput} onAdd={addEmail} onRemove={removeEmail} saving={savingEmails} />
+
+            {conn && cap && (
                 <>
-                    <TaxOverrideCard targetUserId={target.id} />
-                    <PendingReverseChargeCard targetUserId={target.id} />
-                    <NotifyEmailsCard emails={notifyEmails} input={emailInput} setInput={setEmailInput} onAdd={addEmail} onRemove={removeEmail} saving={savingEmails} />
-                    <BackfillCard targetUserId={target.id} notifyEmails={notifyEmails} />
-                    <ReemitCard targetUserId={target.id} notifyEmails={notifyEmails} />
-                    <CancelInvoiceCard targetUserId={target.id} notifyEmails={notifyEmails} />
-                    <FinalizeDraftsCard targetUserId={target.id} notifyEmails={notifyEmails} />
+                    {/* InvoiceXpress-specific: the tax override writes ix_* columns
+                        and the pending reverse-charge queue is an IX exemption flow. */}
+                    {conn.destination === "invoicexpress" && (
+                        <>
+                            <LinkIxCard targetUserId={target.id} />
+                            <TaxOverrideCard targetUserId={target.id} />
+                            <PendingReverseChargeCard targetUserId={target.id} />
+                        </>
+                    )}
+
+                    {cap.backfill && <BackfillCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
+                    {cap.reemit && <ReemitCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
+                    {(cap.deleteDraft || cap.creditNote) && <CancelInvoiceCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
+                    {cap.finalizeDrafts && <FinalizeDraftsCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
                     <LogsCard targetUserId={target.id} />
                 </>
             )}
         </div>
+    );
+}
+
+/**
+ * Which connection the recovery cards act on.
+ *
+ * The panel used to have no selector at all: it showed the Shopify cards when
+ * the user had a shop domain and nothing otherwise, so a Stripe- or Lodgify-only
+ * merchant had no recovery tools even though the worker could serve them.
+ */
+function ConnectionSelector({ connections, selected, onSelect }: {
+    connections: Connection[];
+    selected: string | null;
+    onSelect: (key: string) => void;
+}) {
+    const t = useTranslations("devMode");
+    return (
+        <section className="glass rounded-[2rem] p-5 sm:p-6 border-hairline space-y-3">
+            <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{t("connection")}</span>
+            <div className="flex flex-wrap gap-2">
+                {connections.map(c => {
+                    const key = connKey(c);
+                    const active = key === selected;
+                    return (
+                        <button key={key} type="button" onClick={() => onSelect(key)}
+                            className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${active ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                            {c.label}
+                        </button>
+                    );
+                })}
+            </div>
+        </section>
     );
 }
 
@@ -538,7 +654,7 @@ function NotifyEmailsCard({ emails, input, setInput, onAdd, onRemove, saving }: 
     );
 }
 
-function BackfillCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: string; conn: Connection; notifyEmails: string[] }) {
     const t = useTranslations("devMode");
     const [mode, setMode] = useState<"date_range" | "since_last">("date_range");
     const [from, setFrom] = useState("");
@@ -549,21 +665,24 @@ function BackfillCard({ targetUserId, notifyEmails }: { targetUserId: string; no
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<JobResult | null>(null);
 
+    // "since last processed" and the create/finalize toggle are shapes of the
+    // legacy Shopify backfill; the generic engine only ever creates, over an
+    // explicit window.
+    const isLegacyShopify = conn.source === "shopify" && conn.destination === "invoicexpress";
+
     const run = async () => {
         setLoading(true); setResult(null);
         try {
-            const res = await fetch("/api/admin/dev-mode/backfill", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    targetUserId, type, dry_run: dryRun, reason,
-                    notify_emails: notifyEmails,
-                    ...(mode === "since_last"
-                        ? { since_last_processed: true, to: new Date(to + "T23:59:59Z").toISOString() }
-                        : { from: from ? new Date(from + "T00:00:00Z").toISOString() : undefined, to: to ? new Date(to + "T23:59:59Z").toISOString() : undefined }),
-                }),
-            });
-            setResult(await res.json());
+            const window = mode === "since_last" && isLegacyShopify
+                ? { since_last_processed: true, to: new Date(to + "T23:59:59Z").toISOString() }
+                : {
+                    from: from ? new Date(from + "T00:00:00Z").toISOString() : undefined,
+                    to: to ? new Date(to + "T23:59:59Z").toISOString() : undefined,
+                };
+            setResult(await callRecovery(conn, "backfill", targetUserId, {
+                ...(isLegacyShopify ? { type } : {}),
+                dry_run: dryRun, reason, notify_emails: notifyEmails, ...window,
+            }));
         } catch (e: any) { setResult({ error: String(e) }); }
         finally { setLoading(false); }
     };
@@ -571,24 +690,28 @@ function BackfillCard({ targetUserId, notifyEmails }: { targetUserId: string; no
     return (
         <Section icon={<PlayCircle className="w-5 h-5 text-accent-hot" />} title={t("backfillTitle")} desc={t("backfillDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex gap-2">
-                    {(["date_range", "since_last"] as const).map(m => (
-                        <button key={m} onClick={() => setMode(m)}
-                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
-                            {m === "date_range" ? t("modeDateRange") : t("modeSinceLast")}
-                        </button>
-                    ))}
-                </div>
-                <div className="flex gap-2">
-                    {(["create_orders", "finalize_orders"] as const).map(tk => (
-                        <button key={tk} onClick={() => setType(tk)}
-                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${type === tk ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
-                            {tk === "create_orders" ? t("typeCreateOrders") : t("typeFinalizeOrders")}
-                        </button>
-                    ))}
-                </div>
+                {isLegacyShopify && (
+                    <>
+                        <div className="flex gap-2">
+                            {(["date_range", "since_last"] as const).map(m => (
+                                <button key={m} onClick={() => setMode(m)}
+                                    className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                                    {m === "date_range" ? t("modeDateRange") : t("modeSinceLast")}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex gap-2">
+                            {(["create_orders", "finalize_orders"] as const).map(tk => (
+                                <button key={tk} onClick={() => setType(tk)}
+                                    className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${type === tk ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                                    {tk === "create_orders" ? t("typeCreateOrders") : t("typeFinalizeOrders")}
+                                </button>
+                            ))}
+                        </div>
+                    </>
+                )}
 
-                {mode === "date_range" && (
+                {(mode === "date_range" || !isLegacyShopify) && (
                     <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                         {t("from")} <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                     </label>
@@ -790,24 +913,43 @@ function StripeRecoveryCard({ targetUserId }: { targetUserId: string }) {
     );
 }
 
-function ReemitCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+/** The id field, labelled by whatever the selected source calls its records. */
+function ExternalIdInput({ conn, value, onChange, className }: {
+    conn: Connection; value: string; onChange: (v: string) => void; className?: string;
+}) {
+    return (
+        <label className={`flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40 ${className ?? ""}`}>
+            {conn.external_id.label}
+            <input
+                // Never `type="number"`: a Stripe payment intent is `pi_3Tp…`, and
+                // a numeric input silently refuses to hold it.
+                type="text"
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                placeholder={conn.external_id.placeholder}
+                className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+        </label>
+    );
+}
+
+function ReemitCard({ targetUserId, conn, notifyEmails }: { targetUserId: string; conn: Connection; notifyEmails: string[] }) {
     const t = useTranslations("devMode");
-    const [orderNumber, setOrderNumber] = useState("");
+    const [externalId, setExternalId] = useState("");
     const [force, setForce] = useState(false);
     const [reason, setReason] = useState("");
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<JobResult | null>(null);
 
+    const legacy = conn.source === "shopify" && conn.destination === "invoicexpress";
+
     const run = async () => {
-        if (!orderNumber) return;
+        if (!externalId.trim()) return;
         setLoading(true); setResult(null);
         try {
-            const res = await fetch("/api/admin/dev-mode/reemit", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetUserId, order_number: Number(orderNumber), force, reason, notify_emails: notifyEmails }),
-            });
-            setResult(await res.json());
+            setResult(await callRecovery(conn, "reemit", targetUserId, {
+                ...(legacy ? { order_number: Number(externalId) } : { external_id: externalId.trim() }),
+                force, reason, notify_emails: notifyEmails,
+            }));
         } catch (e: any) { setResult({ error: String(e) }); }
         finally { setLoading(false); }
     };
@@ -815,21 +957,19 @@ function ReemitCard({ targetUserId, notifyEmails }: { targetUserId: string; noti
     return (
         <Section icon={<RotateCw className="w-5 h-5 text-soon" />} title={t("reemitTitle")} desc={t("reemitDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40 md:col-span-1">
-                    {t("orderNumberShort")}
-                    <input type="number" value={orderNumber} onChange={e => setOrderNumber(e.target.value)} placeholder="1234"
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
-                </label>
-                <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} className="accent-destructive w-4 h-4" />
-                    <span className="text-xs font-bold text-fg">
-                        {t("forceLabel")}
-                    </span>
-                </label>
+                <ExternalIdInput conn={conn} value={externalId} onChange={setExternalId} className="md:col-span-1" />
+                {conn.capabilities.forceReemit && (
+                    <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} className="accent-destructive w-4 h-4" />
+                        <span className="text-xs font-bold text-fg">
+                            {t("forceLabel")}
+                        </span>
+                    </label>
+                )}
                 <textarea placeholder={t("reasonShort")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
                     className="md:col-span-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
             </div>
-            <button onClick={run} disabled={loading || !orderNumber}
+            <button onClick={run} disabled={loading || !externalId.trim()}
                 className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
                 {t("reemit")}
@@ -839,31 +979,31 @@ function ReemitCard({ targetUserId, notifyEmails }: { targetUserId: string; noti
     );
 }
 
-function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+function CancelInvoiceCard({ targetUserId, conn, notifyEmails }: { targetUserId: string; conn: Connection; notifyEmails: string[] }) {
     const t = useTranslations("devMode");
-    const [orderNumber, setOrderNumber] = useState("");
-    const [mode, setMode] = useState<"delete_draft" | "credit_note">("delete_draft");
+    const [externalId, setExternalId] = useState("");
+    const [mode, setMode] = useState<"delete_draft" | "credit_note">(
+        conn.capabilities.deleteDraft ? "delete_draft" : "credit_note",
+    );
     const [reason, setReason] = useState("");
     const [loading, setLoading] = useState(false);
     const [confirm, setConfirm] = useState(false);
     const [result, setResult] = useState<JobResult | null>(null);
 
+    const legacy = conn.source === "shopify" && conn.destination === "invoicexpress";
+    const isDelete = mode === "delete_draft";
+
     const run = async () => {
-        if (!orderNumber) return;
+        if (!externalId.trim() || !reason.trim()) return;
         setLoading(true); setResult(null); setConfirm(false);
         try {
-            const path = mode === "delete_draft" ? "delete-draft" : "issue-credit-note";
-            const res = await fetch(`/api/admin/dev-mode/${path}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetUserId, order_number: Number(orderNumber), reason, notify_emails: notifyEmails }),
-            });
-            setResult(await res.json());
+            setResult(await callRecovery(conn, isDelete ? "delete-draft" : "issue-credit-note", targetUserId, {
+                ...(legacy ? { order_number: Number(externalId) } : { external_id: externalId.trim() }),
+                reason, notify_emails: notifyEmails,
+            }));
         } catch (e: any) { setResult({ error: String(e) }); }
         finally { setLoading(false); }
     };
-
-    const isDelete = mode === "delete_draft";
     return (
         <Section
             icon={isDelete ? <Trash2 className="w-5 h-5 text-destructive" /> : <Receipt className="w-5 h-5 text-soon" />}
@@ -871,27 +1011,31 @@ function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: strin
             desc={t("cancelInvoiceDesc")}
         >
             <div className="flex gap-2">
-                {(["delete_draft", "credit_note"] as const).map(m => (
-                    <button key={m} onClick={() => setMode(m)}
-                        className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? (m === "delete_draft" ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-[rgba(245,158,11,0.18)] text-soon border-[rgba(245,158,11,0.40)]") : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
-                        {m === "delete_draft" ? t("modeDeleteDraft") : t("modeCreditNote")}
-                    </button>
-                ))}
+                {(["delete_draft", "credit_note"] as const)
+                    .filter(m => m === "delete_draft" ? conn.capabilities.deleteDraft : conn.capabilities.creditNote)
+                    .map(m => (
+                        <button key={m} onClick={() => setMode(m)}
+                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? (m === "delete_draft" ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-[rgba(245,158,11,0.18)] text-soon border-[rgba(245,158,11,0.40)]") : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                            {m === "delete_draft" ? t("modeDeleteDraft") : t("modeCreditNote")}
+                        </button>
+                    ))}
             </div>
+            {conn.source === "lodgify" && (
+                <p className="text-[10px] text-fg-40 leading-relaxed">{t("lodgifyWholeBooking")}</p>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40 md:col-span-1">
-                    {t("orderNumberShort")}
-                    <input type="number" value={orderNumber} onChange={e => setOrderNumber(e.target.value)} placeholder="1137"
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
-                </label>
-                <textarea placeholder={t("reasonRecommended")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
+                <ExternalIdInput conn={conn} value={externalId} onChange={setExternalId} className="md:col-span-1" />
+                {/* Required, not recommended: the worker refuses both operations
+                    without one, and a deleted document with no stated reason is
+                    an unanswerable question three months later. */}
+                <textarea placeholder={t("reasonRequired")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
                     className="md:col-span-2 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
             </div>
             {confirm ? (
                 <div className="flex items-center gap-3 bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] rounded-2xl p-4">
                     <AlertCircle className="w-4 h-4 text-destructive" />
                     <span className="text-xs font-bold text-destructive flex-1">
-                        {isDelete ? t("confirmDeleteDraft", { n: orderNumber }) : t("confirmCreditNote", { n: orderNumber })}
+                        {isDelete ? t("confirmDeleteDraft", { n: externalId }) : t("confirmCreditNote", { n: externalId })}
                     </span>
                     <button onClick={run} disabled={loading}
                         className={`px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest ${isDelete ? "bg-destructive hover:bg-destructive/85" : "bg-soon hover:bg-soon/85"} text-white disabled:opacity-50 flex items-center gap-2`}>
@@ -901,7 +1045,7 @@ function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: strin
                     <button onClick={() => setConfirm(false)} className="px-3 py-2 rounded-xl bg-surface-2 text-fg-60 text-[10px] font-black uppercase">{t("back")}</button>
                 </div>
             ) : (
-                <button onClick={() => setConfirm(true)} disabled={loading || !orderNumber}
+                <button onClick={() => setConfirm(true)} disabled={loading || !externalId.trim() || !reason.trim()}
                     className={`w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${isDelete ? "bg-white text-black hover:bg-destructive hover:text-fg" : "bg-white text-black hover:bg-soon hover:text-fg"}`}>
                     {isDelete ? <Trash2 className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
                     {isDelete ? t("modeDeleteDraft") : t("modeCreditNote")}
@@ -912,7 +1056,7 @@ function CancelInvoiceCard({ targetUserId, notifyEmails }: { targetUserId: strin
     );
 }
 
-function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: string; notifyEmails: string[] }) {
+function FinalizeDraftsCard({ targetUserId, conn, notifyEmails }: { targetUserId: string; conn: Connection; notifyEmails: string[] }) {
     const t = useTranslations("devMode");
     const [limit, setLimit] = useState("100");
     const [dryRun, setDryRun] = useState(true);
@@ -930,7 +1074,7 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
         setLoading(true); setResult(null);
         try {
             const payload: Record<string, unknown> = {
-                targetUserId, limit: Number(limit), dry_run: dryRun, reason,
+                limit: Number(limit), dry_run: dryRun, reason,
                 notify_emails: notifyEmails, date_strategy: dateStrategy,
             };
             if (filterMode === "order_range") {
@@ -940,12 +1084,7 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
                 if (fromDate) payload.from_date = new Date(fromDate + "T00:00:00Z").toISOString();
                 if (toDate) payload.to_date = new Date(toDate + "T23:59:59Z").toISOString();
             }
-            const res = await fetch("/api/admin/dev-mode/finalize-drafts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-            setResult(await res.json());
+            setResult(await callRecovery(conn, "finalize-drafts", targetUserId, payload));
         } catch (e: any) { setResult({ error: String(e) }); }
         finally { setLoading(false); }
     };
@@ -976,7 +1115,11 @@ function FinalizeDraftsCard({ targetUserId, notifyEmails }: { targetUserId: stri
                     <div className="flex gap-2">
                         {([
                             { id: "all", label: t("filterAll") },
-                            { id: "order_range", label: t("filterOrderRange") },
+                            // Stripe payments and Lodgify bookings have no order
+                            // numbers, so the filter has nothing to range over.
+                            ...(conn.capabilities.orderNumberFilter
+                                ? [{ id: "order_range" as const, label: t("filterOrderRange") }]
+                                : []),
                             { id: "date_range", label: t("filterDateRange") },
                         ] as const).map(opt => (
                             <button key={opt.id} type="button" onClick={() => setFilterMode(opt.id)}

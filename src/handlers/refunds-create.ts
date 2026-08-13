@@ -8,6 +8,7 @@ import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
 import { reportIncident } from "../services/incidents";
+import { refundReference } from "../services/document-references";
 
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
@@ -134,7 +135,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         amount,
       };
     }).filter(credit =>
-      !creditNotes.some(note => note.reference === `OrderRefund #${credit.refundId}`)
+      !creditNotes.some(note => note.reference === refundReference(credit.refundId))
     );
 
     const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
@@ -270,7 +271,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         const creditNote: IxCreditNote = {
           ...invoiceBuildResult.invoice,
           items: items,
-          reference: `OrderRefund #${credit.refundId}`,
+          reference: refundReference(credit.refundId),
           tax_exemption_reason: reverseChargeReason
             ?? (requireTaxExemption
               ? ixInvoice?.data?.tax_exemption ?? config.ix_exemption_reason ?? undefined

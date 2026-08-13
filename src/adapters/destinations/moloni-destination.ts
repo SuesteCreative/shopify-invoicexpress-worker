@@ -3,12 +3,16 @@ import type {
   AdapterCtx,
   DestinationInvoiceCreateResult,
   DestinationCreditResult,
+  DestinationDocument,
+  CreditFullResult,
+  FinalizeOutcome,
   NormalizedRefund,
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { redactSecrets } from "../../security";
+import { saleReference, refundReference, isRefundReference } from "../../services/document-references";
 
 /**
  * MoloniDestination
@@ -1044,23 +1048,52 @@ interface MoloniBaseLine {
   tax_value?: number;
 }
 
+/**
+ * Read a document back, whichever endpoint family it happens to live under.
+ *
+ * A stored id may be an invoice OR an invoiceReceipt (tag routing and the
+ * client's document_type both decide per order), so the configured type is tried
+ * first and the others after. Returns the path that resolved it, because delete
+ * and update have to be addressed to the SAME family.
+ */
+async function fetchMoloniDocument(
+  cfg: MoloniCfg,
+  token: string,
+  documentId: string | number,
+): Promise<{ doc: any; path: string } | null> {
+  for (const path of moloniPathsWithFallback(cfg, "getOne")) {
+    const d = await moloniCall<any>(cfg, token, path, { document_id: Number(documentId) }, "lookup").catch(() => null);
+    if (d && typeof d === "object" && !Array.isArray(d) && d.document_id != null) {
+      return { doc: d, path };
+    }
+  }
+  return null;
+}
+
+/**
+ * Moloni labels the two totals inconsistently (see the moloni-api-quirks note),
+ * so the gross is whichever is larger rather than whichever is named `gross`.
+ */
+function moloniDocTotal(doc: any): number | null {
+  const total = Math.max(Number(doc?.net_value ?? 0), Number(doc?.gross_value ?? 0)) || Number(doc?.total ?? 0);
+  return Number.isFinite(total) && total !== 0 ? total : null;
+}
+
+// The source document's line items, for the per-line `related_id` a credit note
+// requires and for the cash-delta VAT rate.
 async function fetchMoloniDocLines(
   cfg: MoloniCfg,
   token: string,
   documentId: string | number,
 ): Promise<MoloniBaseLine[]> {
-  for (const path of moloniPathsWithFallback(cfg, "getOne")) {
-    const d = await moloniCall<any>(cfg, token, path, { document_id: Number(documentId) }, "lookup").catch(() => null);
-    if (d && typeof d === "object" && !Array.isArray(d) && d.document_id != null && Array.isArray(d.products)) {
-      return (d.products as any[]).map((p) => ({
-        product_id: p?.product_id,
-        document_product_id: p?.document_product_id,
-        tax_id: p?.taxes?.[0]?.tax_id,
-        tax_value: p?.taxes?.[0]?.value != null ? Number(p.taxes[0].value) : undefined,
-      }));
-    }
-  }
-  return [];
+  const found = await fetchMoloniDocument(cfg, token, documentId);
+  if (!found || !Array.isArray(found.doc.products)) return [];
+  return (found.doc.products as any[]).map((p) => ({
+    product_id: p?.product_id,
+    document_product_id: p?.document_product_id,
+    tax_id: p?.taxes?.[0]?.tax_id,
+    tax_value: p?.taxes?.[0]?.value != null ? Number(p.taxes[0].value) : undefined,
+  }));
 }
 
 async function insertMoloniDoc(
@@ -1092,6 +1125,19 @@ async function insertMoloniDoc(
 export class MoloniDestination implements DestinationAdapter {
   readonly kind = "moloni" as const;
 
+  // `finalizeWithDate: false` is a statement about Moloni, not a gap: the date is
+  // fixed at insert and Moloni never rejects a document for falling behind its
+  // series, so there is no date to negotiate at finalize time. The method still
+  // exists, so the generic engine drives Moloni with no special case.
+  readonly capabilities = {
+    drafts: true,
+    deleteDraft: true,
+    creditFullDocument: true,
+    finalizeWithDate: false,
+    emailDocument: true,
+    readDocument: true,
+  } as const;
+
   async findByReference(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null> {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
@@ -1103,7 +1149,7 @@ export class MoloniDestination implements DestinationAdapter {
       // references ("Order #<n>") match the invoice (or invoiceReceipt) drafts.
       // `our_reference` is the field Moloni indexes for free-text lookup and it
       // matches draft documents (status 0, number -1) too.
-      const isCreditRef = /^OrderRefund /i.test(reference);
+      const isCreditRef = isRefundReference(reference);
       const getAllPath = isCreditRef
         ? "/creditNotes/getAll/"
         : moloniPath(cfg, "getAll");
@@ -1180,7 +1226,7 @@ export class MoloniDestination implements DestinationAdapter {
       // Instalment invoices carry a distinct reference ("Order #N-1", "…-2") so
       // the dedup-by-reference doesn't block the second one; fall back to the
       // per-booking reference for normal single invoices.
-      our_reference: normalized.order.invoice_reference ?? `Order #${normalized.order.order_number}`,
+      our_reference: normalized.order.invoice_reference ?? saleReference(normalized.order.order_number),
       your_reference: normalized.order.reference?.toString().slice(0, 100) ?? undefined,
       products,
       status: 0, // 0 = draft, 1 = closed/finalized
@@ -1207,21 +1253,41 @@ export class MoloniDestination implements DestinationAdapter {
    * "already_gone" when the id resolves nowhere, so a retry after a partial
    * failure is a no-op rather than an error.
    */
+  /**
+   * Read a document back. Moloni's `status` is numeric: 0 = rascunho, 1 = fechado
+   * (per its API docs), and a closed document can be neither updated nor deleted.
+   *
+   * Moloni has no "canceled" state of its own — a closed document is undone with
+   * a credit note, so `finalized` and `canceled` do not need telling apart here
+   * the way they do on InvoiceXpress.
+   */
+  async getDocument(invoiceId: string, ctx: AdapterCtx): Promise<DestinationDocument | null> {
+    const cfg = await getMoloniCfg(ctx);
+    const token = await getAccessToken(cfg);
+    const found = await fetchMoloniDocument(cfg, token, invoiceId);
+    if (!found) return null;
+
+    const d = found.doc;
+    return {
+      id: String(d.document_id),
+      state: Number(d.status ?? 0) === 0 ? "draft" : "finalized",
+      date: typeof d.date === "string" ? d.date.slice(0, 10) : null,
+      total: moloniDocTotal(d),
+      reference: d.our_reference != null ? String(d.our_reference) : null,
+      // Moloni numbers a document only once it closes.
+      number: d.document_set_name && d.number ? `${d.document_set_name} ${d.number}` : (d.number ?? null),
+      permalink: null,
+      raw: d,
+    };
+  }
+
   async deleteDraft(invoiceId: string, ctx: AdapterCtx): Promise<"deleted" | "already_gone" | "finalized"> {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    // The id may live in any document family (tag routing picks per order), so
-    // look through them in the same order the rest of the adapter does.
-    let found: { path: string; status: number } | null = null;
-    for (const path of moloniPathsWithFallback(cfg, "getOne")) {
-      const d = await moloniCall<any>(cfg, token, path, { document_id: Number(invoiceId) }, "lookup").catch(() => null);
-      if (d && typeof d === "object" && !Array.isArray(d) && d.document_id != null) {
-        found = { path, status: Number(d.status ?? 0) };
-        break;
-      }
-    }
-    if (!found) return "already_gone";
+    const resolved = await fetchMoloniDocument(cfg, token, invoiceId);
+    if (!resolved) return "already_gone";
+    const found = { path: resolved.path, status: Number(resolved.doc.status ?? 0) };
     if (found.status !== 0) return "finalized";
 
     // getOne and delete share a family, so derive the delete path from the
@@ -1246,6 +1312,149 @@ export class MoloniDestination implements DestinationAdapter {
       { document_id: Number(invoiceId), status: 1 },
       "finalize",
     );
+  }
+
+  /**
+   * Credit a closed document in full, mirroring its OWN lines.
+   *
+   * Distinct from `issueCredit`, which needs a live refund at the source. This is
+   * the operator cancelling a sale after the fact: there is no refund payload to
+   * derive lines from, so they come from the document itself. Rebuilding them
+   * from a refetched order would credit what the order says today rather than
+   * what the document says, and the two drift.
+   */
+  async creditFullDocument(
+    invoiceId: string,
+    ctx: AdapterCtx,
+    opts: { reference: string; matchReferences?: string[]; reason?: string | null; dryRun?: boolean },
+  ): Promise<CreditFullResult> {
+    const cfg = await getMoloniCfg(ctx);
+    const token = await getAccessToken(cfg);
+
+    // Idempotency by reference, checked against every historical spelling.
+    // Moloni ignores filters it does not recognise and returns everything, so the
+    // match is re-checked client-side — a loose filter accepted as a hit here
+    // would silently refuse to credit a document that was never credited.
+    const matchRefs = opts.matchReferences ?? [opts.reference];
+    for (const ref of matchRefs) {
+      const found = await moloniCall<any[]>(
+        cfg, token, "/creditNotes/getAll/", { our_reference: ref }, "lookup",
+      ).catch(() => []);
+      const hit = (Array.isArray(found) ? found : []).find((d) => String(d?.our_reference ?? "") === ref);
+      if (hit?.document_id != null) {
+        return { creditId: String(hit.document_id), number: hit.number ?? null, alreadyExisted: true };
+      }
+    }
+
+    const source = await fetchMoloniDocument(cfg, token, invoiceId);
+    if (!source) throw new Error(`Moloni document ${invoiceId} not found — nothing to credit`);
+    if (Number(source.doc.status ?? 0) === 0) {
+      throw new Error(`Document ${invoiceId} is still a draft. Delete it instead of crediting it.`);
+    }
+
+    const baseLines: any[] = Array.isArray(source.doc.products) ? source.doc.products : [];
+    if (baseLines.length === 0) {
+      throw new Error(`Moloni document ${invoiceId} has no lines to credit`);
+    }
+
+    // Mirror each line back, carrying the per-line `related_id` Moloni requires
+    // (the source line's document_product_id) and its own tax rule.
+    const products: MoloniProductLine[] = baseLines.map((p, i) => {
+      const taxes = Array.isArray(p?.taxes) && p.taxes.length > 0
+        ? p.taxes.map((t: any, ti: number) => ({
+            tax_id: Number(t.tax_id),
+            value: Number(t.value ?? 0),
+            order: ti + 1,
+            cumulative: Number(t.cumulative ?? 0),
+          }))
+        : undefined;
+      const line: MoloniProductLine = {
+        product_id: Number(p.product_id),
+        name: String(p.name ?? "Artigo").slice(0, 200),
+        qty: Number(p.qty ?? 1),
+        price: Number(p.price ?? 0),
+        discount: Number(p.discount ?? 0),
+        order: i + 1,
+        related_id: Number(p.document_product_id),
+      };
+      if (taxes && taxes.length > 0) line.taxes = taxes;
+      // A 0% line must carry an exemption reason; prefer the document's own.
+      else line.exemption_reason = p?.exemption_reason ?? resolveExemptionReason(ctx);
+      return line;
+    });
+
+    if (products.some((p) => p.related_id == null || Number.isNaN(p.related_id))) {
+      throw new Error(`Moloni credit failed: could not resolve related_id from source document ${invoiceId}`);
+    }
+
+    const gross = moloniDocTotal(source.doc) ?? products.reduce((acc, p) => acc + p.qty * p.price, 0);
+    const needsExemption = products.some((p) => !p.taxes || p.taxes.length === 0);
+
+    const payload: Record<string, unknown> = {
+      document_set_id: cfg.documentSetId,
+      customer_id: Number(source.doc.customer_id),
+      date: todayYmd(),
+      expiration_date: todayYmd(),
+      our_reference: opts.reference,
+      ...(opts.reason ? { notes: String(opts.reason).slice(0, 200) } : {}),
+      products,
+      status: 0,
+      associated_documents: [{ associated_id: Number(invoiceId), value: gross }],
+      ...(needsExemption ? { exemption_reason: resolveExemptionReason(ctx) } : {}),
+    };
+
+    if (opts.dryRun) {
+      return { creditId: "", number: null, alreadyExisted: false, preview: payload };
+    }
+
+    const inserted = await moloniCall<{ document_id?: number }>(
+      cfg, token, "/creditNotes/insert/", payload, "credit create",
+    );
+    const creditId = inserted?.document_id;
+    if (!creditId) throw new Error(`Moloni credit create returned no document_id for ${invoiceId}`);
+
+    // Close it: an open credit note has not undone anything.
+    await moloniCall(cfg, token, "/creditNotes/update/", { document_id: Number(creditId), status: 1 }, "finalize");
+
+    return { creditId: String(creditId), number: null, alreadyExisted: false };
+  }
+
+  /**
+   * Moloni fixes a document's date at insert and never rejects a close for
+   * falling behind its series, so there is no date to negotiate: this delegates
+   * to `finalize` and reports the date the document already carries.
+   *
+   * Present rather than absent so the generic engine can drive Moloni without a
+   * special case; `capabilities.finalizeWithDate` stays false to say that the
+   * strategy argument has nothing to act on here.
+   */
+  async finalizeWithDate(
+    invoiceId: string,
+    ctx: AdapterCtx,
+    opts: { paidTotal?: number | null; dryRun?: boolean },
+  ): Promise<FinalizeOutcome> {
+    const doc = await this.getDocument(invoiceId, ctx);
+    if (!doc) return { status: "error", message: `Documento ${invoiceId} não encontrado no Moloni` };
+    if (doc.state !== "draft") return { status: "skipped", message: `Já fechado (status=${doc.state})` };
+
+    // Closing is irreversible — a closed document is undone only with a credit
+    // note — so a draft whose total is not what the buyer paid is never closed.
+    const paid = opts.paidTotal;
+    if (typeof paid === "number" && Number.isFinite(paid) && paid > 0
+      && doc.total != null && Math.abs(doc.total - paid) > 0.011) {
+      return {
+        status: "error",
+        message: `Total do documento (${doc.total.toFixed(2)}€) não é o valor pago (${paid.toFixed(2)}€) — não certifico`,
+      };
+    }
+
+    const date = doc.date ?? todayYmd();
+    if (opts.dryRun) {
+      return { status: "dry_run", date, originalDate: date, message: `Fecharia com a data ${date}` };
+    }
+
+    await this.finalize(invoiceId, ctx);
+    return { status: "finalized", date, originalDate: date, message: `Fechado com a data ${date}` };
   }
 
   async issueCredit(
@@ -1379,7 +1588,7 @@ export class MoloniDestination implements DestinationAdapter {
       customer_id: customerId,
       date: todayYmd(),
       expiration_date: todayYmd(),
-      our_reference: `OrderRefund #${refund.refundId}`,
+      our_reference: refundReference(refund.refundId),
       products,
       status: 0,
       // Moloni links credit notes back to the source document via

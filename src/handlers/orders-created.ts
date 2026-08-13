@@ -13,6 +13,7 @@ import { loadProductOverrides } from "../services/product-overrides";
 import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
+import { saleReference } from "../services/document-references";
 
 /**
  * Tell the merchant a document was left as a draft because the buyer's address
@@ -201,7 +202,7 @@ async function createInvoiceForOrder(
     return;
   }
 
-  const ixRef = `Order #${order.order_number}`;
+  const ixRef = saleReference(order.order_number);
   const ixHeaders = {
     "x-account-name": config.ix_account_name!,
     "x-api-key": config.ix_api_key!,

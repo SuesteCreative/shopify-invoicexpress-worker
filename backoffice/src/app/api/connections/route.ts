@@ -2,19 +2,15 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
+import {
+    SOURCE_KINDS, DESTINATION_KINDS, CONNECTION_STATUSES,
+    isSourceKind, isDestinationKind,
+} from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
-// Phase 2: internal-only CRUD for `connections`. Not wired into the UI yet —
-// Phase 3+ will start writing to this table alongside the legacy `integrations`
-// row. Until then, this endpoint exists for migration testing and superadmin
-// inspection only.
-
-type SourceKind = "shopify" | "stripe";
-type DestinationKind = "invoicexpress" | "moloni";
-
-const SOURCE_KINDS: SourceKind[] = ["shopify", "stripe"];
-const DESTINATION_KINDS: DestinationKind[] = ["invoicexpress", "moloni"];
+// Internal CRUD for `connections`. GET is consumed by the integrations page;
+// POST is superadmin/migration tooling.
 
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
@@ -64,15 +60,16 @@ export async function POST(request: NextRequest) {
             status?: string;
         };
 
-        if (!body.source_kind || !SOURCE_KINDS.includes(body.source_kind as SourceKind)) {
+        if (!isSourceKind(body.source_kind)) {
             return NextResponse.json({ error: `source_kind must be one of: ${SOURCE_KINDS.join(", ")}` }, { status: 400 });
         }
-        if (!body.destination_kind || !DESTINATION_KINDS.includes(body.destination_kind as DestinationKind)) {
+        if (!isDestinationKind(body.destination_kind)) {
             return NextResponse.json({ error: `destination_kind must be one of: ${DESTINATION_KINDS.join(", ")}` }, { status: 400 });
         }
 
-        const allowedStatuses = ["draft", "active", "paused", "error"];
-        const status = body.status && allowedStatuses.includes(body.status) ? body.status : "draft";
+        const status = body.status && (CONNECTION_STATUSES as readonly string[]).includes(body.status)
+            ? body.status
+            : "draft";
 
         const { env } = getRequestContext();
         const db = (env as any).DB;

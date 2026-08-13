@@ -7,6 +7,15 @@ import { IxBuilder, nifHoldReason } from "../ix/builder";
 import { createIxInvoiceWithFallback, ixExpectedTotals } from "../ix/create-invoice";
 import { sendDevModeEmail } from "./notify";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
+import { saleReference, cancelReference } from "../services/document-references";
+import { fetchShopifyOrders, fetchOrdersByIds, shopifyOrderNotFoundHint } from "../services/shopify-orders";
+import { parseIxDate, formatPtDate, todayUtcYmd } from "../ix/date";
+// The IX-specific finalize machinery lives with the IX adapter now; these were
+// duplicated here and in admin-stripe.ts, and the copies had already drifted.
+import {
+  buildIxDatePutBody, fetchAccountTaxes, fetchSeriesLastFinalizedDate,
+  isAlreadyFinalizedIxError, isDateRejectionIxError,
+} from "../adapters/destinations/ix-finalize";
 
 interface ShopifyOrderSummary {
   id: number;
@@ -39,40 +48,6 @@ export interface ProcessOrdersOptions {
   /** Explicit-id path only: keep only financial_status=paid orders. Auto-heal
    *  must never invoice an order that has since been refunded/cancelled. */
   paid_only?: boolean;
-}
-
-async function fetchShopifyOrders(config: IRequestConfig, from: string, to: string): Promise<any[]> {
-  const allOrders: any[] = [];
-  const apiVersion = config.shopify_api_version ?? "2026-01";
-  let url: string | null = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?processed_at_min=${encodeURIComponent(from)}&processed_at_max=${encodeURIComponent(to)}&status=any&limit=250`;
-
-  while (url) {
-    const response = await fetch(url, {
-      headers: {
-        "X-Shopify-Access-Token": config.shopify_token!,
-        "Accept": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Shopify API error: ${response.status} ${await response.text()}`);
-    }
-
-    const data = await response.json() as { orders: any[] };
-    allOrders.push(...data.orders);
-
-    // Handle pagination via Link header
-    const linkHeader = response.headers.get("Link");
-    url = null;
-    if (linkHeader) {
-      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-      if (nextMatch) {
-        url = nextMatch[1];
-      }
-    }
-  }
-
-  return allOrders;
 }
 
 function summarizeOrder(order: any): ShopifyOrderSummary {
@@ -123,78 +98,6 @@ async function findIxInvoiceByReference(
   return null;
 }
 
-/**
- * IX rejects `changeState → finalized` on a document that is ALREADY finalized /
- * has payments, with a stable set of messages (EN direct + PT via the proxy):
- * `DOC001 "Document already paid. Cannot be edited"`, `"has payments and can't be
- * edited"`, `"O documento já contém pagamentos. Não pode ser editado"`. The
- * reconciliation sweep re-finalizes every already-issued invoice in its window,
- * so these are HEALTHY documents, not failures — detecting them lets the caller
- * report an idempotent skip instead of flooding the ops report with false errors.
- *
- * The first four strings below were the only ones matched until 2026-08-07, and
- * they miss the messages IX actually returns most of the time — "não pode ser
- * ALTERADO" (not "editado"), "Document has been finalized so can't be changed
- * anymore", and the DOC009 change-event wrapper for a settled document. That is
- * why one nightly sweep reported "422 orders could not be auto-invoiced" for a
- * shop whose real failures numbered two: the healthy documents were counted as
- * errors and buried the genuine ones.
- */
-function isAlreadyFinalizedIxError(error: unknown): boolean {
-  const s = JSON.stringify(error ?? "").toLowerCase();
-  return (
-    s.includes("doc001") ||
-    s.includes("doc009") ||
-    s.includes("already paid") ||
-    s.includes("cannot be edited") ||
-    s.includes("can't be edited") ||
-    s.includes("has payments") ||
-    s.includes("has been finalized") ||
-    s.includes("can't be changed") ||
-    s.includes("cannot be changed") ||
-    s.includes("in status 'settled'") ||
-    s.includes("já contém pagamentos") ||
-    s.includes("ja contem pagamentos") ||
-    s.includes("não pode ser editado") ||
-    s.includes("nao pode ser editado") ||
-    s.includes("já foi finalizado") ||
-    s.includes("ja foi finalizado") ||
-    s.includes("não pode ser alterado") ||
-    s.includes("nao pode ser alterado")
-  );
-}
-
-/**
- * IX refused the document's DATE, not the document. Two shapes matter:
- * "Vencimento deve ser igual ou posterior à data do documento" (the due date is
- * behind the issue date) and the series' chronology rule, which IX words as
- * "Date cannot be earlier than the last invoice-receipt of this sequence[02 Aug
- * 26]". Both are fixable by moving the document forward, so the caller retries
- * with the next candidate date instead of giving up — see
- * `finalizeDraftClosestToDate`.
- *
- * Verified live 2026-08-07: IX DOES accept a backdated finalize as long as the
- * date is not behind the series' last issued document, so a draft can usually
- * keep the day the sale actually happened.
- */
-function isDateRejectionIxError(error: unknown): boolean {
-  const s = JSON.stringify(error ?? "").toLowerCase();
-  return (
-    s.includes("vencimento") ||
-    s.includes("due date") ||
-    s.includes("data do documento") ||
-    s.includes("document date") ||
-    s.includes("data de emiss") ||
-    s.includes("issue date") ||
-    s.includes("sequencial") ||
-    s.includes("sequential") ||
-    s.includes("sequence") ||
-    s.includes("sequência") ||
-    s.includes("date cannot be earlier") ||
-    s.includes("não pode ser anterior") ||
-    s.includes("nao pode ser anterior")
-  );
-}
 
 export async function getUnprocessedOrders(env: Env, config: IRequestConfig, from: string, to: string) {
   const appStorage = new AppStorage(env, config.shopify_domain!);
@@ -216,7 +119,7 @@ export async function getUnprocessedOrders(env: Env, config: IRequestConfig, fro
   const existsInIx: any[] = [];
 
   for (const order of notInDb) {
-    const ixRef = `Order #${order.order_number}`;
+    const ixRef = saleReference(order.order_number);
     const existingId = await findIxInvoiceByReference(ixHeaders, ixRef);
 
     if (existingId) {
@@ -385,7 +288,7 @@ async function adminDryRunCreate(env: Env, config: IRequestConfig, order: any, t
       "x-api-key": config.ix_api_key!,
       "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
     };
-    const existingId = await findIxInvoiceByReference(ixHeaders, `Order #${order.order_number}`);
+    const existingId = await findIxInvoiceByReference(ixHeaders, saleReference(order.order_number));
     if (existingId) {
       return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Exists in IX (id=${existingId})` };
     }
@@ -429,7 +332,7 @@ export async function reemitOrder(
   }
 
   if (!order) {
-    const summary = { error: `Order #${orderNumber} not found in Shopify. If the order exists in the store, the access token is likely missing the read_all_orders scope (Shopify's Admin API only returns the last 60 days of orders without it). Add read_all_orders to the Custom App configuration, regenerate the token, and retry.` };
+    const summary = { error: shopifyOrderNotFoundHint(orderNumber) };
     await appStorage.finishDevJob(jobId, "error", summary, []);
     return { job_id: jobId, status: "error", ...summary };
   }
@@ -607,7 +510,7 @@ export async function issueCreditNoteByOrderNumber(
   const { data: rel } = await IxApi.v2.documents.byId.related.get({
     headers: ixHeaders, path: { id: Number(lookup.invoiceId) },
   });
-  const reference = `OrderCancel #${orderNumber}`;
+  const reference = cancelReference("shopify", orderNumber);
   const existing = (rel?.data?.documents ?? []).find((d: any) => d.type === "CreditNote" && d.reference === reference);
   if (existing) {
     const summary = { invoice_id: lookup.invoiceId, credit_note_id: existing.id, message: "Credit note already exists, skipped" };
@@ -677,182 +580,6 @@ export async function issueCreditNoteByOrderNumber(
 
 type DateStrategy = "today" | "closest_available";
 
-function parseIxDate(s: string | null | undefined): string | null {
-  if (!s) return null;
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return null;
-}
-
-function formatPtDate(isoYmd: string): string {
-  const [y, m, d] = isoYmd.split("-");
-  return `${d}/${m}/${y}`;
-}
-
-function todayUtcYmd(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-// Reads the most recent finalized invoice date in the IX account's series.
-// IX rejects `changeState → finalized` when the document's date is earlier
-// than the series' latest finalized date, so we use this as the baseline for
-// the `closest_available` strategy. Hits the IX legacy JSON endpoint directly
-// since the v2 SDK proxy doesn't expose a list endpoint.
-async function fetchSeriesLastFinalizedDate(
-  config: IRequestConfig,
-  docKind: "invoice" | "invoice_receipt",
-): Promise<string | null> {
-  try {
-    const account = config.ix_account_name;
-    const apiKey = config.ix_api_key;
-    if (!account || !apiKey) return null;
-    const path = docKind === "invoice_receipt" ? "invoice_receipts.json" : "invoices.json";
-    const url = `https://${account}.app.invoicexpress.com/${path}?api_key=${apiKey}&status%5B%5D=settled&status%5B%5D=final&order_by=date_desc&per_page=1`;
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!res.ok) return null;
-    const data = await res.json() as any;
-    const list = data?.invoices ?? data?.invoice_receipts ?? [];
-    if (!Array.isArray(list) || list.length === 0) return null;
-    return parseIxDate(list[0]?.date ?? null);
-  } catch (e) {
-    console.warn("[Rioko] fetchSeriesLastFinalizedDate failed:", e);
-    return null;
-  }
-}
-
-/**
- * Rebuilds a draft's editable payload with a new date. IX's PUT replaces the
- * document, so client and items have to be sent back verbatim — dropping them
- * would blank the document.
- *
- * `due_date` moves WITH `date`. That is not cosmetic: IX validates
- * `due_date >= date` and answers "Vencimento deve ser igual ou posterior à data
- * do documento" when it doesn't, which is exactly how every retro-finalize in
- * the fleet was failing.
- */
-export function buildIxDatePutBody(
-  doc: any,
-  ixDocType: "invoice" | "invoice_receipt",
-  targetDate: string,
-  observations: string,
-  ctx: { accountTaxes: Map<number, { name: string; value: number }>; exemptionReason?: string | null },
-): any {
-  // Every name we send has to be non-empty — the proxy rejects the whole
-  // document with "… name must be at least 1 character" and the message does
-  // not say which field it means. A Portuguese B2C sale legitimately has no
-  // buyer name, and that is exactly what "Consumidor Final" is for.
-  //
-  // The tax is the dangerous one. IX resolves a line by the NAME and VALUE we
-  // send (verified live: send the Isento id with name IVA6/value 6 and you get
-  // IVA6 back), and its read-back sometimes carries `{id, name: null, value:
-  // null}` on lines whose stored amounts are perfectly correct. The old code
-  // read that null as zero and renamed the line "Isento" — so a date change
-  // would have restated a 6% document as exempt. Resolve the id against the
-  // account's own tax table instead, and refuse the document when we cannot.
-  const taxFor = (tax: any) => {
-    const rawValue = Number(tax?.value);
-    const rawName = String(tax?.name ?? "").trim();
-    if (Number.isFinite(rawValue) && rawName) {
-      return tax?.id ? { id: Number(tax.id), name: rawName, value: rawValue } : { name: rawName, value: rawValue };
-    }
-    const resolved = tax?.id != null ? ctx.accountTaxes.get(Number(tax.id)) : undefined;
-    if (resolved) return { id: Number(tax.id), name: resolved.name, value: resolved.value };
-    throw new Error(
-      `Não consigo reler a taxa da linha (${JSON.stringify(tax ?? null)}) — não reescrevo o documento às cegas`,
-    );
-  };
-
-  const items = Array.isArray(doc.items) ? doc.items.map((it: any) => ({
-    quantity: Number(it.quantity),
-    name: String(it.name ?? "").trim() || "Artigo",
-    ...(it.description ? { description: String(it.description) } : {}),
-    unit_price: Number(it.unit_price),
-    tax: taxFor(it.tax),
-    ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
-  })) : [];
-
-  const client = doc.client ? {
-    ...(doc.client.id ? { id: Number(doc.client.id) } : {}),
-    name: String(doc.client.name ?? "").trim() || "Consumidor Final",
-    ...(doc.client.email ? { email: String(doc.client.email) } : {}),
-    ...(doc.client.fiscal_id ? { fiscal_id: String(doc.client.fiscal_id) } : {}),
-    ...(doc.client.address ? { address: String(doc.client.address) } : {}),
-    ...(doc.client.postal_code ? { postal_code: String(doc.client.postal_code) } : {}),
-    ...(doc.client.country ? { country: String(doc.client.country) } : {}),
-    ...(doc.client.city ? { city: String(doc.client.city) } : {}),
-    ...(doc.client.phone ? { phone: String(doc.client.phone) } : {}),
-  } : { name: "Consumidor Final" };
-
-  // A date change must never move money. If the payload we just rebuilt would
-  // total something other than what the document already holds, the read-back
-  // did not give us the document we think it did — stop.
-  //
-  // The tolerance is rounding noise, not slack: IX hands `unit_price` back
-  // rounded to 2dp while computing its own subtotal in full precision, so a
-  // faithful rebuild can land a cent or two off on a multi-line document. What
-  // this has to catch is a whole VAT band going missing (3.28€ on a 58€ sale),
-  // which is orders of magnitude larger.
-  const rebuilt = ixExpectedTotals(items);
-  const storedTotal = Number(doc.total);
-  const tolerance = 0.02 + 0.01 * items.length;
-  if (Number.isFinite(storedTotal) && Math.abs(rebuilt.gross - storedTotal) > tolerance) {
-    throw new Error(
-      `Reconstrução do documento dá ${rebuilt.gross.toFixed(2)}€ mas o documento tem ${storedTotal.toFixed(2)}€ `
-      + `— não altero a data à custa do valor`,
-    );
-  }
-
-  // IX rejects a document with a 0% line unless a razão de isenção travels with
-  // it — the PUT included. Without this, an exempt document (art. 53, exports,
-  // reverse charge) could never have its date moved: every retro-finalize died
-  // on "Razão de isenção deve ter uma opção selecionada". Prefer the code the
-  // document already carries, fall back to the shop's configured one.
-  const isExemptDocument = items.some((it: any) => Number(it?.tax?.value ?? 0) === 0);
-  const exemptionReason = doc.tax_exemption ?? (isExemptDocument ? ctx.exemptionReason ?? null : null);
-
-  return {
-    type: ixDocType,
-    data: {
-      date: targetDate,
-      due_date: targetDate,
-      client,
-      items,
-      observations,
-      ...(doc.reference ? { reference: String(doc.reference) } : {}),
-      ...(exemptionReason ? { tax_exemption_reason: String(exemptionReason) } : {}),
-    },
-  };
-}
-
-/**
- * The account's own tax table, id → {name, value}. Fetched once per run and
- * handed to every document rebuild so a line whose read-back carries a null
- * rate can be restored to the rate it actually has, instead of being renamed
- * "Isento" and silently zeroed.
- */
-export async function fetchAccountTaxes(
-  ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
-): Promise<Map<number, { name: string; value: number }>> {
-  const map = new Map<number, { name: string; value: number }>();
-  try {
-    const { data, error } = await IxApi.v2.taxes.get({ headers: ixHeaders });
-    if (error) return map;
-    const list: any[] = (data as any)?.taxes ?? (data as any)?.data?.taxes ?? (data as any)?.data ?? [];
-    for (const t of Array.isArray(list) ? list : []) {
-      const id = Number(t?.id);
-      const value = Number(t?.value);
-      const name = String(t?.name ?? "").trim();
-      if (Number.isFinite(id) && Number.isFinite(value) && name) map.set(id, { name, value });
-    }
-  } catch (e) {
-    console.error("[Rioko] could not read the account tax table:", e);
-  }
-  return map;
-}
 
 /** Note stamped when a document had to be issued later than the sale happened. */
 function transactionDateNote(doc: any, originalDate: string): string | null {
@@ -1277,26 +1004,6 @@ export async function finalizeDrafts(
   return { job_id: jobId, ...summary, results };
 }
 
-async function fetchOrdersByIds(config: IRequestConfig, orderIds: number[]): Promise<any[]> {
-  const apiVersion = config.shopify_api_version ?? "2026-01";
-  const ids = orderIds.join(",");
-  const url = `https://${config.shopify_domain}/admin/api/${apiVersion}/orders.json?ids=${ids}&status=any&limit=250`;
-
-  const response = await fetch(url, {
-    headers: {
-      "X-Shopify-Access-Token": config.shopify_token!,
-      "Accept": "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Shopify API error: ${response.status} ${await response.text()}`);
-  }
-
-  const data = await response.json() as { orders: any[] };
-  return data.orders;
-}
-
 /**
  * Delete an InvoiceXpress document, but only while it is still a draft.
  *
@@ -1369,7 +1076,7 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Zero-amount order — invoice not required (total €0,00)" };
     }
 
-    const ixRef = `Order #${order.order_number}`;
+    const ixRef = saleReference(order.order_number);
     const ixHeaders = {
       "x-account-name": config.ix_account_name!,
       "x-api-key": config.ix_api_key!,

@@ -5,7 +5,10 @@ import { isAdmin, getImpersonationId } from "@/lib/admin";
 
 export const runtime = "edge";
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+// Next 15 hands route params as a Promise. This route still had the Next 14
+// signature, which typechecked as a mismatch against the generated route types
+// and left `params.id` reading a property off a Promise at runtime.
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { userId } = await auth();
         let targetUserId = userId;
@@ -42,7 +45,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
         // We need to know the document type. Default to invoice_receipts, but check query
         const type = new URL(request.url).searchParams.get("type") || "invoice_receipts";
-        const docId = params.id;
+        const docId = (await params).id;
 
         const res = await fetch(`${baseUrl}/${type}/${docId}/pdf.json?api_key=${apiKey}`, {
             headers: { "Accept": "application/json" }

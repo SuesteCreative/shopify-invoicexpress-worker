@@ -1,11 +1,16 @@
 import type { Env } from "../env";
 import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
-import { IxApi } from "../api/ix";
+import type { DestinationKind } from "../storage";
+import type { AdapterCtx, DestinationAdapter, FinalizeDateStrategy } from "../adapters/types";
+import { getDestinationAdapter } from "../adapters/registry";
 import { runAdapterPipeline } from "./generic-pipeline";
-import { buildIxDatePutBody, fetchAccountTaxes } from "./admin";
 import { sendDevModeEmail } from "./notify";
-import { stripeFetch } from "../services/stripe";
+import { listStripePaymentIntents, fetchStripeObject } from "../services/stripe";
+import { cancelReferenceCandidates } from "../services/document-references";
+import { buildAdapterCtx } from "../services/adapter-ctx";
+import { projectConnectionBehaviour } from "../services/connection-context";
+import { formatPtDate } from "../ix/date";
 
 type OrderResult = {
   external_id: string;
@@ -40,64 +45,6 @@ async function loadStripeConnectionFull(env: Env, userId: string): Promise<Strip
     sourceConfig: (parse(row.source_config_json) ?? {}) as StripeConnConfig,
     destinationConfig: parse(row.destination_config_json),
   };
-}
-
-// Walks Stripe `payment_intents.list` over a date range. Filters client-side to
-// status=succeeded — Stripe's PI list endpoint doesn't have a status filter, so
-// we paginate and skip.
-async function listStripePaymentIntents(
-  restrictedKey: string,
-  fromIso: string,
-  toIso: string,
-  limit = 500,
-  stripeAccount?: string | null,
-): Promise<any[]> {
-  const fromUnix = Math.floor(new Date(fromIso).getTime() / 1000);
-  const toUnix = Math.floor(new Date(toIso).getTime() / 1000);
-  const out: any[] = [];
-  let startingAfter: string | null = null;
-
-  while (out.length < limit) {
-    const params = new URLSearchParams();
-    params.set("created[gte]", String(fromUnix));
-    params.set("created[lte]", String(toUnix));
-    params.set("limit", "100");
-    if (startingAfter) params.set("starting_after", startingAfter);
-
-    const res = await stripeFetch("payment_intents", restrictedKey, { stripeAccount, query: params });
-    if (!res.ok) {
-      throw new Error(`Stripe paymentIntents.list ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    }
-    const body: any = await res.json();
-    const page: any[] = body.data ?? [];
-    for (const pi of page) {
-      if (pi.status === "succeeded") out.push(pi);
-    }
-    if (!body.has_more || page.length === 0) break;
-    startingAfter = page[page.length - 1]?.id ?? null;
-    if (!startingAfter) break;
-  }
-  return out;
-}
-
-async function fetchStripeObject(restrictedKey: string, stripeId: string, stripeAccount?: string | null): Promise<{ event: any } | { error: string }> {
-  const prefix = stripeId.split("_")[0];
-  let path: string;
-  let eventType: string;
-  switch (prefix) {
-    case "pi": path = `payment_intents/${encodeURIComponent(stripeId)}`; eventType = "payment_intent.succeeded"; break;
-    case "ch": path = `charges/${encodeURIComponent(stripeId)}`; eventType = "charge.succeeded"; break;
-    case "cs": path = `checkout/sessions/${encodeURIComponent(stripeId)}`; eventType = "checkout.session.completed"; break;
-    case "in": path = `invoices/${encodeURIComponent(stripeId)}`; eventType = "invoice.paid"; break;
-    default: return { error: `Unsupported Stripe id prefix: ${prefix}` };
-  }
-
-  const res = await stripeFetch(path, restrictedKey, { stripeAccount });
-  if (!res.ok) return { error: `Stripe ${path} ${res.status}: ${(await res.text()).slice(0, 200)}` };
-  const obj: any = await res.json();
-  // Synthesized events from backfill/reemit carry no `account` field; stamp the
-  // connected account id so downstream enrichment scopes its reads correctly.
-  return { event: { type: eventType, data: { object: obj }, ...(stripeAccount ? { account: stripeAccount } : {}) } };
 }
 
 // Returns the externalId the pipeline would dedup on for a given event payload.
@@ -181,8 +128,8 @@ export async function processStripeBackfill(
   // Freshness gate excludes not only already-invoiced payments but also those an
   // operator hand-matched or marked "não necessária" (NOT_NEEDED) — otherwise a
   // re-run (esp. the nightly heal) would resurrect an invoice they deliberately
-  // excluded. See AppStorage.getResolvedStripeOrderIds.
-  const existing = await appStorage.getResolvedStripeOrderIds(ids, config.user_id);
+  // excluded. See AppStorage.getResolvedOrderIds.
+  const existing = await appStorage.getResolvedOrderIds(ids, `u:${config.user_id}`);
   const fresh = pis.filter(pi => !existing.has(String(pi.id)));
 
   const results: OrderResult[] = [];
@@ -284,7 +231,45 @@ export async function reemitStripeOrder(
   const event = fetched.event;
 
   const externalId = externalIdFromEvent(event);
-  if (options.force) await appStorage.deleteProcessedInvoice(externalId, "stripe");
+
+  // A forced re-emit replaces the previous document, so the previous document
+  // has to go. Deleting only our DB row (what this used to do) left the old
+  // draft standing at the destination forever — the Shopify path has discarded
+  // its stale draft since day one, and Stripe silently did not.
+  // Only ever a DRAFT. A certified document is a fiscal record: it is corrected
+  // with a credit note, never deleted, so it is left standing and said out loud.
+  let previousDraft: "discarded" | "kept_finalized" | "none" | "unknown" = "none";
+  let previousDocumentId: string | null = null;
+  if (options.force) {
+    const previous = await appStorage.getInvoiceByOrderId(externalId);
+    if (previous?.invoice_id) {
+      previousDocumentId = String(previous.invoice_id);
+      const dest = await resolveStripeDestination(env, config);
+      if (dest.ok && dest.adapter.deleteDraft) {
+        try {
+          const outcome = await dest.adapter.deleteDraft(previousDocumentId, dest.ctx);
+          previousDraft = outcome === "finalized" ? "kept_finalized" : "discarded";
+        } catch (e: any) {
+          // Tidy-up only: the real work is issuing the replacement, so a failed
+          // delete is reported rather than fatal.
+          console.warn(`[Rioko] could not discard previous document ${previousDocumentId}: ${e?.message ?? e}`);
+          previousDraft = "unknown";
+        }
+      } else {
+        previousDraft = "unknown";
+      }
+    }
+    await appStorage.deleteProcessedInvoice(externalId, "stripe");
+  }
+
+  // The operator is about to hold two documents for one payment. Say so in the
+  // same words the Shopify path uses, rather than burying it in a status enum.
+  const forceWarning =
+    previousDraft === "kept_finalized"
+      ? `ATENÇÃO: ${previousDocumentId} já estava finalizado e foi mantido — emita nota de crédito se for duplicado`
+      : previousDraft === "unknown" && previousDocumentId
+        ? `ATENÇÃO: não foi possível confirmar o estado do documento anterior ${previousDocumentId} — verifique antes de dar por concluído`
+        : null;
 
   try {
     await runAdapterPipeline({
@@ -293,6 +278,8 @@ export async function reemitStripeOrder(
       topic: "created", webhookId: null, body: event,
       sourceConfig: connCfg,
       destinationConfig: conn.destinationConfig,
+      // The document under this reference is the one being replaced.
+      skipReferenceCheck: !!options.force,
     });
   } catch (e: any) {
     const err = `Pipeline failed: ${e?.message ?? e}`;
@@ -300,35 +287,68 @@ export async function reemitStripeOrder(
     return { job_id: jobId, status: "error", error: err };
   }
 
-  const summary = { external_id: externalId, stripe_id: stripeId, force: !!options.force };
+  const summary = {
+    external_id: externalId,
+    stripe_id: stripeId,
+    force: !!options.force,
+    previous_document: previousDraft,
+    previous_document_id: previousDocumentId,
+    ...(forceWarning ? { warning: forceWarning } : {}),
+  };
   await appStorage.finishDevJob(jobId, "success", summary, [summary]);
 
   if (options.notify_emails && options.notify_emails.length > 0) {
     await sendDevModeEmail({
       recipients: options.notify_emails,
       subject: `Rioko Dev Mode — Stripe re-emit ${stripeId}`,
-      body: `Stripe id: ${stripeId}\nExternal id: ${externalId}\nForce: ${options.force ? "yes" : "no"}\nReason: ${options.reason ?? "—"}\nJob ID: ${jobId}`,
+      body: `Stripe id: ${stripeId}\nExternal id: ${externalId}\nForce: ${options.force ? "yes" : "no"}\nReason: ${options.reason ?? "—"}\nJob ID: ${jobId}${forceWarning ? `\n\n${forceWarning}` : ""}`,
     });
   }
 
   return { job_id: jobId, status: "success", ...summary };
 }
 
-async function lookupStripeInvoice(env: Env, config: IRequestConfig, externalId: string) {
+/**
+ * Everything a recovery op needs to talk to whatever destination this Stripe
+ * connection actually writes to.
+ *
+ * The three functions below used to build InvoiceXpress headers straight off the
+ * legacy config, which meant "delete this Stripe draft" on a Stripe→Moloni
+ * connection tried to delete an InvoiceXpress document with a null account name.
+ * They now go through the destination adapter, so the connection decides.
+ */
+async function resolveStripeDestination(env: Env, config: IRequestConfig): Promise<
+  | { ok: true; destination: DestinationKind; adapter: DestinationAdapter; ctx: AdapterCtx }
+  | { ok: false; error: string }
+> {
+  const conn = await loadStripeConnectionFull(env, config.user_id);
+  if (!conn) return { ok: false, error: `No Stripe connection for user ${config.user_id}` };
+
+  const destination = (conn.destinationKind as DestinationKind) ?? "invoicexpress";
+  // The connection's own auto_finalize/send_email must win for its own traffic.
+  projectConnectionBehaviour(config, conn.destinationConfig);
+
+  const { ctx } = await buildAdapterCtx(env, {
+    config,
+    source: "stripe",
+    destination,
+    sourceConfig: conn.sourceConfig,
+    destinationConfig: conn.destinationConfig,
+  });
+  return { ok: true, destination, adapter: getDestinationAdapter(destination), ctx };
+}
+
+/** The destination document id we recorded for a Stripe payment. */
+async function lookupStripeInvoiceId(
+  env: Env,
+  config: IRequestConfig,
+  externalId: string,
+): Promise<{ error: string } | { invoiceId: string }> {
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined, config.user_id);
   const invoiceRef = await appStorage.getInvoiceByOrderId(externalId);
-  if (!invoiceRef) return { error: `No invoice registered for ${externalId}` };
-
-  const ixHeaders = {
-    "x-account-name": config.ix_account_name!,
-    "x-api-key": config.ix_api_key!,
-    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
-  };
-  const { data, error } = await IxApi.v2.documents.byId.get({
-    headers: ixHeaders, path: { id: Number(invoiceRef.invoice_id) },
-  });
-  if (error || !data?.data) return { error: `IX fetch failed: ${JSON.stringify(error)}` };
-  return { invoiceId: invoiceRef.invoice_id, ixInvoice: data.data };
+  // A row with no invoice_id is a record of an attempt, not of a document.
+  if (!invoiceRef?.invoice_id) return { error: `No invoice registered for ${externalId}` };
+  return { invoiceId: String(invoiceRef.invoice_id) };
 }
 
 export async function deleteStripeDraft(
@@ -345,53 +365,49 @@ export async function deleteStripeDraft(
     triggered_by: options.triggered_by ?? null, reason: options.reason ?? null,
   });
 
-  const lookup = await lookupStripeInvoice(env, config, stripeId);
-  if ("error" in lookup) {
-    await appStorage.finishDevJob(jobId, "error", { error: lookup.error }, []);
-    return { job_id: jobId, status: "error", error: lookup.error };
-  }
-
-  const state = (lookup.ixInvoice as any).status ?? (lookup.ixInvoice as any).state;
-  if (state === "deleted") {
-    await appStorage.deleteProcessedInvoice(stripeId, "stripe");
-    const summary = { invoice_id: lookup.invoiceId, external_id: stripeId, message: "Invoice already deleted in IX — removed stale DB link." };
-    await appStorage.finishDevJob(jobId, "success", summary, [summary]);
-    return { job_id: jobId, status: "success", ...summary };
-  }
-  if (state !== "draft") {
-    const err = `Invoice ${lookup.invoiceId} is not draft (status=${state}). Use issue-credit-note for finalized invoices.`;
-    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
-    return { job_id: jobId, status: "error", error: err };
-  }
-
-  const ixHeaders = {
-    "x-account-name": config.ix_account_name!,
-    "x-api-key": config.ix_api_key!,
-    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  const fail = async (error: string) => {
+    await appStorage.finishDevJob(jobId, "error", { error }, []);
+    return { job_id: jobId, status: "error", error };
   };
-  const { error } = await IxApi.v2.changeState.post({
-    body: {
-      type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
-      id: Number(lookup.invoiceId),
-      state: "deleted",
-    },
-    headers: ixHeaders,
-  });
-  if (error) {
-    const err = `IX delete failed: ${JSON.stringify(error)}`;
-    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
-    return { job_id: jobId, status: "error", error: err };
+
+  const lookup = await lookupStripeInvoiceId(env, config, stripeId);
+  if ("error" in lookup) return fail(lookup.error);
+
+  const dest = await resolveStripeDestination(env, config);
+  if (!dest.ok) return fail(dest.error);
+  if (!dest.adapter.deleteDraft) {
+    return fail(`${dest.destination} does not support deleting drafts — issue a credit note instead.`);
+  }
+
+  let outcome: "deleted" | "already_gone" | "finalized";
+  try {
+    outcome = await dest.adapter.deleteDraft(lookup.invoiceId, dest.ctx);
+  } catch (e: any) {
+    // An unreadable document is NOT a deleted one: clearing our record here
+    // would let the next backfill mint a duplicate against a live document.
+    return fail(`Delete failed for document ${lookup.invoiceId}: ${e?.message ?? e}`);
+  }
+
+  if (outcome === "finalized") {
+    return fail(`Document ${lookup.invoiceId} is certified — use issue-credit-note instead of delete-draft.`);
   }
 
   await appStorage.deleteProcessedInvoice(stripeId, "stripe");
-  const summary = { invoice_id: lookup.invoiceId, external_id: stripeId };
+  const summary = {
+    invoice_id: lookup.invoiceId,
+    external_id: stripeId,
+    destination: dest.destination,
+    ...(outcome === "already_gone"
+      ? { message: `Document already gone at ${dest.destination} — removed the stale DB link.` }
+      : {}),
+  };
   await appStorage.finishDevJob(jobId, "success", summary, [summary]);
 
   if (options.notify_emails && options.notify_emails.length > 0) {
     await sendDevModeEmail({
       recipients: options.notify_emails,
       subject: `Rioko Dev Mode — Stripe draft eliminado ${stripeId}`,
-      body: `Invoice ${lookup.invoiceId} eliminado.\nStripe id: ${stripeId}\nReason: ${options.reason ?? "—"}\nTriggered by: ${options.triggered_by ?? "—"}\nJob ID: ${jobId}`,
+      body: `Documento ${lookup.invoiceId} (${dest.destination}) eliminado.\nStripe id: ${stripeId}\nReason: ${options.reason ?? "—"}\nTriggered by: ${options.triggered_by ?? "—"}\nJob ID: ${jobId}`,
     });
   }
 
@@ -412,156 +428,54 @@ export async function issueStripeCreditNote(
     triggered_by: options.triggered_by ?? null, reason: options.reason ?? null,
   });
 
-  const lookup = await lookupStripeInvoice(env, config, stripeId);
-  if ("error" in lookup) {
-    await appStorage.finishDevJob(jobId, "error", { error: lookup.error }, []);
-    return { job_id: jobId, status: "error", error: lookup.error };
-  }
-
-  const state = (lookup.ixInvoice as any).status ?? (lookup.ixInvoice as any).state;
-  if (state === "draft") {
-    const err = `Invoice ${lookup.invoiceId} is still draft. Use delete-draft instead.`;
-    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
-    return { job_id: jobId, status: "error", error: err };
-  }
-
-  const ixHeaders = {
-    "x-account-name": config.ix_account_name!,
-    "x-api-key": config.ix_api_key!,
-    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  const fail = async (error: string) => {
+    await appStorage.finishDevJob(jobId, "error", { error }, []);
+    return { job_id: jobId, status: "error", error };
   };
 
+  const lookup = await lookupStripeInvoiceId(env, config, stripeId);
+  if ("error" in lookup) return fail(lookup.error);
+
+  const dest = await resolveStripeDestination(env, config);
+  if (!dest.ok) return fail(dest.error);
+  if (!dest.adapter.creditFullDocument) {
+    return fail(`${dest.destination} cannot issue a credit note for an existing document yet.`);
+  }
+
+  // Keeps writing the historical `StripeCancel <id>` spelling — renaming a
+  // fiscal document's reference is not a refactor. The match list carries the
+  // unified spelling too, so a document credited under either is never credited
+  // twice.
   const reference = `StripeCancel ${stripeId}`;
-
-  // Idempotency: check existing CNs for this invoice.
-  const { data: rel } = await IxApi.v2.documents.byId.related.get({
-    headers: ixHeaders, path: { id: Number(lookup.invoiceId) },
-  });
-  const existing = (rel?.data?.documents ?? []).find((d: any) => d.type === "CreditNote" && d.reference === reference);
-  if (existing) {
-    const summary = { invoice_id: lookup.invoiceId, credit_note_id: existing.id, message: "Credit note already exists, skipped" };
-    await appStorage.finishDevJob(jobId, "success", summary, [summary]);
-    return { job_id: jobId, status: "success", ...summary };
-  }
-
-  // Build CN from the IX invoice's own line items. We don't refetch from Stripe
-  // because the Stripe-source mapping produces single-line items anyway and the
-  // IX side has everything we need with the same tax breakdown.
-  const inv: any = lookup.ixInvoice;
-  const itemsForCn = Array.isArray(inv.items) ? inv.items.map((it: any) => ({
-    quantity: Number(it.quantity ?? 1),
-    name: String(it.name ?? "Refund"),
-    ...(it.description ? { description: String(it.description) } : {}),
-    unit_price: Number(it.unit_price ?? 0),
-    tax: it.tax?.id
-      ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
-      : { name: String(it.tax?.name ?? "VAT"), value: Number(it.tax?.value ?? 0) },
-  })) : [];
-
-  const requireTaxExemption = itemsForCn.some((it: any) =>
-    typeof it.tax === "number" ? it.tax === 0 : it.tax.value === 0
-  );
-
-  const creditNote: any = {
-    date: new Date().toISOString().slice(0, 10),
-    due_date: new Date().toISOString().slice(0, 10),
-    client: inv.client
-      ? {
-          ...(inv.client.id ? { id: Number(inv.client.id) } : {}),
-          ...(inv.client.name ? { name: String(inv.client.name) } : { name: "" }),
-          ...(inv.client.email ? { email: String(inv.client.email) } : {}),
-          ...(inv.client.fiscal_id ? { fiscal_id: String(inv.client.fiscal_id) } : {}),
-          ...(inv.client.address ? { address: String(inv.client.address) } : {}),
-          ...(inv.client.postal_code ? { postal_code: String(inv.client.postal_code) } : {}),
-          ...(inv.client.country ? { country: String(inv.client.country) } : {}),
-          ...(inv.client.city ? { city: String(inv.client.city) } : {}),
-        }
-      : { name: "" },
-    items: itemsForCn,
-    reference,
-    tax_exemption_reason: requireTaxExemption
-      ? (inv as any)?.tax_exemption ?? config.ix_exemption_reason ?? undefined
-      : undefined,
-    owner_invoice_id: Number(lookup.invoiceId),
-  };
-
-  const { data: cnResp, error: cnErr } = await IxApi.v2.creditNotes.post({
-    headers: ixHeaders,
-    body: { credit_note: creditNote },
-    query: { resolvers: "on_tax_fallback_search_tax_by_value" },
-  });
-  if (cnErr) {
-    const err = `IX credit note create failed: ${JSON.stringify(cnErr)}`;
-    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
-    return { job_id: jobId, status: "error", error: err };
-  }
-
-  const cnId = (cnResp?.data as any)?.id
-    ?? (cnResp?.data as any)?.credit_note?.id
-    ?? (cnResp?.data as any)?.creditNote?.id;
-
-  if (cnId) {
-    await IxApi.v2.changeState.post({
-      body: { type: "credit_note", id: Number(cnId), state: "finalized" },
-      headers: ixHeaders,
+  let result;
+  try {
+    result = await dest.adapter.creditFullDocument(lookup.invoiceId, dest.ctx, {
+      reference,
+      matchReferences: cancelReferenceCandidates("stripe", stripeId),
+      reason: options.reason ?? null,
     });
+  } catch (e: any) {
+    return fail(String(e?.message ?? e));
   }
 
-  const summary = { invoice_id: lookup.invoiceId, credit_note_id: cnId, external_id: stripeId };
+  const summary = {
+    invoice_id: lookup.invoiceId,
+    credit_note_id: result.creditId,
+    external_id: stripeId,
+    destination: dest.destination,
+    ...(result.alreadyExisted ? { message: "Credit note already exists, skipped" } : {}),
+  };
   await appStorage.finishDevJob(jobId, "success", summary, [summary]);
 
   if (options.notify_emails && options.notify_emails.length > 0) {
     await sendDevModeEmail({
       recipients: options.notify_emails,
       subject: `Rioko Dev Mode — Stripe credit note ${stripeId}`,
-      body: `Credit note ${cnId} emitida para invoice ${lookup.invoiceId}.\nStripe id: ${stripeId}\nReason: ${options.reason ?? "—"}\nTriggered by: ${options.triggered_by ?? "—"}\nJob ID: ${jobId}`,
+      body: `Nota de crédito ${result.creditId} emitida para o documento ${lookup.invoiceId} (${dest.destination}).\nStripe id: ${stripeId}\nReason: ${options.reason ?? "—"}\nTriggered by: ${options.triggered_by ?? "—"}\nJob ID: ${jobId}`,
     });
   }
 
   return { job_id: jobId, status: "success", ...summary };
-}
-
-type DateStrategy = "today" | "closest_available";
-
-function parseIxDate(s: string | null | undefined): string | null {
-  if (!s) return null;
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return null;
-}
-
-function formatPtDate(isoYmd: string): string {
-  const [y, m, d] = isoYmd.split("-");
-  return `${d}/${m}/${y}`;
-}
-
-function todayUtcYmd(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-async function fetchSeriesLastFinalizedDate(
-  config: IRequestConfig,
-  docKind: "invoice" | "invoice_receipt",
-): Promise<string | null> {
-  try {
-    const account = config.ix_account_name;
-    const apiKey = config.ix_api_key;
-    if (!account || !apiKey) return null;
-    const path = docKind === "invoice_receipt" ? "invoice_receipts.json" : "invoices.json";
-    const url = `https://${account}.app.invoicexpress.com/${path}?api_key=${apiKey}&status%5B%5D=settled&status%5B%5D=final&order_by=date_desc&per_page=1`;
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!res.ok) return null;
-    const data = await res.json() as any;
-    const list = data?.invoices ?? data?.invoice_receipts ?? [];
-    if (!Array.isArray(list) || list.length === 0) return null;
-    return parseIxDate(list[0]?.date ?? null);
-  } catch {
-    return null;
-  }
 }
 
 export async function finalizeStripeDrafts(
@@ -573,7 +487,7 @@ export async function finalizeStripeDrafts(
     triggered_by?: string | null;
     reason?: string | null;
     notify_emails?: string[];
-    date_strategy?: DateStrategy;
+    date_strategy?: FinalizeDateStrategy;
     from_date?: string | null;
     to_date?: string | null;
   },
@@ -581,7 +495,7 @@ export async function finalizeStripeDrafts(
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined, config.user_id);
   const limit = Math.min(options.limit ?? 100, 500);
   const dryRun = !!options.dry_run;
-  const strategy: DateStrategy = options.date_strategy ?? "closest_available";
+  const strategy: FinalizeDateStrategy = options.date_strategy ?? "closest_available";
   const fromDate = options.from_date ?? null;
   const toDate = options.to_date ?? null;
   const jobId = crypto.randomUUID();
@@ -593,16 +507,20 @@ export async function finalizeStripeDrafts(
     reason: options.reason ?? null,
   });
 
-  const ixHeaders = {
-    "x-account-name": config.ix_account_name!,
-    "x-api-key": config.ix_api_key!,
-    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
-  };
-  const ixDocType = config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
-  const today = todayUtcYmd();
+  const results: Array<{ external_id: string; invoice_id: string; status: "finalized" | "dry_run" | "skipped" | "error"; message: string; original_date?: string; target_date?: string }> = [];
+
+  const dest = await resolveStripeDestination(env, config);
+  if (!dest.ok) {
+    await appStorage.finishDevJob(jobId, "error", { error: dest.error }, []);
+    return { job_id: jobId, total: 0, finalized: 0, skipped: 0, errors: 1, would_finalize: 0, dry_run: dryRun, date_strategy: strategy, results: [], error: dest.error };
+  }
+  if (!dest.adapter.finalizeWithDate) {
+    const error = `${dest.destination} has no draft dating to negotiate — nothing to finalize.`;
+    await appStorage.finishDevJob(jobId, "error", { error }, []);
+    return { job_id: jobId, total: 0, finalized: 0, skipped: 0, errors: 1, would_finalize: 0, dry_run: dryRun, date_strategy: strategy, results: [], error };
+  }
 
   let processed = await appStorage.listProcessedInvoicesByUser(config.user_id, "stripe", limit, "asc");
-
   if ((fromDate || toDate) && processed.length > 0) {
     processed = processed.filter(r => {
       const created = r.created_at ?? "";
@@ -612,121 +530,28 @@ export async function finalizeStripeDrafts(
     });
   }
 
-  const results: Array<{ external_id: string; invoice_id: string; status: "finalized" | "dry_run" | "skipped" | "error"; message: string; original_date?: string; target_date?: string }> = [];
-
-  const seriesLastFinalizedDate = strategy === "closest_available"
-    ? await fetchSeriesLastFinalizedDate(config, ixDocType)
-    : null;
-  let lastFinalizedDate: string | null = seriesLastFinalizedDate;
-
-  // The account's tax table, once, so a document rebuild can restore a line
-  // whose read-back carries a null rate instead of zeroing it.
-  const accountTaxes = await fetchAccountTaxes(ixHeaders);
+  // One batch for the whole run: the destination fetches its series baseline and
+  // tax table once, and advances the baseline as documents are certified.
+  const batch = dest.adapter.prepareFinalizeBatch
+    ? await dest.adapter.prepareFinalizeBatch(dest.ctx, { strategy })
+    : undefined;
 
   for (const row of processed) {
     try {
-      const { data: docData, error: docError } = await IxApi.v2.documents.byId.get({
-        headers: ixHeaders,
-        path: { id: Number(row.invoice_id) },
+      const outcome = await dest.adapter.finalizeWithDate(row.invoice_id, dest.ctx, {
+        strategy,
+        batch,
+        dryRun,
+        dateMovedNote: (originalDate) =>
+          `Fatura referente ao pagamento Stripe ${row.id} de ${formatPtDate(originalDate)}`,
       });
-      if (docError || !docData?.data) {
-        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "error", message: `Fetch failed: ${JSON.stringify(docError)}` });
-        continue;
-      }
-      const doc: any = docData.data;
-      const state = doc.status ?? doc.state;
-      if (state !== "draft") {
-        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Not draft (status=${state})` });
-        continue;
-      }
-
-      const originalDate = parseIxDate(doc.date);
-      if (!originalDate) {
-        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "error", message: `Could not parse draft date '${doc.date}'` });
-        continue;
-      }
-
-      let targetDate: string;
-      if (strategy === "today") {
-        targetDate = today;
-      } else {
-        targetDate = originalDate;
-        if (lastFinalizedDate && lastFinalizedDate > targetDate) targetDate = lastFinalizedDate;
-      }
-
-      const dateChanged = targetDate !== originalDate;
-      const appendNote = dateChanged
-        ? `Fatura referente ao pagamento Stripe ${row.id} de ${formatPtDate(originalDate)}`
-        : null;
-      const existingObs = typeof doc.observations === "string" ? doc.observations.trim() : "";
-      const newObservations = appendNote
-        ? (existingObs ? `${existingObs} | ${appendNote}` : appendNote).slice(0, 200)
-        : existingObs;
-
-      if (dryRun) {
-        results.push({
-          external_id: row.id,
-          invoice_id: row.invoice_id,
-          status: "dry_run",
-          message: dateChanged
-            ? `Would PUT date ${formatPtDate(originalDate)} → ${formatPtDate(targetDate)} and append observation, then finalize`
-            : `Would finalize as-is (${formatPtDate(originalDate)})`,
-          original_date: originalDate,
-          target_date: targetDate,
-        });
-        lastFinalizedDate = targetDate;
-        continue;
-      }
-
-      if (dateChanged) {
-        // Shared with the Shopify path on purpose: this used to be a copy of the
-        // rebuild that read a null line tax as 0% and renamed it "Isento", which
-        // would restate a taxed document as exempt just to move its date.
-        let putBody: any;
-        try {
-          putBody = buildIxDatePutBody(doc, ixDocType, targetDate, newObservations, {
-            accountTaxes,
-            exemptionReason: config.ix_exemption_reason ?? null,
-          });
-        } catch (e: any) {
-          results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "error", message: String(e?.message ?? e), original_date: originalDate, target_date: targetDate });
-          continue;
-        }
-
-        const { error: putError } = await IxApi.v2.documents.byId.put({
-          headers: ixHeaders,
-          path: { id: Number(row.invoice_id) },
-          body: putBody,
-        });
-        if (putError) {
-          results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "error", message: `PUT date failed: ${JSON.stringify(putError)}`, original_date: originalDate, target_date: targetDate });
-          continue;
-        }
-      }
-
-      const { error } = await IxApi.v2.changeState.post({
-        body: {
-          type: ixDocType,
-          id: Number(row.invoice_id),
-          state: "finalized",
-        },
-        headers: ixHeaders,
+      results.push({
+        external_id: row.id,
+        invoice_id: row.invoice_id,
+        status: outcome.status,
+        message: outcome.message,
+        ...("originalDate" in outcome ? { original_date: outcome.originalDate, target_date: outcome.date } : {}),
       });
-      if (error) {
-        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "error", message: JSON.stringify(error), original_date: originalDate, target_date: targetDate });
-      } else {
-        lastFinalizedDate = targetDate;
-        results.push({
-          external_id: row.id,
-          invoice_id: row.invoice_id,
-          status: "finalized",
-          message: dateChanged
-            ? `Finalized with date ${formatPtDate(targetDate)} (original ${formatPtDate(originalDate)})`
-            : `Finalized as-is (${formatPtDate(targetDate)})`,
-          original_date: originalDate,
-          target_date: targetDate,
-        });
-      }
     } catch (e) {
       results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "error", message: String(e) });
     }

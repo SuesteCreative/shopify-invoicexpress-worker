@@ -566,6 +566,17 @@ function addrFromStripe(addr: any, name?: string, phone?: string) {
 export class StripeSource implements SourceAdapter {
   readonly kind = "stripe" as const;
 
+  // Payments are addressable by `pi_`/`ch_`/`cs_`/`in_` id and listable by
+  // created-date, and `amount` is the paid total. There are no order numbers,
+  // and the event that creates the document IS the payment.
+  readonly capabilities = {
+    resolveById: true,
+    listCandidates: true,
+    orderNumberFilter: false,
+    paidTotals: true,
+    emitsSeparatePaidEvent: false,
+  } as const;
+
   async verifyWebhook(rawBody: string, signature: string, secret: string): Promise<boolean> {
     return verifyStripeSignature(rawBody, signature, secret);
   }

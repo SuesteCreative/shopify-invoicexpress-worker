@@ -32,6 +32,17 @@ import type { Normalized } from "../../api/normalize-shopify";
 export class EuPagoSource implements SourceAdapter {
   readonly kind = "eupago" as const;
 
+  // EuPago is webhook-in only: there is no read API wired here, which is also
+  // why reconciliation reports no source orders for it. Recovery is therefore
+  // unavailable — false here is what keeps the dev-mode panel honest about it.
+  readonly capabilities = {
+    resolveById: false,
+    listCandidates: false,
+    orderNumberFilter: false,
+    paidTotals: false,
+    emitsSeparatePaidEvent: false,
+  } as const;
+
   async verifyWebhook(rawBody: string, signatureHeader: string, secret: string): Promise<boolean> {
     if (!signatureHeader || !secret) return false;
 

@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import type { QueueMessage, StripeQueueMessage, StripeCanonicalTopic, WebhookTopic } from "./handlers/types";
 import { Context, Hono } from "hono";
 import { AppStorage } from "./storage";
+import type { SourceKind } from "./storage";
 import { verifyShopifyWebhook } from "./shopify";
 import { getSourceAdapter, getDestinationAdapter } from "./adapters/registry";
 import type { AdapterCtx, DestinationKind } from "./adapters/types";
@@ -37,6 +38,15 @@ import {
 } from "./handlers/reconciliation";
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
+import { saleReference, partialSaleReference } from "./services/document-references";
+import { resolveConnectionContext } from "./services/connection-context";
+import { toPreloadedFromItem, firstStr, ymd } from "./services/lodgify-booking";
+import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
+import {
+  connectionCapabilities, backfillConnection, reemitConnection,
+  deleteConnectionDraft, creditConnectionDocument, finalizeConnectionDrafts,
+} from "./handlers/admin-connection";
+import type { FinalizeDateStrategy } from "./adapters/types";
 import { delay } from "./utils";
 import { errorResponse, requireAdminAuth } from "./security";
 import {
@@ -1232,23 +1242,28 @@ app.get("/admin/logs", async (c) => {
   if (unauth) return unauth;
 
   const shop = c.req.query("shop");
+  const userId = c.req.query("user_id");
   const type = (c.req.query("type") ?? "jobs") as "errors" | "webhooks" | "jobs" | "all";
   const limit = Math.min(parseInt(c.req.query("limit") ?? "100", 10) || 100, 500);
 
-  if (!shop) return c.json({ error: "Missing required query param: shop" }, 400);
+  // `shop` stays the primary key so every existing caller behaves byte-for-byte
+  // as before. `user_id` is the connection-based equivalent: rows for a Stripe or
+  // Lodgify merchant carry a user_id and a NULL shopify_domain, so the shop-keyed
+  // queries can never see them.
+  if (!shop && !userId) return c.json({ error: "Missing required query param: shop or user_id" }, 400);
 
-  const appStorage = new AppStorage(c.env, shop);
+  const appStorage = new AppStorage(c.env, shop ?? null, userId ?? undefined);
   try {
-    if (type === "errors") {
-      return c.json({ entries: await appStorage.getLogs(limit, "errors") });
+    if (shop) {
+      if (type === "errors") return c.json({ entries: await appStorage.getLogs(limit, "errors") });
+      if (type === "all") return c.json({ entries: await appStorage.getLogs(limit, "all") });
+      if (type === "webhooks") return c.json({ entries: await appStorage.getWebhookEvents(limit) });
+      return c.json({ entries: await appStorage.getDevJobs(limit) });
     }
-    if (type === "all") {
-      return c.json({ entries: await appStorage.getLogs(limit, "all") });
-    }
-    if (type === "webhooks") {
-      return c.json({ entries: await appStorage.getWebhookEvents(limit) });
-    }
-    return c.json({ entries: await appStorage.getDevJobs(limit) });
+    if (type === "errors") return c.json({ entries: await appStorage.getLogsByUser(userId!, limit, "errors") });
+    if (type === "all") return c.json({ entries: await appStorage.getLogsByUser(userId!, limit, "all") });
+    if (type === "webhooks") return c.json({ entries: await appStorage.getWebhookEventsByUser(userId!, limit) });
+    return c.json({ entries: await appStorage.getDevJobsByUser(userId!, limit) });
   } catch (e) {
     return errorResponse(c, e, "Failed to fetch logs");
   }
@@ -1260,10 +1275,12 @@ app.get("/admin/jobs/:id", async (c) => {
   if (unauth) return unauth;
 
   const shop = c.req.query("shop");
+  const userId = c.req.query("user_id");
   const id = c.req.param("id");
-  if (!shop) return c.json({ error: "Missing shop" }, 400);
+  if (!shop && !userId) return c.json({ error: "Missing shop or user_id" }, 400);
 
-  const appStorage = new AppStorage(c.env, shop);
+  // getDevJob already scopes by shopDomain, then user_id, then bare id.
+  const appStorage = new AppStorage(c.env, shop ?? null, userId ?? undefined);
   const job = await appStorage.getDevJob(id);
   if (!job) return c.json({ error: "Not found" }, 404);
   return c.json(job);
@@ -1333,14 +1350,195 @@ app.post("/admin/issue-credit-note", async (c) => {
 })
 
 // ────────────────────────────────────────────────────────────────────────────
-// Admin: Stripe Dev Mode parity. Stripe-only users have no shopify_domain, so
-// these routes key off `user_id` and resolve the IRequestConfig via
-// AppStorage.loadConfigByUser instead of the shop-keyed loadConfig().
+// Admin: the generic recovery surface. One set of routes for every
+// (source × destination) connection, keyed on `user_id` plus an optional
+// source/destination discriminator.
+//
+// The per-source routes below (/admin/process-orders, /admin/stripe/*, …) stay
+// exactly as they are: they have script and ops callers, and a recovery tool is
+// the wrong thing to break while proving its replacement.
 // ────────────────────────────────────────────────────────────────────────────
 
+interface ConnectionRouteBody {
+  user_id?: string;
+  source?: SourceKind;
+  destination?: DestinationKind;
+  external_id?: string;
+  from?: string;
+  to?: string;
+  dry_run?: boolean;
+  limit?: number;
+  force?: boolean;
+  reason?: string;
+  triggered_by?: string;
+  notify_emails?: string[];
+  date_strategy?: FinalizeDateStrategy;
+  from_date?: string;
+  to_date?: string;
+  from_order_number?: number;
+  to_order_number?: number;
+}
+
+/**
+ * Resolve the connection a request means, refusing to guess.
+ *
+ * With several active connections and no discriminator we answer 409 with the
+ * list rather than picking one: issuing a document to the wrong destination is
+ * not an error you can undo by pressing the button again.
+ */
+async function resolveRouteConnection(c: Context<{ Bindings: Env }>, body: ConnectionRouteBody) {
+  if (!body.user_id) return { error: c.json({ error: "Missing user_id" }, 400) };
+
+  const resolved = await resolveConnectionContext(c.env, {
+    userId: body.user_id, source: body.source, destination: body.destination,
+  });
+  if (resolved.ok) return { ctx: resolved.ctx };
+
+  if (resolved.error === "ambiguous") {
+    return {
+      error: c.json({
+        error: "Several active connections — say which one with source + destination.",
+        options: resolved.options,
+      }, 409),
+    };
+  }
+  return { error: c.json({ error: `No active connection for user ${body.user_id}` }, 404) };
+}
+
+app.get("/admin/connection/capabilities", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "Missing user_id" }, 400);
+  try {
+    return c.json(await connectionCapabilities(c.env, userId));
+  } catch (e) {
+    return errorResponse(c, e, "Failed to read connection capabilities");
+  }
+})
+
+app.post("/admin/connection/backfill", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<ConnectionRouteBody>();
+  const resolved = await resolveRouteConnection(c, body);
+  if ("error" in resolved) return resolved.error;
+  if (!body.from || !body.to) return c.json({ error: "Missing from/to" }, 400);
+  try {
+    return c.json(await backfillConnection(c.env, resolved.ctx, {
+      from: body.from, to: body.to,
+      dry_run: body.dry_run, limit: body.limit,
+      reason: body.reason ?? null, triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    }));
+  } catch (e) {
+    return errorResponse(c, e, "Backfill failed");
+  }
+})
+
+app.post("/admin/connection/reemit", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<ConnectionRouteBody>();
+  const resolved = await resolveRouteConnection(c, body);
+  if ("error" in resolved) return resolved.error;
+  if (!body.external_id) return c.json({ error: "Missing external_id" }, 400);
+  try {
+    const result = await reemitConnection(c.env, resolved.ctx, body.external_id, {
+      force: body.force,
+      reason: body.reason ?? null, triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    });
+    // 422 for "we understood you and could not do it", matching the legacy
+    // re-emit route the conciliação page already handles.
+    return c.json(result, result.status === "error" ? 422 : 200);
+  } catch (e) {
+    return errorResponse(c, e, "Re-emit failed");
+  }
+})
+
+app.post("/admin/connection/delete-draft", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<ConnectionRouteBody>();
+  const resolved = await resolveRouteConnection(c, body);
+  if ("error" in resolved) return resolved.error;
+  if (!body.external_id) return c.json({ error: "Missing external_id" }, 400);
+  // Deleting a document is not undoable by pressing the button again.
+  if (!body.reason) return c.json({ error: "Missing reason — say why this draft is being deleted" }, 400);
+  try {
+    const result = await deleteConnectionDraft(c.env, resolved.ctx, body.external_id, {
+      reason: body.reason, triggered_by: body.triggered_by ?? null, notify_emails: body.notify_emails,
+    });
+    return c.json(result, result.status === "error" ? 422 : 200);
+  } catch (e) {
+    return errorResponse(c, e, "Delete draft failed");
+  }
+})
+
+app.post("/admin/connection/issue-credit-note", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<ConnectionRouteBody>();
+  const resolved = await resolveRouteConnection(c, body);
+  if ("error" in resolved) return resolved.error;
+  if (!body.external_id) return c.json({ error: "Missing external_id" }, 400);
+  // A credit note is a fiscal document. It gets a reason.
+  if (!body.reason) return c.json({ error: "Missing reason — say why this document is being credited" }, 400);
+  try {
+    const result = await creditConnectionDocument(c.env, resolved.ctx, body.external_id, {
+      reason: body.reason, dry_run: body.dry_run,
+      triggered_by: body.triggered_by ?? null, notify_emails: body.notify_emails,
+    });
+    return c.json(result, result.status === "error" ? 422 : 200);
+  } catch (e) {
+    return errorResponse(c, e, "Credit note failed");
+  }
+})
+
+app.post("/admin/connection/finalize-drafts", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<ConnectionRouteBody>();
+  const resolved = await resolveRouteConnection(c, body);
+  if ("error" in resolved) return resolved.error;
+  try {
+    return c.json(await finalizeConnectionDrafts(c.env, resolved.ctx, {
+      dry_run: body.dry_run, limit: body.limit,
+      date_strategy: body.date_strategy,
+      from_date: body.from_date ?? null, to_date: body.to_date ?? null,
+      from_order_number: body.from_order_number ?? null, to_order_number: body.to_order_number ?? null,
+      reason: body.reason ?? null, triggered_by: body.triggered_by ?? null,
+      notify_emails: body.notify_emails,
+    }));
+  } catch (e) {
+    return errorResponse(c, e, "Finalize drafts failed");
+  }
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// Admin: Stripe Dev Mode parity. Stripe-only users have no shopify_domain, so
+// these routes key off `user_id`.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The config for a user's Stripe connection.
+ *
+ * This used to be a bare `SELECT * FROM integrations WHERE user_id = ?`, which
+ * returns nothing for a client who never came in through Shopify→IX. Four of the
+ * five Stripe recovery routes then 404'd with "No integrations row found" for
+ * precisely the Moloni-only clients they exist to serve. Resolving through the
+ * shared connection context synthesizes the missing legacy row and projects the
+ * connection's own auto_finalize/send_email onto it.
+ *
+ * `pick_latest` mirrors the LIMIT 1 the Stripe handlers already use when a user
+ * somehow has more than one Stripe connection.
+ */
 async function loadConfigForUser(c: Context<{ Bindings: Env }>, userId: string) {
-  const storage = new AppStorage(c.env, undefined, userId);
-  return storage.loadConfigByUser(userId);
+  const resolved = await resolveConnectionContext(c.env, {
+    userId, source: "stripe", onAmbiguous: "pick_latest",
+  });
+  return resolved.ok ? resolved.ctx.config : null;
 }
 
 app.post("/admin/stripe/backfill", async (c) => {
@@ -1358,7 +1556,7 @@ app.post("/admin/stripe/backfill", async (c) => {
   }>();
   if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
   const config = await loadConfigForUser(c, body.user_id);
-  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  if (!config) return c.json({ error: `No Stripe connection found for user ${body.user_id}` }, 404);
   try {
     const result = await processStripeBackfill(c.env, config, {
       from: body.from,
@@ -1439,11 +1637,10 @@ app.post("/admin/stripe/reemit", async (c) => {
     notify_emails?: string[];
   }>();
   if (!body.user_id || !body.stripe_id) return c.json({ error: "Missing user_id or stripe_id" }, 400);
-  // Moloni/Vendus-only Stripe clients have no legacy integrations row — synth a
-  // minimal config (reemitStripeOrder resolves destination + auto_finalize from
-  // the connection itself). Mirrors processStripeBatch's fallback.
-  const config = (await loadConfigForUser(c, body.user_id))
-    ?? ({ user_id: body.user_id, shopify_domain: null, b2b_reverse_charge: 0, ix_send_email: 0, auto_finalize: 0 } as any);
+  // The synth-a-minimal-config fallback that used to live here now lives in
+  // loadConfigForUser, so every Stripe route gets it, not just this one.
+  const config = await loadConfigForUser(c, body.user_id);
+  if (!config) return c.json({ error: `No Stripe connection found for user ${body.user_id}` }, 404);
   try {
     const result = await reemitStripeOrder(c.env, config, body.stripe_id, {
       force: body.force,
@@ -1469,7 +1666,7 @@ app.post("/admin/stripe/delete-draft", async (c) => {
   }>();
   if (!body.user_id || !body.stripe_id) return c.json({ error: "Missing user_id or stripe_id" }, 400);
   const config = await loadConfigForUser(c, body.user_id);
-  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  if (!config) return c.json({ error: `No Stripe connection found for user ${body.user_id}` }, 404);
   try {
     const result = await deleteStripeDraft(c.env, config, body.stripe_id, {
       reason: body.reason ?? null,
@@ -1494,7 +1691,7 @@ app.post("/admin/stripe/issue-credit-note", async (c) => {
   }>();
   if (!body.user_id || !body.stripe_id) return c.json({ error: "Missing user_id or stripe_id" }, 400);
   const config = await loadConfigForUser(c, body.user_id);
-  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  if (!config) return c.json({ error: `No Stripe connection found for user ${body.user_id}` }, 404);
   try {
     const result = await issueStripeCreditNote(c.env, config, body.stripe_id, {
       reason: body.reason ?? null,
@@ -1523,7 +1720,7 @@ app.post("/admin/stripe/finalize-drafts", async (c) => {
   }>();
   if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
   const config = await loadConfigForUser(c, body.user_id);
-  if (!config) return c.json({ error: `No integrations row found for user ${body.user_id}` }, 404);
+  if (!config) return c.json({ error: `No Stripe connection found for user ${body.user_id}` }, 404);
   try {
     const result = await finalizeStripeDrafts(c.env, config, {
       dry_run: body.dry_run,
@@ -2251,21 +2448,6 @@ const LODGIFY_API = "https://api.lodgify.com";
 
 // First non-empty trimmed string among vals, or null. Used to pull the guest
 // comment (where the NIF is typed) out of whichever field Lodgify carries it in.
-function firstStr(...vals: unknown[]): string | null {
-  for (const v of vals) {
-    if (v == null) continue;
-    const s = String(v).trim();
-    if (s.length > 0) return s;
-  }
-  return null;
-}
-
-function ymd(input: unknown): string {
-  const s = String(input ?? "");
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : "";
-}
-
 // Normalize a v1 `/v1/reservation` item to the v2-shaped fields the poll, the
 // invoice gate (bookingAmountDue) and the D1 mirror (upsertLodgifyBookings) were
 // written against. The v1 list is the COMPLETE booking set (see
@@ -2357,35 +2539,6 @@ async function listLodgifyBookings(apiKey: string): Promise<any[]> {
   return out;
 }
 
-// Map a v2 booking list item into the shape LodgifySource reads from
-// `_preloaded_booking`.
-function toPreloadedFromItem(item: any): Record<string, unknown> {
-  return {
-    status: item?.status,
-    total: firstNum(item?.total_amount, item?.total) ?? 0,
-    currency_code: item?.currency_code ?? "EUR",
-    guest: {
-      name: item?.guest?.name ?? item?.guest?.guest_name?.full_name ?? null,
-      email: item?.guest?.email ?? null,
-      country_code: item?.guest?.country_code ?? null,
-      phone: item?.guest?.phone ?? item?.guest?.phone_number ?? null,
-    },
-    arrival: ymd(item?.arrival ?? item?.date_arrival),
-    departure: ymd(item?.departure ?? item?.date_departure),
-    property_id: item?.property_id ?? null,
-    source: item?.source ?? null,
-    room_type_id: item?.rooms?.[0]?.room_type_id ?? item?.room_types?.[0]?.room_type_id ?? null,
-    // Guest comment (the booking-form "Comentários" box where guests type their
-    // NIF). `note` is the only free-text guest field the Lodgify booking object
-    // exposes (verified against live payloads); the rest are future-proofing.
-    // NOT source_text — that is the channel label ("Direto", "*.lodgify.com").
-    notes: firstStr(
-      item?.note, item?.notes, item?.comment, item?.message,
-      item?.guest?.comment, item?.guest?.notes, item?.guest?.message,
-    ),
-  };
-}
-
 // Emit one instalment (partial) invoice for a booking via the destination
 // adapter, billing only `deltaAmount` under a distinct reference "Order #N-seq"
 // and a "parcela" note. Respects tag-routing (series/doc-type) the same way the
@@ -2405,11 +2558,11 @@ async function emitLodgifyPartialInvoice(env: Env, o: {
   totalAmount: number;
 }): Promise<string> {
   const orderNum = Number(String(o.bookingId).replace(/\D/g, "").slice(-12)) || 0;
-  const reference = `Order #${orderNum}-${o.seq}`;
+  const reference = partialSaleReference(orderNum, o.seq);
   const pct = o.totalAmount > 0 ? Math.round((o.deltaAmount / o.totalAmount) * 100) : 0;
   const note = o.seq > 1
-    ? `Parcela ${o.seq} — ${pct}% da reserva LOD-${o.bookingId} (ref. Order #${orderNum}; 1ª parcela: Order #${orderNum}-1)`
-    : `Parcela ${o.seq} — ${pct}% da reserva LOD-${o.bookingId} (ref. Order #${orderNum})`;
+    ? `Parcela ${o.seq} — ${pct}% da reserva LOD-${o.bookingId} (ref. ${saleReference(orderNum)}; 1ª parcela: ${partialSaleReference(orderNum, 1)})`
+    : `Parcela ${o.seq} — ${pct}% da reserva LOD-${o.bookingId} (ref. ${saleReference(orderNum)})`;
 
   const sourceAdapter = getSourceAdapter("lodgify");
   const destAdapter = getDestinationAdapter(o.destination);
@@ -2510,81 +2663,6 @@ async function reverseCancelledLodgifyBooking(env: Env, o: {
   return true;
 }
 
-interface TakeBackResult {
-  /** Everything we had on record for this booking. */
-  invoiceIds: string[];
-  /** Gone from the destination (or already absent). */
-  deleted: string[];
-  /** Fiscally locked — left standing, needs a credit note by hand. */
-  finalized: string[];
-}
-
-/**
- * Remove the documents recorded for one booking from the destination, and then
- * forget them, so the booking is back to "never billed".
- *
- * Shared by the cancellation path and by `/admin/lodgify/unbill-premature`,
- * which cleans up documents issued under the old settlement rule. Both need the
- * exact same care, and it is not the kind of code to have two copies of.
- *
- * Our records are only cleared when EVERY document is gone: a booking still
- * carrying a finalized document must keep its rows, or the next poll would see
- * "no invoice" and cheerfully issue a second one.
- */
-async function takeBackLodgifyDocuments(env: Env, o: {
-  userId: string;
-  bookingId: string;
-  destination: DestinationKind;
-  config: any;
-  sourceCfg: Record<string, any>;
-  destinationConfig: Record<string, any> | undefined;
-  dryRun: boolean;
-}): Promise<TakeBackResult> {
-  const appStorage = new AppStorage(env, null, o.userId);
-
-  // Both billing paths keep their own record of what was issued.
-  const partials = await appStorage.getPartialInvoices(o.userId, o.bookingId);
-  const standard = await appStorage.getInvoiceByOrderId(o.bookingId);
-  const invoiceIds = [
-    ...partials.map((p) => p.invoice_id).filter((id): id is string => !!id),
-    ...(standard?.invoice_id ? [standard.invoice_id] : []),
-  ];
-  const empty: TakeBackResult = { invoiceIds, deleted: [], finalized: [] };
-  if (invoiceIds.length === 0) return empty;
-
-  const destAdapter = getDestinationAdapter(o.destination);
-  if (!destAdapter.deleteDraft) {
-    console.warn(`[Lodgify] ${o.destination} cannot delete drafts — booking ${o.bookingId} left as-is`);
-    return empty;
-  }
-  if (o.dryRun) return empty;
-
-  const ctx: AdapterCtx = {
-    apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
-    config: o.config,
-    sourceConfig: o.sourceCfg,
-    destinationConfig: o.destinationConfig,
-  };
-
-  const deleted: string[] = [];
-  const finalized: string[] = [];
-  for (const invoiceId of invoiceIds) {
-    try {
-      const outcome = await destAdapter.deleteDraft(invoiceId, ctx);
-      if (outcome === "finalized") finalized.push(invoiceId);
-      else deleted.push(invoiceId); // "deleted" and "already_gone" both end here
-    } catch (e: any) {
-      console.error(`[Lodgify] taking back ${invoiceId} for booking ${o.bookingId} failed: ${e?.message ?? e}`);
-      finalized.push(invoiceId); // unknown state — escalate rather than forget
-    }
-  }
-
-  if (finalized.length === 0) {
-    await appStorage.deletePartialInvoices(o.userId, o.bookingId);
-    await appStorage.resetWebhookInfo(o.bookingId, "lodgify/created");
-  }
-  return { invoiceIds, deleted, finalized };
-}
 
 interface LodgifyPollResult {
   connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;
@@ -2834,7 +2912,7 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
             bookingItem: item, bookingId, seq, deltaAmount: delta, totalAmount: total,
           });
           const orderNum = Number(String(bookingId).replace(/\D/g, "").slice(-12)) || 0;
-          await appStorage.upsertPartialInvoice(conn.user_id, bookingId, seq, invoiceId, delta, `Order #${orderNum}-${seq}`);
+          await appStorage.upsertPartialInvoice(conn.user_id, bookingId, seq, invoiceId, delta, partialSaleReference(orderNum, seq));
           result.invoiced++;
         } catch (e: any) {
           const msg = String(e?.message ?? e);

@@ -6,12 +6,12 @@ import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
-import { loadProductMappings } from "../services/product-mappings";
-import { loadProductOverrides } from "../services/product-overrides";
-import { loadTagRoutingRules, matchTagRouting, normalizeRule, applyTagRoute, parseStoredRoute, type NormalizedRoute } from "../services/tag-routing";
-import { makeViesChecker } from "../ix/vies";
+import { matchTagRouting, normalizeRule, applyTagRoute, parseStoredRoute, type NormalizedRoute } from "../services/tag-routing";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
+import { saleReference, refundReference } from "../services/document-references";
+import { buildAdapterCtx } from "../services/adapter-ctx";
+import { connectionLabelOf } from "../services/connection-context";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
@@ -30,6 +30,15 @@ export interface RunPipelineInput {
   // Optional parsed `connections.destination_config_json`. Moloni/Vendus pull
   // their credentials from here. IX still reads from `config` (legacy row).
   destinationConfig?: Record<string, any>;
+  /**
+   * Skip the "does the destination already hold this reference?" guard.
+   *
+   * Set only by a forced re-emit, where a document under that reference is
+   * exactly what the operator is replacing and the guard would refuse the very
+   * work they asked for. The processed_orders dedup still applies unless the
+   * caller cleared that too.
+   */
+  skipReferenceCheck?: boolean;
 }
 
 /**
@@ -135,38 +144,22 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   const sourceAdapter = getSourceAdapter(source);
   const destAdapter = getDestinationAdapter(destination);
   const externalId = sourceAdapter.externalId(body);
-  const appStorage = new AppStorage(env, config.shopify_domain ?? undefined);
+  // BOTH keys, always. Passing only the shop domain leaves every row this
+  // pipeline writes for a connection-based source (Stripe, Lodgify, EuPago)
+  // owned by nobody: they have no shopify_domain by nature, so the row lands
+  // with both scope columns NULL. `processed_orders`, `logs` and `webhook_info`
+  // were all affected, which is why listProcessedInvoicesByUser found nothing
+  // for a Moloni-only client and finalize-drafts reported zero drafts on a
+  // merchant that had them.
+  const appStorage = new AppStorage(env, config.shopify_domain ?? undefined, config.user_id);
 
-  // Pre-fetch explicit product mappings (Moloni) + per-SKU overrides (IX) +
-  // tag routing rules (IX). All are one D1 round-trip with empty fallbacks.
-  const [productMappings, productOverrides, tagRoutingRules] = await Promise.all([
-    destination === "moloni" && config.user_id
-      ? loadProductMappings(env, config.user_id, source)
-      : Promise.resolve(undefined),
-    destination === "invoicexpress" && config.user_id
-      ? loadProductOverrides(env, config.user_id, source, destination)
-      : Promise.resolve(undefined),
-    (destination === "invoicexpress" || destination === "moloni") && config.user_id
-      ? loadTagRoutingRules(env, config.user_id, source, destination)
-      : Promise.resolve([]),
-  ]);
-
-  // Build VIES checker once per pipeline run when reverse-charge is enabled.
-  // Without this, B2B EU customers with valid VAT IDs would get B2C invoices
-  // on the adapter path (legacy handlers already pass viesChecker themselves).
-  const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
-
-  const ctx = {
-    apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
-    config,
+  const { ctx, tagRoutingRules } = await buildAdapterCtx(env, {
+    config, source, destination,
     sourceConfig: input.sourceConfig,
     destinationConfig: input.destinationConfig,
-    productMappings,
-    productOverrides,
-    viesChecker,
-  };
+  });
   const logTopic = `${source}/${topic}`;
-  const connectionLabel = `${source} → ${destination}`;
+  const connectionLabel = connectionLabelOf(source, destination);
 
   // 1a. Pause switch — merchant-controlled kill switch, runs before the
   // subscription gate so paused integrations short-circuit even for paying users.
@@ -305,18 +298,29 @@ async function runPipelineCore(
         return;
       }
 
-      // Defense in depth: check destination for existing reference
-      if (destAdapter.findByReference) {
-        const ref = `Order #${body?.order_number ?? externalId}`;
+      const normalized = await sourceAdapter.toNormalized(body, ctx);
+      if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
+
+      // Defense in depth: does the destination already hold this sale?
+      //
+      // This runs AFTER normalize on purpose. It used to build the reference from
+      // `body.order_number`, a raw-Shopify field that is undefined for Stripe,
+      // Lodgify and EuPago — so those sources looked for "Order #pi_3Tp…" while
+      // the document had actually been written as "Order #<numeric>", and the
+      // check has never once matched for them. The reference has to be the one
+      // the destination would write, and only `normalized` knows it.
+      //
+      // Skipped on a forced re-emit, where the operator's whole intent is to
+      // replace a document that does exist (mirrors adminCreateOrder's
+      // skipIxReferenceCheck).
+      if (destAdapter.findByReference && !input.skipReferenceCheck) {
+        const ref = normalized.order.invoice_reference ?? saleReference(normalized.order.order_number);
         const found = await destAdapter.findByReference(ref, ctx);
         if (found) {
           await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: externalId, response: "Already exists at destination", status: 401 });
           return;
         }
       }
-
-      const normalized = await sourceAdapter.toNormalized(body, ctx);
-      if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
 
       // Tag routing: override the destination's document type, series and
       // draft-vs-finalize when the order carries a tag matching a
@@ -441,7 +445,12 @@ async function runPipelineCore(
       // has auto_finalize on, finalize (and optionally email) in the same flow.
       // Shopify's separate orders/paid webhook is unaffected. A held document
       // is never finalized or emailed here — that is the whole point of the hold.
-      const finalizeInSameFlow = source !== "shopify" && ctx.config.auto_finalize === 1 && !holdReason;
+      //
+      // Read off the source's declared capability rather than comparing against
+      // the string "shopify", so the next source states its own semantics
+      // instead of inheriting whatever this comparison happens to imply.
+      const finalizeInSameFlow = !sourceAdapter.capabilities.emitsSeparatePaidEvent
+        && ctx.config.auto_finalize === 1 && !holdReason;
       let response = holdReason ? `Created (draft — ${holdReason})` : "Created";
       if (finalizeInSameFlow) {
         await destAdapter.finalize(invoiceId, ctx);
@@ -535,7 +544,7 @@ async function runPipelineCore(
       let issuedCount = 0;
       let skippedCount = 0;
       for (const credit of normalized.credits) {
-        const reference = `OrderRefund #${credit.refund_id}`;
+        const reference = refundReference(credit.refund_id);
         if (destAdapter.findByReference) {
           const existing = await destAdapter.findByReference(reference, ctx);
           if (existing) {

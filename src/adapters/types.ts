@@ -40,8 +40,33 @@ export interface WebhookVerification {
   rawBody: string;
 }
 
+/**
+ * What a source can answer for the admin recovery tools, declared rather than
+ * inferred. The dev-mode panel has to decide which cards to render — and which
+ * filters those cards offer — BEFORE it issues any request, so "does this source
+ * have order numbers?" cannot be a `typeof adapter.x === "function"` guess made
+ * at the call site.
+ */
+export interface SourceCapabilities {
+  /** An operator can name a single record (an order number, a `pi_…`, a booking id). */
+  resolveById: boolean;
+  /** The source can enumerate billable records over a date window (backfill). */
+  listCandidates: boolean;
+  /** Records carry a human order number, so range filters by number make sense.
+   *  False for Stripe (there is no such thing) and Lodgify. */
+  orderNumberFilter: boolean;
+  /** The source can report what the buyer actually paid, so finalize can refuse
+   *  to certify a document whose total drifted from the payment. */
+  paidTotals: boolean;
+  /** The source delivers payment as a SEPARATE later event (Shopify orders/paid),
+   *  so the create flow must not finalize inline. False for Stripe/EuPago/Lodgify,
+   *  where the event that creates the document IS the payment. */
+  emitsSeparatePaidEvent: boolean;
+}
+
 export interface SourceAdapter {
   readonly kind: SourceKind;
+  readonly capabilities: SourceCapabilities;
   verifyWebhook(rawBody: string, signature: string, secret: string): Promise<boolean>;
   externalId(parsedBody: any): string;
   toNormalized(parsedBody: any, ctx: AdapterCtx): Promise<Normalized | null>;
@@ -70,8 +95,100 @@ export interface DestinationCreditResult {
   creditId: string;
 }
 
+/**
+ * Which fiscal operations this destination can perform. Declared, not inferred:
+ * the admin panel renders its cards off this, and an absent method is otherwise
+ * indistinguishable from "not written yet" — which is exactly how the Lodgify
+ * take-back path came to be a silent no-op on InvoiceXpress.
+ */
+export interface DestinationCapabilities {
+  /** The destination has a draft state at all. Vendus issues on POST: false. */
+  drafts: boolean;
+  deleteDraft: boolean;
+  creditFullDocument: boolean;
+  /** finalize can move the document's date to satisfy a series chronology rule.
+   *  InvoiceXpress only — Moloni fixes the date at insert and never rejects. */
+  finalizeWithDate: boolean;
+  emailDocument: boolean;
+  /** The document's state/total/date can be read back. */
+  readDocument: boolean;
+}
+
+/**
+ * `canceled` is deliberately its own state and not a flavour of `finalized`.
+ *
+ * InvoiceXpress documents move through draft → final/settled → canceled, and a
+ * canceled document is neither deletable (it is not a draft) nor creditable (it
+ * has already been undone). Folding it into `finalized` makes "apagar rascunho"
+ * answer "issue a credit note instead" and lets a credit note be issued against
+ * a document that was already voided.
+ */
+export type DocumentState = "draft" | "finalized" | "canceled" | "deleted";
+
+/** A document as the destination currently holds it. */
+export interface DestinationDocument {
+  id: string;
+  state: DocumentState;
+  /** YYYY-MM-DD as stored at the destination, or null if unparseable. */
+  date: string | null;
+  /** Gross total the destination holds. Null when unreadable. */
+  total: number | null;
+  reference: string | null;
+  /** Human document number once finalized ("FT 2026/12"); null while draft. */
+  number: string | null;
+  permalink: string | null;
+  /** Native payload, for destination-internal code that needs the full record. */
+  raw: unknown;
+}
+
+export interface CreditFullResult {
+  creditId: string;
+  number: string | null;
+  /** Idempotency hit: the reference already existed, nothing new was issued. */
+  alreadyExisted: boolean;
+  /** dryRun only: the payload that WOULD have been posted. No document created. */
+  preview?: unknown;
+}
+
+/**
+ * Which date a draft should carry when it is certified.
+ *
+ * - `closest_available` keep the draft's own date — the day the sale happened —
+ *                       and move it forward ONLY as far as the series rule
+ *                       forces (InvoiceXpress refuses a document dated behind
+ *                       the last finalized one in its series). Never silently
+ *                       clamps to today: an operator who wants today asks for
+ *                       `today`.
+ * - `series_or_today`   the same, then today as a last resort if IX still
+ *                       refuses. For per-document recovery, where leaving the
+ *                       draft un-certifiable is worse than a late date.
+ * - `today`             stamp today.
+ *
+ * The difference between the first two is deliberate and load-bearing: a bulk
+ * run must not quietly restamp a backlog to today, while a single stuck document
+ * an operator is trying to rescue should take the late date over staying stuck.
+ */
+export type FinalizeDateStrategy = "closest_available" | "series_or_today" | "today";
+
+export type FinalizeOutcome =
+  | { status: "finalized"; date: string; originalDate: string; message: string }
+  | { status: "skipped"; message: string }
+  | { status: "error"; message: string }
+  | { status: "dry_run"; date: string; originalDate: string; message: string };
+
+/**
+ * Per-run state a destination needs across rows of one finalize batch — the IX
+ * account tax table and the running last-finalized-date baseline. Opaque to
+ * callers on purpose: keeping it inside the destination is what stops an
+ * InvoiceXpress-shaped object from leaking into the generic engine's signature.
+ */
+export interface FinalizeBatch {
+  readonly kind: DestinationKind;
+}
+
 export interface DestinationAdapter {
   readonly kind: DestinationKind;
+  readonly capabilities: DestinationCapabilities;
   createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult>;
   finalize(invoiceId: string, ctx: AdapterCtx): Promise<void>;
   issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult>;
@@ -84,4 +201,59 @@ export interface DestinationAdapter {
    *  away (e.g. a cancelled booking). Must refuse a finalized document — that
    *  one is fiscally locked and can only be undone with a credit note. */
   deleteDraft?(invoiceId: string, ctx: AdapterCtx): Promise<"deleted" | "already_gone" | "finalized">;
+
+  /** Read a document back. Returns null when the id resolves nowhere.
+   *  Returns the whole record rather than just the state because every caller
+   *  needs the state AND one more field in the same breath, and a second round
+   *  trip on a flaky proxy is exactly what the admin handlers were fighting. */
+  getDocument?(invoiceId: string, ctx: AdapterCtx): Promise<DestinationDocument | null>;
+
+  /**
+   * Mirror a finalized document's OWN lines back as a finalized credit note,
+   * linked to it, under `reference`. Refuses (via `alreadyExisted`) when that
+   * reference already exists.
+   *
+   * Deliberately takes no `Normalized`: the whole point is that no source refund
+   * exists — an operator is cancelling a document after the fact. Crediting from
+   * a re-fetched source order would credit what the order says TODAY rather than
+   * what the document says, which is a fiscal mismatch, not a feature.
+   */
+  creditFullDocument?(
+    invoiceId: string,
+    ctx: AdapterCtx,
+    opts: {
+      /** The reference the new credit note is written with. */
+      reference: string;
+      /** Every reference that counts as "already credited", when the convention
+       *  has changed over time. Defaults to `[reference]`. Passing the historical
+       *  spellings is what stops a document credited under an older name from
+       *  being credited a second time. */
+      matchReferences?: string[];
+      reason?: string | null;
+      dryRun?: boolean;
+    },
+  ): Promise<CreditFullResult>;
+
+  /** Fetch once per finalize run whatever `finalizeWithDate` needs across rows. */
+  prepareFinalizeBatch?(ctx: AdapterCtx, opts?: { strategy?: FinalizeDateStrategy }): Promise<FinalizeBatch>;
+
+  /** Certify a draft, moving its date only as far as the series rule forces. */
+  finalizeWithDate?(
+    invoiceId: string,
+    ctx: AdapterCtx,
+    opts: {
+      strategy: FinalizeDateStrategy;
+      /** What the buyer actually paid; the destination refuses to certify a
+       *  document whose total drifted from it. */
+      paidTotal?: number | null;
+      batch?: FinalizeBatch;
+      /** Builds the note stamped into the document's observations when the date
+       *  has to move, given the date the document originally carried. A callback
+       *  because only the caller knows what to call the transaction ("a encomenda
+       *  #1137", "o pagamento Stripe pi_…") and only the destination knows the
+       *  original date. Return null to stamp nothing. */
+      dateMovedNote?: (originalDate: string) => string | null;
+      dryRun?: boolean;
+    },
+  ): Promise<FinalizeOutcome>;
 }

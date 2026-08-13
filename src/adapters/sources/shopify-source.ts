@@ -5,6 +5,16 @@ import { Shopify, verifyShopifyWebhook } from "../../shopify";
 export class ShopifySource implements SourceAdapter {
   readonly kind = "shopify" as const;
 
+  // Orders are addressable by number, listable by date, and carry a total_price;
+  // payment arrives as a separate orders/paid delivery.
+  readonly capabilities = {
+    resolveById: true,
+    listCandidates: true,
+    orderNumberFilter: true,
+    paidTotals: true,
+    emitsSeparatePaidEvent: true,
+  } as const;
+
   async verifyWebhook(rawBody: string, signature: string, secret: string): Promise<boolean> {
     return verifyShopifyWebhook(signature, rawBody, secret);
   }

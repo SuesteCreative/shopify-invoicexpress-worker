@@ -7,6 +7,7 @@ import type {
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { reconcileTotalOrThrow } from "../reconcile";
+import { saleReference, refundReference } from "../../services/document-references";
 
 // -----------------------------------------------------------------------------
 // VendusDestination — Cegid Vendus v1.1
@@ -327,6 +328,18 @@ function findOriginalRow(
 export class VendusDestination implements DestinationAdapter {
   readonly kind = "vendus" as const;
 
+  // Vendus issues the document on POST — there is no draft state, hence no
+  // draft to delete and nothing for finalize to date. Undoing a Vendus document
+  // is a credit note, always.
+  readonly capabilities = {
+    drafts: false,
+    deleteDraft: false,
+    creditFullDocument: false,
+    finalizeWithDate: false,
+    emailDocument: true,
+    readDocument: false,
+  } as const;
+
   async findByReference(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null> {
     // NOTE: Vendus's `?reference=` filter is documented to substring-match
     // against the document's stored `reference`. IX-style refund references
@@ -375,7 +388,7 @@ export class VendusDestination implements DestinationAdapter {
       type,                 // "FT" or "FR"
       mode: "normal",       // Vendus has no "draft" — see file header.
       date: normalized.order.created_at,
-      reference: normalized.order.reference || `Order #${normalized.order.order_number}`,
+      reference: normalized.order.reference || saleReference(normalized.order.order_number),
       client,
       items,
     };
@@ -468,7 +481,7 @@ export class VendusDestination implements DestinationAdapter {
       type: "NC",
       mode: "normal",
       date: new Date().toISOString().slice(0, 10),
-      reference: `OrderRefund #${refund.refundId}`,
+      reference: refundReference(refund.refundId),
       client,
       items,
     };

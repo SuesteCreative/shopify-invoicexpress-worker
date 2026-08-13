@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { IxBuilder } from "./builder";
 import { ixExpectedTotals } from "./create-invoice";
-import { buildIxDatePutBody } from "../handlers/admin";
+import { buildIxDatePutBody } from "../adapters/destinations/ix-finalize";
 
 // Regression cover for the Zoo de Lagos incident of 2026-08-02→05: 81 ticket
 // sales (place of supply PT, 6%, never exempt) were issued at 0% VAT, stamped

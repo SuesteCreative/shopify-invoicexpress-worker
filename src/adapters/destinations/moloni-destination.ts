@@ -9,6 +9,7 @@ import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { redactSecrets } from "../../security";
+import { saleReference, refundReference, isRefundReference } from "../../services/document-references";
 
 /**
  * MoloniDestination
@@ -1092,6 +1093,18 @@ async function insertMoloniDoc(
 export class MoloniDestination implements DestinationAdapter {
   readonly kind = "moloni" as const;
 
+  // `finalizeWithDate: false` is a statement about Moloni, not a gap: the date is
+  // fixed at insert and Moloni never rejects a document for falling behind its
+  // series, so there is no date to negotiate at finalize time.
+  readonly capabilities = {
+    drafts: true,
+    deleteDraft: true,
+    creditFullDocument: false,
+    finalizeWithDate: false,
+    emailDocument: true,
+    readDocument: false,
+  } as const;
+
   async findByReference(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null> {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
@@ -1103,7 +1116,7 @@ export class MoloniDestination implements DestinationAdapter {
       // references ("Order #<n>") match the invoice (or invoiceReceipt) drafts.
       // `our_reference` is the field Moloni indexes for free-text lookup and it
       // matches draft documents (status 0, number -1) too.
-      const isCreditRef = /^OrderRefund /i.test(reference);
+      const isCreditRef = isRefundReference(reference);
       const getAllPath = isCreditRef
         ? "/creditNotes/getAll/"
         : moloniPath(cfg, "getAll");
@@ -1180,7 +1193,7 @@ export class MoloniDestination implements DestinationAdapter {
       // Instalment invoices carry a distinct reference ("Order #N-1", "…-2") so
       // the dedup-by-reference doesn't block the second one; fall back to the
       // per-booking reference for normal single invoices.
-      our_reference: normalized.order.invoice_reference ?? `Order #${normalized.order.order_number}`,
+      our_reference: normalized.order.invoice_reference ?? saleReference(normalized.order.order_number),
       your_reference: normalized.order.reference?.toString().slice(0, 100) ?? undefined,
       products,
       status: 0, // 0 = draft, 1 = closed/finalized
@@ -1379,7 +1392,7 @@ export class MoloniDestination implements DestinationAdapter {
       customer_id: customerId,
       date: todayYmd(),
       expiration_date: todayYmd(),
-      our_reference: `OrderRefund #${refund.refundId}`,
+      our_reference: refundReference(refund.refundId),
       products,
       status: 0,
       // Moloni links credit notes back to the source document via

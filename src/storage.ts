@@ -531,10 +531,14 @@ export class AppStorage {
     params: any;
     triggered_by?: string | null;
     reason?: string | null;
+    /** Which connection this job acted on. Null for the legacy Shopify handlers,
+     *  which predate the columns; the generic engine always sets both. */
+    source_kind?: SourceKind | null;
+    destination_kind?: DestinationKind | null;
   }) {
     try {
       await this.db.prepare(
-        "INSERT INTO dev_jobs (id, shopify_domain, user_id, type, params, status, triggered_by, reason, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)"
+        "INSERT INTO dev_jobs (id, shopify_domain, user_id, type, params, status, triggered_by, reason, started_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)"
       ).bind(
         params.id,
         this.shopDomain,
@@ -543,7 +547,9 @@ export class AppStorage {
         JSON.stringify(params.params),
         params.triggered_by ?? null,
         params.reason ?? null,
-        new Date().toISOString()
+        new Date().toISOString(),
+        params.source_kind ?? null,
+        params.destination_kind ?? null
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to start dev job:", e);
@@ -1118,23 +1124,28 @@ export class AppStorage {
   }
 
   /**
-   * Stripe-heal freshness gate. Returns the subset of `orderIds` (Stripe PI ids)
-   * that must NOT be re-emitted because they are already resolved one of three ways:
-   *   1. processed_orders.id                         — we already invoiced it
-   *   2. reconciliation_match.order_id (approved)     — operator hand-matched it to
-   *                                                     an existing destination doc
-   *   3. reconciliation_decision NOT_NEEDED           — operator explicitly said this
-   *                                                     payment needs no invoice
-   * Without (2)+(3) the nightly heal would resurrect invoices an operator
-   * deliberately excluded (marcar "não necessária") or matched by hand — turning a
-   * safety backstop into a recurring bug. Match/decision rows for a connection-based
-   * source are scoped by `u:<userId>` (no shopify_domain). processed_orders is the
+   * The freshness gate: given candidate source ids, return the subset that must
+   * NOT be (re-)invoiced because they are already resolved one of four ways:
+   *   1. processed_orders.id                      — we already invoiced it
+   *   2. reconciliation_match.order_id (approved) — operator hand-matched it to an
+   *                                                 existing destination document
+   *   3. reconciliation_decision NOT_NEEDED       — operator explicitly said this
+   *                                                 payment needs no invoice
+   *   4. lodgify_partial_invoices.booking_id      — billed as instalments, which
+   *                                                 never touch processed_orders
+   *
+   * Without (2)+(3) a heal or backfill resurrects invoices an operator deliberately
+   * excluded ("marcar não necessária") or matched by hand — turning a safety
+   * backstop into a recurring bug. Without (4) a progressively-billed booking looks
+   * unbilled forever.
+   *
+   * `scope` is the AppStorage key the override tables are keyed by: the shop domain
+   * for Shopify, `u:<userId>` for connection-based sources. processed_orders is the
    * authoritative base; the aux tables are added under a guard so a schema hiccup
    * there can never lose the core truth.
    */
-  async getResolvedStripeOrderIds(orderIds: string[], userId: string): Promise<Set<string>> {
+  async getResolvedOrderIds(orderIds: string[], scope: string): Promise<Set<string>> {
     const resolved = await this.getProcessedOrderIds(orderIds);
-    const scope = `u:${userId}`;
     for (let i = 0; i < orderIds.length; i += 50) {
       const chunk = orderIds.slice(i, i + 50);
       const ph = chunk.map(() => "?").join(",");
@@ -1144,14 +1155,22 @@ export class AppStorage {
              WHERE shopify_domain = ? AND invoice_id IS NOT NULL AND order_id IN (${ph})
            UNION
            SELECT order_id AS oid FROM reconciliation_decision
-             WHERE shopify_domain = ? AND UPPER(decision) = 'NOT_NEEDED' AND order_id IN (${ph})`
-        ).bind(scope, ...chunk, scope, ...chunk).all();
+             WHERE shopify_domain = ? AND UPPER(decision) = 'NOT_NEEDED' AND order_id IN (${ph})
+           UNION
+           SELECT booking_id AS oid FROM lodgify_partial_invoices
+             WHERE invoice_id IS NOT NULL AND booking_id IN (${ph})`
+        ).bind(scope, ...chunk, scope, ...chunk, ...chunk).all();
         for (const row of res.results) resolved.add(String((row as any).oid));
       } catch (e) {
-        console.warn("[Rioko] getResolvedStripeOrderIds aux lookup failed (processed_orders still applied):", e);
+        console.warn("[Rioko] getResolvedOrderIds aux lookup failed (processed_orders still applied):", e);
       }
     }
     return resolved;
+  }
+
+  /** @deprecated Use getResolvedOrderIds(ids, `u:${userId}`). */
+  async getResolvedStripeOrderIds(orderIds: string[], userId: string): Promise<Set<string>> {
+    return this.getResolvedOrderIds(orderIds, `u:${userId}`);
   }
 
   async getProcessedOrderIds(orderIds: string[]): Promise<Set<string>> {

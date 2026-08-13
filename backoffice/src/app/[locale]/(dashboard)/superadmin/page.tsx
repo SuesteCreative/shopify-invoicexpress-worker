@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
+import { kindLabel } from "@/lib/connection-kinds";
 
 type Role = "hiperadmin" | "superadmin" | "user";
 
@@ -123,15 +124,7 @@ export default function SuperadminPage() {
         });
     };
 
-    const connLabel = (kind: string) =>
-        kind === "invoicexpress" ? "IX API"
-        : kind === "moloni" ? "Moloni"
-        : kind === "vendus" ? "Vendus"
-        : kind === "lodgify" ? "Lodgify"
-        : kind === "shopify" ? "Shopify"
-        : kind === "stripe" ? "Stripe"
-        : kind === "eupago" ? "EuPago"
-        : kind;
+    const connLabel = kindLabel;
 
     const handleImpersonate = async (targetId: string | null) => {
         setActing(targetId || "clear");

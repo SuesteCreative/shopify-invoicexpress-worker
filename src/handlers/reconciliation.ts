@@ -5,6 +5,8 @@ import type { AdapterCtx } from "../adapters/types";
 import { getMoloniCfg, getAccessToken, moloniCall } from "../adapters/destinations/moloni-destination";
 import { stripeFetch } from "../services/stripe";
 import { scoreHeuristicMatch } from "./reconciliation-score";
+import { saleReference, cancelReference } from "../services/document-references";
+import { resolveConnectionContext } from "../services/connection-context";
 
 // The left side of a reconciliation row, normalized across sources (Shopify
 // orders, Lodgify bookings, …). Each source fetcher maps its native records
@@ -863,12 +865,19 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
         // convention "OrderCancel #<orderNumber>" (see admin.ts). NOTE: automatic
         // refunds do NOT use this — their credit note is "OrderRefund #<refundId>"
         // (refundId, unknown here), so path (c) is what links those.
+        // Only the order-number spelling is probed here: this fetcher is keyed on
+        // the order number, and the alternative spellings (StripeCancel <pi_…>)
+        // are keyed on the EXTERNAL id, which this call site does not hold. The
+        // admin credit-note path, which does hold it, iterates
+        // cancelReferenceCandidates() instead. Probing them here would only add
+        // Moloni calls per reconciliation row that can never match.
         if (!deadline || Date.now() < deadline) {
+          const cancelRef = cancelReference(ctx.source, orderNumber);
           const byRef = await moloniCall<any[]>(
-            cfg, token, "/creditNotes/getAll/", { our_reference: `OrderCancel #${orderNumber}` }, "lookup",
+            cfg, token, "/creditNotes/getAll/", { our_reference: cancelRef }, "lookup",
           ).catch(() => []);
           collect((Array.isArray(byRef) ? byRef : []).filter((d) =>
-            String(d?.our_reference ?? "") === `OrderCancel #${orderNumber}`,
+            String(d?.our_reference ?? "") === cancelRef,
           ));
         }
         // (c) Invoice-side link — the reliable path for AUTOMATIC refund credit
@@ -958,74 +967,20 @@ function getMetaFetcher(ctx: ReconContext): MetaFetcher {
 
 // ── Context resolution ────────────────────────────────────────────────────────
 
-// Build the reconciliation context from either a Shopify shop domain (legacy,
-// back-compat) or a user's active connection. Returns null when neither yields
-// a usable integration.
+/**
+ * Back-compat shim over the shared resolver in services/connection-context.
+ *
+ * `pick_latest` preserves this function's historical
+ * ORDER BY updated_at DESC LIMIT 1 behaviour: reconciliation is read-only, so
+ * silently reporting on the most recent connection is acceptable where the
+ * write paths must refuse to guess.
+ */
 export async function resolveReconContext(
   env: Env,
   opts: { shop?: string | null; userId?: string | null },
 ): Promise<ReconContext | null> {
-  // Explicit Shopify shop wins (existing callers pass ?shop=).
-  if (opts.shop) {
-    const appStorage = new AppStorage(env, opts.shop);
-    const config = await appStorage.loadConfig();
-    if (!config) return null;
-    return {
-      source: "shopify", destination: "invoicexpress",
-      sourceConfig: {}, destinationConfig: {},
-      config, userId: config.user_id ?? opts.userId ?? null,
-      scope: opts.shop,
-    };
-  }
-
-  if (opts.userId) {
-    const conn: any = await env.DB.prepare(
-      `SELECT source_kind, destination_kind, source_config_json, destination_config_json,
-              invoice_cutoff, created_at
-       FROM connections WHERE user_id = ? AND status = 'active'
-       ORDER BY updated_at DESC LIMIT 1`
-    ).bind(opts.userId).first();
-
-    const parse = (s: string | null): Record<string, any> => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
-
-    if (conn) {
-      const source = conn.source_kind as SourceKind;
-      const destination = conn.destination_kind as DestinationKind;
-      const appStorage = new AppStorage(env, null, opts.userId);
-      // A Shopify connection still has a legacy integrations row; a Lodgify-only
-      // user may not, so synthesize a minimal config (mirrors the webhook path).
-      const config = (await appStorage.loadConfig()) ?? synthLegacyConfig(opts.userId);
-      const scope = source === "shopify" && config.shopify_domain
-        ? config.shopify_domain
-        : `u:${opts.userId}`;
-      return {
-        source, destination,
-        sourceConfig: parse(conn.source_config_json),
-        destinationConfig: parse(conn.destination_config_json),
-        config, userId: opts.userId, scope,
-        invoiceCutoff: (conn.invoice_cutoff ?? conn.created_at) ?? null,
-      };
-    }
-
-    // No connection row — fall back to legacy Shopify integration keyed by user.
-    const appStorage = new AppStorage(env, null, opts.userId);
-    const config = await appStorage.loadConfig();
-    if (config?.shopify_domain) {
-      return {
-        source: "shopify", destination: "invoicexpress",
-        sourceConfig: {}, destinationConfig: {},
-        config, userId: opts.userId, scope: config.shopify_domain,
-      };
-    }
-  }
-  return null;
-}
-
-function synthLegacyConfig(userId: string): IRequestConfig {
-  return {
-    id: null, user_id: userId, shopify_domain: null,
-    only_invoice_when_paid: 0,
-  } as unknown as IRequestConfig;
+  const resolved = await resolveConnectionContext(env, { ...opts, onAmbiguous: "pick_latest" });
+  return resolved.ok ? resolved.ctx : null;
 }
 
 // ── Core ──────────────────────────────────────────────────────────────────────
@@ -1145,7 +1100,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     const manualMatch = manualMatches.get(orderId);
 
     if (inv) {
-      const expectedRef = `Order #${orderBlock.order_number}`;
+      const expectedRef = saleReference(orderBlock.order_number);
       // Exact if any mapped invoice carries the booking reference or an
       // "Order #N-<seq>" instalment reference.
       const isExact = invs.some(x => x.reference === expectedRef || (x.reference ?? "").startsWith(`${expectedRef}-`));
@@ -1257,7 +1212,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
   // and cached per reference (id or "MISS", 1h TTL).
   const noneRows = rows.filter(r => r.match.type === "none");
   if (noneRows.length > 0) {
-    const refOf = (r: ReconciliationRow) => `Order #${r.order.order_number}`;
+    const refOf = (r: ReconciliationRow) => saleReference(r.order.order_number);
     const refDeadline = Date.now() + 8_000;
     const cachedRefs = await appStorage.getCachedRefLookups(meta.refAccount, noneRows.map(refOf), meta.refNs);
     await mapWithConcurrency(noneRows, 4, async (row) => {

@@ -25,6 +25,17 @@ import { bookingCollectedAmount } from "../../services/lodgify-amounts";
 export class LodgifySource implements SourceAdapter {
   readonly kind = "lodgify" as const;
 
+  // Bookings are addressable by booking id and listable from the D1 mirror;
+  // `bookingCollectedAmount` answers what was actually settled. No order
+  // numbers, and a booking is only ever billed once it is paid.
+  readonly capabilities = {
+    resolveById: true,
+    listCandidates: true,
+    orderNumberFilter: false,
+    paidTotals: true,
+    emitsSeparatePaidEvent: false,
+  } as const;
+
   async verifyWebhook(rawBody: string, signatureHeader: string, secret: string): Promise<boolean> {
     if (!signatureHeader || !secret) return false;
 

@@ -660,6 +660,9 @@ export interface WeeklyDigestResult {
   merchantsNotified: number;
   totalMissing: number;
   skippedNoEmail: number;
+  /** Refund incidents surfaced as "credit note missing" — counted apart from
+   * totalMissing, which only ever means *sales without an invoice*. */
+  totalCreditMissing?: number;
   /** On dryRun: the per-merchant breakdown that WOULD be sent (nothing sent). */
   preview?: Array<{ userId: string; merchantName: string; recipients: string[]; missingCount: number; subject: string }>;
 }
@@ -675,6 +678,28 @@ function parseAffectedIds(json: string | null): string[] {
 }
 
 /**
+ * True when the incident is about a REFUND (credit note) rather than a sale.
+ * Both incident producers stamp the canonical topic in `detail`: the pipeline
+ * writes "refund", the DLQ consumer passes the queue message's topic through
+ * (Shopify's is "refunds/create"), so match on the substring.
+ *
+ * The distinction matters because the two are verified differently. A refund
+ * incident's sale HAS an invoice — checking the invoice tables would mark it
+ * "resolved" and silently drop a genuinely missing credit note. Conversely,
+ * leaving it in the sales list tells the merchant a paid order was never
+ * invoiced, which is false. So it gets its own list and its own wording.
+ */
+function isRefundIncident(detailJson: string | null): boolean {
+  if (!detailJson) return false;
+  try {
+    const topic = (JSON.parse(detailJson) as { topic?: unknown })?.topic;
+    return typeof topic === "string" && topic.toLowerCase().includes("refund");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Weekly per-merchant digest of STILL-unprocessed invoices.
  *
  * Candidates = invoice-failure incidents (see INVOICE_FAILURE_KINDS) that are
@@ -685,6 +710,11 @@ function parseAffectedIds(json: string | null): string[] {
  * grouped by user_id and ONE email is sent per merchant containing ONLY their
  * own missing invoices ("they can only get their own missing invoices"). The
  * Rioko team (KAPTA_DEV_EMAILS) is BCC'd on every send.
+ *
+ * Refund incidents travel in a SEPARATE list (see isRefundIncident): their sale
+ * is invoiced and what failed is the credit note, so they are neither counted as
+ * unbilled sales nor auto-closed by the invoice check — they'd be silently lost
+ * by the first and misreported by the second.
  *
  * Stateless re notified_at: this is a recurring weekly reminder, so it neither
  * reads nor writes notified_at — it recomputes from open incidents + the
@@ -699,7 +729,7 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
   let rows: any[] = [];
   try {
     const result = await env.DB.prepare(
-      `SELECT id, user_id, kind, summary, occurrences, last_seen_at, severity, affected_ids_json
+      `SELECT id, user_id, kind, summary, occurrences, last_seen_at, severity, affected_ids_json, detail_json
        FROM incidents
        WHERE status IN ('open','acknowledged')
          AND user_id IS NOT NULL
@@ -728,13 +758,34 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
   // match or Lodgify partial counted as "missing" forever — the main driver of
   // the inflated "faturas por emitir" numbers.
   const allAffected = new Set<string>();
-  for (const r of rows) for (const id of parseAffectedIds(r.affected_ids_json)) allAffected.add(id);
+  for (const r of rows) {
+    if (isRefundIncident(r.detail_json)) continue; // verified against credit notes, not invoices
+    for (const id of parseAffectedIds(r.affected_ids_json)) allAffected.add(id);
+  }
   const processed = await new AppStorage(env).getInvoicedOrderIdsAnySource([...allAffected]);
 
   const byUser = new Map<string, WeeklyDigestItem[]>();
+  const creditsByUser = new Map<string, WeeklyDigestItem[]>();
   const resolvedIncidentIds: string[] = []; // fully-invoiced incidents to auto-close
   for (const r of rows) {
     const affected = parseAffectedIds(r.affected_ids_json);
+    const userId = String(r.user_id);
+
+    // Refund incident: the sale is invoiced, what failed is the CREDIT NOTE.
+    // It never goes through the invoice-table check (that would auto-close it)
+    // and never counts as a sale without an invoice — it gets its own section.
+    if (isRefundIncident(r.detail_json)) {
+      if (!creditsByUser.has(userId)) creditsByUser.set(userId, []);
+      creditsByUser.get(userId)!.push({
+        kind: r.kind,
+        summary: r.summary,
+        lastSeenAt: r.last_seen_at,
+        severity: r.severity,
+        missingIds: affected,
+      });
+      continue;
+    }
+
     // Order-scoped incident: keep only the ids still missing an invoice.
     // Account-level incident (no affected ids, e.g. subscription_inactive):
     // can't verify per order, so always keep it.
@@ -745,7 +796,6 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
       resolvedIncidentIds.push(String(r.id));
       continue;
     }
-    const userId = String(r.user_id);
     if (!byUser.has(userId)) byUser.set(userId, []);
     byUser.get(userId)!.push({
       kind: r.kind,
@@ -778,7 +828,11 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
     }
   }
 
-  if (byUser.size === 0) return empty;
+  if (byUser.size === 0 && creditsByUser.size === 0) return empty;
+
+  // Merchants to email: those with unbilled sales, those with missing credit
+  // notes, or both.
+  const digestUserIds = [...new Set([...byUser.keys(), ...creditsByUser.keys()])];
 
   // Skip merchants whose shops are ALL paused: a paused integration isn't being
   // invoiced on purpose, so a "faturas por emitir" nag is wrong. We only skip a
@@ -787,7 +841,7 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
   const usersWithIntegrations = new Set<string>();
   const activeUsers = new Set<string>();
   {
-    const userIds = [...byUser.keys()];
+    const userIds = digestUserIds;
     for (let i = 0; i < userIds.length; i += 50) {
       const chunk = userIds.slice(i, i + 50);
       const ph = chunk.map(() => "?").join(",");
@@ -809,14 +863,17 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
   const { tplWeeklyUnprocessed } = await import("./email-templates");
   let merchantsNotified = 0;
   let totalMissing = 0;
+  let totalCreditMissing = 0;
   let skippedNoEmail = 0;
   let skippedPaused = 0;
   const preview: WeeklyDigestResult["preview"] = [];
 
-  for (const [userId, items] of byUser) {
+  for (const userId of digestUserIds) {
+    const items = byUser.get(userId) ?? [];
+    const creditItems = creditsByUser.get(userId) ?? [];
     // Paused-only merchant → don't nag about invoices they intentionally aren't issuing.
     if (usersWithIntegrations.has(userId) && !activeUsers.has(userId)) {
-      console.log(`[weekly-digest] user ${userId} has only paused shop(s); skipping (${items.length} item(s))`);
+      console.log(`[weekly-digest] user ${userId} has only paused shop(s); skipping (${items.length + creditItems.length} item(s))`);
       skippedPaused++;
       continue;
     }
@@ -824,7 +881,7 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
     // receive their own list.
     const recipients = await resolveMerchantEmails(env, userId);
     if (recipients.length === 0) {
-      console.warn(`[weekly-digest] No merchant email for user ${userId}; skipping (${items.length} item(s))`);
+      console.warn(`[weekly-digest] No merchant email for user ${userId}; skipping (${items.length + creditItems.length} item(s))`);
       skippedNoEmail++;
       continue;
     }
@@ -838,9 +895,16 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
       else accountLevel++;
     }
     const missingCount = uniqueOrders.size + accountLevel;
+    const uniqueCredits = new Set<string>();
+    let creditAccountLevel = 0;
+    for (const it of creditItems) {
+      if (it.missingIds.length) it.missingIds.forEach((id) => uniqueCredits.add(id));
+      else creditAccountLevel++;
+    }
+    const creditCount = uniqueCredits.size + creditAccountLevel;
 
     const merchantName = await resolveMerchantName(env, userId);
-    const tpl = tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount });
+    const tpl = tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount, creditItems, totalCreditMissing: creditCount });
 
     // Dry-run: record what WOULD be sent, send nothing.
     if (opts.dryRun) {
@@ -849,6 +913,7 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
       preview!.push({ userId, merchantName: merchantName ?? userId, recipients, missingCount, subject: tpl.subject });
       merchantsNotified++;
       totalMissing += missingCount;
+      totalCreditMissing += creditCount;
       continue;
     }
 
@@ -861,11 +926,12 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
     if (result.ok) {
       merchantsNotified++;
       totalMissing += missingCount;
+      totalCreditMissing += creditCount;
     } else {
       console.error(`[weekly-digest] send failed for user ${userId}: ${result.detail ?? result.provider}`);
     }
   }
 
   if (skippedPaused) console.log(`[weekly-digest] skipped ${skippedPaused} paused-only merchant(s)`);
-  return { merchantsNotified, totalMissing, skippedNoEmail, preview };
+  return { merchantsNotified, totalMissing, totalCreditMissing, skippedNoEmail, preview };
 }

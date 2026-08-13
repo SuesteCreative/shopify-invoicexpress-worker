@@ -106,6 +106,12 @@ export interface ReconciliationRow {
     confidence: number;
     reason: string;
   }>;
+  /** Sale that predates the connection's invoice cutoff — Rioko never had the
+   * job of invoicing it (issuing it automatically would duplicate whatever the
+   * merchant's previous process did). Rendered as "anterior à integração"
+   * instead of the red "Sem fatura emitida" alarm, which is what made a MY VAN
+   * backlog look like a Rioko failure. */
+  pre_cutoff?: boolean;
 }
 
 interface InvoiceMeta {
@@ -135,6 +141,11 @@ export interface ReconContext {
    *  the Shopify domain for Shopify, else `u:<userId>` for connection-based
    *  sources that have no domain. */
   scope: string;
+  /** When Rioko took over invoicing for this connection (`invoice_cutoff`, else
+   * the connection's `created_at`). Sales before it were never ours to issue —
+   * the merchant's previous process owned them. Null for legacy Shopify
+   * integrations, which have no connection row. */
+  invoiceCutoff?: string | null;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -969,7 +980,8 @@ export async function resolveReconContext(
 
   if (opts.userId) {
     const conn: any = await env.DB.prepare(
-      `SELECT source_kind, destination_kind, source_config_json, destination_config_json
+      `SELECT source_kind, destination_kind, source_config_json, destination_config_json,
+              invoice_cutoff, created_at
        FROM connections WHERE user_id = ? AND status = 'active'
        ORDER BY updated_at DESC LIMIT 1`
     ).bind(opts.userId).first();
@@ -991,6 +1003,7 @@ export async function resolveReconContext(
         sourceConfig: parse(conn.source_config_json),
         destinationConfig: parse(conn.destination_config_json),
         config, userId: opts.userId, scope,
+        invoiceCutoff: (conn.invoice_cutoff ?? conn.created_at) ?? null,
       };
     }
 
@@ -1317,6 +1330,22 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     }
   }
 
+  // 6d. Pre-cutoff flag. A payment older than the connection's activation was
+  // never Rioko's to invoice, so an uninvoiced one is a pre-existing gap in the
+  // merchant's own process — not a failure of ours. We only mark it (the row
+  // keeps match.type "none" so filters, counters and the Excel export are
+  // unchanged); the UI reads the flag to soften the wording. Rows that DO have
+  // an invoice are untouched: a matched pre-cutoff sale needs no explanation.
+  const cutoffMs = ctx.invoiceCutoff ? Date.parse(String(ctx.invoiceCutoff).replace(" ", "T")) : NaN;
+  if (Number.isFinite(cutoffMs)) {
+    for (const r of rows) {
+      if (r.match.type !== "none" && r.match.type !== "heuristic") continue;
+      if (r.invoice) continue;
+      const paidMs = Date.parse(r.order.paid_at);
+      if (Number.isFinite(paidMs) && paidMs < cutoffMs) r.pre_cutoff = true;
+    }
+  }
+
   // Sort newest first
   rows.sort((a, b) => Date.parse(b.order.paid_at) - Date.parse(a.order.paid_at));
 
@@ -1338,6 +1367,10 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       // invoice but NO credit note found at the destination.
       refunded: rows.filter(r => !!r.order.refund_state).length,
       credit_missing: rows.filter(r => !!r.order.refund_state && !!r.invoice && (r.credit_notes?.length ?? 0) === 0).length,
+      // Subset of `none`/`heuristic`: uninvoiced sales that predate the
+      // integration. Shown so the operator can read "N sem fatura, dos quais M
+      // são anteriores a nós" instead of reading them all as our misses.
+      pre_cutoff: rows.filter(r => !!r.pre_cutoff).length,
     },
     rows,
   };

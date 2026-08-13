@@ -107,7 +107,7 @@ async function fetchStripeObject(restrictedKey: string, stripeId: string, stripe
 // KV) on the PAYMENT INTENT. Re-emitting by the charge id must therefore also
 // resolve to the PI, or `force` clears a `ch_…` key that was never written and
 // the pipeline skips the real `pi_…` row as "Already processed".
-function externalIdFromEvent(event: any): string {
+export function externalIdFromEvent(event: any): string {
   const obj = event?.data?.object;
   if (!obj) return String(event?.id ?? "");
   if ((event.type === "charge.succeeded" || event.type === "charge.refunded") && obj.payment_intent) return String(obj.payment_intent);

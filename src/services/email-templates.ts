@@ -1093,6 +1093,10 @@ export function tplWeeklyUnprocessed(input: {
   merchantName?: string;
   items: WeeklyUnprocessedItem[];
   totalMissing: number;
+  /** Refunds whose credit note failed. Listed apart — the sale IS invoiced, so
+   * calling these "vendas por faturar" would be false. */
+  creditItems?: WeeklyUnprocessedItem[];
+  totalCreditMissing?: number;
   helpUrl?: string;
   dashboardUrl?: string;
 }): RenderedTemplate {
@@ -1102,7 +1106,7 @@ export function tplWeeklyUnprocessed(input: {
     ? `<p style="margin:6px 0 0;color:#94a3b8;font-size:13px">${escapeHtml(input.merchantName)}</p>`
     : "";
 
-  const rows = input.items.map((it) => {
+  const renderRows = (items: WeeklyUnprocessedItem[]) => items.map((it) => {
     const sevColor = severityColor(it.severity);
     const idChips = it.missingIds.length
       ? `<div style="margin-top:8px">${it.missingIds.slice(0, 12).map((id) =>
@@ -1120,8 +1124,41 @@ export function tplWeeklyUnprocessed(input: {
     </tr>`;
   }).join("");
 
+  const rows = renderRows(input.items);
+  const creditItems = input.creditItems ?? [];
+  const creditRows = renderRows(creditItems);
+
   const n = input.totalMissing;
   const plural = n === 1 ? "" : "s";
+  const nc = input.totalCreditMissing ?? 0;
+  const ncPlural = nc === 1 ? "" : "s";
+
+  // The credit-note block only renders when there is something to say. Its
+  // wording never claims the sale is unbilled — what is missing is the NC.
+  const creditSection = creditRows
+    ? `<div style="margin-top:28px;padding-top:20px;border-top:1px solid ${BRAND.border}">
+            <p style="margin:0 0 8px;color:${BRAND.text};font-size:15px;line-height:1.6">
+              <font color="${BRAND.text}">Estes reembolsos <strong>não geraram nota de crédito</strong>. A fatura original existe; falta o documento que a corrige.</font>
+            </p>
+            <p style="margin:0 0 16px;color:${BRAND.muted};font-size:14px">
+              <font color="${BRAND.text}"><strong>${nc}</strong></font> <font color="${BRAND.muted}">reembolso${ncPlural} sem nota de crédito.</font>
+            </p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tbody>${creditRows}</tbody>
+            </table>
+          </div>`
+    : "";
+
+  // A merchant can have only credit-note failures and zero unbilled sales —
+  // then the whole email is about notas de crédito, headline included.
+  const salesOnly = n > 0 || creditRows === "";
+  const heading = salesOnly ? "Faturas por emitir" : "Notas de crédito por emitir";
+  const subject = salesOnly
+    ? `[Rioko 2.0] ${n} fatura${plural} por emitir`
+    : `[Rioko 2.0] ${nc} nota${ncPlural} de crédito por emitir`;
+  const preheader = salesOnly
+    ? `${n} venda${plural} recebida${plural} sem fatura emitida.`
+    : `${nc} reembolso${ncPlural} sem nota de crédito emitida.`;
   const html = `<!doctype html>
 <html lang="pt-PT">
 <head>
@@ -1131,18 +1168,18 @@ export function tplWeeklyUnprocessed(input: {
   <meta name="supported-color-schemes" content="dark only">
 </head>
 <body style="margin:0;padding:0;background:${BRAND.pageBg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:${BRAND.text}">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${n} venda${plural} recebida${plural} sem fatura emitida.</div>
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${preheader}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.pageBg};padding:32px 16px">
     <tr><td align="center">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;background:${BRAND.cardBg};border-radius:14px;overflow:hidden">
         <tr><td class="header-bg" bgcolor="#1e1b4b" style="background-color:#1e1b4b;background-image:${BRAND.bgGradient};padding:28px 32px 24px">
           <img src="${LOGO_WHITE}" alt="Rioko 2.0" width="140" height="auto" style="display:block;border:0;max-width:140px;height:auto">
-          <h1 class="force-white" style="margin:20px 0 0;color:#ffffff !important;font-size:22px;font-weight:600;letter-spacing:-0.3px"><font color="#ffffff">Faturas por emitir</font></h1>
+          <h1 class="force-white" style="margin:20px 0 0;color:#ffffff !important;font-size:22px;font-weight:600;letter-spacing:-0.3px"><font color="#ffffff">${heading}</font></h1>
           ${merchant}
           <div style="height:3px;width:100%;background-color:${BRAND.blue};background-image:linear-gradient(90deg, ${BRAND.blue}, ${BRAND.purple});margin-top:24px"></div>
         </td></tr>
         <tr><td class="card-bg" bgcolor="${BRAND.cardBg}" style="background-color:${BRAND.cardBg};padding:28px 32px;color:${BRAND.text}">
-          <p style="margin:0 0 8px;color:${BRAND.text};font-size:15px;line-height:1.6">
+          ${rows ? `<p style="margin:0 0 8px;color:${BRAND.text};font-size:15px;line-height:1.6">
             <font color="${BRAND.text}">Estas vendas foram recebidas mas <strong>ainda não têm fatura emitida</strong>. Reveja-as e reemita no painel.</font>
           </p>
           <p style="margin:0 0 20px;color:${BRAND.muted};font-size:14px">
@@ -1150,7 +1187,8 @@ export function tplWeeklyUnprocessed(input: {
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tbody>${rows}</tbody>
-          </table>
+          </table>` : ""}
+          ${creditSection}
           <div style="margin-top:24px">
             ${ctaButton("Abrir painel", dashboardUrl)}
           </div>
@@ -1168,8 +1206,5 @@ export function tplWeeklyUnprocessed(input: {
   </table>
 </body></html>`;
 
-  return {
-    subject: `[Rioko 2.0] ${n} fatura${plural} por emitir`,
-    html,
-  };
+  return { subject, html };
 }

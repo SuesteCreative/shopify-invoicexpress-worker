@@ -40,6 +40,8 @@ import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-rev
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { saleReference, partialSaleReference } from "./services/document-references";
 import { resolveConnectionContext } from "./services/connection-context";
+import { toPreloadedFromItem, firstStr, ymd } from "./services/lodgify-booking";
+import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
 import {
   connectionCapabilities, backfillConnection, reemitConnection,
   deleteConnectionDraft, creditConnectionDocument, finalizeConnectionDrafts,
@@ -2446,21 +2448,6 @@ const LODGIFY_API = "https://api.lodgify.com";
 
 // First non-empty trimmed string among vals, or null. Used to pull the guest
 // comment (where the NIF is typed) out of whichever field Lodgify carries it in.
-function firstStr(...vals: unknown[]): string | null {
-  for (const v of vals) {
-    if (v == null) continue;
-    const s = String(v).trim();
-    if (s.length > 0) return s;
-  }
-  return null;
-}
-
-function ymd(input: unknown): string {
-  const s = String(input ?? "");
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : "";
-}
-
 // Normalize a v1 `/v1/reservation` item to the v2-shaped fields the poll, the
 // invoice gate (bookingAmountDue) and the D1 mirror (upsertLodgifyBookings) were
 // written against. The v1 list is the COMPLETE booking set (see
@@ -2550,35 +2537,6 @@ async function listLodgifyBookings(apiKey: string): Promise<any[]> {
     await delay(250); // pace pages to avoid re-tripping the rate limit
   }
   return out;
-}
-
-// Map a v2 booking list item into the shape LodgifySource reads from
-// `_preloaded_booking`.
-function toPreloadedFromItem(item: any): Record<string, unknown> {
-  return {
-    status: item?.status,
-    total: firstNum(item?.total_amount, item?.total) ?? 0,
-    currency_code: item?.currency_code ?? "EUR",
-    guest: {
-      name: item?.guest?.name ?? item?.guest?.guest_name?.full_name ?? null,
-      email: item?.guest?.email ?? null,
-      country_code: item?.guest?.country_code ?? null,
-      phone: item?.guest?.phone ?? item?.guest?.phone_number ?? null,
-    },
-    arrival: ymd(item?.arrival ?? item?.date_arrival),
-    departure: ymd(item?.departure ?? item?.date_departure),
-    property_id: item?.property_id ?? null,
-    source: item?.source ?? null,
-    room_type_id: item?.rooms?.[0]?.room_type_id ?? item?.room_types?.[0]?.room_type_id ?? null,
-    // Guest comment (the booking-form "Comentários" box where guests type their
-    // NIF). `note` is the only free-text guest field the Lodgify booking object
-    // exposes (verified against live payloads); the rest are future-proofing.
-    // NOT source_text — that is the channel label ("Direto", "*.lodgify.com").
-    notes: firstStr(
-      item?.note, item?.notes, item?.comment, item?.message,
-      item?.guest?.comment, item?.guest?.notes, item?.guest?.message,
-    ),
-  };
 }
 
 // Emit one instalment (partial) invoice for a booking via the destination
@@ -2705,81 +2663,6 @@ async function reverseCancelledLodgifyBooking(env: Env, o: {
   return true;
 }
 
-interface TakeBackResult {
-  /** Everything we had on record for this booking. */
-  invoiceIds: string[];
-  /** Gone from the destination (or already absent). */
-  deleted: string[];
-  /** Fiscally locked — left standing, needs a credit note by hand. */
-  finalized: string[];
-}
-
-/**
- * Remove the documents recorded for one booking from the destination, and then
- * forget them, so the booking is back to "never billed".
- *
- * Shared by the cancellation path and by `/admin/lodgify/unbill-premature`,
- * which cleans up documents issued under the old settlement rule. Both need the
- * exact same care, and it is not the kind of code to have two copies of.
- *
- * Our records are only cleared when EVERY document is gone: a booking still
- * carrying a finalized document must keep its rows, or the next poll would see
- * "no invoice" and cheerfully issue a second one.
- */
-async function takeBackLodgifyDocuments(env: Env, o: {
-  userId: string;
-  bookingId: string;
-  destination: DestinationKind;
-  config: any;
-  sourceCfg: Record<string, any>;
-  destinationConfig: Record<string, any> | undefined;
-  dryRun: boolean;
-}): Promise<TakeBackResult> {
-  const appStorage = new AppStorage(env, null, o.userId);
-
-  // Both billing paths keep their own record of what was issued.
-  const partials = await appStorage.getPartialInvoices(o.userId, o.bookingId);
-  const standard = await appStorage.getInvoiceByOrderId(o.bookingId);
-  const invoiceIds = [
-    ...partials.map((p) => p.invoice_id).filter((id): id is string => !!id),
-    ...(standard?.invoice_id ? [standard.invoice_id] : []),
-  ];
-  const empty: TakeBackResult = { invoiceIds, deleted: [], finalized: [] };
-  if (invoiceIds.length === 0) return empty;
-
-  const destAdapter = getDestinationAdapter(o.destination);
-  if (!destAdapter.deleteDraft) {
-    console.warn(`[Lodgify] ${o.destination} cannot delete drafts — booking ${o.bookingId} left as-is`);
-    return empty;
-  }
-  if (o.dryRun) return empty;
-
-  const ctx: AdapterCtx = {
-    apiKey: env.NORMALIZE_SHOPIFY_ORDER_API_KEY,
-    config: o.config,
-    sourceConfig: o.sourceCfg,
-    destinationConfig: o.destinationConfig,
-  };
-
-  const deleted: string[] = [];
-  const finalized: string[] = [];
-  for (const invoiceId of invoiceIds) {
-    try {
-      const outcome = await destAdapter.deleteDraft(invoiceId, ctx);
-      if (outcome === "finalized") finalized.push(invoiceId);
-      else deleted.push(invoiceId); // "deleted" and "already_gone" both end here
-    } catch (e: any) {
-      console.error(`[Lodgify] taking back ${invoiceId} for booking ${o.bookingId} failed: ${e?.message ?? e}`);
-      finalized.push(invoiceId); // unknown state — escalate rather than forget
-    }
-  }
-
-  if (finalized.length === 0) {
-    await appStorage.deletePartialInvoices(o.userId, o.bookingId);
-    await appStorage.resetWebhookInfo(o.bookingId, "lodgify/created");
-  }
-  return { invoiceIds, deleted, finalized };
-}
 
 interface LodgifyPollResult {
   connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;

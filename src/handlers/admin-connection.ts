@@ -9,6 +9,7 @@ import { listUserConnections } from "../services/connection-context";
 import { buildAdapterCtx } from "../services/adapter-ctx";
 import { cancelReference, cancelReferenceCandidates } from "../services/document-references";
 import { runAdapterPipeline } from "./generic-pipeline";
+import { takeBackLodgifyDocuments, type TakeBackMode } from "./lodgify-billing";
 import { sendDevModeEmail } from "./notify";
 import { formatPtDate } from "../ix/date";
 
@@ -162,7 +163,12 @@ export interface BackfillOptions extends RecoveryOptions {
  */
 export async function backfillConnection(env: Env, conn: ConnectionContext, options: BackfillOptions) {
   const storage = storageFor(env, conn);
-  const dryRun = !!options.dry_run;
+  // Lodgify defaults to a dry run when the caller says nothing, matching
+  // /admin/lodgify/unbill-premature. This issues fiscal documents in bulk to a
+  // merchant whose original complaint was being invoiced too early, and the
+  // asymmetry between "I forgot the flag" and "I billed 12 future stays" is not
+  // close.
+  const dryRun = options.dry_run ?? (conn.source === "lodgify");
   const limit = Math.min(options.limit ?? 100, 500);
   const jobId = await startJob(storage, conn, dryRun ? "connection_backfill_dry_run" : "connection_backfill", {
     from: options.from, to: options.to, limit, dry_run: dryRun,
@@ -364,6 +370,13 @@ export async function deleteConnectionDraft(env: Env, conn: ConnectionContext, i
   const dest = getDestinationAdapter(conn.destination);
   if (!dest.deleteDraft) return fail(`${conn.destination} não suporta apagar rascunhos — emita uma nota de crédito.`);
 
+  // A Lodgify booking can be several documents (one per instalment), and they
+  // have to be taken back together: deleting the first and leaving the second
+  // standing is the exact failure the shared take-back exists to prevent.
+  if (conn.source === "lodgify") {
+    return takeBackLodgifyForAdmin(env, conn, storage, jobId, input, options, "delete_drafts");
+  }
+
   const lookup = await resolveDocument(env, conn, storage, input);
   if ("error" in lookup) return fail(lookup.error);
 
@@ -411,6 +424,12 @@ export async function creditConnectionDocument(env: Env, conn: ConnectionContext
     return fail(`${conn.destination} ainda não sabe emitir nota de crédito sobre um documento existente.`);
   }
 
+  // Same reason as delete-draft: a part-paid booking is several documents, and
+  // crediting one of them leaves the sale half-undone.
+  if (conn.source === "lodgify") {
+    return takeBackLodgifyForAdmin(env, conn, storage, jobId, input, options, "delete_or_credit");
+  }
+
   const lookup = await resolveDocument(env, conn, storage, input);
   if ("error" in lookup) return fail(lookup.error);
 
@@ -445,6 +464,73 @@ export async function creditConnectionDocument(env: Env, conn: ConnectionContext
     `Rioko Dev Mode — nota de crédito (${conn.connectionLabel})`,
     `Nota de crédito ${result.creditId} para o documento ${lookup.invoiceId}.\nRegisto: ${lookup.externalId}`
     + `\nMotivo: ${options.reason ?? "—"}\nJob ID: ${jobId}`);
+
+  return { job_id: jobId, status: "success" as const, ...summary };
+}
+
+/**
+ * Delete-draft and credit-note for Lodgify, which are the same operation over
+ * the booking's whole document set and differ only in what they do with a
+ * document that is already certified.
+ */
+async function takeBackLodgifyForAdmin(
+  env: Env,
+  conn: ConnectionContext,
+  storage: AppStorage,
+  jobId: string,
+  input: string,
+  options: RecoveryOptions,
+  mode: TakeBackMode,
+) {
+  const bookingId = input.trim().replace(/^LOD-/i, "");
+  const fail = async (error: string) => {
+    await storage.finishDevJob(jobId, "error", { error }, []);
+    return { job_id: jobId, status: "error" as const, error };
+  };
+
+  let result;
+  try {
+    result = await takeBackLodgifyDocuments(env, {
+      userId: conn.userId!,
+      bookingId,
+      destination: conn.destination,
+      config: conn.config,
+      sourceCfg: conn.sourceConfig,
+      destinationConfig: conn.destinationConfig,
+      dryRun: !!options.dry_run,
+      mode,
+      reason: options.reason ?? null,
+      // An operator undoing a booking means it is unbilled and may be billed
+      // again — unlike the cancellation path, where it must stay un-billable.
+      forgetStandardRecord: true,
+    });
+  } catch (e: any) {
+    return fail(String(e?.message ?? e));
+  }
+
+  if (result.invoiceIds.length === 0) return fail(`Não há documentos registados para a reserva ${bookingId}`);
+
+  const summary = {
+    external_id: bookingId,
+    destination: conn.destination,
+    mode,
+    dry_run: !!options.dry_run,
+    documents: result.invoiceIds,
+    deleted: result.deleted,
+    credited: result.credited,
+    // Left standing: either certified with mode=delete_drafts, or unreadable.
+    // Either way a human has to look, so it is never reported as done.
+    kept: result.finalized,
+    ...(result.finalized.length > 0
+      ? { warning: `ATENÇÃO: ${result.finalized.length} documento(s) não foram anulados (${result.finalized.join(", ")}) — os registos da reserva foram mantidos para não a facturar outra vez` }
+      : {}),
+  };
+  const status = result.finalized.length === 0 ? "success" : "partial";
+  await storage.finishDevJob(jobId, status, summary, [summary]);
+  await notify(options,
+    `Rioko Dev Mode — reserva ${bookingId} anulada (${conn.connectionLabel})`,
+    `Documentos: ${result.invoiceIds.join(", ")}\nApagados: ${result.deleted.length}\nCreditados: ${result.credited.length}`
+    + `\nMantidos: ${result.finalized.length}\nMotivo: ${options.reason ?? "—"}\nJob ID: ${jobId}`);
 
   return { job_id: jobId, status: "success" as const, ...summary };
 }

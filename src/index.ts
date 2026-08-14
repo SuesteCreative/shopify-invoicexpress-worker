@@ -872,16 +872,106 @@ app.post("/admin/run-reconciliation-sweep", async (c) => {
 app.post("/admin/lodgify/poll", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  let body: { user_id?: string; bookings?: any[] } = {};
+  let body: { user_id?: string; bookings?: any[]; dry_run?: boolean } = {};
   try { body = await c.req.json(); } catch { /* empty body = poll every connection */ }
   if (body.bookings && !body.user_id) {
     return c.json({ error: "bookings requires user_id" }, 400);
   }
+  // An empty array is truthy, so a caller whose own fetch failed and sent `[]`
+  // would be telling us "this account has no bookings" — the mirror would go
+  // untouched, nothing would bill, and nothing would complain. Make it explicit.
+  if (body.bookings && body.bookings.length === 0) {
+    return c.json({ error: "bookings must not be empty — omit the field to fetch from Lodgify" }, 400);
+  }
   try {
-    const result = await pollLodgifyBookings(c.env, { userId: body.user_id, bookings: body.bookings });
+    const result = await pollLodgifyBookings(c.env, { userId: body.user_id, bookings: body.bookings, dryRun: body.dry_run });
     return c.json({ ranAt: new Date().toISOString(), ...result });
   } catch (e) {
     return errorResponse(c, e, "Lodgify poll failed");
+  }
+})
+
+// Admin: hand the external Lodgify feeder the list of connections to fetch for.
+//
+// Lodgify blocks this Worker's egress (an unregistered integrator serving several
+// end users from one IP), so the booking list is fetched elsewhere and posted
+// back to /admin/lodgify/poll. That fetcher needs each connection's API key, and
+// the alternative — copying keys into a second system's environment — puts them
+// somewhere that silently goes stale the moment a merchant re-saves the wizard,
+// and makes onboarding a merchant a deploy. D1 stays the single source of truth.
+//
+// This is the ONLY route that returns an api_key: never log the response body.
+// It does not widen the trust boundary (the admin key it already requires can
+// issue, delete and credit documents for every tenant) — it widens what one leak
+// yields, which is why it is a separate route and not folded into another.
+app.get("/admin/lodgify/feed-manifest", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT user_id, source_config_json, destination_kind, invoice_cutoff
+         FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`
+    ).all();
+
+    const tenants: any[] = [];
+    for (const conn of (rows?.results ?? []) as any[]) {
+      let sourceCfg: Record<string, any> = {};
+      try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+      const connLabel = `lodgify → ${conn.destination_kind ?? "moloni"}`;
+      if (!sourceCfg.api_key) {
+        // A keyless connection is invisible to the feeder; make sure it is not
+        // invisible to us as well. Same incident the poll raises for this.
+        await reportIncident(c.env, {
+          user_id: conn.user_id,
+          severity: "critical",
+          kind: "auth_failure_source",
+          summary: "Ligação Lodgify sem chave de API — nenhuma reserva pode ser facturada.",
+          connection_label: connLabel,
+          bucket: "daily",
+        });
+        continue;
+      }
+      tenants.push({
+        user_id: conn.user_id,
+        api_key: sourceCfg.api_key,
+        connection_label: connLabel,
+        invoice_cutoff: conn.invoice_cutoff ?? null,
+        // The feeder refuses to bill for a connection with no cutoff: a NULL
+        // cutoff means "invoice everything", which on a first run bills a new
+        // merchant's entire history, unattended, dated today.
+        has_cutoff: !!conn.invoice_cutoff,
+      });
+    }
+    return c.json({ tenants });
+  } catch (e) {
+    return errorResponse(c, e, "Lodgify feed manifest failed");
+  }
+})
+
+// Admin: let the external feeder report that it could not reach Lodgify.
+//
+// Without this the only alerting path runs inside the Worker's own fetch — which
+// we are about to stop doing. Same incident, same wording, same daily bucket, so
+// a block discovered by the feeder reads exactly like one discovered here.
+app.post("/admin/lodgify/feed-error", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { user_id?: string; error?: string } = {};
+  try { body = await c.req.json(); } catch { /* */ }
+  if (!body.user_id || !body.error) return c.json({ error: "Missing user_id or error" }, 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT destination_kind FROM connections WHERE user_id = ? AND source_kind = 'lodgify' LIMIT 1`
+  ).bind(body.user_id).first();
+  try {
+    await reportLodgifyFetchFailure(c.env, {
+      userId: body.user_id,
+      connLabel: `lodgify → ${conn?.destination_kind ?? "moloni"}`,
+      message: String(body.error).slice(0, 1000),
+    });
+    return c.json({ reported: true });
+  } catch (e) {
+    return errorResponse(c, e, "Lodgify feed error report failed");
   }
 })
 
@@ -1368,6 +1458,8 @@ interface ConnectionRouteBody {
   to?: string;
   dry_run?: boolean;
   limit?: number;
+  /** Backfill only: also bill sales from before the connection's invoice_cutoff. */
+  ignore_cutoff?: boolean;
   force?: boolean;
   reason?: string;
   triggered_by?: string;
@@ -1428,6 +1520,7 @@ app.post("/admin/connection/backfill", async (c) => {
     return c.json(await backfillConnection(c.env, resolved.ctx, {
       from: body.from, to: body.to,
       dry_run: body.dry_run, limit: body.limit,
+      ignore_cutoff: body.ignore_cutoff,
       reason: body.reason ?? null, triggered_by: body.triggered_by ?? null,
       notify_emails: body.notify_emails,
     }));
@@ -2668,6 +2761,14 @@ interface LodgifyPollResult {
   connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;
   /** Documents taken back because their booking was cancelled after we billed it. */
   reversed: number;
+  /**
+   * Dry-run only: the bookings this run WOULD have billed, in the order it would
+   * have billed them. Exists so a caller outside the Worker (the Lodgify feeder,
+   * which fetches the list from a non-blocked network) can learn which handful of
+   * bookings is worth enriching with a per-booking detail call — without
+   * reimplementing a single settlement rule on its side.
+   */
+  wouldInvoice?: Array<{ booking_id: string; path: "standard" | "partial"; seq?: number; amount: number }>;
 }
 
 /**
@@ -2709,10 +2810,20 @@ export interface LodgifyPollOptions {
    * so nothing fiscal is reimplemented outside this code path.
    */
   bookings?: any[];
+  /**
+   * Sync and decide, but issue nothing: the mirror is still refreshed (that half
+   * is safe and is the whole point of a sync), every gate still runs, and the
+   * bookings that would have been billed come back in `wouldInvoice` instead of
+   * becoming documents. Cancellation reversal is skipped too — it DELETES
+   * documents, which is not a dry run by any reading.
+   */
+  dryRun?: boolean;
 }
 
 async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Promise<LodgifyPollResult> {
   const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0, reversed: 0 };
+  const dryRun = !!opts.dryRun;
+  if (dryRun) result.wouldInvoice = [];
 
   const baseSql =
     `SELECT id, user_id, source_config_json, destination_kind, destination_config_json, invoice_cutoff
@@ -2800,26 +2911,7 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${msg}`);
-      // A rejected key is permanent until re-authed; anything else is likely a
-      // transient Lodgify outage that the next poll clears. Both used to be
-      // console-only, so a revoked key looked identical to "nothing to do".
-      const isBlocked = msg.includes("LODGIFY_IP_BLOCKED");
-      const isAuth = /\b(401|403)\b|unauthorized|forbidden|invalid api key/i.test(msg);
-      await reportIncident(env, {
-        user_id: conn.user_id,
-        severity: isBlocked || isAuth ? "critical" : "error",
-        kind: "auth_failure_source",
-        summary: isBlocked
-          // Names the actual remedy: no amount of retrying or redeploying fixes
-          // this, only registering as a Lodgify partner.
-          ? "Lodgify BLOQUEOU o IP do servidor: integrador não registado como parceiro. Nenhuma reserva pode ser sincronizada até registar em lodgify.com/partners."
-          : isAuth
-            ? "Lodgify rejeitou a chave de API — reservas não estão a ser sincronizadas nem facturadas."
-            : `Não foi possível obter reservas do Lodgify: ${msg}`.slice(0, 500),
-        detail: { error: msg },
-        connection_label: connLabel,
-        bucket: "daily",
-      });
+      await reportLodgifyFetchFailure(env, { userId: conn.user_id, connLabel, message: msg });
       continue;
     }
 
@@ -2858,7 +2950,8 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       // webhooks — partner OAuth only), so before this the poll simply skipped
       // cancelled bookings and left their documents standing forever.
       if (status !== "booked") {
-        if (status === "declined" || status === "cancelled" || status === "canceled") {
+        // Reversal deletes drafts and clears markers — never on a dry run.
+        if (!dryRun && (status === "declined" || status === "cancelled" || status === "canceled")) {
           const reversed = await reverseCancelledLodgifyBooking(env, {
             userId: conn.user_id, bookingId, connLabel, destination,
             config: legacy, sourceCfg, destinationConfig,
@@ -2905,6 +2998,10 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
         const delta = Math.round((paid - already) * 100) / 100;
         if (delta <= 0.01) { result.skipped++; continue; }             // no new payment to bill
         const seq = partials.length + 1;
+        if (dryRun) {
+          result.wouldInvoice!.push({ booking_id: bookingId, path: "partial", seq, amount: delta });
+          continue;
+        }
         try {
           const invoiceId = await emitLodgifyPartialInvoice(env, {
             config: legacy, sourceCfg, destinationConfig, destination,
@@ -2960,6 +3057,11 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
         result.skipped++; continue;
       }
 
+      if (dryRun) {
+        result.wouldInvoice!.push({ booking_id: bookingId, path: "standard", amount: Number(item?.total_amount ?? 0) });
+        continue;
+      }
+
       await appStorage.markWebhookAsProcessing(bookingId, storageTopic);
       const body = { event: "booking_new_status_booked", data: { bookingId }, _preloaded_booking: toPreloadedFromItem(item) };
       try {
@@ -2985,9 +3087,87 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
 
     // Backlog check — runs after the mirror is fresh for this connection.
     await reportLodgifyBacklog(env, conn.user_id, conn.invoice_cutoff, connLabel);
+
+    // Record that ingestion actually completed for this connection. Deliberately
+    // NOT on dry runs: the feeder's cycle is dry-then-real, so marking the dry
+    // half would keep the light green while every real run failed.
+    if (!dryRun) await markLodgifyIngest(env, conn.user_id);
   }
 
   return result;
+}
+
+/**
+ * Report a failure to obtain the booking list from Lodgify.
+ *
+ * Shared by the two things that can discover it: this Worker's own fetch, and
+ * the external feeder that fetches the list from a network Lodgify hasn't
+ * blocked (see POST /admin/lodgify/feed-error). Same kind, same severity, same
+ * daily bucket and the same Portuguese copy either way — a merchant should not
+ * be able to tell which side of the wire noticed.
+ */
+async function reportLodgifyFetchFailure(
+  env: Env,
+  o: { userId: string; connLabel: string; message: string },
+): Promise<void> {
+  // A rejected key is permanent until re-authed; anything else is likely a
+  // transient Lodgify outage that the next poll clears. Both used to be
+  // console-only, so a revoked key looked identical to "nothing to do".
+  const isBlocked = o.message.includes("LODGIFY_IP_BLOCKED")
+    || /unregistered API user|lodgify\.com\/partners|has been blocked/i.test(o.message);
+  const isAuth = /\b(401|403)\b|unauthorized|forbidden|invalid api key/i.test(o.message);
+  await reportIncident(env, {
+    user_id: o.userId,
+    severity: isBlocked || isAuth ? "critical" : "error",
+    kind: "auth_failure_source",
+    summary: isBlocked
+      // Names the actual remedy: no amount of retrying or redeploying fixes
+      // this, only registering as a Lodgify partner.
+      ? "Lodgify BLOQUEOU o IP do servidor: integrador não registado como parceiro. Nenhuma reserva pode ser sincronizada até registar em lodgify.com/partners."
+      : isAuth
+        ? "Lodgify rejeitou a chave de API — reservas não estão a ser sincronizadas nem facturadas."
+        : `Não foi possível obter reservas do Lodgify: ${o.message}`.slice(0, 500),
+    detail: { error: o.message },
+    connection_label: o.connLabel,
+    bucket: "daily",
+  });
+}
+
+/** sweep_state key under which a connection's last completed ingestion is stamped. */
+function lodgifyIngestKey(userId: string): string {
+  return `lodgify-ingest:${userId}`;
+}
+
+/**
+ * Stamp "ingestion completed" for a Lodgify connection.
+ *
+ * Reuses `sweep_state` — a table that already answers exactly this question
+ * ("when did this periodic job last finish for this subject") — under a
+ * namespaced key, rather than adding a table and a hand-applied migration for
+ * one timestamp. The column is named `shopify_domain` for historical reasons;
+ * it is a plain TEXT primary key.
+ *
+ * Why a marker and not `MAX(lodgify_bookings.synced_at)`: a dormant merchant
+ * (no bookings at all, or paused for the season) upserts no rows, so mirror
+ * freshness would page every day about a connection that is perfectly healthy.
+ * A completed run is the thing worth watching, and it is independent of whether
+ * the merchant sold anything.
+ */
+async function markLodgifyIngest(env: Env, userId: string): Promise<void> {
+  const nowIso = new Date().toISOString();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sweep_state (shopify_domain, last_started_at, last_completed_at, last_status, last_detail_json)
+       VALUES (?1, ?2, ?2, 'ok', NULL)
+       ON CONFLICT(shopify_domain) DO UPDATE SET
+         last_started_at   = excluded.last_started_at,
+         last_completed_at = excluded.last_completed_at,
+         last_status       = excluded.last_status`
+    ).bind(lodgifyIngestKey(userId), nowIso).run();
+  } catch (e: any) {
+    // Never let bookkeeping break a poll that already did its real work.
+    console.warn(`[LodgifyPoll] ingest marker failed for ${userId}: ${e?.message ?? e}`);
+  }
 }
 
 /**
@@ -3076,6 +3256,53 @@ async function reportLodgifyBacklog(
   } catch (e: any) {
     console.error(`[LodgifyPoll] backlog check failed for ${userId}: ${e?.message ?? e}`);
   }
+}
+
+/**
+ * Alert when a Lodgify connection has gone too long without a completed
+ * ingestion — the "nobody is fetching any more" alarm.
+ *
+ * Reads the marker `markLodgifyIngest` writes, NOT the mirror's freshness: a
+ * merchant can legitimately have zero new bookings for weeks (seasonal, paused,
+ * dormant), and paging about that trains everyone to ignore the alert. A run
+ * that completed is what we actually require, and it happens whether or not the
+ * merchant sold anything.
+ *
+ * 6h threshold against an hourly feeder = five consecutive missed runs before
+ * anyone is woken. Daily bucket, so a dead feeder costs one email per day.
+ */
+async function reportStaleLodgifyIngest(env: Env): Promise<{ checked: number; stale: number }> {
+  const out = { checked: 0, stale: 0 };
+  const rows = await env.DB.prepare(
+    `SELECT user_id, destination_kind FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`
+  ).all();
+
+  const staleMs = 6 * 60 * 60 * 1000;
+  for (const conn of (rows?.results ?? []) as any[]) {
+    out.checked++;
+    const state: any = await env.DB.prepare(
+      "SELECT last_completed_at FROM sweep_state WHERE shopify_domain = ?"
+    ).bind(lodgifyIngestKey(conn.user_id)).first();
+
+    const lastMs = state?.last_completed_at ? Date.parse(String(state.last_completed_at)) : NaN;
+    const ageMs = Number.isFinite(lastMs) ? Date.now() - lastMs : Infinity;
+    if (ageMs <= staleMs) continue;
+
+    out.stale++;
+    const hours = Number.isFinite(ageMs) ? Math.round(ageMs / 3600000) : null;
+    await reportIncident(env, {
+      user_id: conn.user_id,
+      severity: "critical",
+      kind: "auth_failure_source",
+      summary: hours == null
+        ? "Nenhuma sincronização Lodgify alguma vez concluída para esta ligação — as reservas não estão a chegar."
+        : `Sem sincronização Lodgify há ${hours}h — as reservas deixaram de chegar e nada está a ser facturado.`,
+      detail: { last_completed_at: state?.last_completed_at ?? null, threshold_hours: 6 },
+      connection_label: `lodgify → ${conn.destination_kind ?? "moloni"}`,
+      bucket: "daily",
+    });
+  }
+  return out;
 }
 
 export default {
@@ -3204,6 +3431,18 @@ export default {
       } catch (e: any) {
         console.error(`[Cron] Incident digest failed: ${e.message}`);
       }
+    }
+
+    // Lodgify ingestion dead-man's switch. With the poll disabled and the list
+    // fetched by an external feeder, a feeder that simply stops running takes
+    // invoicing down in complete silence — no failure to report, no incident to
+    // raise, every counter healthy at zero. This is the only check that fires on
+    // an absence.
+    try {
+      const r = await reportStaleLodgifyIngest(env);
+      if (r.stale > 0) console.warn(`[Cron] Lodgify ingestion stale for ${r.stale}/${r.checked} connection(s)`);
+    } catch (e: any) {
+      console.error(`[Cron] Lodgify ingest check failed: ${e.message}`);
     }
 
     // VIES retry sweep — picks up pending_reverse_charge rows whose retry

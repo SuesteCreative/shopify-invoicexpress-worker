@@ -93,4 +93,31 @@ describe("classifyRecordForBilling", () => {
     );
     expect(d.action).toBe("skip");
   });
+
+  it("bills a pre-cutoff sale when the caller passes no cutoff (backfill ignore_cutoff)", () => {
+    // How a deliberate history backfill reaches sales the automatic paths must
+    // never touch: the caller drops the cutoff for ONE bounded, dry-runnable
+    // command, rather than moving `invoice_cutoff` — which would hand the same
+    // history to the next unattended run, minutes later, with nobody watching.
+    // Every other guard still applies; only the date test is lifted.
+    const d = classifyRecordForBilling(
+      record({ paidAt: "2023-04-02T10:00:00Z" }),
+      { dryRun: false, resolved: new Set(), cutoff: null },
+    );
+    expect(d).toEqual({ action: "bill" });
+  });
+
+  it("ignoring the cutoff does not resurrect resolved or blocked records", () => {
+    const resolvedRow = classifyRecordForBilling(
+      record({ paidAt: "2023-04-02T10:00:00Z" }),
+      { dryRun: false, resolved: new Set(["pi_1"]), cutoff: null },
+    );
+    expect(resolvedRow.action).toBe("skip");
+
+    const blockedRow = classifyRecordForBilling(
+      record({ paidAt: "2023-04-02T10:00:00Z", blocker: "cancelada" }),
+      { dryRun: false, resolved: new Set(), cutoff: null },
+    );
+    expect(blockedRow.action).toBe("skip");
+  });
 });

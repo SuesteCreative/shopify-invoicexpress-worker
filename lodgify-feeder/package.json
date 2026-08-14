@@ -1,0 +1,9 @@
+{
+  "name": "lodgify-feeder",
+  "private": true,
+  "type": "module",
+  "description": "Fetches Lodgify bookings from a non-blocked network and posts them to the Rioko worker.",
+  "engines": {
+    "node": ">=20"
+  }
+}

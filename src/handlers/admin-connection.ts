@@ -152,6 +152,16 @@ function externalIdDescriptor(source: string) {
 export interface BackfillOptions extends RecoveryOptions {
   from: string;
   to: string;
+  /**
+   * Bill sales from BEFORE the connection's `invoice_cutoff` as well.
+   *
+   * The cutoff exists so a new merchant's back-catalogue is never billed by an
+   * automatic path, and that must stay true — this flag is how a human asks for
+   * that history deliberately, on a bounded, dry-runnable, one-shot command,
+   * instead of by moving the cutoff (which would hand the same history to the
+   * next unattended poll, minutes later, with no limit and nobody watching).
+   */
+  ignore_cutoff?: boolean;
 }
 
 /**
@@ -180,7 +190,7 @@ export async function backfillConnection(env: Env, conn: ConnectionContext, opti
     const candidates = await recovery.listCandidates(conn, env, { from: options.from, to: options.to, limit });
 
     const resolved = await storage.getResolvedOrderIds(candidates.map((c) => c.externalId), conn.scope);
-    const cutoff = conn.invoiceCutoff ? Date.parse(conn.invoiceCutoff) : null;
+    const cutoff = options.ignore_cutoff ? null : (conn.invoiceCutoff ? Date.parse(conn.invoiceCutoff) : null);
 
     for (const record of candidates) {
       const row = await billOneRecord(env, conn, storage, record, { dryRun, resolved, cutoff });

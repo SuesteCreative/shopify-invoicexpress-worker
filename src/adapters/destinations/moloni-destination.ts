@@ -86,6 +86,13 @@ export type MoloniCfg = {
   documentSetName?: string;
   // "invoice" → /invoices/insert/ (default), "invoice_receipt" → /invoiceReceipts/insert/
   documentType: string;
+  // Where generated products are filed. Unset = the account's FIRST category,
+  // which on a fresh Moloni account is the demo one ("Categoria exemplo"), so a
+  // merchant who cares should pin `moloni_category_id`.
+  categoryId: number;
+  // Payment terms stamped on the document ("Pronto Pagamento", "30 Dias", …).
+  // Unset = none sent, which Moloni renders as due on the issue date.
+  maturityDateId: number;
 };
 
 // Endpoint family per document type. Every operation on a document MUST use the
@@ -195,7 +202,12 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
 
   const defaultTaxId = Number(c.moloni_default_tax_id ?? 0);
   const documentType = String(c.moloni_document_type ?? "invoice").toLowerCase();
-  return { baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId, companyName, documentSetName, defaultTaxId, documentType };
+  const categoryId = Number(c.moloni_category_id ?? 0);
+  const maturityDateId = Number(c.moloni_maturity_date_id ?? 0);
+  return {
+    baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId,
+    companyName, documentSetName, defaultTaxId, documentType, categoryId, maturityDateId,
+  };
 }
 
 /**
@@ -1070,12 +1082,20 @@ async function ensureMoloniProduct(
   }
 
   // 2. Resolve a category_id + unit_id (required to create a product).
-  const categories = await moloniCall<Array<{ category_id?: number }>>(
-    cfg, token, "/productCategories/getAll/",
-    { parent_id: 0 },
-    "lookup",
-  );
-  const categoryId = Array.isArray(categories) ? categories[0]?.category_id : undefined;
+  //
+  // A pinned `moloni_category_id` wins. Without one we take the account's first
+  // category, which on a fresh Moloni account is the demo entry ("Categoria
+  // exemplo — Produtos/Serviços") — harmless but wrong, and it files a real
+  // business's whole catalogue under a sample.
+  let categoryId: number | undefined = cfg.categoryId > 0 ? cfg.categoryId : undefined;
+  if (!categoryId) {
+    const categories = await moloniCall<Array<{ category_id?: number }>>(
+      cfg, token, "/productCategories/getAll/",
+      { parent_id: 0 },
+      "lookup",
+    );
+    categoryId = Array.isArray(categories) ? categories[0]?.category_id : undefined;
+  }
   if (!categoryId) {
     throw new Error(`Moloni create failed: no product category available to host product '${reference}'`);
   }
@@ -1389,6 +1409,9 @@ export class MoloniDestination implements DestinationAdapter {
       your_reference: normalized.order.reference?.toString().slice(0, 100) ?? undefined,
       products,
       status: 0, // 0 = draft, 1 = closed/finalized
+      // Payment terms ("Pronto Pagamento", "30 Dias"). Omitted unless pinned,
+      // in which case Moloni renders the document as due on its issue date.
+      ...(cfg.maturityDateId > 0 ? { maturity_date_id: cfg.maturityDateId } : {}),
       // A fatura-recibo says the money was received; without a payment line it
       // says so without saying how. Stamp the channel that took it ("Airbnb"),
       // or the connection's configured method. A plain fatura records no

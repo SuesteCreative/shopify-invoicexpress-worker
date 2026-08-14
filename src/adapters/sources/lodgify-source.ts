@@ -269,7 +269,7 @@ export class LodgifySource implements SourceAdapter {
       : "Alojamento";
     const lineTitle = partial?.seq ? `${baseTitle} (parcela ${partial.seq})` : baseTitle;
 
-    const makeLine = (id: number, title: string, gross: number, rate: number) => {
+    const makeLine = (id: number, title: string, gross: number, rate: number, sku = refStr) => {
       const net = rate > 0 ? Math.round((gross / (1 + rate / 100)) * 10000) / 10000 : gross;
       return {
         id,
@@ -283,7 +283,7 @@ export class LodgifySource implements SourceAdapter {
         discount: { name: "", percent: 0 },
         title,
         variant_title: null,
-        sku: refStr,
+        sku,
         fulfilled: true,
         fulfilled_quantity: 1,
         fulfillment_status: "fulfilled",
@@ -312,7 +312,11 @@ export class LodgifySource implements SourceAdapter {
     const lineItems = splitExtras
       ? [
           makeLine(1, lineTitle, stayGross, taxRate),
-          makeLine(2, "Limpeza e extras", extrasGross, extrasRate),
+          // Its own SKU, and therefore its own Moloni product: the destination
+          // derives the product reference from the SKU, so sharing one would
+          // put the cleaning fee on a product named after the stay and carrying
+          // the accommodation's 6% tax rule.
+          makeLine(2, "Limpeza e extras", extrasGross, extrasRate, `${refStr}-LIM`.slice(0, 30)),
         ]
       : [makeLine(1, lineTitle, grossTotal, taxRate)];
 

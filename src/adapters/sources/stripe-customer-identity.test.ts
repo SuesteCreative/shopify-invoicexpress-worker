@@ -25,6 +25,11 @@ const CUSTOMER = {
   tax_ids: { data: [{ type: "eu_vat", value: "PT196940737" }] },
 };
 
+/** The real timeline of pi_3Tz3w0…: Multibanco reference generated 31/07, paid
+ * 12/08. Twelve days between wanting to pay and paying. */
+const STARTED_AT = 1_785_456_260; // 2026-07-31T00:04:20Z — pi.created
+const PAID_AT = 1_786_520_515;    // 2026-08-12T07:41:55Z — charge.created
+
 const piEvent = (overrides: Record<string, any> = {}) => ({
   type: "payment_intent.succeeded",
   data: {
@@ -34,7 +39,7 @@ const piEvent = (overrides: Record<string, any> = {}) => ({
       amount: 13000,
       amount_received: 13000,
       currency: "eur",
-      created: 1_753_920_260,
+      created: STARTED_AT,
       customer: "cus_UlKKfAZvsi6CJ2",
       receipt_email: "luisandrefilipe@gmail.com",
       description: "Subscription update",
@@ -46,12 +51,13 @@ const piEvent = (overrides: Record<string, any> = {}) => ({
 const ctx = { sourceConfig: { restricted_key: "rk_live_test" } } as unknown as AdapterCtx;
 
 /** Stripe responds to exactly two GETs here: the Customer expand and the
- * latest_charge expand. `charge` mirrors the real payload — a null name. */
-function stubStripe(customer: any, chargeName: string | null = null) {
+ * latest_charge expand. The charge defaults to the real payload — a null name
+ * and the Multibanco settlement 12 days after the intent was created. */
+function stubStripe(customer: any, charge: Record<string, any> = {}) {
   const fetchMock = vi.fn(async (url: string) => {
     const body = String(url).includes("/customers/")
       ? customer
-      : { latest_charge: { billing_details: { name: chargeName } } };
+      : { latest_charge: { billing_details: { name: null }, created: PAID_AT, ...charge } };
     return { ok: true, json: async () => body } as unknown as Response;
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -73,7 +79,7 @@ describe("Stripe buyer identity", () => {
   });
 
   it("does not overwrite identity the event already carried", async () => {
-    stubStripe({ ...CUSTOMER, name: "Stale Customer Record" });
+    stubStripe({ ...CUSTOMER, name: "Stale Customer Record" }, {});
     const n = (await new StripeSource().toNormalized(
       piEvent({ shipping: { name: "Nome Na Encomenda", address: { line1: "Rua A", city: "Lisboa", postal_code: "1000-001", country: "PT" } } }),
       ctx,
@@ -89,6 +95,35 @@ describe("Stripe buyer identity", () => {
 
     expect(n).not.toBeNull();
     expect(n!.order.total).toBe(130);
+  });
+});
+
+// The document is dated by the payment. A Multibanco reference is generated on
+// day one and paid days later; dating from the PaymentIntent put the invoice
+// almost two weeks before the money existed (and Moloni then clamped it to the
+// series floor, a date that was neither).
+describe("document date", () => {
+  it("is when the money arrived, not when the payment was started", async () => {
+    stubStripe(CUSTOMER); // charge.created = 2026-08-12T07:41:55Z
+    const n = (await new StripeSource().toNormalized(piEvent(), ctx))!;
+
+    // pi.created is 2026-07-31T00:04:20Z — 12 days earlier.
+    expect(n.order.created_at).toBe("2026-08-12T07:41:55.000Z");
+    expect(n.order.meta.processed_at).toBe("2026-08-12T07:41:55.000Z");
+  });
+
+  it("falls back to the PaymentIntent when the charge cannot be read", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) } as unknown as Response)));
+    const n = (await new StripeSource().toNormalized(piEvent(), ctx))!;
+
+    expect(n.order.created_at).toBe("2026-07-31T00:04:20.000Z");
+  });
+
+  it("leaves a card payment where it was — intent and charge are the same moment", async () => {
+    stubStripe(CUSTOMER, { created: STARTED_AT });
+    const n = (await new StripeSource().toNormalized(piEvent(), ctx))!;
+
+    expect(n.order.created_at).toBe("2026-07-31T00:04:20.000Z");
   });
 });
 

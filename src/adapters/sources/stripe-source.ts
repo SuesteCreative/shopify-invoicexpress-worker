@@ -142,14 +142,20 @@ async function fetchStripeCustomer(customerId: string, restrictedKey: string): P
 }
 
 /**
- * Recover the buyer's name from the charge's billing_details. A
- * `payment_intent.succeeded` payload only carries a name when `pi.shipping.name`
- * is set; the real buyer name usually lives on the underlying charge, which the
- * PI event does not include. Without this the Moloni customer falls back to
- * "Consumidor Final". Expands `latest_charge` off the PI. Failures are swallowed
- * (name stays empty → "Consumidor Final"), never blocking the invoice.
+ * The charge behind a PaymentIntent, which the PI event does not include.
+ *
+ * Two things live here that the PI cannot answer:
+ *  - the buyer's name (`billing_details.name`); a PI carries one only when
+ *    `shipping` was collected;
+ *  - WHEN THE MONEY ARRIVED (`created`). `pi.created` is when the payment was
+ *    *started*. For a card those are the same second, but for Multibanco (and
+ *    SEPA debit, Boleto, …) the reference is generated on day one and paid days
+ *    later — 12 days apart on pi_3Tz3w0…, which dated the invoice 31/07 for a
+ *    payment made on 12/08.
+ *
+ * Failures are swallowed: the invoice still gets issued, from the PI alone.
  */
-async function fetchChargeBillingName(paymentIntentId: string, restrictedKey: string): Promise<string | null> {
+async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string): Promise<any | null> {
   try {
     const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge`;
     const res = await fetch(url, {
@@ -163,8 +169,8 @@ async function fetchChargeBillingName(paymentIntentId: string, restrictedKey: st
       return null;
     }
     const body: any = await res.json();
-    const name = body?.latest_charge?.billing_details?.name;
-    return typeof name === "string" && name.trim() ? name.trim() : null;
+    const charge = body?.latest_charge;
+    return charge && typeof charge === "object" ? charge : null;
   } catch (e: any) {
     console.warn(`[Stripe] latest_charge expand network error for ${paymentIntentId}: ${e?.message ?? e}`);
     return null;
@@ -674,17 +680,37 @@ export class StripeSource implements SourceAdapter {
       }
     }
 
-    // Buyer-name enrichment: a PaymentIntent event only carries a name when
-    // pi.shipping.name is set, so PI-triggered invoices often come out nameless
-    // ("Consumidor Final"). The buyer name lives on the charge's billing_details —
-    // expand latest_charge to recover it when the normalized name is empty.
+    // The charge behind the PaymentIntent answers two questions the PI can't:
+    // who paid, and WHEN. Fetched once and used for both.
     const isPI = typeof event?.type === "string" && event.type.startsWith("payment_intent.");
     const isCharge = typeof event?.type === "string" && event.type.startsWith("charge.");
     const nameEmpty = !normalized.order.customer?.name?.trim() && !normalized.order.billing_address?.name?.trim();
-    if (nameEmpty && restrictedKey && (isPI || isCharge)) {
+    let charge: any = null;
+    if (restrictedKey && (isPI || isCharge)) {
+      // A charge event already IS the charge — no round-trip needed.
       const piId = isPI ? obj?.id : obj?.payment_intent;
-      const name = piId ? await fetchChargeBillingName(String(piId), restrictedKey) : null;
-      if (name) applyBuyerName(normalized, name);
+      charge = isCharge ? obj : (piId ? await fetchLatestCharge(String(piId), restrictedKey) : null);
+    }
+
+    // Buyer-name tier 2: a PaymentIntent carries a name only when pi.shipping was
+    // collected, so PI-triggered invoices often come out nameless
+    // ("Consumidor Final"). The name usually lives on the charge.
+    if (nameEmpty) {
+      const chargeName = charge?.billing_details?.name;
+      if (typeof chargeName === "string" && chargeName.trim()) applyBuyerName(normalized, chargeName.trim());
+    }
+
+    // The document is dated by the PAYMENT, not by the intent to pay. `pi.created`
+    // is when the payment was STARTED: for a card that is the same second the
+    // money moves, but a Multibanco reference is generated on day one and paid
+    // days later (12 days apart on pi_3Tz3w0…). Dating the invoice from the PI
+    // asked Moloni for a date well before the series' last document, which then
+    // clamped it to the series floor — a date that was neither the intent nor the
+    // payment. The charge's `created` is the moment the money arrived.
+    if (isPI && Number.isFinite(Number(charge?.created)) && Number(charge.created) > 0) {
+      const paidAt = new Date(Number(charge.created) * 1000).toISOString();
+      normalized.order.created_at = paidAt;
+      if (normalized.order.meta) normalized.order.meta.processed_at = paidAt;
     }
 
     // Last identity tier: the Customer record. Multibanco / Link / off-session

@@ -7,7 +7,7 @@ import type {
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { reconcileTotalOrThrow } from "../reconcile";
-import { saleReference, refundReference } from "../../services/document-references";
+import { refundReference, documentReference } from "../../services/document-references";
 
 // -----------------------------------------------------------------------------
 // VendusDestination — Cegid Vendus v1.1
@@ -388,7 +388,7 @@ export class VendusDestination implements DestinationAdapter {
       type,                 // "FT" or "FR"
       mode: "normal",       // Vendus has no "draft" — see file header.
       date: normalized.order.created_at,
-      reference: normalized.order.reference || saleReference(normalized.order.order_number),
+      reference: documentReference(normalized.order),
       client,
       items,
     };

@@ -6,6 +6,7 @@ import { getMoloniCfg, getAccessToken, moloniCall } from "../adapters/destinatio
 import { stripeFetch } from "../services/stripe";
 import { scoreHeuristicMatch } from "./reconciliation-score";
 import { saleReference, cancelReference } from "../services/document-references";
+import { isBookingFullyCollected } from "../services/lodgify-amounts";
 import { resolveConnectionContext } from "../services/connection-context";
 
 // The left side of a reconciliation row, normalized across sources (Shopify
@@ -14,6 +15,15 @@ import { resolveConnectionContext } from "../services/connection-context";
 export interface ReconOrder {
   id: string;
   order_number: number;
+  /** The reference the DESTINATION actually stamped on this sale's document.
+   *
+   * Only set it when it is not `saleReference(order_number)`. Stripe is the case
+   * that forced it: its payments have no order number, so this side used to
+   * derive a plausible-looking `numericFromId(pi_…)` while the write side wrote
+   * a constant "Order #0" — the two halves searched for different strings and
+   * the exact-match and find-by-reference tiers silently never fired for any
+   * Stripe merchant. Whatever builds the document must feed this field. */
+  invoice_reference?: string | null;
   name: string;
   total: number;
   paid_at: string;
@@ -397,15 +407,22 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
     const totalRaw = b.total_amount?.amount ?? b.total_amount ?? b.amount?.amount ?? b.amount ?? b.total ?? 0;
     const guestName = b.guest?.name ?? b.guest_name ?? b.name ?? null;
     const guestEmail = b.guest?.email ?? b.email ?? null;
-    // Payment status mirrors the poll's invoice gate: a booking is "paid" once
-    // it's settled in Lodgify (amount_due≈0) — whether captured through Lodgify
-    // or marked paid by staff for an OTA stay. Positive balance ⇒ "pending"
-    // (rendered as "Fatura não por emitir"). Fall back to booked-status only when
-    // the balance field is absent.
-    const amountDue = Number(b.amount_due ?? b.balance_due ?? NaN);
-    const financial = Number.isFinite(amountDue)
-      ? (amountDue <= 0.01 ? "paid" : "pending")
-      : (status === "booked" ? "paid" : "pending");
+    // Payment status must be the SAME rule the poll invoices on, so read it from
+    // the one place that owns it rather than restating it here.
+    //
+    // This used to say `amount_due <= 0.01 ⇒ paid`, which is the premise the
+    // 2026-08-12 fix removed: for OTA channels (Airbnb, Booking.com) the guest's
+    // money never passes through Lodgify, so the balance reads 0 for the entire
+    // life of the booking and the absence of money looked like payment. The gate
+    // was corrected, this page was not — so Conciliação showed the merchant seven
+    // Airbnb bookings as "Pago · Sem fatura emitida" (7 561,83 € on Overbuilding)
+    // that the system was deliberately and correctly holding until the payout is
+    // recorded. Two readings of one rule is the same defect as "Order #0".
+    //
+    // The `status === "booked" ⇒ paid` fallback is gone with it, for the same
+    // reason: a confirmed booking is a promise of a stay, never evidence that
+    // money arrived.
+    const financial = isBookingFullyCollected(b) ? "paid" : "pending";
     rows.push({
       id,
       order_number: numericFromId(id),
@@ -474,6 +491,10 @@ async function fetchStripeReconOrders(ctx: ReconContext, from: string, to: strin
       out.push({
         id: String(pi.id),
         order_number: numericFromId(pi.id),
+        // Must match stripe-source's `stripeStableId` → `saleReference`, which is
+        // what the document was created with. `order_number` above stays only as
+        // a display/sort value; it is NOT the reference.
+        invoice_reference: saleReference(String(pi.id)),
         name: String(pi.id),
         total: Number(pi.amount ?? 0) / 100,
         paid_at: new Date(Number(pi.created ?? 0) * 1000).toISOString(),
@@ -1100,7 +1121,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
     const manualMatch = manualMatches.get(orderId);
 
     if (inv) {
-      const expectedRef = saleReference(orderBlock.order_number);
+      const expectedRef = orderBlock.invoice_reference ?? saleReference(orderBlock.order_number);
       // Exact if any mapped invoice carries the booking reference or an
       // "Order #N-<seq>" instalment reference.
       const isExact = invs.some(x => x.reference === expectedRef || (x.reference ?? "").startsWith(`${expectedRef}-`));
@@ -1212,7 +1233,7 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
   // and cached per reference (id or "MISS", 1h TTL).
   const noneRows = rows.filter(r => r.match.type === "none");
   if (noneRows.length > 0) {
-    const refOf = (r: ReconciliationRow) => saleReference(r.order.order_number);
+    const refOf = (r: ReconciliationRow) => r.order.invoice_reference ?? saleReference(r.order.order_number);
     const refDeadline = Date.now() + 8_000;
     const cachedRefs = await appStorage.getCachedRefLookups(meta.refAccount, noneRows.map(refOf), meta.refNs);
     await mapWithConcurrency(noneRows, 4, async (row) => {

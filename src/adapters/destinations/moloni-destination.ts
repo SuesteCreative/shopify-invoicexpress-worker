@@ -12,7 +12,7 @@ import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { redactSecrets } from "../../security";
-import { saleReference, refundReference, isRefundReference } from "../../services/document-references";
+import { refundReference, isRefundReference, documentReference } from "../../services/document-references";
 
 /**
  * MoloniDestination
@@ -408,10 +408,6 @@ function safeErrorJson(value: unknown, max = 500): string {
   return truncate(JSON.stringify(redactSecrets(value)), max);
 }
 
-function isPortugal(countryCode: string | null | undefined): boolean {
-  return String(countryCode ?? "").trim().toUpperCase() === "PT";
-}
-
 // Extracts a 9-digit PT NIF candidate from the same fields IX's builder reads.
 // Pared down from IxBuilder.extractAndValidateNIF — we only need a yes/no PT
 // fiscal id here, the heavy EU-VAT shape work is owned by IX.
@@ -456,6 +452,80 @@ export function extractPtNif(normalized: Normalized): string | null {
     if (validatePTNIF(n)) return n;
   }
   return null;
+}
+
+/**
+ * True when the sale carries a fiscal id that names Portugal in the id ITSELF —
+ * a `pt_nif` tax id, or an EU-VAT value spelled "PT196940737".
+ *
+ * Used to settle the one genuine conflict: a billing address that names another
+ * country while the fiscal id says Portugal. The id wins, because it is the
+ * fiscal statement and the address is often just where a card is registered.
+ * (An ABSENT address is no conflict at all — see resolveOrCreateCustomer.)
+ */
+export function hasPtFiscalMarker(order: Normalized["order"]): boolean {
+  const attrs = Array.isArray(order.note_attributes)
+    ? (order.note_attributes as Array<{ name?: string; value?: unknown }>)
+    : [];
+  for (const attr of attrs) {
+    if (!attr) continue;
+    const name = String(attr.name ?? "").toLowerCase();
+    // Stripe stamps the tax-id TYPE into the attribute name — "vat (pt_nif)".
+    if (name.includes("pt_nif")) return true;
+    const value = String(attr.value ?? "").toUpperCase().replace(/[\s.-]/g, "");
+    if (/^PT\d{9}$/.test(value)) return true;
+  }
+  return false;
+}
+
+export interface MoloniUnit { unit_id?: number; name?: string; short_name?: string }
+
+/**
+ * The measurement unit a generated product is created with.
+ *
+ * This used to take `units[0]` — whatever Moloni happened to list first for that
+ * company. On MJ | SENTE that is "Hrs", so every Stripe payment was invoiced as
+ * hours of something. A sale of one thing is one UNIT unless the merchant says
+ * otherwise, so look for the account's own "unidade" and only fall back to the
+ * first entry when the account genuinely has no such unit.
+ *
+ * This only governs products Rioko generates. A merchant who genuinely bills in
+ * hours (or kg, or nights) maps their own Moloni product, and that product's
+ * unit is used — same escape hatch that already carries its VAT rate.
+ */
+export function pickUnitId(units: MoloniUnit[] | unknown): number | undefined {
+  const list = (Array.isArray(units) ? units : []).filter((u): u is MoloniUnit => !!u?.unit_id);
+  const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
+  const isUnitOfCount = (u: MoloniUnit) => {
+    const short = norm(u.short_name);
+    const name = norm(u.name);
+    return /^(un|uni|unid|und|unidade|unidades|unit|units)\.?$/.test(short)
+      || /^(unidade|unidades|unit|units)$/.test(name);
+  };
+  return Number(list.find(isUnitOfCount)?.unit_id ?? list[0]?.unit_id) || undefined;
+}
+
+/**
+ * Whether the NIF we extracted may be stamped on the document.
+ *
+ * A missing address is NOT a reason to drop a NIF: an invoice may perfectly well
+ * carry a fiscal id and no billing address at all (Multibanco, Link and
+ * off-session subscription charges collect none). Only an address that names a
+ * DIFFERENT country contradicts the NIF — and even that loses to a fiscal id
+ * that spells Portugal out itself.
+ *
+ * This used to demand `country_code === "PT"`, so every address-less sale was
+ * read as foreign and billed to the shared "Consumidor Final" record with the
+ * buyer's valid NIF sitting right there in the payload.
+ *
+ * `extractPtNif` already normalizes "PT196940737" → "196940737" and verifies the
+ * check digit, so nothing structurally invalid reaches this decision.
+ */
+export function ptNifApplies(order: Normalized["order"], ptNif: string | null): boolean {
+  if (!ptNif) return false;
+  const billingCountry = String(order.billing_address?.country_code ?? "").trim().toUpperCase();
+  const addressNamesAnotherCountry = billingCountry !== "" && billingCountry !== "PT";
+  return hasPtFiscalMarker(order) || !addressNamesAnotherCountry;
 }
 
 // Resolve Moloni's internal country_id from an ISO-3166-1-alpha-2 code.
@@ -784,8 +854,7 @@ async function resolveOrCreateCustomer(
   const order = normalized.order;
   const billing = order.billing_address;
   const ptNif = extractPtNif(normalized);
-  const countryIsPT = isPortugal(billing?.country_code);
-  const vat = countryIsPT && ptNif ? ptNif : NON_PT_GENERIC_VAT;
+  const vat = ptNifApplies(order, ptNif) ? ptNif! : NON_PT_GENERIC_VAT;
 
   // Compute name early so we can decide whether to skip the VAT lookup.
   const customerName = (order.customer?.name?.trim() || billing?.name?.trim() || "Consumidor Final").slice(0, 200);
@@ -932,10 +1001,10 @@ async function ensureMoloniProduct(
   if (!categoryId) {
     throw new Error(`Moloni create failed: no product category available to host product '${reference}'`);
   }
-  const units = await moloniCall<Array<{ unit_id?: number }>>(
+  const units = await moloniCall<MoloniUnit[]>(
     cfg, token, "/measurementUnits/getAll/", {}, "lookup",
   );
-  const unitId = Array.isArray(units) ? units[0]?.unit_id : undefined;
+  const unitId = pickUnitId(units);
   if (!unitId) {
     throw new Error(`Moloni create failed: no measurement unit available to host product '${reference}'`);
   }
@@ -1226,7 +1295,7 @@ export class MoloniDestination implements DestinationAdapter {
       // Instalment invoices carry a distinct reference ("Order #N-1", "…-2") so
       // the dedup-by-reference doesn't block the second one; fall back to the
       // per-booking reference for normal single invoices.
-      our_reference: normalized.order.invoice_reference ?? saleReference(normalized.order.order_number),
+      our_reference: documentReference(normalized.order),
       your_reference: normalized.order.reference?.toString().slice(0, 100) ?? undefined,
       products,
       status: 0, // 0 = draft, 1 = closed/finalized

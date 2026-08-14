@@ -6,7 +6,7 @@ import { isCrossBorderEU, EU_COUNTRIES } from "./eu-countries";
 import { buildExemptionMention } from "./exemption-mentions";
 import type { ViesChecker } from "./vies";
 import { type ReconcileLine } from "../adapters/reconcile";
-import { saleReference } from "../services/document-references";
+import { documentReference } from "../services/document-references";
 import { format } from "date-fns";
 
 /** InvoiceXpress hard limit on the client name; longer values reject the document. */
@@ -599,7 +599,7 @@ export class IxBuilder {
     const invoice: IxInvoice = {
       client,
       items,
-      reference: saleReference(normalized.order.order_number),
+      reference: documentReference(normalized.order),
       ...obsCombined ? { observations: obsCombined } : {},
       date: normalized.order.created_at,
       due_date: normalized.order.created_at,
@@ -1081,7 +1081,7 @@ export class IxBuilder {
     const invoice: IxInvoice = {
       client,
       items,
-      reference: saleReference(normalized.order.order_number),
+      reference: documentReference(normalized.order),
       observations,
       date: normalized.order.created_at,
       due_date: normalized.order.created_at,

@@ -3,7 +3,7 @@ import type { ConnectionContext } from "../../services/connection-context";
 import type { SourceRecovery, SourceRecordRef, SourceDescription } from "./types";
 import { toPreloadedFromItem } from "../../services/lodgify-booking";
 import {
-  bookingCollectedAmount, isBookingFullyCollected, collectedSqlPredicate,
+  bookingCollectedAmount, collectedSqlPredicate,
 } from "../../services/lodgify-amounts";
 
 /**
@@ -43,7 +43,10 @@ export function blockerFor(item: any): string | null {
       // document for the whole total here would bill money nobody has received.
       return `liquidação parcial (${settlement.collected.toFixed(2)} €) — facturada em prestações pelo poll`;
     case "paid_in_full":
-      return isBookingFullyCollected(item) ? null : "liquidação incompleta";
+      // `basis` is derived from whether `collected` covers the total, so this
+      // case IS isBookingFullyCollected — the re-check that used to sit here was
+      // guarding against the basis being computed from Lodgify's balance field.
+      return null;
   }
 }
 

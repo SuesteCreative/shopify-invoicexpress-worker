@@ -1,5 +1,6 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
+import { saleReference } from "../../services/document-references";
 
 /**
  * Verifies a Stripe webhook signature per
@@ -106,14 +107,21 @@ function taxIdsToNoteAttributes(taxIds: any): any[] {
 }
 
 /**
- * Pull tax_ids off a Stripe Customer ID via the REST API. Used when the event
- * is a PaymentIntent or Charge that didn't go through Checkout — Session
- * events carry tax_ids inline and don't need this call.
+ * Pull the buyer's record off a Stripe Customer ID via the REST API — name,
+ * email, phone, address AND tax_ids. Used when the event is a PaymentIntent or
+ * Charge that didn't go through Checkout — Session events carry
+ * customer_details inline and don't need this call.
  *
- * Failures are swallowed: the worst case is we miss a B2B VAT, but the
- * invoice still gets created for the buyer.
+ * The Customer is where a Stripe buyer's identity actually lives. A PI carries a
+ * name only when `shipping` was collected, and `charge.billing_details` is null
+ * for the payment methods that don't ask for one (Multibanco, Link, off-session
+ * subscription charges). Reading only tax_ids here is what sent a sale to
+ * "Consumidor Final" while Stripe held the buyer's full name, PT address and NIF.
+ *
+ * Failures are swallowed: the worst case is a less complete client record, but
+ * the invoice still gets created for the buyer.
  */
-async function fetchCustomerTaxIds(customerId: string, restrictedKey: string): Promise<any[]> {
+async function fetchStripeCustomer(customerId: string, restrictedKey: string): Promise<any | null> {
   try {
     const url = `https://api.stripe.com/v1/customers/${encodeURIComponent(customerId)}?expand[]=tax_ids`;
     const res = await fetch(url, {
@@ -124,25 +132,30 @@ async function fetchCustomerTaxIds(customerId: string, restrictedKey: string): P
     });
     if (!res.ok) {
       console.warn(`[Stripe] Customer expand failed (${res.status}) for ${customerId}`);
-      return [];
+      return null;
     }
-    const body: any = await res.json();
-    return Array.isArray(body?.tax_ids?.data) ? body.tax_ids.data : [];
+    return await res.json();
   } catch (e: any) {
     console.warn(`[Stripe] Customer expand network error for ${customerId}: ${e?.message ?? e}`);
-    return [];
+    return null;
   }
 }
 
 /**
- * Recover the buyer's name from the charge's billing_details. A
- * `payment_intent.succeeded` payload only carries a name when `pi.shipping.name`
- * is set; the real buyer name usually lives on the underlying charge, which the
- * PI event does not include. Without this the Moloni customer falls back to
- * "Consumidor Final". Expands `latest_charge` off the PI. Failures are swallowed
- * (name stays empty → "Consumidor Final"), never blocking the invoice.
+ * The charge behind a PaymentIntent, which the PI event does not include.
+ *
+ * Two things live here that the PI cannot answer:
+ *  - the buyer's name (`billing_details.name`); a PI carries one only when
+ *    `shipping` was collected;
+ *  - WHEN THE MONEY ARRIVED (`created`). `pi.created` is when the payment was
+ *    *started*. For a card those are the same second, but for Multibanco (and
+ *    SEPA debit, Boleto, …) the reference is generated on day one and paid days
+ *    later — 12 days apart on pi_3Tz3w0…, which dated the invoice 31/07 for a
+ *    payment made on 12/08.
+ *
+ * Failures are swallowed: the invoice still gets issued, from the PI alone.
  */
-async function fetchChargeBillingName(paymentIntentId: string, restrictedKey: string): Promise<string | null> {
+async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string): Promise<any | null> {
   try {
     const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge`;
     const res = await fetch(url, {
@@ -156,8 +169,8 @@ async function fetchChargeBillingName(paymentIntentId: string, restrictedKey: st
       return null;
     }
     const body: any = await res.json();
-    const name = body?.latest_charge?.billing_details?.name;
-    return typeof name === "string" && name.trim() ? name.trim() : null;
+    const charge = body?.latest_charge;
+    return charge && typeof charge === "object" ? charge : null;
   } catch (e: any) {
     console.warn(`[Stripe] latest_charge expand network error for ${paymentIntentId}: ${e?.message ?? e}`);
     return null;
@@ -194,9 +207,41 @@ function stableCustomerId(...candidates: Array<string | null | undefined>): numb
   return ident ? fnv1a32(ident as string) : 0;
 }
 
+/**
+ * The one id that identifies a Stripe sale across every event that describes it.
+ *
+ * A single card payment fires several webhooks (charge.succeeded,
+ * payment_intent.succeeded, checkout.session.completed) and each carries a
+ * different `obj.id`, so anything that has to be stable per SALE — the
+ * processed_orders dedup key AND the document reference — has to collapse them
+ * onto the PaymentIntent.
+ *
+ * `externalId()` and `stripeToNormalized()` both call this precisely so they can
+ * never disagree: they did disagree until 2026-08-14, when the dedup key was the
+ * PI but the document reference was built from a hardcoded `order_number: 0`.
+ */
+export function stripeStableId(event: any): string {
+  const obj = event?.data?.object;
+  if (!obj) return String(event?.id ?? "");
+
+  // Charge and Checkout Session events point back at the PaymentIntent that
+  // settled them; the PI is the sale.
+  const type = String(event?.type ?? "");
+  if ((type === "charge.succeeded" || type === "charge.refunded" || type === "checkout.session.completed") && obj.payment_intent) {
+    return String(obj.payment_intent);
+  }
+  return String(obj.id ?? "");
+}
+
 export function stripeToNormalized(event: any): Normalized | null {
   const obj = event?.data?.object;
   if (!obj) return null;
+
+  // The document reference for EVERY Stripe shape. Built from the sale's stable
+  // id, never from `order_number` — Stripe payloads have no order number, so the
+  // shapes below hardcode 0 and `saleReference(0)` would label every payment in
+  // the account "Order #0" (see stripeStableId).
+  const invoiceReference = saleReference(stripeStableId(event));
 
   // Four shapes we handle today: Checkout Session (preferred trigger when the
   // buyer used Stripe Checkout because the payload carries custom_fields +
@@ -247,6 +292,7 @@ export function stripeToNormalized(event: any): Normalized | null {
         id: customerStableId,
         reference: String(stableRef),
         order_number: 0,
+        invoice_reference: invoiceReference,
         created_at: new Date((session.created ?? Date.now() / 1000) * 1000).toISOString(),
         note: session.description ?? null,
         note_attributes: noteAttrs,
@@ -321,6 +367,7 @@ export function stripeToNormalized(event: any): Normalized | null {
         id: customerStableId,
         reference: pi.id,
         order_number: 0,
+        invoice_reference: invoiceReference,
         created_at: new Date((pi.created ?? Date.now() / 1000) * 1000).toISOString(),
         note: pi.description ?? null,
         note_attributes: metadataToNoteAttributes(pi.metadata),
@@ -387,6 +434,11 @@ export function stripeToNormalized(event: any): Normalized | null {
         id: Number((inv.number || inv.id).toString().replace(/\D/g, "").slice(-12)) || 0,
         reference: inv.id,
         order_number: Number((inv.number || "0").toString().replace(/\D/g, "")) || 0,
+        // Deliberately the stable id, not `order_number` above: an unnumbered
+        // Stripe invoice degrades that to 0 (same trap as the other shapes), and
+        // stripping the non-digits out of "INV-0001" yields a bare "1" that can
+        // collide with another source feeding the same destination document set.
+        invoice_reference: invoiceReference,
         created_at: new Date((inv.created ?? Date.now() / 1000) * 1000).toISOString(),
         note: inv.description ?? null,
         // Same reason as the charge shape: without this, a Stripe Invoice has no
@@ -463,6 +515,9 @@ export function stripeToNormalized(event: any): Normalized | null {
       id: chCustomerStableId,
       reference: ch.id,
       order_number: 0,
+      // The PI, not ch.id: a charge and its PaymentIntent describe one sale and
+      // must land on one document reference (see stripeStableId).
+      invoice_reference: invoiceReference,
       created_at: new Date((ch.created ?? Date.now() / 1000) * 1000).toISOString(),
       note: ch.description ?? null,
       // Charge metadata is the only routable signal on this shape. It used to be
@@ -563,6 +618,17 @@ function addrFromStripe(addr: any, name?: string, phone?: string) {
   };
 }
 
+/** Stamp a recovered buyer name onto both places the destinations read it from
+ * (the customer record and the billing address, split into first/last). */
+function applyBuyerName(normalized: Normalized, name: string): void {
+  if (normalized.order.customer) normalized.order.customer.name = name;
+  if (normalized.order.billing_address) {
+    normalized.order.billing_address.name = name;
+    normalized.order.billing_address.first_name = name.split(" ")[0] ?? "";
+    normalized.order.billing_address.last_name = name.split(" ").slice(1).join(" ");
+  }
+}
+
 export class StripeSource implements SourceAdapter {
   readonly kind = "stripe" as const;
 
@@ -582,25 +648,10 @@ export class StripeSource implements SourceAdapter {
   }
 
   externalId(parsedBody: any): string {
-    const event = parsedBody;
-    const obj = event?.data?.object;
-    if (!obj) return String(event?.id ?? "");
-
-    // Charge events reference their originating PaymentIntent so they dedup with
-    // payment_intent.succeeded. A single card payment fires BOTH charge.succeeded
-    // AND payment_intent.succeeded — without this they'd get different ids and
-    // Rioko would create TWO invoices for one payment. Refund credit notes
-    // likewise attach to the invoice created for the PI.
-    if ((event.type === "charge.succeeded" || event.type === "charge.refunded") && obj.payment_intent) {
-      return String(obj.payment_intent);
-    }
-    // Checkout Session and its PaymentIntent both produce a webhook for the
-    // same purchase. Hash both to the same id (the PI) so processed_orders
-    // dedup makes whichever event arrived second a no-op.
-    if (event.type === "checkout.session.completed" && obj.payment_intent) {
-      return String(obj.payment_intent);
-    }
-    return String(obj.id ?? "");
+    // Charge / Checkout Session events collapse onto their PaymentIntent so a
+    // single card payment — which fires several of them — deduplicates to one
+    // processed_orders row and one document reference. See stripeStableId.
+    return stripeStableId(parsedBody);
   }
 
   async toNormalized(parsedBody: any, ctx: AdapterCtx): Promise<Normalized | null> {
@@ -616,8 +667,10 @@ export class StripeSource implements SourceAdapter {
     const isSession = event?.type === "checkout.session.completed";
     const restrictedKey = ctx.sourceConfig?.restricted_key as string | undefined;
 
+    let stripeCustomer: any = null;
     if (!isSession && restrictedKey && obj?.customer && typeof obj.customer === "string") {
-      const taxIds = await fetchCustomerTaxIds(obj.customer, restrictedKey);
+      stripeCustomer = await fetchStripeCustomer(obj.customer, restrictedKey);
+      const taxIds = Array.isArray(stripeCustomer?.tax_ids?.data) ? stripeCustomer.tax_ids.data : [];
       if (taxIds.length > 0) {
         const extra = taxIdsToNoteAttributes(taxIds);
         normalized.order.note_attributes = [
@@ -627,23 +680,67 @@ export class StripeSource implements SourceAdapter {
       }
     }
 
-    // Buyer-name enrichment: a PaymentIntent event only carries a name when
-    // pi.shipping.name is set, so PI-triggered invoices often come out nameless
-    // ("Consumidor Final"). The buyer name lives on the charge's billing_details —
-    // expand latest_charge to recover it when the normalized name is empty.
+    // The charge behind the PaymentIntent answers two questions the PI can't:
+    // who paid, and WHEN. Fetched once and used for both.
     const isPI = typeof event?.type === "string" && event.type.startsWith("payment_intent.");
     const isCharge = typeof event?.type === "string" && event.type.startsWith("charge.");
     const nameEmpty = !normalized.order.customer?.name?.trim() && !normalized.order.billing_address?.name?.trim();
-    if (nameEmpty && restrictedKey && (isPI || isCharge)) {
+    let charge: any = null;
+    if (restrictedKey && (isPI || isCharge)) {
+      // A charge event already IS the charge — no round-trip needed.
       const piId = isPI ? obj?.id : obj?.payment_intent;
-      const name = piId ? await fetchChargeBillingName(String(piId), restrictedKey) : null;
-      if (name) {
-        if (normalized.order.customer) normalized.order.customer.name = name;
-        if (normalized.order.billing_address) {
-          normalized.order.billing_address.name = name;
-          normalized.order.billing_address.first_name = name.split(" ")[0] ?? "";
-          normalized.order.billing_address.last_name = name.split(" ").slice(1).join(" ");
-        }
+      charge = isCharge ? obj : (piId ? await fetchLatestCharge(String(piId), restrictedKey) : null);
+    }
+
+    // Buyer-name tier 2: a PaymentIntent carries a name only when pi.shipping was
+    // collected, so PI-triggered invoices often come out nameless
+    // ("Consumidor Final"). The name usually lives on the charge.
+    if (nameEmpty) {
+      const chargeName = charge?.billing_details?.name;
+      if (typeof chargeName === "string" && chargeName.trim()) applyBuyerName(normalized, chargeName.trim());
+    }
+
+    // The document is dated by the PAYMENT, not by the intent to pay. `pi.created`
+    // is when the payment was STARTED: for a card that is the same second the
+    // money moves, but a Multibanco reference is generated on day one and paid
+    // days later (12 days apart on pi_3Tz3w0…). Dating the invoice from the PI
+    // asked Moloni for a date well before the series' last document, which then
+    // clamped it to the series floor — a date that was neither the intent nor the
+    // payment. The charge's `created` is the moment the money arrived.
+    if (isPI && Number.isFinite(Number(charge?.created)) && Number(charge.created) > 0) {
+      const paidAt = new Date(Number(charge.created) * 1000).toISOString();
+      normalized.order.created_at = paidAt;
+      if (normalized.order.meta) normalized.order.meta.processed_at = paidAt;
+    }
+
+    // Last identity tier: the Customer record. Multibanco / Link / off-session
+    // subscription charges carry NO name on the charge and NO shipping on the PI,
+    // so the two tiers above come back empty and everything the merchant knows
+    // about the buyer — name, address, country — sits here. The address matters
+    // beyond cosmetics: `billing_address.country_code` is what gates the PT NIF
+    // in moloni-destination.resolveOrCreateCustomer, so an empty address threw a
+    // perfectly valid NIF away and billed the sale to "Consumidor Final".
+    // Only ever FILLS blanks — anything the event itself carried wins.
+    if (stripeCustomer) {
+      const custName = typeof stripeCustomer.name === "string" ? stripeCustomer.name.trim() : "";
+      if (custName && !normalized.order.customer?.name?.trim() && !normalized.order.billing_address?.name?.trim()) {
+        applyBuyerName(normalized, custName);
+      }
+      if (normalized.order.customer && !normalized.order.customer.email && stripeCustomer.email) {
+        normalized.order.customer.email = String(stripeCustomer.email);
+      }
+      const billing = normalized.order.billing_address;
+      const addr = stripeCustomer.address;
+      if (billing && addr && !billing.address1 && !billing.city && !billing.zip && !billing.country_code) {
+        billing.address1 = addr.line1 ?? "";
+        billing.address2 = addr.line2 ?? "";
+        billing.city = addr.city ?? "";
+        billing.province = addr.state ?? "";
+        billing.province_code = addr.state ?? "";
+        billing.zip = addr.postal_code ?? "";
+        billing.country = addr.country ?? "";
+        billing.country_code = addr.country ?? "";
+        if (!billing.phone && stripeCustomer.phone) billing.phone = String(stripeCustomer.phone);
       }
     }
 

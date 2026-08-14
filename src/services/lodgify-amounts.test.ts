@@ -98,7 +98,20 @@ describe("bookingCollectedAmount — direct bookings", () => {
   });
 
   it("uses amount_paid when Lodgify reports due == paid == total", () => {
-    expect(bookingCollectedAmount(MANUAL_ODD)).toEqual({ collected: 360, basis: "instalment" });
+    // Paid covers the total, so this is settled — the basis has to say so even
+    // though Lodgify left a full balance behind. It used to read "instalment",
+    // which is what `blockerFor` refuses on, so admin recovery rejected bookings
+    // that were paid in full. Real row: Overbuilding 22004722.
+    expect(bookingCollectedAmount(MANUAL_ODD)).toEqual({ collected: 360, basis: "paid_in_full" });
+  });
+
+  it("calls a stale balance settled once the money covers the total", () => {
+    // Overbuilding 21725295, live: the second 50 % landed, Lodgify never cleared
+    // the balance. Two instalment documents already cover it (-1 and -2), and the
+    // booking must not keep reading as part-paid.
+    const staleBalance = { ...DIRECT_DEPOSIT, amount_paid: 1127, amount_due: 563.5 };
+    expect(bookingCollectedAmount(staleBalance)).toEqual({ collected: 1127, basis: "paid_in_full" });
+    expect(isBookingFullyCollected(staleBalance)).toBe(true);
   });
 
   it("holds an unpaid booking with an outstanding balance", () => {

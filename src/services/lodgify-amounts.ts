@@ -91,9 +91,16 @@ export function bookingCollectedAmount(item: any): Settlement {
   if (paid <= 0.01) return { collected: 0, basis: "awaiting_payment" };
 
   const due = bookingAmountDue(item);
-  return due != null && due <= 0.01
-    ? { collected: total, basis: "paid_in_full" }
-    : { collected: Math.min(paid, total), basis: "instalment" };
+  const collected = due != null && due <= 0.01 ? total : Math.min(paid, total);
+
+  // The basis says whether the money COVERS the total. That is a fact about
+  // `collected` — never about Lodgify's balance field, which is stale often
+  // enough that reading it here mislabelled fully-paid bookings as instalments:
+  // Overbuilding 21725295 reports total 1127, paid 1127, due 563,50, and 22004722
+  // reports total 360, paid 360, due 360. `blockerFor` branches on this, so admin
+  // recovery refused bookings that were paid in full, quoting a part-payment that
+  // did not exist. `collected` itself is unchanged — only the label it carries.
+  return { collected, basis: collected + 0.01 >= total ? "paid_in_full" : "instalment" };
 }
 
 /**

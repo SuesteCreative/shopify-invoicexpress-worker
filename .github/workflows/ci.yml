@@ -31,3 +31,46 @@ jobs:
       # Same bundle wrangler would upload, without uploading it.
       - name: Bundle (dry run)
         run: npm run build
+
+  # Deploys the WORKER on every push to main, and only after the checks above
+  # pass. The backoffice is not touched here — Cloudflare Pages builds that from
+  # the same push, independently.
+  #
+  # This exists because Cloudflare's own Workers Builds is broken on this repo:
+  # it goes red on every main commit, so merging deploys the backoffice and
+  # silently leaves the worker behind. On 2026-08-14 that left five commits
+  # unshipped for four hours, one of them the guard that stops a bulk run
+  # invoicing an unconfirmed booking. Nobody noticed until the gap was measured
+  # by hand.
+  #
+  # Doing it here rather than fixing Workers Builds buys one thing that
+  # integration cannot: the deploy is gated on typecheck and tests. A red build
+  # now means nothing shipped, instead of shipping and then telling you.
+  deploy:
+    name: deploy worker
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Deploy worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        # Inert until the secret exists, rather than red: arming this is a
+        # separate decision from merging it, and a job that fails for a missing
+        # credential trains everyone to ignore a red tick.
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN is not set — worker NOT deployed."
+            echo "Until the secret exists this repo still needs a manual 'npx wrangler deploy' after every merge."
+            exit 0
+          fi
+          npx wrangler deploy

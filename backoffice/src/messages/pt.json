@@ -2106,7 +2106,7 @@
         "companyIdLabel": "Empresa",
         "companyNameHint": "Escreve o nome exato da empresa no Moloni. Buscamos o ID quando guardas.",
         "documentSetIdLabel": "Série de Documentos",
-        "documentSetNameHint": "Escreve o nome exato da série no Moloni (ex: FR2026). Buscamos o ID quando guardas.",
+        "documentSetNameHint": "Opcional. Escreve o nome exato da série no Moloni (ex: FR2026), ou deixa em branco para usar a série por defeito da conta. Buscamos o ID quando guardas.",
         "vatIncluded": "IVA Incluído",
         "vatIncludedOn": "Preços já incluem IVA",
         "vatIncludedOff": "Soma 23% sobre o preço",

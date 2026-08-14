@@ -2106,7 +2106,7 @@
         "companyIdLabel": "Company",
         "companyNameHint": "Type the company name exactly as it appears in Moloni. We look up the ID when you save.",
         "documentSetIdLabel": "Document Set",
-        "documentSetNameHint": "Type the document set name exactly as in Moloni (e.g. FR2026). We look up the ID when you save.",
+        "documentSetNameHint": "Optional. Type the document set name exactly as in Moloni (e.g. FR2026), or leave it blank to use your account's default series. We look up the ID when you save.",
         "vatIncluded": "VAT included",
         "vatIncludedOn": "Prices already include VAT",
         "vatIncludedOff": "Adds 23% on top of the price",

@@ -88,7 +88,10 @@ export default function LodgifyMoloniIntegration() {
 
     const lodgifySaved = hasSavedApiKey && lodgifyStatus === "active";
     const moloniCredsSaved = !!clientId && hasSavedSecret && !!username && hasSavedPassword;
-    const settingsSaved = (!!companyId && !!documentSetId) || (!!companyName && !!documentSetName);
+    // The série is optional — with none named, the Worker uses the account's
+    // default set (active_by_default). Requiring it here left the step reading
+    // PENDING forever for a merchant who correctly left it blank.
+    const settingsSaved = (!!companyId && !!documentSetId) || !!companyName;
     const allComplete = connectionStatus === "active";
 
     const handleSubscribe = async (plan: "monthly" | "annual") => {
@@ -146,7 +149,7 @@ export default function LodgifyMoloniIntegration() {
                 if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
                 setConnectionStatus(mConn.status ?? "");
                 credsOk = !!cfg.moloni_client_id && !!cfg.has_client_secret && !!cfg.moloni_username && !!cfg.has_password;
-                setOk = (!!cfg.moloni_company_id && !!cfg.moloni_document_set_id) || (!!cfg.moloni_company_name && !!cfg.moloni_document_set_name);
+                setOk = (!!cfg.moloni_company_id && !!cfg.moloni_document_set_id) || !!cfg.moloni_company_name;
                 mStatus = mConn.status ?? "";
             }
 
@@ -229,7 +232,11 @@ export default function LodgifyMoloniIntegration() {
     };
 
     const handleSaveSettings = async () => {
-        if (!companyName.trim() || !documentSetName.trim()) { setGlobalError(t("errorSettingsRequired")); return; }
+        // Company only. The série is optional (blank ⇒ the account's default set),
+        // and demanding it while the message named the company sent merchants
+        // hunting a field that was already filled in — one typed a single letter
+        // into the série to get past it, which is a real, wrong série to bill on.
+        if (!companyName.trim()) { setGlobalError(t("errorSettingsRequired")); return; }
         setSaving(true);
         setGlobalError("");
         try {

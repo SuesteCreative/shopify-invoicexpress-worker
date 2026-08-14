@@ -1,0 +1,108 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { StripeSource } from "./stripe-source";
+import { extractPtNif, hasPtFiscalMarker } from "../destinations/moloni-destination";
+import type { AdapterCtx } from "../types";
+import type { Normalized } from "../../api/normalize-shopify";
+
+// A Stripe payment does not have to carry the buyer's name anywhere the event
+// can see. Multibanco (and Link, and off-session subscription charges) leave
+// `pi.shipping` unset AND `charge.billing_details.name` null, so both identity
+// tiers came back empty and the invoice went out to the shared "Consumidor
+// Final" record — while the Stripe Customer held the buyer's full name, PT
+// address and a valid NIF the whole time (pi_3Tz3w0…, 130,00 €, 2026-08-14).
+//
+// Two independent halves had to be fixed and both are pinned here:
+//   1. the Customer record is read for identity, not just tax_ids;
+//   2. a PT-prefixed fiscal id counts as evidence of Portugal, because the
+//      address that used to gate the NIF is absent on most Stripe payments.
+
+const CUSTOMER = {
+  id: "cus_UlKKfAZvsi6CJ2",
+  name: "Luís André de Almeida Filipe",
+  email: "luisandrefilipe@gmail.com",
+  phone: null,
+  address: { line1: "", line2: null, city: "", state: null, postal_code: "", country: "PT" },
+  tax_ids: { data: [{ type: "eu_vat", value: "PT196940737" }] },
+};
+
+const piEvent = (overrides: Record<string, any> = {}) => ({
+  type: "payment_intent.succeeded",
+  data: {
+    object: {
+      id: "pi_3Tz3w0PlaNsBkqDI0Ooe7W5x",
+      status: "succeeded",
+      amount: 13000,
+      amount_received: 13000,
+      currency: "eur",
+      created: 1_753_920_260,
+      customer: "cus_UlKKfAZvsi6CJ2",
+      receipt_email: "luisandrefilipe@gmail.com",
+      description: "Subscription update",
+      ...overrides,
+    },
+  },
+});
+
+const ctx = { sourceConfig: { restricted_key: "rk_live_test" } } as unknown as AdapterCtx;
+
+/** Stripe responds to exactly two GETs here: the Customer expand and the
+ * latest_charge expand. `charge` mirrors the real payload — a null name. */
+function stubStripe(customer: any, chargeName: string | null = null) {
+  const fetchMock = vi.fn(async (url: string) => {
+    const body = String(url).includes("/customers/")
+      ? customer
+      : { latest_charge: { billing_details: { name: chargeName } } };
+    return { ok: true, json: async () => body } as unknown as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("Stripe buyer identity", () => {
+  it("recovers name, address and NIF from the Customer when the payment carries none", async () => {
+    stubStripe(CUSTOMER);
+    const n = (await new StripeSource().toNormalized(piEvent(), ctx))!;
+
+    expect(n.order.customer?.name).toBe("Luís André de Almeida Filipe");
+    expect(n.order.billing_address?.name).toBe("Luís André de Almeida Filipe");
+    expect(n.order.billing_address?.country_code).toBe("PT");
+    // Normalized to bare digits, check digit verified.
+    expect(extractPtNif(n as Normalized)).toBe("196940737");
+  });
+
+  it("does not overwrite identity the event already carried", async () => {
+    stubStripe({ ...CUSTOMER, name: "Stale Customer Record" });
+    const n = (await new StripeSource().toNormalized(
+      piEvent({ shipping: { name: "Nome Na Encomenda", address: { line1: "Rua A", city: "Lisboa", postal_code: "1000-001", country: "PT" } } }),
+      ctx,
+    ))!;
+
+    expect(n.order.customer?.name).toBe("Nome Na Encomenda");
+    expect(n.order.billing_address?.address1).toBe("Rua A");
+  });
+
+  it("survives a Customer read failure — the invoice is still issued", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}), text: async () => "" } as unknown as Response)));
+    const n = await new StripeSource().toNormalized(piEvent(), ctx);
+
+    expect(n).not.toBeNull();
+    expect(n!.order.total).toBe(130);
+  });
+});
+
+describe("PT fiscal marker", () => {
+  const order = (attrs: Array<{ name: string; value: string }>) =>
+    ({ note_attributes: attrs } as unknown as Normalized["order"]);
+
+  it("reads Portugal out of the fiscal id when the address is empty", () => {
+    expect(hasPtFiscalMarker(order([{ name: "vat (eu_vat)", value: "PT196940737" }]))).toBe(true);
+    expect(hasPtFiscalMarker(order([{ name: "vat (pt_nif)", value: "196940737" }]))).toBe(true);
+  });
+
+  it("does not claim Portugal for another member state", () => {
+    expect(hasPtFiscalMarker(order([{ name: "vat (eu_vat)", value: "ES12345678Z" }]))).toBe(false);
+    expect(hasPtFiscalMarker(order([]))).toBe(false);
+  });
+});

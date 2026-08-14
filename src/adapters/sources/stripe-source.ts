@@ -107,14 +107,21 @@ function taxIdsToNoteAttributes(taxIds: any): any[] {
 }
 
 /**
- * Pull tax_ids off a Stripe Customer ID via the REST API. Used when the event
- * is a PaymentIntent or Charge that didn't go through Checkout — Session
- * events carry tax_ids inline and don't need this call.
+ * Pull the buyer's record off a Stripe Customer ID via the REST API — name,
+ * email, phone, address AND tax_ids. Used when the event is a PaymentIntent or
+ * Charge that didn't go through Checkout — Session events carry
+ * customer_details inline and don't need this call.
  *
- * Failures are swallowed: the worst case is we miss a B2B VAT, but the
- * invoice still gets created for the buyer.
+ * The Customer is where a Stripe buyer's identity actually lives. A PI carries a
+ * name only when `shipping` was collected, and `charge.billing_details` is null
+ * for the payment methods that don't ask for one (Multibanco, Link, off-session
+ * subscription charges). Reading only tax_ids here is what sent a sale to
+ * "Consumidor Final" while Stripe held the buyer's full name, PT address and NIF.
+ *
+ * Failures are swallowed: the worst case is a less complete client record, but
+ * the invoice still gets created for the buyer.
  */
-async function fetchCustomerTaxIds(customerId: string, restrictedKey: string): Promise<any[]> {
+async function fetchStripeCustomer(customerId: string, restrictedKey: string): Promise<any | null> {
   try {
     const url = `https://api.stripe.com/v1/customers/${encodeURIComponent(customerId)}?expand[]=tax_ids`;
     const res = await fetch(url, {
@@ -125,13 +132,12 @@ async function fetchCustomerTaxIds(customerId: string, restrictedKey: string): P
     });
     if (!res.ok) {
       console.warn(`[Stripe] Customer expand failed (${res.status}) for ${customerId}`);
-      return [];
+      return null;
     }
-    const body: any = await res.json();
-    return Array.isArray(body?.tax_ids?.data) ? body.tax_ids.data : [];
+    return await res.json();
   } catch (e: any) {
     console.warn(`[Stripe] Customer expand network error for ${customerId}: ${e?.message ?? e}`);
-    return [];
+    return null;
   }
 }
 
@@ -606,6 +612,17 @@ function addrFromStripe(addr: any, name?: string, phone?: string) {
   };
 }
 
+/** Stamp a recovered buyer name onto both places the destinations read it from
+ * (the customer record and the billing address, split into first/last). */
+function applyBuyerName(normalized: Normalized, name: string): void {
+  if (normalized.order.customer) normalized.order.customer.name = name;
+  if (normalized.order.billing_address) {
+    normalized.order.billing_address.name = name;
+    normalized.order.billing_address.first_name = name.split(" ")[0] ?? "";
+    normalized.order.billing_address.last_name = name.split(" ").slice(1).join(" ");
+  }
+}
+
 export class StripeSource implements SourceAdapter {
   readonly kind = "stripe" as const;
 
@@ -644,8 +661,10 @@ export class StripeSource implements SourceAdapter {
     const isSession = event?.type === "checkout.session.completed";
     const restrictedKey = ctx.sourceConfig?.restricted_key as string | undefined;
 
+    let stripeCustomer: any = null;
     if (!isSession && restrictedKey && obj?.customer && typeof obj.customer === "string") {
-      const taxIds = await fetchCustomerTaxIds(obj.customer, restrictedKey);
+      stripeCustomer = await fetchStripeCustomer(obj.customer, restrictedKey);
+      const taxIds = Array.isArray(stripeCustomer?.tax_ids?.data) ? stripeCustomer.tax_ids.data : [];
       if (taxIds.length > 0) {
         const extra = taxIdsToNoteAttributes(taxIds);
         normalized.order.note_attributes = [
@@ -665,13 +684,37 @@ export class StripeSource implements SourceAdapter {
     if (nameEmpty && restrictedKey && (isPI || isCharge)) {
       const piId = isPI ? obj?.id : obj?.payment_intent;
       const name = piId ? await fetchChargeBillingName(String(piId), restrictedKey) : null;
-      if (name) {
-        if (normalized.order.customer) normalized.order.customer.name = name;
-        if (normalized.order.billing_address) {
-          normalized.order.billing_address.name = name;
-          normalized.order.billing_address.first_name = name.split(" ")[0] ?? "";
-          normalized.order.billing_address.last_name = name.split(" ").slice(1).join(" ");
-        }
+      if (name) applyBuyerName(normalized, name);
+    }
+
+    // Last identity tier: the Customer record. Multibanco / Link / off-session
+    // subscription charges carry NO name on the charge and NO shipping on the PI,
+    // so the two tiers above come back empty and everything the merchant knows
+    // about the buyer — name, address, country — sits here. The address matters
+    // beyond cosmetics: `billing_address.country_code` is what gates the PT NIF
+    // in moloni-destination.resolveOrCreateCustomer, so an empty address threw a
+    // perfectly valid NIF away and billed the sale to "Consumidor Final".
+    // Only ever FILLS blanks — anything the event itself carried wins.
+    if (stripeCustomer) {
+      const custName = typeof stripeCustomer.name === "string" ? stripeCustomer.name.trim() : "";
+      if (custName && !normalized.order.customer?.name?.trim() && !normalized.order.billing_address?.name?.trim()) {
+        applyBuyerName(normalized, custName);
+      }
+      if (normalized.order.customer && !normalized.order.customer.email && stripeCustomer.email) {
+        normalized.order.customer.email = String(stripeCustomer.email);
+      }
+      const billing = normalized.order.billing_address;
+      const addr = stripeCustomer.address;
+      if (billing && addr && !billing.address1 && !billing.city && !billing.zip && !billing.country_code) {
+        billing.address1 = addr.line1 ?? "";
+        billing.address2 = addr.line2 ?? "";
+        billing.city = addr.city ?? "";
+        billing.province = addr.state ?? "";
+        billing.province_code = addr.state ?? "";
+        billing.zip = addr.postal_code ?? "";
+        billing.country = addr.country ?? "";
+        billing.country_code = addr.country ?? "";
+        if (!billing.phone && stripeCustomer.phone) billing.phone = String(stripeCustomer.phone);
       }
     }
 

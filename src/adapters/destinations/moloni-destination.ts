@@ -458,6 +458,32 @@ export function extractPtNif(normalized: Normalized): string | null {
   return null;
 }
 
+/**
+ * True when the sale carries a fiscal id that names Portugal in the id ITSELF —
+ * a `pt_nif` tax id, or an EU-VAT value spelled "PT196940737".
+ *
+ * The buyer's country is not always in the address: a Stripe PaymentIntent has
+ * no address at all unless shipping was collected, so `billing.country_code`
+ * comes through empty and the NIF gate below read that as "not Portuguese" and
+ * fell back to the generic consumer VAT — issuing the invoice to the shared
+ * "Consumidor Final" record even though the buyer's valid NIF was right there.
+ * A PT-prefixed fiscal id IS the country evidence.
+ */
+export function hasPtFiscalMarker(order: Normalized["order"]): boolean {
+  const attrs = Array.isArray(order.note_attributes)
+    ? (order.note_attributes as Array<{ name?: string; value?: unknown }>)
+    : [];
+  for (const attr of attrs) {
+    if (!attr) continue;
+    const name = String(attr.name ?? "").toLowerCase();
+    // Stripe stamps the tax-id TYPE into the attribute name — "vat (pt_nif)".
+    if (name.includes("pt_nif")) return true;
+    const value = String(attr.value ?? "").toUpperCase().replace(/[\s.-]/g, "");
+    if (/^PT\d{9}$/.test(value)) return true;
+  }
+  return false;
+}
+
 // Resolve Moloni's internal country_id from an ISO-3166-1-alpha-2 code.
 // PT is always 1 in Moloni's seed. Other codes are lazily fetched from
 // /countries/getAll/ and cached per companyId for the Worker isolate lifetime.
@@ -784,7 +810,11 @@ async function resolveOrCreateCustomer(
   const order = normalized.order;
   const billing = order.billing_address;
   const ptNif = extractPtNif(normalized);
-  const countryIsPT = isPortugal(billing?.country_code);
+  // Portugal can be evidenced by the address OR by the fiscal id itself; the
+  // address is absent on most Stripe payments. extractPtNif already normalizes
+  // "PT196940737" → "196940737" and verifies the check digit, so a marker here
+  // can only promote a NIF that is structurally valid.
+  const countryIsPT = isPortugal(billing?.country_code) || hasPtFiscalMarker(order);
   const vat = countryIsPT && ptNif ? ptNif : NON_PT_GENERIC_VAT;
 
   // Compute name early so we can decide whether to skip the VAT lookup.

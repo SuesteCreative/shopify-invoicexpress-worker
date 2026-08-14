@@ -128,15 +128,18 @@ export default async function handler(req, res) {
   if (!secret || auth !== `Bearer ${secret}`) {
     return res.status(401).json({ error: "unauthorized" });
   }
-  if (process.env.FEED_ENABLED === "0") {
-    return res.status(200).json({ skipped: "FEED_ENABLED=0" });
-  }
-
   const url = new URL(req.url, "http://localhost");
   const only = url.searchParams.get("tenant");
   const dry = url.searchParams.get("dry") === "1";
   const mode = url.searchParams.get("mode");
   const deadline = Date.now() + RUN_BUDGET_MS;
+
+  // The kill switch stops the feeder from acting, not from being questioned.
+  // `mode=diag` is a read-only reachability probe, and the moment you most want
+  // it is while the feeder is still switched off.
+  if (process.env.FEED_ENABLED === "0" && mode !== "diag") {
+    return res.status(200).json({ skipped: "FEED_ENABLED=0" });
+  }
 
   let manifest;
   try {

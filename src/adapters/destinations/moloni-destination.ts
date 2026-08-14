@@ -645,6 +645,76 @@ async function ensureTaxIdsByRate(cfg: MoloniCfg, token: string, rates: number[]
   }
 }
 
+const paymentMethodCache = new Map<number, Map<string, number>>();
+
+/**
+ * Resolve the Moloni payment method to stamp on a fatura-recibo.
+ *
+ * A fatura-recibo asserts the money was received, so it should say how. For an
+ * OTA stay that is the channel — the host never touches the guest's card, and
+ * "Airbnb" on the document is what ties it to the payout line in the bank.
+ *
+ * Matched by NAME against the company's own methods, because ids differ per
+ * account. Missing method = an actionable error rather than a silent fallback:
+ * stamping "Numerário" on an Airbnb payout would be a quiet lie in a fiscal
+ * document, and the fix (create the method in Moloni, or name an existing one
+ * in the connection) takes a minute.
+ */
+async function resolvePaymentMethodId(cfg: MoloniCfg, token: string, wanted: string): Promise<number> {
+  let map = paymentMethodCache.get(cfg.companyId);
+  if (!map) {
+    const methods = await moloniCall<Array<{ payment_method_id?: number; name?: string }>>(
+      cfg, token, "/paymentMethods/getAll/", {}, "lookup",
+    );
+    map = new Map<string, number>();
+    if (Array.isArray(methods)) {
+      for (const m of methods) {
+        const id = Number(m.payment_method_id);
+        const name = String(m.name ?? "").trim().toLowerCase();
+        if (id > 0 && name && !map.has(name)) map.set(name, id);
+      }
+    }
+    paymentMethodCache.set(cfg.companyId, map);
+  }
+
+  const needle = wanted.trim().toLowerCase();
+  const exact = map.get(needle);
+  if (exact) return exact;
+  // "Booking.com" vs "Booking", "Airbnb" vs "AirBnB Portugal" — accept either
+  // side containing the other, longest match first so "Booking.com" beats
+  // "Booking" when both exist.
+  const fuzzy = [...map.entries()]
+    .filter(([name]) => name.includes(needle) || needle.includes(name))
+    .sort((a, b) => b[0].length - a[0].length)[0];
+  if (fuzzy) return fuzzy[1];
+
+  throw new Error(
+    `Moloni: company ${cfg.companyId} has no payment method named "${wanted}" ` +
+    `(available: ${[...map.keys()].join(", ") || "none"}). Create it in Moloni, ` +
+    `or set moloni_payment_method on the connection to one of those names.`,
+  );
+}
+
+/**
+ * Which payment method name this document should carry, or null to stamp none.
+ *
+ * The channel that took the money, when we know it ("Airbnb: HM…" → "Airbnb"),
+ * otherwise the connection's configured default. Only ever applied to
+ * fatura-recibo: a plain fatura records no payment by definition.
+ */
+export function paymentMethodNameFor(
+  order: { channel_reference?: string | null },
+  destinationConfig: Record<string, any> | undefined,
+): string | null {
+  const configured = destinationConfig?.moloni_payment_method;
+  const ref = order.channel_reference;
+  if (typeof ref === "string" && ref.includes(":")) {
+    const channel = ref.slice(0, ref.indexOf(":")).trim();
+    if (channel) return channel;
+  }
+  return typeof configured === "string" && configured.trim() ? configured.trim() : null;
+}
+
 // A resolved Moloni product for one order-line reference. `mapped` marks
 // references the merchant explicitly linked in /integrations/moloni-mappings —
 // for those we honour the Moloni product's OWN tax rule (taxes/exemption read
@@ -1287,6 +1357,18 @@ export class MoloniDestination implements DestinationAdapter {
     const exemptionReason = resolveExemptionReason(ctx);
     const needsExemption = products.some((p) => !p.taxes || p.taxes.length === 0);
 
+    let payments: Array<Record<string, unknown>> | undefined;
+    if (cfg.documentType === "invoice_receipt") {
+      const methodName = paymentMethodNameFor(normalized.order, ctx.destinationConfig);
+      if (methodName) {
+        payments = [{
+          payment_method_id: await resolvePaymentMethodId(cfg, token, methodName),
+          date: dateOnlyYmd(normalized.order.created_at),
+          value: Number(normalized.order.total ?? 0),
+        }];
+      }
+    }
+
     const payload: Record<string, unknown> = {
       document_set_id: cfg.documentSetId,
       customer_id: customerId,
@@ -1299,7 +1381,18 @@ export class MoloniDestination implements DestinationAdapter {
       your_reference: normalized.order.reference?.toString().slice(0, 100) ?? undefined,
       products,
       status: 0, // 0 = draft, 1 = closed/finalized
-      notes: (normalized.order.note ?? "").toString().slice(0, 200),
+      // A fatura-recibo says the money was received; without a payment line it
+      // says so without saying how. Stamp the channel that took it ("Airbnb"),
+      // or the connection's configured method. A plain fatura records no
+      // payment by definition and never gets one.
+      ...(payments ? { payments } : {}),
+      // Channel reference first: on an OTA stay it is the only thread back to
+      // the payout that covers this document, and the guest note (when there is
+      // one) is a NIF the customer record already carries.
+      notes: [normalized.order.channel_reference, normalized.order.note]
+        .filter((v) => v != null && String(v).trim() !== "")
+        .join(" | ")
+        .slice(0, 200),
       ...(needsExemption ? { exemption_reason: exemptionReason } : {}),
       // Non-EUR: issue in the paid currency; Moloni derives the EUR fiscal value.
       ...(exchange ? { exchange_currency_id: exchange.currencyId, exchange_rate: exchange.rate } : {}),

@@ -15,6 +15,8 @@ import {
   isBookingFullyCollected,
   collectedSqlPredicate,
   awaitingPaymentMarkSqlPredicate,
+  otaPolicyFrom,
+  otaStayCollectedSqlPredicate,
 } from "./services/lodgify-amounts";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
@@ -2932,6 +2934,11 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
     // booking is invoiced for each newly-paid amount (e.g. 50% deposit, then
     // 50% balance) under distinct references, instead of once at 100% paid.
     const partialEnabled = !!(destinationConfig?.moloni_partial_invoicing) && destination === "moloni";
+    // Opt-in per connection: bill an OTA stay once it has happened, for hosts
+    // whose channel money never reaches Lodgify and who therefore have nothing
+    // to mark as paid. Deliberately not applied to the progressive path — that
+    // one bills recorded amounts, and there are none to instal.
+    const otaPolicy = otaPolicyFrom(destinationConfig);
     const partialCtx = partialEnabled
       ? {
           productMappings: await loadProductMappings(env, conn.user_id, "lodgify").catch(() => undefined),
@@ -3038,7 +3045,11 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       // once the WHOLE total is collected. Same settlement rule as the
       // progressive path above — the two must never disagree about whether a
       // booking has been paid for, only about how many documents that produces.
-      if (!isBookingFullyCollected(item)) {
+      // `otaPolicy` (opt-in per connection) additionally accepts an OTA stay
+      // that has already happened: the channel collected the money and it never
+      // passes through Lodgify, so there is no payment for the merchant to
+      // record. Off everywhere it is not configured.
+      if (!isBookingFullyCollected(item, otaPolicy)) {
         console.log(`[LodgifyPoll] booking ${bookingId} held (${bookingCollectedAmount(item).basis})`);
         result.skipped++; continue;
       }
@@ -3086,7 +3097,7 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
     }
 
     // Backlog check — runs after the mirror is fresh for this connection.
-    await reportLodgifyBacklog(env, conn.user_id, conn.invoice_cutoff, connLabel);
+    await reportLodgifyBacklog(env, conn.user_id, conn.invoice_cutoff, connLabel, otaPolicy);
 
     // Record that ingestion actually completed for this connection. Deliberately
     // NOT on dry runs: the feeder's cycle is dry-then-real, so marking the dry
@@ -3188,8 +3199,10 @@ async function reportLodgifyBacklog(
   userId: string,
   invoiceCutoff: string | null,
   connLabel: string,
+  otaPolicy?: ReturnType<typeof otaPolicyFrom>,
 ): Promise<void> {
   const graceIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const otaSql = otaStayCollectedSqlPredicate(otaPolicy);
   const notBilled =
     `AND NOT EXISTS (SELECT 1 FROM lodgify_partial_invoices p WHERE p.booking_id = b.id)
      AND NOT EXISTS (SELECT 1 FROM processed_orders o WHERE o.id = b.id AND o.invoice_id IS NOT NULL)`;
@@ -3205,7 +3218,7 @@ async function reportLodgifyBacklog(
         WHERE b.user_id = ?1
           AND b.status = 'Booked'
           AND (?2 IS NULL OR b.created_at >= ?2)
-          AND ${collectedSqlPredicate()}
+          AND ${otaSql ? `(${collectedSqlPredicate()} OR ${otaSql})` : collectedSqlPredicate()}
           AND b.created_at <= ?3
           ${notBilled}`
     ).bind(userId, invoiceCutoff ?? null, graceIso).first();
@@ -3230,6 +3243,11 @@ async function reportLodgifyBacklog(
     // went unbilled for 26 days. A stay that ended days ago with no payment
     // recorded is the signature of that, so say so while it can still be fixed.
     // Deliberately NOT a trigger to invoice: a finished stay is not a payment.
+    //
+    // On a connection that bills OTA stays on check-out, those bookings are NOT
+    // waiting on the merchant for anything — telling them to go mark a Booking
+    // .com stay as paid would be advice to ignore, on repeat, daily. Excluded
+    // here; query (1) above already counts them if they end up unbilled.
     const stale: any = await env.DB.prepare(
       `SELECT COUNT(*) AS n, MIN(b.departure) AS oldest, SUM(COALESCE(b.total_amount,0)) AS value
          FROM lodgify_bookings b
@@ -3237,6 +3255,7 @@ async function reportLodgifyBacklog(
           AND b.status = 'Booked'
           AND (?2 IS NULL OR b.created_at >= ?2)
           AND ${awaitingPaymentMarkSqlPredicate(3)}
+          ${otaSql ? `AND NOT ${otaSql}` : ""}
           ${notBilled}`
     ).bind(userId, invoiceCutoff ?? null).first();
 

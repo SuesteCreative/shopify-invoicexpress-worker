@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toPreloadedFromItem } from "./lodgify-booking";
+import { toPreloadedFromItem, channelReference } from "./lodgify-booking";
 
 /**
  * These assertions exist because Lodgify blocks this Worker's egress, so the
@@ -66,5 +66,54 @@ describe("toPreloadedFromItem", () => {
     const p = toPreloadedFromItem({ id: 1, guest: { address1: "Rua A", zip: "1000-001" } }) as any;
     expect(p.guest.address1).toBe("Rua A");
     expect(p.guest.zip).toBe("1000-001");
+  });
+});
+
+/**
+ * On an OTA stay the guest's money never passes through Lodgify, so the
+ * channel's own reference is the only thread from the document back to the
+ * payout that covers it. Lodgify buries it in `source_text`, whose shape
+ * changes per channel.
+ */
+describe("channelReference", () => {
+  const airbnbText = JSON.stringify({
+    listingId: "1699454353003234226", houseId: 812414, roomTypeId: 879538,
+    threadId: "2570030944", confirmationCode: "HMMZDXRCN9", isMarkedAsManual: false,
+  });
+
+  it("digs the Airbnb confirmation code out of the JSON blob", () => {
+    expect(channelReference({ source: "AirbnbIntegration", source_text: airbnbText }))
+      .toBe("Airbnb: HMMZDXRCN9");
+  });
+
+  it("keeps both Booking.com ids, either of which can appear on a payout", () => {
+    expect(channelReference({ source: "BookingCom", source_text: "5670891596|6375058873" }))
+      .toBe("Booking.com: 5670891596 ! 6375058873");
+  });
+
+  it("returns null for a channel label, which is not a reference", () => {
+    // Overbuilding's source_text is "Direto" / "vilalaura.lodgify.com", and once
+    // a phone number. Stamping those on a document says nothing.
+    expect(channelReference({ source: "Manual", source_text: "Lodgify" })).toBeNull();
+    expect(channelReference({ source: "", source_text: "Direto" })).toBeNull();
+    expect(channelReference({ source: "Manual", source_text: "vilalaura.lodgify.com" })).toBeNull();
+    expect(channelReference({ source: "BookingCom", source_text: "" })).toBeNull();
+    expect(channelReference({ source: "AirbnbIntegration", source_text: null })).toBeNull();
+  });
+
+  it("survives an Airbnb blob with no confirmation code", () => {
+    expect(channelReference({ source: "AirbnbIntegration", source_text: '{"threadId":"1"}' })).toBeNull();
+  });
+
+  it("rides along on the preloaded booking", () => {
+    const p = toPreloadedFromItem({ id: 1, source: "BookingCom", source_text: "5670891596|6375058873" }) as any;
+    expect(p.channel_reference).toBe("Booking.com: 5670891596 ! 6375058873");
+  });
+
+  it("never lands in notes, which is scanned for a 9-digit NIF", () => {
+    // A channel reference is exactly the kind of digit run extractPtNif would
+    // mistake for a taxpayer number.
+    const p = toPreloadedFromItem({ id: 1, source: "BookingCom", source_text: "5670891596|6375058873" }) as any;
+    expect(p.notes).toBeNull();
   });
 });

@@ -7,6 +7,9 @@ import {
   bookingAwaitingPaymentMark,
   collectedSqlPredicate,
   awaitingPaymentMarkSqlPredicate,
+  isOtaStayCollected,
+  isOtaChannel,
+  otaPolicyFrom,
 } from "./lodgify-amounts";
 
 /**
@@ -278,6 +281,73 @@ describe("bookingAmountDue", () => {
   it("returns null when the balance cannot be determined", () => {
     expect(bookingAmountDue({ total_amount: 100 })).toBeNull();
     expect(bookingAmountDue({})).toBeNull();
+  });
+});
+
+describe("isOtaStayCollected — the opt-in that bills a stay nobody marked paid", () => {
+  const airbnb = (over: Record<string, any> = {}) => ({
+    source: "AirbnbIntegration",
+    total_amount: 763.16,
+    amount_paid: 0,
+    amount_due: 0,
+    arrival: "2026-07-10",
+    departure: "2026-07-12",
+    ...over,
+  });
+  const DEPARTURE = { on: "departure" } as const;
+
+  it("is off unless the connection asked for it", () => {
+    // The whole fleet's rule stays "recorded money or nothing".
+    expect(isOtaStayCollected(airbnb(), undefined)).toBe(false);
+    expect(otaPolicyFrom({})).toBeUndefined();
+    expect(otaPolicyFrom({ lodgify_ota_invoice_on: "yes" })).toBeUndefined();
+    expect(otaPolicyFrom({ lodgify_ota_invoice_on: "departure" })).toEqual({ on: "departure" });
+  });
+
+  it("bills an OTA stay that has already ended", () => {
+    expect(isOtaStayCollected(airbnb(), DEPARTURE, "2026-08-14")).toBe(true);
+  });
+
+  it("holds a stay that has not ended yet — the August incident, in one line", () => {
+    // Twelve future reservations were billed on creation when amount_due==0 was
+    // read as payment. This rule waits for a date that has actually passed.
+    expect(isOtaStayCollected(airbnb(), DEPARTURE, "2026-07-11")).toBe(false);
+    expect(isOtaStayCollected(airbnb({ arrival: "2026-09-25", departure: "2026-09-27" }), DEPARTURE, "2026-08-14")).toBe(false);
+  });
+
+  it("bills on arrival when the connection says arrival", () => {
+    expect(isOtaStayCollected(airbnb(), { on: "arrival" }, "2026-07-10")).toBe(true);
+    expect(isOtaStayCollected(airbnb(), { on: "arrival" }, "2026-07-09")).toBe(false);
+  });
+
+  it("never touches a direct booking, whose money Lodgify does see", () => {
+    expect(isOtaStayCollected(airbnb({ source: "Manual" }), DEPARTURE, "2026-08-14")).toBe(false);
+    expect(isOtaStayCollected(airbnb({ source: "" }), DEPARTURE, "2026-08-14")).toBe(false);
+  });
+
+  it("stands back whenever Lodgify does know about money", () => {
+    // A recorded payment or a real balance means the ordinary rule applies —
+    // including the instalment path, which this must never pre-empt.
+    expect(isOtaStayCollected(airbnb({ amount_paid: 100 }), DEPARTURE, "2026-08-14")).toBe(false);
+    expect(isOtaStayCollected(airbnb({ amount_due: 100 }), DEPARTURE, "2026-08-14")).toBe(false);
+  });
+
+  it("refuses a zero-total booking and one with no dates", () => {
+    expect(isOtaStayCollected(airbnb({ total_amount: 0 }), DEPARTURE, "2026-08-14")).toBe(false);
+    expect(isOtaStayCollected(airbnb({ arrival: "", departure: "" }), DEPARTURE, "2026-08-14")).toBe(false);
+  });
+
+  it("recognises the channels that collect on the host's behalf", () => {
+    expect(isOtaChannel("AirbnbIntegration")).toBe(true);
+    expect(isOtaChannel("BookingCom")).toBe(true);
+    expect(isOtaChannel("Booking.com")).toBe(true);
+    expect(isOtaChannel("Manual")).toBe(false);
+    expect(isOtaChannel("")).toBe(false);
+  });
+
+  it("keeps isBookingFullyCollected honest with and without the policy", () => {
+    expect(isBookingFullyCollected(airbnb())).toBe(false);
+    expect(isBookingFullyCollected(airbnb(), DEPARTURE)).toBe(true);
   });
 });
 

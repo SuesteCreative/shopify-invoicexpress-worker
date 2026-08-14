@@ -1,6 +1,7 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized, Order } from "../../api/normalize-shopify";
-import { bookingCollectedAmount } from "../../services/lodgify-amounts";
+import { bookingCollectedAmount, isOtaStayCollected, otaPolicyFrom } from "../../services/lodgify-amounts";
+import { channelReference } from "../../services/lodgify-booking";
 
 /**
  * LodgifySource — Lodgify PMS webhook integration.
@@ -157,7 +158,15 @@ export class LodgifySource implements SourceAdapter {
         amount_paid: totalTransactions ?? booking.amount_paid ?? booking.total_paid,
         amount_due: balanceDue ?? booking.amount_due ?? booking.balance_due,
       });
-      if (settlement.collected + 0.01 < Number(booking.total ?? 0)) {
+      // The opted-in OTA rule has to be honoured here too, or the day Lodgify
+      // partner webhooks land this gate would start holding exactly the stays
+      // the poll bills — the same divergence that made the webhook path carry
+      // the `amount_due == 0` bug months after the poll was fixed.
+      const otaCollected = isOtaStayCollected(
+        { ...booking, total_amount: booking.total, source: booking.source },
+        otaPolicyFrom(ctx.destinationConfig),
+      );
+      if (!otaCollected && settlement.collected + 0.01 < Number(booking.total ?? 0)) {
         console.log(`[Lodgify] Booking ${bookingId} not billable yet (${settlement.basis}, due=${balanceDue}) — skipping`);
         return null;
       }
@@ -260,23 +269,52 @@ export class LodgifySource implements SourceAdapter {
       : "Alojamento";
     const lineTitle = partial?.seq ? `${baseTitle} (parcela ${partial.seq})` : baseTitle;
 
-    const lineItem = {
-      id: 1,
-      product_id: 0,
-      variant_id: 0,
-      quantity: 1,
-      unit_price: netUnit,
-      unit_price_calculated: netUnit,
-      subtotal_calculated: netUnit,
-      tax: { name: "IVA", value: taxRate, unit_amount: taxRate },
-      discount: { name: "", percent: 0 },
-      title: lineTitle,
-      variant_title: null,
-      sku: refStr,
-      fulfilled: true,
-      fulfilled_quantity: 1,
-      fulfillment_status: "fulfilled",
+    const makeLine = (id: number, title: string, gross: number, rate: number) => {
+      const net = rate > 0 ? Math.round((gross / (1 + rate / 100)) * 10000) / 10000 : gross;
+      return {
+        id,
+        product_id: 0,
+        variant_id: 0,
+        quantity: 1,
+        unit_price: net,
+        unit_price_calculated: net,
+        subtotal_calculated: net,
+        tax: { name: "IVA", value: rate, unit_amount: rate },
+        discount: { name: "", percent: 0 },
+        title,
+        variant_title: null,
+        sku: refStr,
+        fulfilled: true,
+        fulfilled_quantity: 1,
+        fulfillment_status: "fulfilled",
+      };
     };
+
+    // Cleaning fees and add-ons at their own VAT rate, when the merchant asked
+    // for the split and Lodgify actually told us the breakdown.
+    //
+    // The v1 list — which is all the poll ever sees — reports a single
+    // `total_amount`. The breakdown lives on the v2 booking
+    // (`subtotals: {stay, fees, addons, …}`), so it only exists here when
+    // whoever built the payload fetched it. No breakdown ⇒ one line at the
+    // accommodation rate, which is the behaviour every other connection keeps.
+    const extrasRate = Number(ctx.destinationConfig?.lodgify_extras_vat_rate ?? 0);
+    const subtotals = (booking as any).subtotals;
+    const extrasGross = extrasRate > 0 && subtotals && !partial && !isDeclined
+      ? Math.round((Number(subtotals.fees ?? 0) + Number(subtotals.addons ?? 0)) * 100) / 100
+      : 0;
+    // Split only when the arithmetic closes on the total we are billing. A
+    // breakdown that does not add up is a breakdown we do not understand, and
+    // guessing would put a wrong tax base on a fiscal document.
+    const stayGross = Math.round((grossTotal - extrasGross) * 100) / 100;
+    const splitExtras = extrasGross > 0.01 && stayGross > 0.01;
+
+    const lineItems = splitExtras
+      ? [
+          makeLine(1, lineTitle, stayGross, taxRate),
+          makeLine(2, "Limpeza e extras", extrasGross, extrasRate),
+        ]
+      : [makeLine(1, lineTitle, grossTotal, taxRate)];
 
     // Populate note_attributes so tag routing rules can match on booking fields.
     // Merchants route by property_id (multi-property) or booking source (channel).
@@ -307,6 +345,11 @@ export class LodgifySource implements SourceAdapter {
       // note so a NIF typed there is still picked up by extractPtNif.
       note: partial ? [partial.note, guestNote].filter(Boolean).join(" | ") || null : guestNote,
       note_attributes: noteAttrs,
+      // The channel's own reference ("Airbnb HMMZDXRCN9"), stamped on the
+      // document so an OTA stay can be traced back to the payout that covers
+      // it — the only link there is, since the money never passes through
+      // Lodgify. Its own field, never `note`: that one is scanned for a NIF.
+      channel_reference: (booking as any).channel_reference ?? channelReference(booking) ?? null,
       metafields: null,
       tags: [],
       meta: {
@@ -336,7 +379,7 @@ export class LodgifySource implements SourceAdapter {
       },
       billing_address: addr,
       shipping_address: addr,
-      items: [lineItem],
+      items: lineItems,
       global_discount: { name: "", percent: 0, amount: 0 },
       invoice_reference: partial?.reference ?? null,
     };
@@ -349,7 +392,7 @@ export class LodgifySource implements SourceAdapter {
       refund_id: orderNumeric,
       amount: netUnit, // net so delta = 0; tax handled by Moloni product settings
       line_items: [{
-        id: lineItem.id,
+        id: lineItems[0].id,
         quantity: 1,
         subtotal: netUnit,
         total_tax: Math.round((grossTotal - netUnit) * 100) / 100,

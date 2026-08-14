@@ -19,6 +19,54 @@ export function firstStr(...vals: unknown[]): string | null {
   return null;
 }
 
+/**
+ * The channel's own booking reference, for stamping on the document.
+ *
+ * Lodgify hides it in `source_text`, whose shape depends on the channel:
+ *   Airbnb      → a JSON blob; the human-facing code is `confirmationCode`
+ *                 ("HMMZDXRCN9"). The listing/thread ids in there are noise.
+ *   Booking.com → "5670891596|6375058873"; the first field is the reservation
+ *                 number the host sees in the extranet.
+ *   Direct/manual → a label ("Direto", "Lodgify", "vilalaura.lodgify.com"), or
+ *                 once, a phone number. Not a reference — return null.
+ *
+ * Returns "<Channel> <ref>" so the document says which channel it came from,
+ * because "HMMZDXRCN9" alone means nothing to an accountant.
+ */
+export function channelReference(item: any): string | null {
+  const source = String(item?.source ?? "");
+  const raw = item?.source_text;
+  if (raw == null || String(raw).trim() === "") return null;
+
+  const text = String(raw).trim();
+  const s = source.toLowerCase();
+
+  if (s.includes("airbnb")) {
+    try {
+      const parsed = JSON.parse(text);
+      const code = firstStr(parsed?.confirmationCode, parsed?.confirmation_code);
+      return code ? `Airbnb: ${code}` : null;
+    } catch {
+      // Not JSON — some payloads carry the bare code.
+      return /^[A-Z0-9]{6,20}$/i.test(text) ? `Airbnb: ${text}` : null;
+    }
+  }
+
+  if (s.includes("booking")) {
+    // "5670891596|6375058873" — the reservation number the host sees, then a
+    // second id. Both are kept, separated by " ! ", because either can be the
+    // one that appears on a given payout statement.
+    const parts = text.split("|").map((p) => p.trim()).filter((p) => /^\d{4,}$/.test(p));
+    return parts.length ? `Booking.com: ${parts.join(" ! ")}` : null;
+  }
+
+  // Any other channel: keep it only when it looks like an id, never a label.
+  if (/^[A-Z0-9][A-Z0-9-]{5,}$/i.test(text) && !/^https?:|lodgify|direto|direct$/i.test(text)) {
+    return source ? `${source}: ${text}` : text;
+  }
+  return null;
+}
+
 /** YYYY-MM-DD prefix of a date-ish value, or "" when there isn't one. */
 export function ymd(input: unknown): string {
   const m = String(input ?? "").match(/^(\d{4}-\d{2}-\d{2})/);
@@ -65,6 +113,17 @@ export function toPreloadedFromItem(item: any): Record<string, unknown> {
     departure: ymd(item?.departure ?? item?.date_departure),
     property_id: item?.property_id ?? null,
     source: item?.source ?? null,
+    source_text: item?.source_text ?? null,
+    // Present only when the caller fetched the v2 booking: {stay, fees, addons,
+    // taxes, …}. The v1 list the poll reads reports a single total, so a
+    // connection that splits extras onto their own VAT rate depends on whoever
+    // built this payload having gone and got it.
+    subtotals: item?.subtotals ?? null,
+    // "Airbnb HMMZDXRCN9" / "Booking.com 5670891596". Kept as its own field and
+    // deliberately NOT folded into `notes`: that one is scanned for a 9-digit
+    // Portuguese NIF, and a channel reference is exactly the kind of digit run
+    // that would be mistaken for one.
+    channel_reference: channelReference(item),
     room_type_id: item?.rooms?.[0]?.room_type_id ?? item?.room_types?.[0]?.room_type_id ?? null,
     // Guest comment (the booking-form "Comentários" box where guests type their
     // NIF). `note` is the only free-text guest field the Lodgify booking object

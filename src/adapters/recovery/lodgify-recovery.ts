@@ -4,6 +4,7 @@ import type { SourceRecovery, SourceRecordRef, SourceDescription } from "./types
 import { toPreloadedFromItem } from "../../services/lodgify-booking";
 import {
   bookingCollectedAmount, collectedSqlPredicate,
+  isOtaStayCollected, otaStayCollectedSqlPredicate, otaPolicyFrom, type OtaPolicy,
 } from "../../services/lodgify-amounts";
 
 /**
@@ -27,7 +28,7 @@ const CANCELLED_STATUSES = new Set(["declined", "cancelled", "canceled"]);
  * grounds that whoever preloaded the data already applied it. So the rule is
  * applied here, from the same helpers the poll uses.
  */
-export function blockerFor(item: any): string | null {
+export function blockerFor(item: any, policy?: OtaPolicy): string | null {
   const status = String(item?.status ?? "").toLowerCase();
   if (CANCELLED_STATUSES.has(status)) return `reserva ${item?.status}`;
 
@@ -36,6 +37,10 @@ export function blockerFor(item: any): string | null {
     case "zero_total":
       return "reserva sem valor a facturar";
     case "awaiting_payment":
+      // Opted-in connections bill an OTA stay once it has happened — the channel
+      // collected the money and it never passes through Lodgify, so there is
+      // nothing for the merchant to mark. Still blocked before the stay ends.
+      if (isOtaStayCollected(item, policy)) return null;
       return "sem pagamento registado no Lodgify — o merchant ainda não a marcou como paga";
     case "instalment":
       // Deliberate: a part-paid booking is billed in instalments, and that
@@ -50,23 +55,29 @@ export function blockerFor(item: any): string | null {
   }
 }
 
-function toRecord(row: any, item: any): SourceRecordRef {
+function toRecord(row: any, item: any, policy?: OtaPolicy): SourceRecordRef {
   const bookingId = String(row?.id ?? item?.id ?? "");
   const settlement = bookingCollectedAmount(item);
+  // An opted-in OTA stay has no recorded payment by definition, so report the
+  // booking total as what will be billed — otherwise the dry-run preview shows
+  // "would bill ? €" for exactly the records this policy exists to bill.
+  const otaTotal = settlement.collected <= 0 && isOtaStayCollected(item, policy)
+    ? Number(item?.total_amount ?? item?.total ?? 0)
+    : 0;
   return {
     externalId: bookingId,
     // Lodgify has no order numbers; the document reference derives a numeric
     // from the booking id, which is not something an operator ever types.
     orderNumber: null,
     label: `LOD-${bookingId}`,
-    paidTotal: settlement.collected > 0 ? settlement.collected : null,
+    paidTotal: settlement.collected > 0 ? settlement.collected : (otaTotal > 0 ? otaTotal : null),
     paidAt: row?.updated_at ?? row?.created_at ?? null,
     replayBody: {
       event: "booking_new_status_booked",
       data: { bookingId: Number(bookingId) || bookingId },
       _preloaded_booking: toPreloadedFromItem(item),
     },
-    blocker: blockerFor(item),
+    blocker: blockerFor(item, policy),
   };
 }
 
@@ -95,7 +106,7 @@ export class LodgifyRecovery implements SourceRecovery {
         `Reserva ${bookingId} não está no espelho local. Corra /admin/lodgify/poll para sincronizar antes de a re-emitir.`,
       );
     }
-    return toRecord(parsed.row, parsed.item);
+    return toRecord(parsed.row, parsed.item, otaPolicyFrom(ctx.destinationConfig));
   }
 
   async listCandidates(
@@ -107,12 +118,20 @@ export class LodgifyRecovery implements SourceRecovery {
     // bookingCollectedAmount — the two expressions of that one rule drifting
     // apart is how the backlog alert once counted every future OTA booking as
     // unbilled revenue.
+    // An opted-in connection also bills OTA stays that have happened, which by
+    // definition have no recorded payment — without widening the SQL here they
+    // would never even reach `blockerFor`, and the backfill would report an
+    // empty window for exactly the bookings the policy exists to bill.
+    const policy = otaPolicyFrom(ctx.destinationConfig);
+    const otaSql = otaStayCollectedSqlPredicate(policy);
+    const billable = otaSql ? `(${collectedSqlPredicate()} OR ${otaSql})` : collectedSqlPredicate();
+
     const rows = await env.DB.prepare(
       `SELECT * FROM lodgify_bookings b
         WHERE b.user_id = ?
           AND COALESCE(b.created_at, b.synced_at) >= ?
           AND COALESCE(b.created_at, b.synced_at) <= ?
-          AND ${collectedSqlPredicate()}
+          AND ${billable}
         ORDER BY COALESCE(b.created_at, b.synced_at) ASC
         LIMIT ?`
     ).bind(ctx.userId, window.from, window.to, window.limit).all();
@@ -120,7 +139,7 @@ export class LodgifyRecovery implements SourceRecovery {
     const out: SourceRecordRef[] = [];
     for (const row of (rows.results ?? []) as any[]) {
       const parsed = parseRow(row);
-      if (parsed) out.push(toRecord(parsed.row, parsed.item));
+      if (parsed) out.push(toRecord(parsed.row, parsed.item, policy));
     }
     return out;
   }

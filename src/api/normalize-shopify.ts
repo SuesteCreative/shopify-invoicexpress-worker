@@ -41,6 +41,11 @@ export interface Order {
    *  reference ("Order #N-1", "Order #N-2") so the dedup-by-reference doesn't
    *  block the second one. When absent, destinations fall back to "Order #N". */
   invoice_reference?: string | null
+  /** The selling channel's own booking reference (e.g. "Airbnb HMMZDXRCN9"),
+   *  stamped on the destination document's notes. Kept out of `note` because
+   *  that field is scanned for a Portuguese NIF and a reference is exactly the
+   *  kind of digit run that gets mistaken for one. */
+  channel_reference?: string | null
 }
 
 export interface Meta {

@@ -107,10 +107,104 @@ export function bookingCollectedAmount(item: any): Settlement {
  * Is the booking collected in full — the gate for issuing ONE document for the
  * whole total (the non-progressive path).
  */
-export function isBookingFullyCollected(item: any): boolean {
+export function isBookingFullyCollected(item: any, policy?: OtaPolicy): boolean {
   const total = cents(firstNum(item?.total_amount, item?.total) ?? 0);
   if (total <= 0) return false;
-  return bookingCollectedAmount(item).collected + 0.01 >= total;
+  if (bookingCollectedAmount(item).collected + 0.01 >= total) return true;
+  return isOtaStayCollected(item, policy);
+}
+
+/**
+ * Per-connection escape hatch for merchants whose money never reaches Lodgify.
+ *
+ * `on` names the moment an OTA stay counts as collected. Absent = the default
+ * everywhere: nothing but recorded money bills anything.
+ */
+export interface OtaPolicy {
+  on: "departure" | "arrival";
+}
+
+/**
+ * Read the policy off a connection's destination config, so every gate reaches
+ * the same verdict from the same stored value.
+ *
+ * `lodgify_ota_invoice_on`: "departure" | "arrival". Anything else — including
+ * absent, which is every connection but the one that asked — means off.
+ */
+export function otaPolicyFrom(destinationConfig: Record<string, any> | undefined | null): OtaPolicy | undefined {
+  const on = String(destinationConfig?.lodgify_ota_invoice_on ?? "").toLowerCase();
+  if (on === "departure" || on === "arrival") return { on };
+  return undefined;
+}
+
+/** Lodgify `source` values where the channel collects the money, not the host. */
+const OTA_SOURCES = ["airbnb", "bookingcom", "booking.com", "expedia", "vrbo", "homeaway", "tripadvisor"];
+
+export function isOtaChannel(source: unknown): boolean {
+  // Strip the SAME characters on both sides — Lodgify writes "BookingCom" on a
+  // booking and "Booking.com" in places a human typed it, and a comparison that
+  // keeps the dot on one side only matches neither reliably. The SQL twin
+  // (`otaStayCollectedSqlPredicate`) strips the same set.
+  const norm = (v: string) => v.toLowerCase().replace(/[\s_.-]/g, "");
+  const s = norm(String(source ?? ""));
+  return OTA_SOURCES.some((o) => s.includes(norm(o)));
+}
+
+/**
+ * Treat an OTA stay as collected once it has happened.
+ *
+ * OFF BY DEFAULT, and it must stay that way. The rule everywhere else is that
+ * recorded money is the only trigger, precisely because `amount_due == 0` reads
+ * identically on a booking created five minutes ago, one the channel has paid
+ * out, and one that was cancelled — reading it as "paid" is what billed twelve
+ * future stays for Overbuilding in August.
+ *
+ * What makes this safe enough to offer at all is that it does not read a payment
+ * signal: it waits for the stay itself, which is a fact with a date. A host who
+ * knows the channel always pays out (Airbnb/Booking.com collect at booking) can
+ * opt in and stop marking every reservation by hand. The trade the merchant is
+ * making, and must be told they are making: a stay that happened but was never
+ * paid for will be invoiced anyway.
+ *
+ * Only applies where money is genuinely absent (paid 0 AND due 0 — the OTA
+ * signature). A booking with a real balance is a direct booking and keeps the
+ * ordinary rule.
+ */
+export function isOtaStayCollected(item: any, policy?: OtaPolicy, today?: string): boolean {
+  if (!policy) return false;
+  if (!isOtaChannel(item?.source)) return false;
+
+  const total = cents(firstNum(item?.total_amount, item?.total) ?? 0);
+  if (total <= 0) return false;
+
+  const paid = cents(firstNum(item?.amount_paid, item?.total_paid) ?? 0);
+  const due = bookingAmountDue(item);
+  // Any money recorded, or any outstanding balance, means Lodgify does know
+  // about this booking's money — leave it to the ordinary rule.
+  if (paid > 0.01) return false;
+  if (due != null && due > 0.01) return false;
+
+  const trigger = policy.on === "arrival" ? ymd(item?.arrival) : (ymd(item?.departure) || ymd(item?.arrival));
+  if (!trigger) return false;
+  return trigger <= (today ?? new Date().toISOString().slice(0, 10));
+}
+
+/** SQL counterpart of `isOtaStayCollected`, for the mirror's columns (alias `b`). */
+export function otaStayCollectedSqlPredicate(policy?: OtaPolicy): string | null {
+  if (!policy) return null;
+  const dateCol = policy.on === "arrival"
+    ? `NULLIF(b.arrival, '')`
+    : `COALESCE(NULLIF(b.departure, ''), NULLIF(b.arrival, ''))`;
+  const sources = OTA_SOURCES.map((s) => `'%${s.replace(/[\s_.-]/g, "")}%'`);
+  const sourceMatch = sources.map((s) => `lower(replace(replace(COALESCE(b.source,''),' ',''),'.','')) LIKE ${s}`).join(" OR ");
+  return `(
+       COALESCE(b.total_amount, 0) > 0
+       AND COALESCE(b.amount_paid, 0) <= 0.01
+       AND COALESCE(b.amount_due, 0) <= 0.01
+       AND (${sourceMatch})
+       AND ${dateCol} IS NOT NULL
+       AND ${dateCol} <= date('now')
+     )`;
 }
 
 /**

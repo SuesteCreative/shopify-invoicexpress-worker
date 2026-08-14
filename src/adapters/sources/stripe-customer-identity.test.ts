@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { StripeSource } from "./stripe-source";
-import { extractPtNif, hasPtFiscalMarker, ptNifApplies } from "../destinations/moloni-destination";
+import { extractPtNif, hasPtFiscalMarker, pickUnitId, ptNifApplies } from "../destinations/moloni-destination";
 import type { AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 
@@ -124,6 +124,34 @@ describe("document date", () => {
     const n = (await new StripeSource().toNormalized(piEvent(), ctx))!;
 
     expect(n.order.created_at).toBe("2026-07-31T00:04:20.000Z");
+  });
+});
+
+// A generated product used to take whichever unit Moloni listed first. On
+// MJ | SENTE that is "Hrs", so a 130 € payment was invoiced as 1 hour of
+// "Subscription update".
+describe("measurement unit", () => {
+  it("prefers the account's unit of count over whatever is listed first", () => {
+    expect(pickUnitId([
+      { unit_id: 3, name: "Horas", short_name: "Hrs" },
+      { unit_id: 7, name: "Unidade", short_name: "Un" },
+      { unit_id: 9, name: "Quilograma", short_name: "Kg" },
+    ])).toBe(7);
+  });
+
+  it("matches the spellings Moloni accounts actually use", () => {
+    expect(pickUnitId([{ unit_id: 1, name: "Horas", short_name: "Hrs" }, { unit_id: 2, name: "Unidades", short_name: "UN" }])).toBe(2);
+    expect(pickUnitId([{ unit_id: 1, name: "Horas", short_name: "Hrs" }, { unit_id: 4, name: "Unit", short_name: "un." }])).toBe(4);
+  });
+
+  it("falls back to the first unit when the account has no unit of count", () => {
+    expect(pickUnitId([{ unit_id: 3, name: "Horas", short_name: "Hrs" }])).toBe(3);
+  });
+
+  it("has nothing to pick from an empty or broken list", () => {
+    expect(pickUnitId([])).toBeUndefined();
+    expect(pickUnitId(null)).toBeUndefined();
+    expect(pickUnitId([{ name: "Unidade" }])).toBeUndefined();
   });
 });
 

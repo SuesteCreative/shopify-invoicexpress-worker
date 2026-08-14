@@ -478,6 +478,33 @@ export function hasPtFiscalMarker(order: Normalized["order"]): boolean {
   return false;
 }
 
+export interface MoloniUnit { unit_id?: number; name?: string; short_name?: string }
+
+/**
+ * The measurement unit a generated product is created with.
+ *
+ * This used to take `units[0]` — whatever Moloni happened to list first for that
+ * company. On MJ | SENTE that is "Hrs", so every Stripe payment was invoiced as
+ * hours of something. A sale of one thing is one UNIT unless the merchant says
+ * otherwise, so look for the account's own "unidade" and only fall back to the
+ * first entry when the account genuinely has no such unit.
+ *
+ * This only governs products Rioko generates. A merchant who genuinely bills in
+ * hours (or kg, or nights) maps their own Moloni product, and that product's
+ * unit is used — same escape hatch that already carries its VAT rate.
+ */
+export function pickUnitId(units: MoloniUnit[] | unknown): number | undefined {
+  const list = (Array.isArray(units) ? units : []).filter((u): u is MoloniUnit => !!u?.unit_id);
+  const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
+  const isUnitOfCount = (u: MoloniUnit) => {
+    const short = norm(u.short_name);
+    const name = norm(u.name);
+    return /^(un|uni|unid|und|unidade|unidades|unit|units)\.?$/.test(short)
+      || /^(unidade|unidades|unit|units)$/.test(name);
+  };
+  return Number(list.find(isUnitOfCount)?.unit_id ?? list[0]?.unit_id) || undefined;
+}
+
 /**
  * Whether the NIF we extracted may be stamped on the document.
  *
@@ -974,10 +1001,10 @@ async function ensureMoloniProduct(
   if (!categoryId) {
     throw new Error(`Moloni create failed: no product category available to host product '${reference}'`);
   }
-  const units = await moloniCall<Array<{ unit_id?: number }>>(
+  const units = await moloniCall<MoloniUnit[]>(
     cfg, token, "/measurementUnits/getAll/", {}, "lookup",
   );
-  const unitId = Array.isArray(units) ? units[0]?.unit_id : undefined;
+  const unitId = pickUnitId(units);
   if (!unitId) {
     throw new Error(`Moloni create failed: no measurement unit available to host product '${reference}'`);
   }

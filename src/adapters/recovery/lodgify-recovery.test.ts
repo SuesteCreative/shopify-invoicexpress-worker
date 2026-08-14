@@ -62,3 +62,55 @@ describe("blockerFor", () => {
     expect(b).toMatch(/liquidação parcial/);
   });
 });
+
+/**
+ * The OTA opt-in (`lodgify_ota_invoice_on`) and the status rule it exposed.
+ *
+ * Origos sells through Airbnb and Booking.com, where the channel collects and
+ * Lodgify never sees the money — so `amount_paid` stays 0 forever and the rules
+ * above hold every booking for good. The opt-in accepts a stay that has already
+ * happened, which is a fact with a date, rather than inferring payment from its
+ * absence.
+ */
+const ota = (over: Record<string, unknown> = {}) => ({
+  status: "Booked",
+  source: "AirbnbIntegration",
+  total_amount: 763.16,
+  amount_paid: 0,
+  amount_due: 0,
+  arrival: "2020-01-01",
+  departure: "2020-01-05",
+  ...over,
+});
+
+describe("blockerFor — OTA opt-in", () => {
+  it("still holds an OTA stay on a connection that did not ask", () => {
+    expect(blockerFor(ota())).toMatch(/sem pagamento registado/);
+  });
+
+  it("bills an opted-in OTA stay that has ended", () => {
+    expect(blockerFor(ota(), { on: "departure" })).toBeNull();
+  });
+
+  it("holds an opted-in stay that has not happened yet", () => {
+    expect(blockerFor(ota({ arrival: "2099-01-01", departure: "2099-01-05" }), { on: "departure" }))
+      .toMatch(/sem pagamento registado/);
+  });
+
+  it("refuses an unconfirmed booking, opted in or not", () => {
+    // "Open" is an enquiry or a held tentative reservation — nobody has
+    // committed to anything. Only cancellations were being refused here, so a
+    // backfill dry run for Origos proposed 9.822,86 € across five Open
+    // enquiries. The poll always required "Booked"; this now agrees with it.
+    expect(blockerFor(ota({ status: "Open" }), { on: "departure" }))
+      .toBe("reserva não confirmada (Open)");
+    expect(blockerFor(ota({ status: "Tentative" }), { on: "departure" })).toMatch(/não confirmada/);
+    expect(blockerFor({ total_amount: 100, amount_paid: 100 })).toMatch(/não confirmada/);
+  });
+
+  it("never overrides a direct booking's own rules", () => {
+    expect(blockerFor(ota({ source: "Manual" }), { on: "departure" })).toMatch(/sem pagamento registado/);
+    expect(blockerFor(ota({ amount_paid: 300, amount_due: 463.16 }), { on: "departure" }))
+      .toMatch(/liquidação parcial/);
+  });
+});

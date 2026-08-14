@@ -31,6 +31,12 @@ const CANCELLED_STATUSES = new Set(["declined", "cancelled", "canceled"]);
 export function blockerFor(item: any, policy?: OtaPolicy): string | null {
   const status = String(item?.status ?? "").toLowerCase();
   if (CANCELLED_STATUSES.has(status)) return `reserva ${item?.status}`;
+  // Only a confirmed booking is a sale. This used to reject cancellations and
+  // let everything else through, which meant "Open" — an enquiry or a held
+  // tentative reservation, with no guest committed to anything — was billable
+  // by any bulk path. The poll always required "Booked"; the backfill did not,
+  // and a dry run for Origos proposed 9.822,86 € across five Open enquiries.
+  if (status !== "booked") return `reserva não confirmada (${item?.status ?? "sem estado"})`;
 
   const settlement = bookingCollectedAmount(item);
   switch (settlement.basis) {
@@ -129,6 +135,7 @@ export class LodgifyRecovery implements SourceRecovery {
     const rows = await env.DB.prepare(
       `SELECT * FROM lodgify_bookings b
         WHERE b.user_id = ?
+          AND b.status = 'Booked'
           AND COALESCE(b.created_at, b.synced_at) >= ?
           AND COALESCE(b.created_at, b.synced_at) <= ?
           AND ${billable}

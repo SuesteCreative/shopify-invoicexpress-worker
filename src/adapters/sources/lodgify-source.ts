@@ -191,7 +191,12 @@ export class LodgifySource implements SourceAdapter {
     // the v1 reservation endpoint additionally exposes street_address, city,
     // postal_code and state — all of which Moloni wants on the customer record.
     // Best-effort: a v1 failure must never block invoicing.
-    const enriched = await fetchGuestDetails(bookingId, apiKey);
+    //
+    // Skipped when the caller already merged that detail into the booking item
+    // (`_enriched`): with Lodgify blocking this Worker's egress, the call would
+    // burn a guaranteed-429 request per document and return nothing we don't
+    // already have.
+    const enriched = booking._enriched ? null : await fetchGuestDetails(bookingId, apiKey);
 
     const guestName = enriched?.fullName || booking.guest?.name || "Consumidor Final";
     const guestEmail = String(enriched?.email ?? booking.guest?.email ?? "");
@@ -235,12 +240,16 @@ export class LodgifySource implements SourceAdapter {
       last_name: lastName,
       name: guestName,
       company: null as string | null,
-      address1: enriched?.address1 ?? "",
-      address2: enriched?.address2 ?? "",
-      city: enriched?.city ?? "",
-      province: enriched?.state ?? "",
+      // Enrichment wins when it works; the preloaded booking carries the same
+      // fields when the caller merged the v1 detail on our behalf. Before this
+      // fallback existed, a blocked enrichment meant every Moloni customer was
+      // created with a blank address, silently.
+      address1: enriched?.address1 ?? booking.guest?.address1 ?? "",
+      address2: enriched?.address2 ?? booking.guest?.address2 ?? "",
+      city: enriched?.city ?? booking.guest?.city ?? "",
+      province: enriched?.state ?? booking.guest?.state ?? "",
       province_code: "",
-      zip: enriched?.zip ?? "",
+      zip: enriched?.zip ?? booking.guest?.zip ?? "",
       country: countryName,
       country_code: rawCountry,
       phone: guestPhone,

@@ -45,7 +45,22 @@ export function toPreloadedFromItem(item: any): Record<string, unknown> {
       email: item?.guest?.email ?? null,
       country_code: item?.guest?.country_code ?? null,
       phone: item?.guest?.phone ?? item?.guest?.phone_number ?? null,
+      // Postal address, when the item carries it. The booking LIST does not, but
+      // an item enriched from `/v1/reservation/booking/{id}` does — and that is
+      // now the only way the address survives, because the Worker's own call to
+      // that endpoint is what Lodgify blocks. Field names are v1's own.
+      address1: item?.guest?.street_address1 ?? item?.guest?.address1 ?? null,
+      address2: item?.guest?.street_address2 ?? item?.guest?.address2 ?? null,
+      city: item?.guest?.city ?? null,
+      zip: item?.guest?.postal_code ?? item?.guest?.zip ?? null,
+      state: item?.guest?.state ?? null,
     },
+    // Set by whoever already merged the v1 detail into this item, to stop the
+    // pipeline making a per-document call that is guaranteed to be blocked.
+    // A marker, not a guess from field truthiness: a guest who genuinely has no
+    // address must not permanently suppress an enrichment that may start working
+    // again the day partner registration lands.
+    _enriched: item?._enriched === true,
     arrival: ymd(item?.arrival ?? item?.date_arrival),
     departure: ymd(item?.departure ?? item?.date_departure),
     property_id: item?.property_id ?? null,

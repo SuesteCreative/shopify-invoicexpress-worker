@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { StripeSource } from "./stripe-source";
-import { extractPtNif, hasPtFiscalMarker } from "../destinations/moloni-destination";
+import { extractPtNif, hasPtFiscalMarker, ptNifApplies } from "../destinations/moloni-destination";
 import type { AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 
@@ -104,5 +104,35 @@ describe("PT fiscal marker", () => {
   it("does not claim Portugal for another member state", () => {
     expect(hasPtFiscalMarker(order([{ name: "vat (eu_vat)", value: "ES12345678Z" }]))).toBe(false);
     expect(hasPtFiscalMarker(order([]))).toBe(false);
+  });
+});
+
+// An invoice may carry a NIF and no billing address — that is an ordinary
+// document, not a suspicious one. Only a CONTRADICTING address disqualifies the
+// number, and a fiscal id that names Portugal outranks even that.
+describe("when a NIF may be stamped", () => {
+  const order = (country: string, attrs: Array<{ name: string; value: string }> = []) =>
+    ({ billing_address: { country_code: country }, note_attributes: attrs } as unknown as Normalized["order"]);
+
+  it("keeps the NIF when there is no address at all", () => {
+    expect(ptNifApplies(order(""), "196940737")).toBe(true);
+    expect(ptNifApplies({} as Normalized["order"], "196940737")).toBe(true);
+  });
+
+  it("keeps the NIF for a PT address", () => {
+    expect(ptNifApplies(order("PT"), "196940737")).toBe(true);
+    expect(ptNifApplies(order("pt"), "196940737")).toBe(true);
+  });
+
+  it("drops a bare number when the address names another country", () => {
+    expect(ptNifApplies(order("ES"), "196940737")).toBe(false);
+  });
+
+  it("keeps a PT-spelled fiscal id even against a foreign address", () => {
+    expect(ptNifApplies(order("FR", [{ name: "vat (eu_vat)", value: "PT196940737" }]), "196940737")).toBe(true);
+  });
+
+  it("has nothing to stamp when no NIF was extracted", () => {
+    expect(ptNifApplies(order("PT"), null)).toBe(false);
   });
 });

@@ -408,10 +408,6 @@ function safeErrorJson(value: unknown, max = 500): string {
   return truncate(JSON.stringify(redactSecrets(value)), max);
 }
 
-function isPortugal(countryCode: string | null | undefined): boolean {
-  return String(countryCode ?? "").trim().toUpperCase() === "PT";
-}
-
 // Extracts a 9-digit PT NIF candidate from the same fields IX's builder reads.
 // Pared down from IxBuilder.extractAndValidateNIF — we only need a yes/no PT
 // fiscal id here, the heavy EU-VAT shape work is owned by IX.
@@ -462,12 +458,10 @@ export function extractPtNif(normalized: Normalized): string | null {
  * True when the sale carries a fiscal id that names Portugal in the id ITSELF —
  * a `pt_nif` tax id, or an EU-VAT value spelled "PT196940737".
  *
- * The buyer's country is not always in the address: a Stripe PaymentIntent has
- * no address at all unless shipping was collected, so `billing.country_code`
- * comes through empty and the NIF gate below read that as "not Portuguese" and
- * fell back to the generic consumer VAT — issuing the invoice to the shared
- * "Consumidor Final" record even though the buyer's valid NIF was right there.
- * A PT-prefixed fiscal id IS the country evidence.
+ * Used to settle the one genuine conflict: a billing address that names another
+ * country while the fiscal id says Portugal. The id wins, because it is the
+ * fiscal statement and the address is often just where a card is registered.
+ * (An ABSENT address is no conflict at all — see resolveOrCreateCustomer.)
  */
 export function hasPtFiscalMarker(order: Normalized["order"]): boolean {
   const attrs = Array.isArray(order.note_attributes)
@@ -482,6 +476,29 @@ export function hasPtFiscalMarker(order: Normalized["order"]): boolean {
     if (/^PT\d{9}$/.test(value)) return true;
   }
   return false;
+}
+
+/**
+ * Whether the NIF we extracted may be stamped on the document.
+ *
+ * A missing address is NOT a reason to drop a NIF: an invoice may perfectly well
+ * carry a fiscal id and no billing address at all (Multibanco, Link and
+ * off-session subscription charges collect none). Only an address that names a
+ * DIFFERENT country contradicts the NIF — and even that loses to a fiscal id
+ * that spells Portugal out itself.
+ *
+ * This used to demand `country_code === "PT"`, so every address-less sale was
+ * read as foreign and billed to the shared "Consumidor Final" record with the
+ * buyer's valid NIF sitting right there in the payload.
+ *
+ * `extractPtNif` already normalizes "PT196940737" → "196940737" and verifies the
+ * check digit, so nothing structurally invalid reaches this decision.
+ */
+export function ptNifApplies(order: Normalized["order"], ptNif: string | null): boolean {
+  if (!ptNif) return false;
+  const billingCountry = String(order.billing_address?.country_code ?? "").trim().toUpperCase();
+  const addressNamesAnotherCountry = billingCountry !== "" && billingCountry !== "PT";
+  return hasPtFiscalMarker(order) || !addressNamesAnotherCountry;
 }
 
 // Resolve Moloni's internal country_id from an ISO-3166-1-alpha-2 code.
@@ -810,12 +827,7 @@ async function resolveOrCreateCustomer(
   const order = normalized.order;
   const billing = order.billing_address;
   const ptNif = extractPtNif(normalized);
-  // Portugal can be evidenced by the address OR by the fiscal id itself; the
-  // address is absent on most Stripe payments. extractPtNif already normalizes
-  // "PT196940737" → "196940737" and verifies the check digit, so a marker here
-  // can only promote a NIF that is structurally valid.
-  const countryIsPT = isPortugal(billing?.country_code) || hasPtFiscalMarker(order);
-  const vat = countryIsPT && ptNif ? ptNif : NON_PT_GENERIC_VAT;
+  const vat = ptNifApplies(order, ptNif) ? ptNif! : NON_PT_GENERIC_VAT;
 
   // Compute name early so we can decide whether to skip the VAT lookup.
   const customerName = (order.customer?.name?.trim() || billing?.name?.trim() || "Consumidor Final").slice(0, 200);

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toPreloadedFromItem, channelReference } from "./lodgify-booking";
+import { paymentMethodNameFor } from "../adapters/destinations/moloni-destination";
 
 /**
  * These assertions exist because Lodgify blocks this Worker's egress, so the
@@ -115,5 +116,36 @@ describe("channelReference", () => {
     // mistake for a taxpayer number.
     const p = toPreloadedFromItem({ id: 1, source: "BookingCom", source_text: "5670891596|6375058873" }) as any;
     expect(p.notes).toBeNull();
+  });
+});
+
+/**
+ * A fatura-recibo asserts money was received; the payment method says how.
+ * Getting this from the wrong place puts a false statement in a fiscal document.
+ */
+describe("paymentMethodNameFor", () => {
+  it("prefers the method the merchant configured", () => {
+    // Most Moloni accounts have no "Airbnb" method — the platform pays out by
+    // bank transfer, which is both true and already in the account.
+    expect(paymentMethodNameFor(
+      { channel_reference: "Airbnb: HMMZDXRCN9" },
+      { moloni_payment_method: "Transferência Bancária" },
+    )).toBe("Transferência Bancária");
+  });
+
+  it("falls back to the channel that took the money", () => {
+    expect(paymentMethodNameFor({ channel_reference: "Booking.com: 5670891596 ! 6375058873" }, {}))
+      .toBe("Booking.com");
+  });
+
+  it("stamps nothing when there is neither", () => {
+    expect(paymentMethodNameFor({ channel_reference: null }, {})).toBeNull();
+    expect(paymentMethodNameFor({}, undefined)).toBeNull();
+    expect(paymentMethodNameFor({ channel_reference: "sem dois pontos" }, {})).toBeNull();
+  });
+
+  it("ignores a blank configured value instead of stamping empty", () => {
+    expect(paymentMethodNameFor({ channel_reference: "Airbnb: HM1" }, { moloni_payment_method: "   " }))
+      .toBe("Airbnb");
   });
 });

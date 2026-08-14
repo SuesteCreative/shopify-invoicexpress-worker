@@ -698,21 +698,29 @@ async function resolvePaymentMethodId(cfg: MoloniCfg, token: string, wanted: str
 /**
  * Which payment method name this document should carry, or null to stamp none.
  *
- * The channel that took the money, when we know it ("Airbnb: HM…" → "Airbnb"),
- * otherwise the connection's configured default. Only ever applied to
- * fatura-recibo: a plain fatura records no payment by definition.
+ * `moloni_payment_method` on the connection wins: it is a merchant naming a
+ * method that exists in their own account, and most accounts have no "Airbnb"
+ * method — the platform pays out by bank transfer, so "Transferência Bancária"
+ * is both true and already there. Only when nothing is configured do we derive
+ * the channel from the reference ("Airbnb: HM…" → "Airbnb").
+ *
+ * Either way the channel stays identifiable: it is stamped in the document's
+ * notes. Only ever applied to a fatura-recibo — a plain fatura records no
+ * payment by definition.
  */
 export function paymentMethodNameFor(
   order: { channel_reference?: string | null },
   destinationConfig: Record<string, any> | undefined,
 ): string | null {
   const configured = destinationConfig?.moloni_payment_method;
+  if (typeof configured === "string" && configured.trim()) return configured.trim();
+
   const ref = order.channel_reference;
   if (typeof ref === "string" && ref.includes(":")) {
     const channel = ref.slice(0, ref.indexOf(":")).trim();
     if (channel) return channel;
   }
-  return typeof configured === "string" && configured.trim() ? configured.trim() : null;
+  return null;
 }
 
 // A resolved Moloni product for one order-line reference. `mapped` marks

@@ -8,6 +8,7 @@ import { runAdapterPipeline } from "./generic-pipeline";
 import { sendDevModeEmail } from "./notify";
 import { listStripePaymentIntents, fetchStripeObject } from "../services/stripe";
 import { cancelReferenceCandidates } from "../services/document-references";
+import { stripeStableId } from "../adapters/sources/stripe-source";
 import { buildAdapterCtx } from "../services/adapter-ctx";
 import { projectConnectionBehaviour } from "../services/connection-context";
 import { formatPtDate } from "../ix/date";
@@ -47,20 +48,19 @@ async function loadStripeConnectionFull(env: Env, userId: string): Promise<Strip
   };
 }
 
-// Returns the externalId the pipeline would dedup on for a given event payload.
-// MUST mirror StripeSource.externalId exactly, otherwise a force re-emit deletes
-// the wrong dedup key: a card payment fires BOTH charge.succeeded and
-// payment_intent.succeeded, and the pipeline keys the processed_orders row (D1 +
-// KV) on the PAYMENT INTENT. Re-emitting by the charge id must therefore also
-// resolve to the PI, or `force` clears a `ch_…` key that was never written and
-// the pipeline skips the real `pi_…` row as "Already processed".
-export function externalIdFromEvent(event: any): string {
-  const obj = event?.data?.object;
-  if (!obj) return String(event?.id ?? "");
-  if ((event.type === "charge.succeeded" || event.type === "charge.refunded") && obj.payment_intent) return String(obj.payment_intent);
-  if (event.type === "checkout.session.completed" && obj.payment_intent) return String(obj.payment_intent);
-  return String(obj.id ?? "");
-}
+// The externalId the pipeline dedups on for a given event payload.
+//
+// This MUST be the same rule StripeSource.externalId applies, otherwise a force
+// re-emit deletes the wrong dedup key: a card payment fires BOTH charge.succeeded
+// and payment_intent.succeeded, and the pipeline keys the processed_orders row
+// (D1 + KV) on the PAYMENT INTENT. Re-emitting by the charge id must therefore
+// also resolve to the PI, or `force` clears a `ch_…` key that was never written
+// and the pipeline skips the real `pi_…` row as "Already processed".
+//
+// It is now a re-export rather than a hand-maintained copy of those five lines,
+// which is what it used to be — and copies of an idempotency rule drift apart,
+// which is exactly how "Order #0" survived unnoticed for months.
+export const externalIdFromEvent = stripeStableId;
 
 export interface StripeBackfillOptions {
   dry_run?: boolean;
@@ -151,6 +151,29 @@ export async function processStripeBackfill(
       results.push({ external_id: externalId, status: "created", message: "Invoice created via backfill" });
     } catch (e: any) {
       results.push({ external_id: externalId, status: "error", message: String(e?.message ?? e) });
+    }
+  }
+
+  // Verify against reality, not against "the pipeline didn't throw".
+  //
+  // A create can be skipped SILENTLY — the destination's idempotency check
+  // matches, a gate declines, the total is zero — and the pipeline still returns
+  // normally. Trusting the absence of an exception reported four MY VAN payments
+  // as "created" that were never invoiced, and because "created" is a success it
+  // left `errors` at zero, so the nightly heal that exists to catch exactly this
+  // raised no incident and nobody was told for two days (2026-08-14).
+  //
+  // So: ask the database whether a document actually landed. Anything claimed as
+  // created but absent is downgraded to an error, which is what makes the heal
+  // escalate it.
+  const claimed = results.filter(r => r.status === "created").map(r => r.external_id);
+  if (claimed.length > 0) {
+    const landed = await appStorage.getResolvedOrderIds(claimed, `u:${config.user_id}`);
+    for (const r of results) {
+      if (r.status === "created" && !landed.has(r.external_id)) {
+        r.status = "error";
+        r.message = "Pipeline finished without issuing a document (silent skip) — payment is STILL unbilled";
+      }
     }
   }
 

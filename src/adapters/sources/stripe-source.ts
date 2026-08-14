@@ -1,5 +1,6 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
+import { saleReference } from "../../services/document-references";
 
 /**
  * Verifies a Stripe webhook signature per
@@ -194,9 +195,41 @@ function stableCustomerId(...candidates: Array<string | null | undefined>): numb
   return ident ? fnv1a32(ident as string) : 0;
 }
 
+/**
+ * The one id that identifies a Stripe sale across every event that describes it.
+ *
+ * A single card payment fires several webhooks (charge.succeeded,
+ * payment_intent.succeeded, checkout.session.completed) and each carries a
+ * different `obj.id`, so anything that has to be stable per SALE — the
+ * processed_orders dedup key AND the document reference — has to collapse them
+ * onto the PaymentIntent.
+ *
+ * `externalId()` and `stripeToNormalized()` both call this precisely so they can
+ * never disagree: they did disagree until 2026-08-14, when the dedup key was the
+ * PI but the document reference was built from a hardcoded `order_number: 0`.
+ */
+export function stripeStableId(event: any): string {
+  const obj = event?.data?.object;
+  if (!obj) return String(event?.id ?? "");
+
+  // Charge and Checkout Session events point back at the PaymentIntent that
+  // settled them; the PI is the sale.
+  const type = String(event?.type ?? "");
+  if ((type === "charge.succeeded" || type === "charge.refunded" || type === "checkout.session.completed") && obj.payment_intent) {
+    return String(obj.payment_intent);
+  }
+  return String(obj.id ?? "");
+}
+
 export function stripeToNormalized(event: any): Normalized | null {
   const obj = event?.data?.object;
   if (!obj) return null;
+
+  // The document reference for EVERY Stripe shape. Built from the sale's stable
+  // id, never from `order_number` — Stripe payloads have no order number, so the
+  // shapes below hardcode 0 and `saleReference(0)` would label every payment in
+  // the account "Order #0" (see stripeStableId).
+  const invoiceReference = saleReference(stripeStableId(event));
 
   // Four shapes we handle today: Checkout Session (preferred trigger when the
   // buyer used Stripe Checkout because the payload carries custom_fields +
@@ -247,6 +280,7 @@ export function stripeToNormalized(event: any): Normalized | null {
         id: customerStableId,
         reference: String(stableRef),
         order_number: 0,
+        invoice_reference: invoiceReference,
         created_at: new Date((session.created ?? Date.now() / 1000) * 1000).toISOString(),
         note: session.description ?? null,
         note_attributes: noteAttrs,
@@ -321,6 +355,7 @@ export function stripeToNormalized(event: any): Normalized | null {
         id: customerStableId,
         reference: pi.id,
         order_number: 0,
+        invoice_reference: invoiceReference,
         created_at: new Date((pi.created ?? Date.now() / 1000) * 1000).toISOString(),
         note: pi.description ?? null,
         note_attributes: metadataToNoteAttributes(pi.metadata),
@@ -387,6 +422,11 @@ export function stripeToNormalized(event: any): Normalized | null {
         id: Number((inv.number || inv.id).toString().replace(/\D/g, "").slice(-12)) || 0,
         reference: inv.id,
         order_number: Number((inv.number || "0").toString().replace(/\D/g, "")) || 0,
+        // Deliberately the stable id, not `order_number` above: an unnumbered
+        // Stripe invoice degrades that to 0 (same trap as the other shapes), and
+        // stripping the non-digits out of "INV-0001" yields a bare "1" that can
+        // collide with another source feeding the same destination document set.
+        invoice_reference: invoiceReference,
         created_at: new Date((inv.created ?? Date.now() / 1000) * 1000).toISOString(),
         note: inv.description ?? null,
         // Same reason as the charge shape: without this, a Stripe Invoice has no
@@ -463,6 +503,9 @@ export function stripeToNormalized(event: any): Normalized | null {
       id: chCustomerStableId,
       reference: ch.id,
       order_number: 0,
+      // The PI, not ch.id: a charge and its PaymentIntent describe one sale and
+      // must land on one document reference (see stripeStableId).
+      invoice_reference: invoiceReference,
       created_at: new Date((ch.created ?? Date.now() / 1000) * 1000).toISOString(),
       note: ch.description ?? null,
       // Charge metadata is the only routable signal on this shape. It used to be
@@ -582,25 +625,10 @@ export class StripeSource implements SourceAdapter {
   }
 
   externalId(parsedBody: any): string {
-    const event = parsedBody;
-    const obj = event?.data?.object;
-    if (!obj) return String(event?.id ?? "");
-
-    // Charge events reference their originating PaymentIntent so they dedup with
-    // payment_intent.succeeded. A single card payment fires BOTH charge.succeeded
-    // AND payment_intent.succeeded — without this they'd get different ids and
-    // Rioko would create TWO invoices for one payment. Refund credit notes
-    // likewise attach to the invoice created for the PI.
-    if ((event.type === "charge.succeeded" || event.type === "charge.refunded") && obj.payment_intent) {
-      return String(obj.payment_intent);
-    }
-    // Checkout Session and its PaymentIntent both produce a webhook for the
-    // same purchase. Hash both to the same id (the PI) so processed_orders
-    // dedup makes whichever event arrived second a no-op.
-    if (event.type === "checkout.session.completed" && obj.payment_intent) {
-      return String(obj.payment_intent);
-    }
-    return String(obj.id ?? "");
+    // Charge / Checkout Session events collapse onto their PaymentIntent so a
+    // single card payment — which fires several of them — deduplicates to one
+    // processed_orders row and one document reference. See stripeStableId.
+    return stripeStableId(parsedBody);
   }
 
   async toNormalized(parsedBody: any, ctx: AdapterCtx): Promise<Normalized | null> {

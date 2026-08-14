@@ -12,7 +12,7 @@ import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { redactSecrets } from "../../security";
-import { saleReference, refundReference, isRefundReference } from "../../services/document-references";
+import { refundReference, isRefundReference, documentReference } from "../../services/document-references";
 
 /**
  * MoloniDestination
@@ -1226,7 +1226,7 @@ export class MoloniDestination implements DestinationAdapter {
       // Instalment invoices carry a distinct reference ("Order #N-1", "…-2") so
       // the dedup-by-reference doesn't block the second one; fall back to the
       // per-booking reference for normal single invoices.
-      our_reference: normalized.order.invoice_reference ?? saleReference(normalized.order.order_number),
+      our_reference: documentReference(normalized.order),
       your_reference: normalized.order.reference?.toString().slice(0, 100) ?? undefined,
       products,
       status: 0, // 0 = draft, 1 = closed/finalized

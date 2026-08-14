@@ -18,9 +18,34 @@ import type { SourceKind } from "../adapters/types";
  * `cancelReferenceCandidates` so the historical spellings keep resolving.
  */
 
-/** The sale document's reference. `Order #1137`. */
+/**
+ * The sale document's reference. `Order #1137`.
+ *
+ * Pass an identifier that is UNIQUE PER SALE. Shopify and Lodgify have a real
+ * order number; sources that don't (Stripe, EuPago) must pass their own stable
+ * id — see `stripeStableId`. Passing a constant is not a cosmetic mistake: on
+ * 2026-08-13 the Stripe source passed its hardcoded `order_number: 0`, so every
+ * payment was documented as "Order #0", and the moment Moloni gained a
+ * findByReference idempotency check every subsequent Stripe payment was
+ * discarded as a duplicate of the first one ever issued.
+ */
 export function saleReference(orderNumber: string | number): string {
   return `Order #${orderNumber}`;
+}
+
+/**
+ * THE reference for a sale's document — the single expression every destination
+ * writes with and every idempotency check looks up by.
+ *
+ * It exists because the same `invoice_reference ?? saleReference(order_number)`
+ * fallback was open-coded in some places and not others: Moloni and the pipeline
+ * honoured `invoice_reference`, InvoiceXpress ignored it (so Lodgify instalments
+ * lost their `-seq` suffix and every Stripe sale collapsed onto one reference),
+ * and Vendus wrote a bare `order.reference` that the pipeline then searched for
+ * under a different spelling. Route every new call site through here.
+ */
+export function documentReference(order: { invoice_reference?: string | null; order_number: string | number }): string {
+  return order.invoice_reference ?? saleReference(order.order_number);
 }
 
 /**

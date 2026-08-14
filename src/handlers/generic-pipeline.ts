@@ -9,7 +9,7 @@ import type { IncidentKind } from "../services/email-templates";
 import { matchTagRouting, normalizeRule, applyTagRoute, parseStoredRoute, type NormalizedRoute } from "../services/tag-routing";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
-import { saleReference, refundReference } from "../services/document-references";
+import { refundReference, documentReference } from "../services/document-references";
 import { buildAdapterCtx } from "../services/adapter-ctx";
 import { connectionLabelOf } from "../services/connection-context";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
@@ -314,7 +314,7 @@ async function runPipelineCore(
       // replace a document that does exist (mirrors adminCreateOrder's
       // skipIxReferenceCheck).
       if (destAdapter.findByReference && !input.skipReferenceCheck) {
-        const ref = normalized.order.invoice_reference ?? saleReference(normalized.order.order_number);
+        const ref = documentReference(normalized.order);
         const found = await destAdapter.findByReference(ref, ctx);
         if (found) {
           await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: externalId, response: "Already exists at destination", status: 401 });

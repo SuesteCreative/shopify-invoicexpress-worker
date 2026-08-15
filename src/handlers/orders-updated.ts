@@ -96,7 +96,24 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
       headers: ixHeaders
     });
 
-    console.log(`[Rioko] Invoice updated for order ${orderId}`, { error });
+    // Did the update land? This used to print `{ error }` and then write
+    // "Updated" with status 200 regardless, so a refused edit and a successful
+    // one left the same record — and the document kept whatever it had before.
+    if (error) {
+      const detail = JSON.stringify(error).slice(0, 500);
+      console.error(`[Rioko] Update refused for order ${orderId} (invoice ${invoice.invoice_id}): ${detail}`);
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }),
+        response: `InvoiceXpress update failed: ${detail}`,
+        status: 500,
+      });
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
+      throw new Error(`InvoiceXpress update failed for order ${orderId}: ${detail}`);
+    }
+
+    console.log(`[Rioko] Invoice updated for order ${orderId}`);
 
     // Mark webhook as processed
     if (webhookId) {

@@ -14,9 +14,7 @@ import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { saleReference } from "../services/document-references";
-import { verifyCreatedDocument } from "../services/document-verify";
-import { getDestinationAdapter } from "../adapters/registry";
-import type { AdapterCtx } from "../adapters/types";
+import { logDocumentEvent } from "../services/document-log";
 
 /**
  * Tell the merchant a document was left as a draft because the buyer's address
@@ -305,31 +303,39 @@ async function createInvoiceForOrder(
       holdReason: nifHold ? nifHoldReason(nifHold) : null,
     });
 
-    // Read the document back and confirm InvoiceXpress stored what we sent.
+    // Record WHAT WE SENT, so the 04:00 sweep can hold InvoiceXpress to it.
     //
-    // This path is where the known drift lives: lliberta 11/LL was created with
-    // `tax_exemption_reason: "M10"` in the payload above and IX holds M99, on a
-    // document whose own observations still render the M10 text. Nothing failed,
-    // so nothing was ever told. The total is checked against what the buyer
-    // actually PAID rather than against our own line math — the same invariant
-    // the reconcile guard enforces before emission, now confirmed after it.
-    await verifyCreatedDocument({
-      env,
-      adapter: getDestinationAdapter("invoicexpress"),
-      ctx: { apiKey: config.ix_api_key ?? "", config } as AdapterCtx,
-      invoiceId,
+    // Verification is NOT done here — reading the document back inline adds a
+    // proxy read per document, and this path holds an order_claims CAS claim
+    // across its whole body, so every await here is time another delivery for
+    // the same order spends blocked. One local D1 insert is the price of being
+    // able to check later at all.
+    //
+    // The exemption code matters most on this path: it is where the known drift
+    // lives (lliberta 11/LL went out with tax_exemption_reason "M10" and IX
+    // holds M99). The total recorded is what the buyer PAID, not our own line
+    // math — the same invariant the reconcile guard enforces before emission.
+    await logDocumentEvent(env, {
       externalId: orderId,
-      intent: {
-        total: Number(order.total_price),
-        reference: invoice.reference ?? null,
-        exemptionCode: invoice.tax_exemption_reason ?? null,
-      },
+      event: "built",
+      dedupKey: `built:${invoiceId}`,
+      invoiceId,
       userId: config.user_id,
       shopifyDomain: config.shopify_domain,
       sourceKind: "shopify",
       destinationKind: "invoicexpress",
-      orderRef: order.name ?? null,
-    }).catch(() => { /* advisory: the document exists either way */ });
+      actor: "pipeline",
+      summary: `Documento ${invoiceId} emitido para a encomenda ${order.name ?? orderId} por ${Number(order.total_price ?? 0).toFixed(2)} €${invoice.tax_exemption_reason ? `, isenção ${invoice.tax_exemption_reason}` : ""}.`,
+      detail: {
+        intent: {
+          total: Number.isFinite(Number(order.total_price)) ? Number(order.total_price) : null,
+          reference: invoice.reference ?? null,
+          exemptionCode: invoice.tax_exemption_reason ?? null,
+        },
+        via,
+        holdReason: nifHold ? nifHoldReason(nifHold) : null,
+      },
+    });
 
     if (nifHold) {
       await notifyNifHold(env, config, order, invoiceId, nifHold);

@@ -80,10 +80,15 @@ export function compareIntent(
   // one-cent difference. Rounding to cents first makes the boundary mean what it
   // says.
   const cents = (n: number) => Math.round(n * 100);
-  if (intent.total != null && stored.total != null && Math.abs(cents(intent.total) - cents(stored.total)) > 1) {
+  // `Number.isFinite`, not `!= null`. A caller that could not resolve a total
+  // passes NaN, and `NaN != null` is TRUE — so the comparison below ran on NaN,
+  // `NaN > 1` is false, and an unreadable total reported as "no drift". Silence
+  // dressed as agreement is the exact failure this whole file exists to end.
+  if (Number.isFinite(intent.total as number) && stored.total != null
+      && Math.abs(cents(intent.total as number) - cents(stored.total)) > 1) {
     drifts.push({
       field: "total",
-      sent: money(intent.total),
+      sent: money(intent.total as number),
       stored: money(stored.total),
       meaning:
         `O documento no destino não vale o que a venda valia. É a divergência mais grave desta lista: `
@@ -163,6 +168,10 @@ export async function verifyCreatedDocument(args: VerifyArgs): Promise<VerifyOut
     await logDocumentEvent(env, {
       ...base,
       event: "verify_failed",
+      // One per document per day. The sweep re-selects anything without a
+      // verified/drift row, so a document the destination will never hand back
+      // would otherwise write a row every night for ever.
+      dedupKey: `verify_failed:${invoiceId}:${new Date().toISOString().slice(0, 10)}`,
       summary: `Não foi possível reler o documento ${invoiceId} no destino para o conferir (${why}). Não é sinal de problema no documento — é o leitor que não respondeu.`,
       detail: { invoiceId, error: why },
     });
@@ -173,6 +182,7 @@ export async function verifyCreatedDocument(args: VerifyArgs): Promise<VerifyOut
     await logDocumentEvent(env, {
       ...base,
       event: "verify_failed",
+      dedupKey: `verify_failed:${invoiceId}:${new Date().toISOString().slice(0, 10)}`,
       summary: `O destino não devolveu o documento ${invoiceId} ao ser relido. Pode ser atraso de indexação logo após a criação.`,
       detail: { invoiceId },
     });
@@ -192,6 +202,9 @@ export async function verifyCreatedDocument(args: VerifyArgs): Promise<VerifyOut
     await logDocumentEvent(env, {
       ...base,
       event: "verified",
+      // At most once per document: the sweep may see it again after a failed
+      // read, and one confirmation is the whole truth.
+      dedupKey: `verified:${invoiceId}`,
       summary:
         `Documento ${docName} conferido no destino: total, referência e código de isenção iguais aos enviados.`,
       detail: {
@@ -207,6 +220,7 @@ export async function verifyCreatedDocument(args: VerifyArgs): Promise<VerifyOut
   await logDocumentEvent(env, {
     ...base,
     event: "drift",
+    dedupKey: `drift:${invoiceId}`,
     summary:
       `Documento ${docName} da venda ${label} ficou diferente do que enviámos — ${lines}. `
       + drifts.map(d => d.meaning).join(" "),

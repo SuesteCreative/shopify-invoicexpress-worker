@@ -78,6 +78,75 @@ export const EVENT_LABELS: Record<DocumentEventKind, string> = {
   skipped: "Não facturado",
 };
 
+/**
+ * How long each kind of event is worth keeping.
+ *
+ * Two tiers, because the value of a row expires at very different rates. A
+ * `verified` says "we checked this document three months ago and it matched" —
+ * true, and of no use to anyone now. A `drift` is evidence about a fiscal
+ * document that may still be open with the AT, and the question it answers can
+ * be asked a year later.
+ *
+ * Declared as an exhaustive Record on purpose: adding a kind to
+ * `DocumentEventKind` without classifying it here is a compile error, so the
+ * table cannot grow a category nobody decided the lifetime of.
+ */
+export const RETENTION_TIER: Record<DocumentEventKind, "routine" | "evidence"> = {
+  built: "routine",
+  created: "routine",
+  finalized: "routine",
+  emailed: "routine",
+  verified: "routine",
+  verify_failed: "routine",
+  skipped: "routine",
+  // Evidence. Something went wrong, or a document was undone — the things you go
+  // looking for months later, usually because an accountant asked.
+  create_failed: "evidence",
+  drift: "evidence",
+  held: "evidence",
+  credit_issued: "evidence",
+  reissued: "evidence",
+};
+
+export const ROUTINE_RETENTION_DAYS = 90;
+export const EVIDENCE_RETENTION_DAYS = 365;
+
+/**
+ * The purge, as SQL, so it can be run for real in a test rather than asserted
+ * about. Same reason `collectedSqlPredicate` exists in lodgify-amounts: two
+ * expressions of one rule drift apart, and the way you find out is in production.
+ *
+ * The date comparison is deliberately `substr(created_at, 1, 10)` against
+ * `date(...)` rather than the whole timestamp against `datetime(...)`. The column
+ * carries two formats — the schema default writes `2026-08-14 12:00:00` and the
+ * code writes ISO `2026-08-14T12:00:00.000Z` — and they sort differently at
+ * position 11 (`T` > space). Comparing dates only is indifferent to both.
+ */
+export function documentEventPurgeSql(tier: "routine" | "evidence"): string {
+  const kinds = (Object.keys(RETENTION_TIER) as DocumentEventKind[])
+    .filter((k) => RETENTION_TIER[k] === tier)
+    .map((k) => `'${k}'`)
+    .join(", ");
+  const days = tier === "routine" ? ROUTINE_RETENTION_DAYS : EVIDENCE_RETENTION_DAYS;
+  return `DELETE FROM document_events
+     WHERE event IN (${kinds})
+       AND substr(created_at, 1, 10) < date('now', '-${days} day')`;
+}
+
+/** The same rule in TypeScript, so a test can hold the SQL to it row for row. */
+export function isEventExpired(
+  event: DocumentEventKind,
+  createdAt: string,
+  todayYmd: string,
+): boolean {
+  const tier = RETENTION_TIER[event];
+  if (!tier) return false;
+  const days = tier === "routine" ? ROUTINE_RETENTION_DAYS : EVIDENCE_RETENTION_DAYS;
+  const cutoff = new Date(`${todayYmd}T00:00:00Z`);
+  cutoff.setUTCDate(cutoff.getUTCDate() - days);
+  return String(createdAt).slice(0, 10) < cutoff.toISOString().slice(0, 10);
+}
+
 export interface DocumentEventInput {
   externalId: string | number;
   event: DocumentEventKind;
@@ -92,36 +161,92 @@ export interface DocumentEventInput {
   actor?: string | null;
   /** Override the default severity for the kind. */
   severity?: "info" | "warning" | "error";
+  /**
+   * Natural key for events that must happen at most once, whatever the delivery
+   * count. A re-delivered webhook re-runs the work, and without this the sale's
+   * timeline reads as though the thing happened three times.
+   *
+   * Leave unset for events that may legitimately repeat (a `skipped` on each
+   * poll pass is a fact about each pass). Convention: `<event>:<invoiceId>` for
+   * per-document events, `<event>:<externalId>` for per-sale ones.
+   */
+  dedupKey?: string | null;
+}
+
+const DETAIL_LIMIT = 8000;
+
+/**
+ * Writes this log could not make.
+ *
+ * Module-level, so it survives across requests within an isolate and the daily
+ * sweep can read it. Not a metric anyone watches — a number that, if it is ever
+ * non-zero, becomes an incident. The whole point of this table is that silent
+ * loss stops happening, and a logger that loses rows quietly would be the same
+ * bug wearing the uniform of the fix.
+ */
+let lostWrites = 0;
+export function takeLostWriteCount(): number {
+  const n = lostWrites;
+  lostWrites = 0;
+  return n;
 }
 
 /**
- * Append one event. Best-effort by construction: a log that can fail an invoice
- * is worse than no log, so every error here is swallowed after a console line.
+ * Append one event.
+ *
+ * Still never throws — a log that can fail an invoice is worse than no log, and
+ * both call sites are on the path of a document that already exists. What
+ * changed is what happens when the write fails:
+ *
+ *   - evidence (a drift, a refusal) gets one retry, because losing the record of
+ *     a fault is the one loss that matters;
+ *   - a loss is COUNTED, and the daily sweep turns a non-zero count into an
+ *     incident. Previously it produced a console line in a Worker nobody tails.
+ *
+ * `dedup_key` makes an event at-most-once: INSERT OR IGNORE against the unique
+ * index means a re-delivered webhook re-running the same work adds nothing.
+ * Leave it unset for events that may legitimately repeat.
  */
 export async function logDocumentEvent(env: Env, input: DocumentEventInput): Promise<void> {
+  const detailRaw = input.detail != null ? JSON.stringify(input.detail) : null;
+  const truncated = detailRaw != null && detailRaw.length > DETAIL_LIMIT;
+
+  const write = () => env.DB.prepare(
+    `INSERT OR IGNORE INTO document_events
+       (id, external_id, user_id, shopify_domain, source_kind, destination_kind,
+        invoice_id, event, severity, summary, detail_json, detail_truncated,
+        actor, dedup_key, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    crypto.randomUUID(),
+    String(input.externalId),
+    input.userId ?? null,
+    input.shopifyDomain ?? null,
+    input.sourceKind ?? null,
+    input.destinationKind ?? null,
+    input.invoiceId != null ? String(input.invoiceId) : null,
+    input.event,
+    input.severity ?? SEVERITY[input.event],
+    input.summary.slice(0, 1000),
+    detailRaw != null ? detailRaw.slice(0, DETAIL_LIMIT) : null,
+    truncated ? 1 : 0,
+    input.actor ?? null,
+    input.dedupKey ?? null,
+    new Date().toISOString(),
+  ).run();
+
+  const isEvidence = RETENTION_TIER[input.event] === "evidence";
   try {
-    await env.DB.prepare(
-      `INSERT INTO document_events
-         (id, external_id, user_id, shopify_domain, source_kind, destination_kind,
-          invoice_id, event, severity, summary, detail_json, actor, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      String(input.externalId),
-      input.userId ?? null,
-      input.shopifyDomain ?? null,
-      input.sourceKind ?? null,
-      input.destinationKind ?? null,
-      input.invoiceId != null ? String(input.invoiceId) : null,
-      input.event,
-      input.severity ?? SEVERITY[input.event],
-      input.summary.slice(0, 1000),
-      input.detail != null ? JSON.stringify(input.detail).slice(0, 8000) : null,
-      input.actor ?? null,
-      new Date().toISOString(),
-    ).run();
+    await write();
   } catch (e: any) {
-    console.error(`[DocLog] could not record ${input.event} for ${input.externalId}: ${e?.message ?? e}`);
+    if (isEvidence) {
+      try {
+        await write();
+        return;
+      } catch { /* fall through to counting it lost */ }
+    }
+    lostWrites++;
+    console.error(`[DocLog] LOST ${input.event} for ${input.externalId}: ${e?.message ?? e}`);
   }
 }
 

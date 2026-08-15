@@ -10,8 +10,8 @@ import { matchTagRouting, normalizeRule, applyTagRoute, parseStoredRoute, type N
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { refundReference, documentReference } from "../services/document-references";
-import { verifyCreatedDocument } from "../services/document-verify";
 import { buildAdapterCtx } from "../services/adapter-ctx";
+import { logDocumentEvent } from "../services/document-log";
 import { connectionLabelOf } from "../services/connection-context";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
 
@@ -417,29 +417,40 @@ async function runPipelineCore(
         routedJson: routedDecision ? JSON.stringify(routedDecision) : null,
       });
 
-      // Read it back and check the destination stored what we sent. Costs one
-      // read per document and cannot fail the sale — see document-verify.ts for
-      // why this exists at all (two silent drifts in two days, both found by
-      // hand). The exemption code is not compared on this path: the destination
-      // derives it per line from the product mapping, so we have no single
-      // "sent" value to hold it to. Total and reference we do know.
-      const { orderRef: verifyRef } = describeOrder(body);
-      await verifyCreatedDocument({
-        env,
-        adapter: destAdapter,
-        ctx,
-        invoiceId,
+      // Record WHAT WE SENT, so the 04:00 sweep can hold the destination to it.
+      //
+      // Verification itself is not done here. It reads the document back, and
+      // doing that inline adds one read per document to a component this
+      // codebase documents as collapsing under load — worse, this function is
+      // called in a LOOP by the reconciliation sweep and every admin backfill,
+      // so a hundred-order backfill became a hundred extra reads in a burst.
+      // That is the exact shape that took the proxy down before.
+      //
+      // But deferring the read means the intent is gone by the time anyone
+      // checks, so it is written down here instead: one local D1 insert, no
+      // network. The exemption code is absent on this path deliberately — the
+      // destination derives it per line from the product mapping, so there is no
+      // single value we can be held to.
+      await logDocumentEvent(env, {
         externalId,
-        intent: {
-          total: Number(normalized.order?.total ?? NaN),
-          reference: documentReference(normalized.order),
-        },
+        event: "built",
+        dedupKey: `built:${invoiceId}`,
+        invoiceId,
         userId: config.user_id,
         shopifyDomain: config.shopify_domain,
         sourceKind: source,
         destinationKind: destination,
-        orderRef: verifyRef ?? null,
-      }).catch(() => { /* verification is advisory; the document already exists */ });
+        actor: "pipeline",
+        summary: `Documento ${invoiceId} emitido no destino por ${Number(normalized.order?.total ?? 0).toFixed(2)} € com a referência ${documentReference(normalized.order)}.`,
+        detail: {
+          intent: {
+            total: Number.isFinite(Number(normalized.order?.total)) ? Number(normalized.order?.total) : null,
+            reference: documentReference(normalized.order),
+            exemptionCode: null,
+          },
+          holdReason: holdReason ?? null,
+        },
+      });
 
       // Parked for a human: the buyer's address line 2 held something meant to
       // be a NIF that doesn't validate. The document exists as a draft and the

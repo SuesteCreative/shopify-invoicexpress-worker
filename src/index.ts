@@ -18,7 +18,8 @@ import {
   otaPolicyFrom,
   otaStayCollectedSqlPredicate,
 } from "./services/lodgify-amounts";
-import { readDocumentTimeline, readRecentDrifts } from "./services/document-log";
+import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql } from "./services/document-log";
+import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -860,6 +861,34 @@ app.get("/admin/document-log", async (c) => {
     return c.json({ external_id: externalId, events });
   } catch (e) {
     return errorResponse(c, e, "Failed to read document log");
+  }
+})
+
+/**
+ * Run the verification sweep on demand — the same code the 04:00 cron runs.
+ *
+ * `dry_run` reports how many documents WOULD be checked without reading the
+ * destination at all, which is how you confirm candidate selection before
+ * pointing it at a merchant. Widening `days` is also how history gets
+ * backfilled: there is no separate backfill mechanism to keep in step.
+ */
+app.post("/admin/run-document-verify", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { dry_run?: boolean; days?: number; scopes?: string[] | string; limit?: number } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  const scopes = Array.isArray(body.scopes)
+    ? body.scopes
+    : (typeof body.scopes === "string" ? body.scopes.split(",").map(s => s.trim()).filter(Boolean) : undefined);
+  try {
+    return c.json(await runDocumentVerifySweep(c.env, {
+      dryRun: body.dry_run === true,
+      days: body.days,
+      scopes,
+      limit: body.limit,
+    }));
+  } catch (e) {
+    return errorResponse(c, e, "Document verification sweep failed");
   }
 })
 
@@ -3464,6 +3493,19 @@ export default {
           console.error(`[Cron] Stripe heal failed: ${e.message}`);
         }
       }
+
+      // Hold every document issued since the last run to what we said we were
+      // issuing. Runs LAST in this block on purpose: it only reads, so if the
+      // budget is already spent by the heals — which fix things — it can wait
+      // for tomorrow without anything being lost.
+      if (env.DOC_VERIFY_ENABLED === "1") {
+        try {
+          const v = await runDocumentVerifySweep(env);
+          console.log(`[Cron] Document verify: candidates=${v.candidates} matched=${v.matched} drifted=${v.drifted} unreadable=${v.unreadable}`);
+        } catch (e: any) {
+          console.error(`[Cron] Document verify failed: ${e.message}`);
+        }
+      }
       return;
     }
 
@@ -3555,7 +3597,13 @@ export default {
          WHERE created_at < datetime('now', '-90 day')
            AND type NOT IN ('invoice.paid','invoice.payment_failed','charge.refunded')`
       ).run();
-      console.log(`[Cron] TTL purge: webhook_info=${wi.meta?.changes ?? 0} billing_events=${be.meta?.changes ?? 0}`);
+      // Document events age in two tiers. A `verified` says "we checked this
+      // three months ago and it matched" — true, and of no use to anyone now. A
+      // `drift` is evidence about a document that may still be open with the AT,
+      // and that question gets asked a year later. See RETENTION_TIER.
+      const deRoutine = await env.DB.prepare(documentEventPurgeSql("routine")).run();
+      const deEvidence = await env.DB.prepare(documentEventPurgeSql("evidence")).run();
+      console.log(`[Cron] TTL purge: webhook_info=${wi.meta?.changes ?? 0} billing_events=${be.meta?.changes ?? 0} document_events=${(deRoutine.meta?.changes ?? 0) + (deEvidence.meta?.changes ?? 0)}`);
     } catch (e: any) {
       console.error(`[Cron] TTL purge failed: ${e.message}`);
     }

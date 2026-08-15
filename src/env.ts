@@ -53,4 +53,12 @@ export interface Env {
   // in-worker from the raw Shopify order (no external Hostinger call); default/"0"
   // keeps the external normalize service. Refund + adapter paths are unaffected.
   NORMALIZE_IN_WORKER?: string;
+  // Document verification sweep (04:00). Reads each issued document back from the
+  // destination and compares it with the `built` event that recorded what we sent.
+  // Deliberately NOT on the create path: that would add one ix-proxy read per
+  // document, in bursts, from every backfill loop. Ships DARK.
+  DOC_VERIFY_ENABLED?: string;            // "1" enables it in the 04:00 cron; default off
+  DOC_VERIFY_DAYS?: string;               // lookback over `built` events; default "3". Widen to backfill.
+  DOC_VERIFY_LIMIT?: string;              // max documents examined per run; default "500"
+  DOC_VERIFY_BUDGET_MS?: string;          // wall-clock budget; default 8 min, same as the recon sweep
 }

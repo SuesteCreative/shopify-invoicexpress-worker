@@ -255,10 +255,18 @@ export async function runDocumentVerifySweep(
         intent: {
           total: c.intent.total ?? null,
           reference: c.intent.reference ?? null,
-          // Falls back to the shop's configured exemption code when the built
-          // row carried none. That is what catches the drift we already know
-          // about: lliberta 11/LL was sent M10 and InvoiceXpress holds M99.
-          exemptionCode: c.intent.exemptionCode ?? connCtx.config.ix_exemption_reason ?? null,
+          exemptionCode: c.intent.exemptionCode ?? null,
+          // History has no recorded intent, so the exact code we sent is gone.
+          // What IS knowable is the set the shop could legitimately have used:
+          // its generic code, or its B2B one when the order carried a
+          // reverse-charge exemption (which is a property of the ORDER, not the
+          // config — see detectShopifyReverseCharge). A stored code outside that
+          // set could not have come from this shop's configuration at all, and
+          // that is the only claim worth making from here.
+          acceptableExemptionCodes: c.intent.exemptionCode
+            ? null
+            : [connCtx.config.ix_exemption_reason, connCtx.config.ix_b2b_exemption_reason]
+                .filter((v): v is string => !!v),
         },
         userId: c.userId,
         shopifyDomain: c.shopifyDomain,

@@ -42,6 +42,19 @@ export interface DocumentIntent {
   reference?: string | null;
   /** The VAT-exemption (SAF-T "M") code we sent, if any. */
   exemptionCode?: string | null;
+  /**
+   * For historical documents, where the exact code we sent was never recorded:
+   * the set the shop is configured to be able to use. A stored code inside the
+   * set is not evidence of anything; only one OUTSIDE it is.
+   *
+   * The single-value check is wrong for history because the code is not purely
+   * a shop setting — `detectShopifyReverseCharge` reads the ORDER's
+   * `customer.tax_exemptions`, so a B2B EU sale legitimately carries the
+   * connection's `ix_b2b_exemption_reason` instead of its generic one. Comparing
+   * against the generic code alone flagged eight perfectly correct Angel
+   * Piercing documents as drifted.
+   */
+  acceptableExemptionCodes?: string[] | null;
 }
 
 export interface FieldDrift {
@@ -108,8 +121,24 @@ export function compareIntent(
     });
   }
 
+  // The permissive form, used when the exact code we sent was not recorded and
+  // several are legitimate. Silence unless the destination holds one the shop
+  // could not have asked for.
+  const acceptable = (intent.acceptableExemptionCodes ?? []).filter(Boolean);
+  if (acceptable.length > 0 && stored.exemption_code != null && !acceptable.includes(stored.exemption_code)) {
+    drifts.push({
+      field: "exemption_code",
+      sent: acceptable.join(" ou "),
+      stored: stored.exemption_code,
+      meaning:
+        `O código de isenção é o que segue no SAF-T para a AT. O documento declara `
+        + `${stored.exemption_code}, que não é nenhum dos códigos configurados para esta loja `
+        + `(${acceptable.join(", ")}) — logo não pode ter saído da configuração dela.`,
+    });
+  }
+
   // Only when we actually sent one: a document with no exemption is not a drift.
-  if (intent.exemptionCode && stored.exemption_code != null && intent.exemptionCode !== stored.exemption_code) {
+  if (acceptable.length === 0 && intent.exemptionCode && stored.exemption_code != null && intent.exemptionCode !== stored.exemption_code) {
     drifts.push({
       field: "exemption_code",
       sent: intent.exemptionCode,

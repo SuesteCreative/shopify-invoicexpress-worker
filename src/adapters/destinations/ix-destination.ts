@@ -182,6 +182,9 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       // once the document leaves draft, so empty reads as "not numbered yet".
       number: d.sequence_number ? String(d.sequence_number) : null,
       permalink: d.permalink ? String(d.permalink) : null,
+      // What IX STORED, which is not always what we sent — see
+      // DestinationDocument.exemption_code.
+      exemption_code: d.tax_exemption != null ? String(d.tax_exemption) : null,
       raw: d,
     };
   }

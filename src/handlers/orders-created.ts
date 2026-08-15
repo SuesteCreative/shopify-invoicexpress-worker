@@ -14,6 +14,9 @@ import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { saleReference } from "../services/document-references";
+import { verifyCreatedDocument } from "../services/document-verify";
+import { getDestinationAdapter } from "../adapters/registry";
+import type { AdapterCtx } from "../adapters/types";
 
 /**
  * Tell the merchant a document was left as a draft because the buyer's address
@@ -301,6 +304,32 @@ async function createInvoiceForOrder(
     await appStorage.saveProcessedInvoice(orderId, invoiceId, {
       holdReason: nifHold ? nifHoldReason(nifHold) : null,
     });
+
+    // Read the document back and confirm InvoiceXpress stored what we sent.
+    //
+    // This path is where the known drift lives: lliberta 11/LL was created with
+    // `tax_exemption_reason: "M10"` in the payload above and IX holds M99, on a
+    // document whose own observations still render the M10 text. Nothing failed,
+    // so nothing was ever told. The total is checked against what the buyer
+    // actually PAID rather than against our own line math — the same invariant
+    // the reconcile guard enforces before emission, now confirmed after it.
+    await verifyCreatedDocument({
+      env,
+      adapter: getDestinationAdapter("invoicexpress"),
+      ctx: { apiKey: config.ix_api_key ?? "", config } as AdapterCtx,
+      invoiceId,
+      externalId: orderId,
+      intent: {
+        total: Number(order.total_price),
+        reference: invoice.reference ?? null,
+        exemptionCode: invoice.tax_exemption_reason ?? null,
+      },
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      orderRef: order.name ?? null,
+    }).catch(() => { /* advisory: the document exists either way */ });
 
     if (nifHold) {
       await notifyNifHold(env, config, order, invoiceId, nifHold);

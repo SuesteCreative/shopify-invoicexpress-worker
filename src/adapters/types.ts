@@ -137,6 +137,17 @@ export interface DestinationDocument {
   /** Human document number once finalized ("FT 2026/12"); null while draft. */
   number: string | null;
   permalink: string | null;
+  /**
+   * The VAT-exemption code (SAF-T "M" code) the destination actually STORED.
+   *
+   * Read back rather than assumed, because it has already diverged from what we
+   * sent: lliberta 11/LL went out with M10 in the payload and InvoiceXpress
+   * holds M99, while the document's own observations still render the M10 text.
+   * Each adapter fills this from its native field so the verifier stays
+   * destination-agnostic. Null when the destination has no such concept or the
+   * document carries no exemption.
+   */
+  exemption_code?: string | null;
   /** Native payload, for destination-internal code that needs the full record. */
   raw: unknown;
 }

@@ -10,6 +10,7 @@ import { matchTagRouting, normalizeRule, applyTagRoute, parseStoredRoute, type N
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { refundReference, documentReference } from "../services/document-references";
+import { verifyCreatedDocument } from "../services/document-verify";
 import { buildAdapterCtx } from "../services/adapter-ctx";
 import { connectionLabelOf } from "../services/connection-context";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
@@ -415,6 +416,30 @@ async function runPipelineCore(
         holdReason,
         routedJson: routedDecision ? JSON.stringify(routedDecision) : null,
       });
+
+      // Read it back and check the destination stored what we sent. Costs one
+      // read per document and cannot fail the sale — see document-verify.ts for
+      // why this exists at all (two silent drifts in two days, both found by
+      // hand). The exemption code is not compared on this path: the destination
+      // derives it per line from the product mapping, so we have no single
+      // "sent" value to hold it to. Total and reference we do know.
+      const { orderRef: verifyRef } = describeOrder(body);
+      await verifyCreatedDocument({
+        env,
+        adapter: destAdapter,
+        ctx,
+        invoiceId,
+        externalId,
+        intent: {
+          total: Number(normalized.order?.total ?? NaN),
+          reference: documentReference(normalized.order),
+        },
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: source,
+        destinationKind: destination,
+        orderRef: verifyRef ?? null,
+      }).catch(() => { /* verification is advisory; the document already exists */ });
 
       // Parked for a human: the buyer's address line 2 held something meant to
       // be a NIF that doesn't validate. The document exists as a draft and the

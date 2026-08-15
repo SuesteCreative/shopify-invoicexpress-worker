@@ -18,6 +18,7 @@ import {
   otaPolicyFrom,
   otaStayCollectedSqlPredicate,
 } from "./services/lodgify-amounts";
+import { readDocumentTimeline, readRecentDrifts } from "./services/document-log";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -840,6 +841,47 @@ app.get("/admin/unprocessed-orders", async (c) => {
 async function requireAdmin(c: Context<{ Bindings: Env }>) {
   return requireAdminAuth(c);
 }
+
+/**
+ * The life of one sale, in order, in words — every step we took and what the
+ * destination did with it, successes included.
+ *
+ * `external_id` is the sale, not the document: a creation that never produced a
+ * document is exactly the case worth reading, and it has no invoice id to look
+ * itself up by.
+ */
+app.get("/admin/document-log", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const externalId = c.req.query("external_id") ?? c.req.query("order_id");
+  if (!externalId) return c.json({ error: "Missing external_id" }, 400);
+  try {
+    const events = await readDocumentTimeline(c.env, externalId, Math.min(Number(c.req.query("limit") ?? 200) || 200, 500));
+    return c.json({ external_id: externalId, events });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to read document log");
+  }
+})
+
+/**
+ * Everything that came out different from what we sent, newest first. Ops-only —
+ * this is the feed a corrections queue would be built on.
+ */
+app.get("/admin/document-drifts", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 7) || 7, 1), 90);
+  try {
+    const events = await readRecentDrifts(c.env, {
+      userId: c.req.query("user_id") ?? null,
+      sinceIso: new Date(Date.now() - days * 864e5).toISOString(),
+      limit: Math.min(Number(c.req.query("limit") ?? 100) || 100, 500),
+    });
+    return c.json({ days, count: events.length, events });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to read document drifts");
+  }
+})
 
 // Admin: run the self-healing reconciliation sweep on demand (validation +
 // immediate backlog heal). dry_run:true reports what WOULD happen and writes

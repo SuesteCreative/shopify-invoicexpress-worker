@@ -10,6 +10,7 @@
     "gen:builder": "esbuild src/ix/builder.ts --bundle --format=esm --platform=node --outfile=scripts/.gen/builder.mjs",
     "gen:normalize": "esbuild src/ix/normalize-local.ts --bundle --format=esm --platform=node --outfile=scripts/.gen/normalize-local.mjs",
     "audit:shopify": "npm run gen:builder && node scripts/audit-shopify.mjs",
+    "audit:fleet": "node scripts/audit-fleet.mjs",
     "shadow:normalize": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-normalize.mjs",
     "shadow:refund": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-refund.mjs",
     "build": "wrangler deploy --dry-run -c wrangler.jsonc",

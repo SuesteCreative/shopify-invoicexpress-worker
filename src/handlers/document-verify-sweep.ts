@@ -38,6 +38,12 @@ export interface DocVerifySweepOptions {
   scopes?: string[];
   /** Hard cap on documents examined in one run. */
   limit?: number;
+  /**
+   * Verify documents issued before this log existed, taken from
+   * `processed_orders` instead of `built` events. Only the exemption code can be
+   * compared — see historicalDocumentsSql.
+   */
+  history?: boolean;
 }
 
 export interface DocVerifySweepResult {
@@ -65,13 +71,58 @@ interface Candidate {
 }
 
 /**
- * Documents that carry a recorded intent and no verdict yet.
+ * Documents issued BEFORE this log existed, so there is no recorded intent.
+ *
+ * Most of what verification compares is therefore unavailable: we cannot know
+ * what total or reference we sent for a sale from three months ago without
+ * re-fetching it from the source, which is the reconciliation's job and not
+ * worth duplicating.
+ *
+ * One field survives that gap. The VAT-exemption code is not per-sale — it is
+ * the shop's configured regime, so for a historical document the config IS the
+ * intent. That is enough to catch the drift we already know about (lliberta
+ * 11/LL was sent M10 and InvoiceXpress holds M99) and any other shop quietly
+ * declaring the wrong regime, across every document ever issued.
+ */
+export function historicalDocumentsSql(scopeCount = 0): string {
+  return `
+    SELECT p.id AS external_id, p.invoice_id, p.user_id, p.shopify_domain,
+           p.source_kind, p.destination_kind
+      FROM processed_orders p
+     WHERE p.invoice_id IS NOT NULL
+       AND p.created_at >= ?
+       ${scopeFilterSql("p", scopeCount)}
+       AND NOT EXISTS (
+             SELECT 1 FROM document_events v
+              WHERE v.invoice_id = p.invoice_id
+                AND v.event IN ('verified', 'drift')
+           )
+     ORDER BY p.created_at DESC
+     LIMIT ?`;
+}
+
+/**
+ * Narrowing by merchant has to happen IN the query, not over its results.
+ *
+ * Filtering afterwards means the LIMIT is spent on the whole fleet first: a run
+ * aimed at one small shop scanned the newest 500 documents across every merchant
+ * and came back with one of that shop's three. Targeted runs are how this gets
+ * verified before it is trusted, so they have to actually target.
+ */
+function scopeFilterSql(alias: string, scopeCount: number): string {
+  if (scopeCount <= 0) return "";
+  const ph = new Array(scopeCount).fill("?").join(", ");
+  return `AND (${alias}.shopify_domain IN (${ph}) OR ${alias}.user_id IN (${ph}))`;
+}
+
+/**
+ * Documents that carry a recorded intent and no verdict yet — the normal path.
  *
  * Exported so the selection rule can be read (and tested) on its own rather than
- * being buried in a template literal — the same reason the retention SQL is a
+ * being buried in a template literal, the same reason the retention SQL is a
  * function.
  */
-export function unverifiedDocumentsSql(): string {
+export function unverifiedDocumentsSql(scopeCount = 0): string {
   return `
     SELECT b.external_id, b.invoice_id, b.user_id, b.shopify_domain,
            b.source_kind, b.destination_kind, b.detail_json
@@ -79,6 +130,7 @@ export function unverifiedDocumentsSql(): string {
      WHERE b.event = 'built'
        AND b.invoice_id IS NOT NULL
        AND b.created_at >= ?
+       ${scopeFilterSql("b", scopeCount)}
        AND NOT EXISTS (
              SELECT 1 FROM document_events v
               WHERE v.invoice_id = b.invoice_id
@@ -113,13 +165,16 @@ export async function runDocumentVerifySweep(
     drifts: [],
   };
 
-  const rows = await env.DB.prepare(unverifiedDocumentsSql()).bind(fromIso, limit).all();
+  const history = !!options.history;
+  const scopes = (options.scopes ?? []).filter(Boolean);
+  const rows = await env.DB
+    .prepare(history ? historicalDocumentsSql(scopes.length) : unverifiedDocumentsSql(scopes.length))
+    // The scope list is bound twice — once for shopify_domain, once for user_id.
+    .bind(fromIso, ...scopes, ...scopes, limit)
+    .all();
 
-  const allowed = new Set((options.scopes ?? []).filter(Boolean));
   const candidates: Candidate[] = [];
   for (const r of (rows.results ?? []) as any[]) {
-    const scopeKey = r.shopify_domain ?? r.user_id ?? "";
-    if (allowed.size > 0 && !allowed.has(scopeKey)) continue;
     let intent: Candidate["intent"] = {};
     try {
       intent = (JSON.parse(String(r.detail_json ?? "{}"))?.intent ?? {}) as Candidate["intent"];

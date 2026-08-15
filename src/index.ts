@@ -875,7 +875,7 @@ app.get("/admin/document-log", async (c) => {
 app.post("/admin/run-document-verify", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  let body: { dry_run?: boolean; days?: number; scopes?: string[] | string; limit?: number } = {};
+  let body: { dry_run?: boolean; days?: number; scopes?: string[] | string; limit?: number; history?: boolean } = {};
   try { body = await c.req.json(); } catch { /* empty body = defaults */ }
   const scopes = Array.isArray(body.scopes)
     ? body.scopes
@@ -886,6 +886,9 @@ app.post("/admin/run-document-verify", async (c) => {
       days: body.days,
       scopes,
       limit: body.limit,
+      // `history: true` verifies documents issued before this log existed, from
+      // processed_orders. Only the exemption code is comparable there.
+      history: body.history === true,
     }));
   } catch (e) {
     return errorResponse(c, e, "Document verification sweep failed");

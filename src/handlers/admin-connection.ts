@@ -121,6 +121,9 @@ export async function connectionCapabilities(env: Env, userId: string) {
         destination: c.destination,
         label: c.label,
         external_id: externalIdDescriptor(c.source),
+        // What the backfill will refuse to bill behind, so the panel can show it
+        // before a run rather than after 23 skipped rows.
+        invoice_cutoff: c.invoiceCutoff ?? null,
         capabilities: {
           // Every write needs the source to be readable at all.
           backfill: recoverable && src.capabilities.listCandidates,
@@ -135,6 +138,47 @@ export async function connectionCapabilities(env: Env, userId: string) {
       };
     }),
   };
+}
+
+/**
+ * Move (or clear) the date this connection starts invoicing from.
+ *
+ * The cutoff is stamped from the Stripe subscription's start when a paused
+ * connection is activated, which is right for a merchant onboarding today and
+ * wrong for one whose Rioko subscription was created after the sales it is
+ * meant to bill: their whole back-catalogue lands behind the cutoff and every
+ * backfill answers "Anterior ao início da facturação" for all of it. This is the
+ * deliberate, per-connection correction — as opposed to `ignore_cutoff`, which
+ * exempts ONE bounded run without changing what the unattended paths will do.
+ *
+ * `null` clears it: back to the connection's `created_at` as the floor.
+ */
+export async function setConnectionInvoiceCutoff(
+  env: Env,
+  conn: ConnectionContext,
+  value: string | null,
+  options: { triggered_by?: string | null } = {},
+): Promise<{ source: string; destination: string; invoice_cutoff: string | null }> {
+  if (!conn.userId) throw new Error("A ligação não tem user_id — não sei que ligação actualizar.");
+
+  // A bare day is what the panel sends; store it as the instant it begins, since
+  // every reader compares it against an ISO timestamp with Date.parse.
+  let stored: string | null = null;
+  if (value != null && String(value).trim() !== "") {
+    const raw = String(value).trim();
+    const ymd = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00.000Z` : raw;
+    if (Number.isNaN(Date.parse(ymd))) throw new Error(`Data inválida: ${raw}`);
+    stored = new Date(ymd).toISOString();
+  }
+
+  await env.DB.prepare(
+    `UPDATE connections SET invoice_cutoff = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = ? AND source_kind = ? AND destination_kind = ? AND status = 'active'`
+  ).bind(stored, conn.userId, conn.source, conn.destination).run();
+
+  console.log(`[Rioko] invoice_cutoff ${conn.connectionLabel} (${conn.userId}) → ${stored ?? "null"}`
+    + ` by ${options.triggered_by ?? "unknown"}`);
+  return { source: conn.source, destination: conn.destination, invoice_cutoff: stored };
 }
 
 /** How to label and validate the id field for this source in the panel. */
@@ -580,6 +624,35 @@ export interface FinalizeDraftsOptions extends RecoveryOptions {
   to_order_number?: number | null;
 }
 
+/**
+ * Oldest transaction first.
+ *
+ * Both destinations refuse a document dated behind the last one already CLOSED
+ * in its series, so certifying the newest draft first raises the floor over
+ * every older draft in the same run: a 22-document Moloni batch closed one
+ * invoice dated 12/08 and then failed the other 21 with `date >= 2026-08-12`.
+ *
+ * The rows arrive in insertion order (`rowid`), and a backfill inserts them in
+ * whatever order the source listed the sales — for Stripe, newest first. So
+ * insertion order is not transaction order, and the card's own promise ("mais
+ * antigo→mais recente") was not being kept.
+ *
+ * A row whose date we do not know sorts LAST rather than first: it must not set
+ * the series floor for rows whose date we do know. Ties keep their existing
+ * order (Array.prototype.sort is stable).
+ */
+export function orderByTransactionDate<T extends { id: string; created_at: string | null }>(
+  rows: T[],
+  paidAtOf: (id: string) => string | null,
+): T[] {
+  const key = (r: T) => (paidAtOf(r.id) ?? r.created_at ?? "").slice(0, 10);
+  return [...rows].sort((a, b) => {
+    const ka = key(a), kb = key(b);
+    if (!ka || !kb) return ka === kb ? 0 : (ka ? -1 : 1);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+}
+
 export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext, options: FinalizeDraftsOptions) {
   const storage = storageFor(env, conn);
   const dryRun = !!options.dry_run;
@@ -640,6 +713,8 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
       return true;
     });
   }
+
+  processed = orderByTransactionDate(processed, (id) => described.get(id)?.paidAt ?? null);
 
   const ctx = await ctxFor(env, conn);
   const batch = dest.prepareFinalizeBatch ? await dest.prepareFinalizeBatch(ctx, { strategy }) : undefined;

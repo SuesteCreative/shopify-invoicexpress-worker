@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyRecordForBilling } from "./admin-connection";
+import { classifyRecordForBilling, orderByTransactionDate } from "./admin-connection";
 import type { SourceRecordRef } from "../adapters/recovery/types";
 
 function record(over: Partial<SourceRecordRef> = {}): SourceRecordRef {
@@ -119,5 +119,52 @@ describe("classifyRecordForBilling", () => {
       { dryRun: false, resolved: new Set(), cutoff: null },
     );
     expect(blockedRow.action).toBe("skip");
+  });
+});
+
+describe("orderByTransactionDate", () => {
+  const row = (id: string, created_at: string | null) => ({ id, created_at, invoice_id: id });
+
+  it("certifies the oldest sale first, whatever order the rows were stored in", () => {
+    // The batch that exposed this: a Stripe backfill inserts newest-first, so
+    // the newest draft closed first and lifted the series floor over the other
+    // 21, which all died on "date >= 2026-08-12".
+    const rows = [
+      row("pi_new", "2026-08-17T09:00:00Z"),
+      row("pi_old", "2026-08-17T09:00:01Z"),
+      row("pi_mid", "2026-08-17T09:00:02Z"),
+    ];
+    const paidAt: Record<string, string> = {
+      pi_new: "2026-08-12T10:00:00Z",
+      pi_old: "2026-07-30T10:00:00Z",
+      pi_mid: "2026-08-04T10:00:00Z",
+    };
+    expect(orderByTransactionDate(rows, (id) => paidAt[id] ?? null).map((r) => r.id))
+      .toEqual(["pi_old", "pi_mid", "pi_new"]);
+  });
+
+  it("falls back to the stored row date when the source has no paid_at", () => {
+    const rows = [row("b", "2026-08-10T00:00:00Z"), row("a", "2026-08-01T00:00:00Z")];
+    expect(orderByTransactionDate(rows, () => null).map((r) => r.id)).toEqual(["a", "b"]);
+  });
+
+  it("puts rows with no date at all last, so they cannot set the series floor", () => {
+    const rows = [row("unknown", null), row("dated", "2026-08-01T00:00:00Z")];
+    expect(orderByTransactionDate(rows, () => null).map((r) => r.id)).toEqual(["dated", "unknown"]);
+  });
+
+  it("compares ISO timestamps and D1 dates by day, not by string shape", () => {
+    // paid_at is "2026-08-01T10:00:00Z" and created_at is "2026-08-01 09:00:00":
+    // compared whole, 'T' > ' ' would order a same-day pair by which field it
+    // came from rather than by date.
+    const rows = [row("d1", "2026-08-02 09:00:00"), row("iso", "2026-08-01T10:00:00Z")];
+    expect(orderByTransactionDate(rows, (id) => (id === "iso" ? "2026-08-01T10:00:00Z" : null)).map((r) => r.id))
+      .toEqual(["iso", "d1"]);
+  });
+
+  it("leaves the input array untouched", () => {
+    const rows = [row("b", "2026-08-10T00:00:00Z"), row("a", "2026-08-01T00:00:00Z")];
+    orderByTransactionDate(rows, () => null);
+    expect(rows.map((r) => r.id)).toEqual(["b", "a"]);
   });
 });

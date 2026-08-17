@@ -15,6 +15,7 @@ export const runtime = "edge";
  */
 const ACTIONS = new Set([
     "backfill", "reemit", "delete-draft", "issue-credit-note", "finalize-drafts",
+    "invoice-cutoff",
 ]);
 
 /** Operations that write a fiscal document, or destroy one, need a reason. */
@@ -29,6 +30,10 @@ interface Body {
     to?: string;
     dry_run?: boolean;
     limit?: number;
+    /** Backfill: bill sales from before the connection's invoice_cutoff too. */
+    ignore_cutoff?: boolean;
+    /** invoice-cutoff: the new start-of-invoicing date, null to clear it. */
+    invoice_cutoff?: string | null;
     force?: boolean;
     reason?: string;
     notify_emails?: string[];

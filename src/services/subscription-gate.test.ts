@@ -95,10 +95,29 @@ describe("checkSubscriptionGate", () => {
     expect((await checkSubscriptionGate(env, cfg)).allowed).toBe(false);
   });
 
-  it("blocks a non-early-bird trialing without a Stripe subscription", async () => {
+  // The window is the date, not the flag. Dev Mode writes a 3-day grace with
+  // early_bird=0 when an admin turns early bird off; gating on the flag made that
+  // date dead data and cut access instantly.
+  it("allows a non-early-bird grace window that is still open", async () => {
     const env = fakeEnv({
       user: { role: "member" },
       sub: { status: "trialing", stripe_subscription_id: null, early_bird: 0, trial_end: future },
+    });
+    expect((await checkSubscriptionGate(env, cfg)).allowed).toBe(true);
+  });
+
+  it("blocks a trialing row with no trial_end at all", async () => {
+    const env = fakeEnv({
+      user: { role: "member" },
+      sub: { status: "trialing", stripe_subscription_id: null, early_bird: 0, trial_end: null },
+    });
+    expect((await checkSubscriptionGate(env, cfg)).allowed).toBe(false);
+  });
+
+  it("blocks once the grace window has passed", async () => {
+    const env = fakeEnv({
+      user: { role: "member" },
+      sub: { status: "trialing", stripe_subscription_id: null, early_bird: 0, trial_end: past },
     });
     expect((await checkSubscriptionGate(env, cfg)).allowed).toBe(false);
   });

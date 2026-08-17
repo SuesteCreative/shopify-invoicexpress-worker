@@ -21,6 +21,7 @@ import {
 } from "./services/lodgify-amounts";
 import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent, lookupLastEmissionError } from "./services/document-log";
 import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
+import { runShopifyWebhookHealthCheck } from "./handlers/webhook-health";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -896,6 +897,28 @@ app.post("/admin/run-document-verify", async (c) => {
     }));
   } catch (e) {
     return errorResponse(c, e, "Document verification sweep failed");
+  }
+})
+
+/**
+ * Check (and repair) the Shopify webhook registrations. Ops-only.
+ *
+ * `dry_run` reports what is missing without registering anything and without
+ * raising incidents — the right first call on a fleet whose hooks nobody has
+ * looked at in months.
+ */
+app.post("/admin/run-webhook-health", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { dry_run?: boolean; shops?: string[] | string } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  const shops = Array.isArray(body.shops)
+    ? body.shops
+    : (typeof body.shops === "string" ? body.shops.split(",").map(s => s.trim()).filter(Boolean) : undefined);
+  try {
+    return c.json(await runShopifyWebhookHealthCheck(c.env, { dryRun: body.dry_run === true, shops }));
+  } catch (e) {
+    return errorResponse(c, e, "Webhook health check failed");
   }
 })
 
@@ -3672,6 +3695,19 @@ export default {
       if (r.stale > 0) console.warn(`[Cron] Lodgify ingestion stale for ${r.stale}/${r.checked} connection(s)`);
     } catch (e: any) {
       console.error(`[Cron] Lodgify ingest check failed: ${e.message}`);
+    }
+
+    // Shopify webhook health. Like the Lodgify dead-man's switch above, this
+    // fires on an absence: a shop whose webhooks were deleted looks exactly like
+    // a shop with no orders. Runs here rather than at 04:00, which is already
+    // spending its budget on the heals.
+    if (env.WEBHOOK_HEALTH_ENABLED === "1") {
+      try {
+        const r = await runShopifyWebhookHealthCheck(env);
+        console.log(`[Cron] Webhook health: checked=${r.checked} healthy=${r.healthy} healed=${r.healed} failed=${r.failed}`);
+      } catch (e: any) {
+        console.error(`[Cron] Webhook health failed: ${e.message}`);
+      }
     }
 
     // VIES retry sweep — picks up pending_reverse_charge rows whose retry

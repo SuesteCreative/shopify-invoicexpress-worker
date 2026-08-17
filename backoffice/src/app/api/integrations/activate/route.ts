@@ -65,7 +65,12 @@ export async function POST(request: NextRequest) {
             results.push({ topic: hook.topic, status: response.status, data });
         }
 
-        if (results.every(r => r.status === 201 || (r.status === 422 && JSON.stringify(r.data).includes("address has already been taken")))) {
+        // Shopify keys a 422 by field, so the body reads
+        // {"errors":{"address":["has already been taken"]}} — the field name is
+        // never adjacent to the message. Matching "address has already been
+        // taken" therefore never hit, and re-activating a shop whose hooks were
+        // already installed reported failure and left webhooks_active unset.
+        if (results.every(r => r.status === 201 || (r.status === 422 && /has already been taken/i.test(JSON.stringify(r.data))))) {
             await db.prepare("UPDATE integrations SET webhooks_active = 1 WHERE user_id = ?").bind(userId).run();
         }
 

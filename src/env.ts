@@ -61,4 +61,16 @@ export interface Env {
   DOC_VERIFY_DAYS?: string;               // lookback over `built` events; default "3". Widen to backfill.
   DOC_VERIFY_LIMIT?: string;              // max documents examined per run; default "500"
   DOC_VERIFY_BUDGET_MS?: string;          // wall-clock budget; default 8 min, same as the recon sweep
+
+  // Shopify webhook health (08:00). Lists each shop's registered webhooks and
+  // re-registers the ones that are gone. Every Shopify webhook here was
+  // installed by hand, and nothing re-checked them afterwards. Ships DARK.
+  WEBHOOK_HEALTH_ENABLED?: string;        // "1" enables it in the 08:00 cron; default off
+  /**
+   * This worker's own public URL, used to recognise our webhooks among the
+   * shop's and to point new ones back here. A hook addressed to a previous
+   * deployment looks installed in the Shopify admin and delivers nothing, so
+   * the check compares addresses rather than only topics.
+   */
+  WORKER_PUBLIC_URL?: string;
 }

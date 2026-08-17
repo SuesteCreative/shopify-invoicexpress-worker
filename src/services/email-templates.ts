@@ -43,6 +43,11 @@ export type IncidentKind =
   | "lodgify_payment_not_marked"
   | "subscription_inactive"
   | "queue_retry_exhausted"
+  // A shop's Shopify webhooks are not registered, or point somewhere that is no
+  // longer us. Distinct from an invalid signature: nothing arrives at all, so
+  // there is no failure to see — only an absence, which is why this had to be
+  // gone looking for rather than waited for.
+  | "webhook_missing"
   | "webhook_invalid_signature"
   | "vies_unconfirmed"
   | "reconcile_drift"
@@ -700,6 +705,46 @@ export function tplQueueRetryExhausted(input: IncidentTemplateInput): RenderedTe
   };
 }
 
+export function tplWebhookMissing(input: IncidentTemplateInput): RenderedTemplate {
+  // The same kind covers "found gone and put back" and "found gone and could
+  // not put back", and those need opposite things from the reader: one is a
+  // note, the other is work. `healed` decides which email this is.
+  const healed = (input.detail as any)?.healed === true;
+  const body = `
+    ${paragraph(healed
+      ? "Os webhooks desta loja tinham deixado de estar registados no Shopify. Foram reinstalados automaticamente."
+      : "Os webhooks desta loja não estão registados no Shopify, e a reinstalação automática não foi possível.")}
+    ${calloutBox(
+      "O que isto significa",
+      "Sem webhooks, o Shopify não avisa o Rioko das encomendas — e uma loja sem webhooks parece exactamente igual a uma loja sem vendas. As vendas do período em falta não se perdem: a reconciliação nocturna volta a derivá-las.",
+      healed ? BRAND.error : BRAND.critical,
+    )}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
+    ${stepsList(healed
+      ? [
+        "Confirmar em Conciliação se ficaram encomendas por facturar no período sem webhooks.",
+        "Se isto se repetir na mesma loja, a causa costuma ser a app ser reinstalada ou o token rodado.",
+      ]
+      : [
+        "Confirmar que a app Shopify continua instalada na loja e o token válido.",
+        "Reinstalar a app com os scopes read_webhooks e write_webhooks.",
+        "Voltar a correr a verificação em Dev Mode, ou reinstalar os webhooks em Integrações.",
+      ])}
+    ${detailBlock(input.detail)}
+    ${ctaButton("Abrir Integrações", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations`)}
+  `;
+  return {
+    subject: healed
+      ? "[Rioko 2.0] Webhooks reinstalados automaticamente"
+      : "[Rioko 2.0] Webhooks em falta numa loja",
+    html: shell({
+      title: healed ? "Webhooks reinstalados" : "Webhooks em falta",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function tplWebhookInvalidSignature(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph("Um webhook chegou com assinatura inválida e foi rejeitado.")}
@@ -839,6 +884,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "lodgify_payment_not_marked": return tplLodgifyPaymentNotMarked(input);
     case "subscription_inactive": return tplSubscriptionInactive(input);
     case "queue_retry_exhausted": return tplQueueRetryExhausted(input);
+    case "webhook_missing": return tplWebhookMissing(input);
     case "webhook_invalid_signature": return tplWebhookInvalidSignature(input);
     case "vies_unconfirmed": return tplViesUnconfirmed(input);
     case "reconcile_drift": return tplReconcileDrift(input);

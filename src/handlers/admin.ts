@@ -10,6 +10,7 @@ import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-docu
 import { saleReference, cancelReference } from "../services/document-references";
 import { fetchShopifyOrders, fetchOrdersByIds, shopifyOrderNotFoundHint } from "../services/shopify-orders";
 import { parseIxDate, formatPtDate, todayUtcYmd } from "../ix/date";
+import { resolveExemptionCode } from "../ix/exemption";
 // The IX-specific finalize machinery lives with the IX adapter now; these were
 // duplicated here and in admin-stripe.ts, and the copies had already drifted.
 import {
@@ -538,7 +539,7 @@ export async function issueCreditNoteByOrderNumber(
     ...built,
     reference,
     tax_exemption_reason: requireTaxExemption
-      ? (lookup.ixInvoice as any)?.tax_exemption ?? config.ix_exemption_reason ?? undefined
+      ? resolveExemptionCode((lookup.ixInvoice as any)?.tax_exemption, config.ix_exemption_reason) ?? undefined
       : undefined,
     owner_invoice_id: Number(lookup.invoiceId),
   };

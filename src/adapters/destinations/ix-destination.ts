@@ -12,6 +12,7 @@ import type {
   NormalizedRefund,
 } from "../types";
 import { parseIxDate } from "../../ix/date";
+import { resolveExemptionCode } from "../../ix/exemption";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
@@ -183,8 +184,10 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       number: d.sequence_number ? String(d.sequence_number) : null,
       permalink: d.permalink ? String(d.permalink) : null,
       // What IX STORED, which is not always what we sent — see
-      // DestinationDocument.exemption_code.
-      exemption_code: d.tax_exemption != null ? String(d.tax_exemption) : null,
+      // DestinationDocument.exemption_code. An empty string reads as "no code
+      // known", not as a code: reported literally it makes the verify sweep
+      // announce a drift from "M10" to "" on a document nobody touched.
+      exemption_code: resolveExemptionCode(d.tax_exemption, null),
       raw: d,
     };
   }
@@ -291,8 +294,11 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       items,
       reference: opts.reference,
       ...(opts.reason ? { observations: String(opts.reason) } : {}),
+      // Same trap as the date PUT: IX reads an exemption back as `tax_exemption`
+      // and sometimes as "", which `??` would keep and the wire would then drop,
+      // leaving IX to stamp M99 on the credit note. See resolveExemptionCode.
       tax_exemption_reason: requireTaxExemption
-        ? inv?.tax_exemption ?? ctx.config.ix_exemption_reason ?? undefined
+        ? resolveExemptionCode(inv?.tax_exemption, ctx.config.ix_exemption_reason) ?? undefined
         : undefined,
       owner_invoice_id: Number(invoiceId),
     };

@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder, type IxCreditNote } from "../ix/builder";
+import { resolveExemptionCode } from "../ix/exemption";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
@@ -312,7 +313,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           reference: refundReference(credit.refundId),
           tax_exemption_reason: reverseChargeReason
             ?? (requireTaxExemption
-              ? ixInvoice?.data?.tax_exemption ?? config.ix_exemption_reason ?? undefined
+              ? resolveExemptionCode(ixInvoice?.data?.tax_exemption, config.ix_exemption_reason) ?? undefined
               : undefined),
           owner_invoice_id: Number(invoice.invoice_id)
         };

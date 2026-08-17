@@ -2779,8 +2779,30 @@ async function emitLodgifyPartialInvoice(env: Env, o: {
 
   const { invoiceId } = await destAdapter.createDraft(normalized, ctx);
   if (ctx.config?.auto_finalize === 1) {
-    try { await destAdapter.finalize(invoiceId, ctx); }
-    catch (e: any) { console.error(`[LodgifyPoll] finalize partial ${reference} failed: ${e?.message ?? e}`); }
+    try {
+      await destAdapter.finalize(invoiceId, ctx);
+    } catch (e: any) {
+      // The document EXISTS and is recorded — rethrowing here would make the
+      // caller believe the instalment was never billed and bill it again on the
+      // next poll. So the create stands and the finalize failure is escalated
+      // instead of being a console line nobody reads: the merchant is left with
+      // a draft that will never certify itself, which is exactly the shape of
+      // failure this integration keeps being bitten by.
+      const detail = String(e?.message ?? e).slice(0, 400);
+      console.error(`[LodgifyPoll] finalize partial ${reference} failed: ${detail}`);
+      await reportIncident(env, {
+        user_id: o.config?.user_id ?? null,
+        severity: "error",
+        kind: "destination_reject",
+        dedup_key: String(invoiceId),
+        summary: `A prestação ${reference} da reserva ${o.bookingId} foi emitida (documento ${invoiceId}) mas ficou por fechar: ${detail}`,
+        detail: { booking_id: o.bookingId, seq: o.seq, reference, invoiceId, error: detail },
+        affected_ids: [String(o.bookingId)],
+        connection_label: `lodgify → ${o.destination}`,
+        order_ref: `#${o.bookingId}`,
+        bucket: "daily",
+      });
+    }
   }
   return invoiceId;
 }

@@ -11,7 +11,7 @@ import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { refundReference, documentReference } from "../services/document-references";
 import { buildAdapterCtx } from "../services/adapter-ctx";
-import { logDocumentEvent } from "../services/document-log";
+import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 import { connectionLabelOf } from "../services/connection-context";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
 
@@ -180,6 +180,20 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
       affected_ids: [externalId],
       connection_label: connectionLabel,
     });
+    // "Porque é que esta venda não foi facturada?" is the most-asked question,
+    // and the answer must live on the sale's own timeline, not only in a log row.
+    await logDocumentEvent(env, {
+      externalId,
+      event: "skipped",
+      dedupKey: `skipped:gate:${externalId}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: source,
+      destinationKind: destination,
+      actor: "pipeline",
+      summary: `Venda ${externalId} não facturada: subscrição inactiva (${gate.reason}). A Conciliação apanha-a quando a subscrição regularizar.`,
+      detail: { reason: gate.reason },
+    });
     return;
   }
 
@@ -212,6 +226,23 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     }
 
     if (permanent) {
+      // The definitive refusal, in the platform's own words. Transient errors
+      // are deliberately NOT written here — the queue retries them and the
+      // final outcome is what counts; three attempts are transport noise.
+      if (topic === "created") {
+        await logDocumentEvent(env, {
+          externalId,
+          event: "create_failed",
+          dedupKey: `create_failed:${externalId}:${new Date().toISOString().slice(0, 10)}`,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `O destino recusou emitir o documento da venda ${externalId}: ${explainPlatformError(String((err as any)?.message ?? err), destination)}`,
+          detail: { kind, message: String((err as any)?.message ?? err).slice(0, 600) },
+        });
+      }
       // Same payload will never succeed. Persist a failure log, ack-by-return,
       // and skip the queue retry storm.
       await appStorage.saveLog({
@@ -260,6 +291,7 @@ async function emailDocumentBestEffort(
   ctx: any,
   config: IRequestConfig,
   holdReason?: string | null,
+  logCtx?: { env: Env; externalId: string; userId?: string | null; shopifyDomain?: string | null; sourceKind?: string | null; destinationKind?: string | null },
 ): Promise<void> {
   if (!customerEmailEnabled(config) || !destAdapter.emailDocument) return;
   // Never send a document parked for a human, whatever the destination. The IX
@@ -269,6 +301,20 @@ async function emailDocumentBestEffort(
   if (holdReason) return;
   try {
     await destAdapter.emailDocument(invoiceId, ctx, { holdReason });
+    if (logCtx) {
+      await logDocumentEvent(logCtx.env, {
+        externalId: logCtx.externalId,
+        event: "emailed",
+        dedupKey: `emailed:${invoiceId}`,
+        invoiceId,
+        userId: logCtx.userId ?? null,
+        shopifyDomain: logCtx.shopifyDomain ?? null,
+        sourceKind: logCtx.sourceKind ?? null,
+        destinationKind: logCtx.destinationKind ?? null,
+        actor: "pipeline",
+        summary: `Documento ${invoiceId} enviado por email ao comprador.`,
+      });
+    }
   } catch (e: any) {
     console.warn(`[Pipeline] Customer email failed for document ${invoiceId} (non-fatal): ${e?.message ?? e}`);
   }
@@ -318,6 +364,18 @@ async function runPipelineCore(
         const ref = documentReference(normalized.order);
         const found = await destAdapter.findByReference(ref, ctx);
         if (found) {
+          await logDocumentEvent(env, {
+            externalId,
+            event: "skipped",
+            dedupKey: `skipped:exists:${externalId}`,
+            userId: config.user_id,
+            shopifyDomain: config.shopify_domain,
+            sourceKind: source,
+            destinationKind: destination,
+            actor: "pipeline",
+            summary: `Não emitido: o destino já tinha um documento com a referência ${ref}.`,
+            detail: { reference: ref },
+          });
           await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: externalId, response: "Already exists at destination", status: 401 });
           return;
         }
@@ -381,6 +439,18 @@ async function runPipelineCore(
           connection_label: connectionLabel,
         });
         if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await logDocumentEvent(env, {
+          externalId,
+          event: "skipped",
+          dedupKey: `skipped:currency:${externalId}`,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `Venda ${externalId} não facturada: pagamento em ${currency}, e este destino só emite em EUR.`,
+          detail: { currency },
+        });
         await appStorage.saveLog({
           shopify_domain: config.shopify_domain,
           topic: logTopic,
@@ -399,6 +469,18 @@ async function runPipelineCore(
       const orderTotal = Number(normalized.order?.total ?? 0);
       if ((!Number.isFinite(orderTotal) || orderTotal <= 0) && Number(config.invoice_zero_total) !== 1) {
         if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await logDocumentEvent(env, {
+          externalId,
+          event: "skipped",
+          dedupKey: `skipped:zero:${externalId}`,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `Venda ${externalId} não facturada: total de valor zero — não é exigido documento (a loja não tem invoice_zero_total).`,
+          detail: { total: orderTotal },
+        });
         await appStorage.saveLog({
           shopify_domain: config.shopify_domain,
           topic: logTopic,
@@ -474,6 +556,19 @@ async function runPipelineCore(
           order_ref: orderRef,
           client_name: clientName,
         });
+        await logDocumentEvent(env, {
+          externalId,
+          event: "held",
+          dedupKey: `held:${invoiceId}`,
+          invoiceId,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `Documento ${invoiceId} ficou retido em rascunho para revisão: ${holdReason}. Corrigir a encomenda e reemitir é o que limpa a retenção.`,
+          detail: { invoiceId, holdReason },
+        });
       }
 
       // Sources like Stripe Charges have no separate "paid" event — the
@@ -490,7 +585,20 @@ async function runPipelineCore(
       let response = holdReason ? `Created (draft — ${holdReason})` : "Created";
       if (finalizeInSameFlow) {
         await destAdapter.finalize(invoiceId, ctx);
-        await emailDocumentBestEffort(destAdapter, invoiceId, ctx, config, holdReason);
+        await logDocumentEvent(env, {
+          externalId,
+          event: "finalized",
+          dedupKey: `finalized:${invoiceId}`,
+          invoiceId,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `Documento ${invoiceId} fechado no destino — é agora um documento fiscal definitivo.`,
+        });
+        await emailDocumentBestEffort(destAdapter, invoiceId, ctx, config, holdReason,
+          { env, externalId, userId: config.user_id, shopifyDomain: config.shopify_domain, sourceKind: source, destinationKind: destination });
         response = "Created+Finalized";
       }
 
@@ -529,7 +637,20 @@ async function runPipelineCore(
       }
 
       await destAdapter.finalize(invoice.invoice_id, ctx);
-      await emailDocumentBestEffort(destAdapter, invoice.invoice_id, ctx, config, invoice.hold_reason);
+      await logDocumentEvent(env, {
+        externalId,
+        event: "finalized",
+        dedupKey: `finalized:${invoice.invoice_id}`,
+        invoiceId: invoice.invoice_id,
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: source,
+        destinationKind: destination,
+        actor: "pipeline",
+        summary: `Documento ${invoice.invoice_id} fechado no destino após confirmação do pagamento.`,
+      });
+      await emailDocumentBestEffort(destAdapter, invoice.invoice_id, ctx, config, invoice.hold_reason,
+        { env, externalId, userId: config.user_id, shopifyDomain: config.shopify_domain, sourceKind: source, destinationKind: destination });
 
       if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
       await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Finalized", status: 200 });
@@ -560,6 +681,19 @@ async function runPipelineCore(
           connection_label: connectionLabel,
           order_ref: orderRef,
           client_name: clientName,
+        });
+        await logDocumentEvent(env, {
+          externalId,
+          event: "skipped",
+          dedupKey: `skipped:credit_held:${invoice.invoice_id}`,
+          invoiceId: invoice.invoice_id,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `Reembolso sem nota de crédito: o documento ${invoice.invoice_id} está em rascunho retido (${invoice.hold_reason}) e um rascunho corrige-se, não se credita.`,
+          detail: { invoiceId: invoice.invoice_id, holdReason: invoice.hold_reason },
         });
         if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: `Skipped credit note: held draft (${invoice.hold_reason})`, status: 200 });
@@ -600,6 +734,19 @@ async function runPipelineCore(
           grossAmount: credit.amount,
         }, normalized, ctx);
         issuedCount++;
+        await logDocumentEvent(env, {
+          externalId,
+          event: "credit_issued",
+          dedupKey: `credit_issued:${credit.refund_id}`,
+          invoiceId: invoice.invoice_id,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `Nota de crédito emitida por ${Number(credit.amount).toFixed(2)} € sobre o documento ${invoice.invoice_id} (reembolso ${credit.refund_id}, referência ${reference}).`,
+          detail: { refundId: credit.refund_id, amount: credit.amount, reference },
+        });
       }
 
       if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");

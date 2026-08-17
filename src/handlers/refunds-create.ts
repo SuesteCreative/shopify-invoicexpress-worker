@@ -11,6 +11,7 @@ import { reportIncident } from "../services/incidents";
 import { refundReference } from "../services/document-references";
 import { ixEnvelopeError } from "../adapters/destinations/ix-destination";
 import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
+import { logDocumentEvent } from "../services/document-log";
 
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
@@ -111,6 +112,19 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         order_ref: normalizedOrderResponse.normalized.order.order_number != null ? `#${normalizedOrderResponse.normalized.order.order_number}` : undefined,
       });
       if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await logDocumentEvent(env, {
+        externalId: String(orderId),
+        event: "skipped",
+        dedupKey: `skipped:credit_held:${invoice.invoice_id}`,
+        invoiceId: String(invoice.invoice_id),
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: "shopify",
+        destinationKind: "invoicexpress",
+        actor: "pipeline",
+        summary: `Reembolso sem nota de crédito: ${why}. Um rascunho corrige-se ou apaga-se; só um documento fechado se credita.`,
+        detail: { invoiceId: String(invoice.invoice_id), status: ownerStatus, holdReason: invoice.hold_reason ?? null },
+      });
       await appStorage.saveLog({
         shopify_domain: config.shopify_domain,
         topic: webhookTopic,
@@ -351,6 +365,22 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
             throw new Error(`InvoiceXpress finalize failed for credit note ${creditNoteId}: ${detail}`);
           }
         }
+
+        // Written before the email block, whose missing-address path returns
+        // early — the credit note exists and is finalized at this point.
+        await logDocumentEvent(env, {
+          externalId: String(orderId),
+          event: "credit_issued",
+          dedupKey: `credit_issued:${credit.refundId}`,
+          invoiceId: String(invoice.invoice_id),
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: "shopify",
+          destinationKind: "invoicexpress",
+          actor: "pipeline",
+          summary: `Nota de crédito ${creditNoteId} emitida e fechada por ${Number(credit.amount).toFixed(2)} € sobre o documento ${invoice.invoice_id} (reembolso ${credit.refundId}).`,
+          detail: { creditNoteId, refundId: credit.refundId, amount: credit.amount },
+        });
 
         if (config.ix_send_email) {
             // if (!creditNote.client.email || !creditNote.client.fiscal_id) {

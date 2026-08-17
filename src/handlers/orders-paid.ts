@@ -12,6 +12,7 @@ import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
 import { ixEnvelopeError } from "../adapters/destinations/ix-destination";
 import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
+import { logDocumentEvent } from "../services/document-log";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -161,6 +162,19 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
 
     console.log(`[Rioko] Invoice finalized for order ${orderId}`, { data, error });
 
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "finalized",
+      dedupKey: `finalized:${invoice.invoice_id}`,
+      invoiceId: invoice.invoice_id,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `Documento ${invoice.invoice_id} fechado no destino após confirmação do pagamento — é agora um documento fiscal definitivo.`,
+    });
+
     // Mark webhook as processed
     if (webhookId) {
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
@@ -178,6 +192,20 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
     // turning "the email didn't go out" into a stream of false finalize errors.
     const emailOutcome = await sendIxDocumentEmail(config, invoice.invoice_id, { holdReason: invoice.hold_reason });
     console.log(`[Rioko] ${describeIxEmailOutcome(invoice.invoice_id, emailOutcome)}`);
+    if (emailOutcome.sent) {
+      await logDocumentEvent(env, {
+        externalId: orderId,
+        event: "emailed",
+        dedupKey: `emailed:${invoice.invoice_id}`,
+        invoiceId: invoice.invoice_id,
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: "shopify",
+        destinationKind: "invoicexpress",
+        actor: "pipeline",
+        summary: `Documento ${invoice.invoice_id} enviado por email ao comprador.`,
+      });
+    }
     if (!emailOutcome.sent && (emailOutcome.reason === "send_failed" || emailOutcome.reason === "lookup_failed")) {
       await appStorage.saveLog({
         shopify_domain: config.shopify_domain,

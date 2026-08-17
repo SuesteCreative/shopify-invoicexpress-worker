@@ -14,7 +14,7 @@ import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { saleReference } from "../services/document-references";
-import { logDocumentEvent } from "../services/document-log";
+import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 
 /**
  * Tell the merchant a document was left as a draft because the buyer's address
@@ -94,6 +94,18 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
       detail: { orderId: String(orderId), reason: gate.reason },
       affected_ids: [String(orderId)],
       connection_label: "shopify → invoicexpress",
+    });
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "skipped",
+      dedupKey: `skipped:gate:${orderId}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `Encomenda ${order.name ?? orderId} não facturada: subscrição inactiva (${gate.reason}). A Conciliação apanha-a quando a subscrição regularizar.`,
+      detail: { reason: gate.reason },
     });
     return;
   }
@@ -177,6 +189,20 @@ async function createInvoiceForOrder(
       response: "Skipped: zero-amount order — no invoice required",
       status: 200,
     });
+    // One D1 insert inside the claim window — same accepted cost as the `built`
+    // write below, and the answer to "why was this sale never invoiced?".
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "skipped",
+      dedupKey: `skipped:zero:${orderId}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `Encomenda ${order.name ?? orderId} não facturada: total de valor zero — não é exigido documento (a loja não tem invoice_zero_total).`,
+      detail: { total: orderTotal },
+    });
     return;
   }
 
@@ -199,6 +225,18 @@ async function createInvoiceForOrder(
       payload: JSON.stringify({ orderId, financial_status: order.financial_status ?? null }),
       response: "Held: payment pending — invoice suspended until Shopify confirms payment",
       status: 200,
+    });
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "skipped",
+      dedupKey: `skipped:unpaid:${orderId}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `Encomenda ${order.name ?? orderId} suspensa: pagamento por confirmar (${order.financial_status ?? "?"}) e a loja só factura vendas pagas. Emite quando a Shopify confirmar o pagamento.`,
+      detail: { financial_status: order.financial_status ?? null },
     });
     return;
   }
@@ -226,6 +264,19 @@ async function createInvoiceForOrder(
     if (webhookId) {
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
     }
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "created",
+      dedupKey: `created:${ixExisting.data.data.id}`,
+      invoiceId: String(ixExisting.data.data.id),
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `O destino já tinha o documento ${ixExisting.data.data.id} com a referência ${ixRef}; foi associado à encomenda ${order.name ?? orderId} em vez de emitir um novo.`,
+      detail: { reference: ixRef, linked: true },
+    });
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: ixExisting.data.data.id }), response: "Already exists — linked", status: 200 });
     return;
   }
@@ -274,6 +325,18 @@ async function createInvoiceForOrder(
       payload: JSON.stringify({ orderId, vat: `${build.countryCode}${build.vatNumber}` }),
       response: "Deferred: VIES retry queued",
       status: 202,
+    });
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "skipped",
+      dedupKey: `skipped:vies:${orderId}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `Encomenda ${order.name ?? orderId} adiada: o VIES não confirmou o NIF ${build.countryCode}${build.vatNumber} a tempo. O cron reverifica e emite sozinho.`,
+      detail: { vat: `${build.countryCode}${build.vatNumber}` },
     });
     console.log(`[Rioko] Order ${orderId} deferred for VIES retry (vat=${build.countryCode}${build.vatNumber})`);
     return;
@@ -339,6 +402,19 @@ async function createInvoiceForOrder(
 
     if (nifHold) {
       await notifyNifHold(env, config, order, invoiceId, nifHold);
+      await logDocumentEvent(env, {
+        externalId: orderId,
+        event: "held",
+        dedupKey: `held:${invoiceId}`,
+        invoiceId,
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: "shopify",
+        destinationKind: "invoicexpress",
+        actor: "pipeline",
+        summary: `Documento ${invoiceId} ficou retido em rascunho para revisão: ${nifHoldReason(nifHold)}. Corrigir a encomenda na Shopify e reemitir é o que limpa a retenção.`,
+        detail: { invoiceId, holdReason: nifHoldReason(nifHold) },
+      });
     }
 
     // Mark webhook as processed
@@ -372,6 +448,21 @@ async function createInvoiceForOrder(
       payload: JSON.stringify({ orderId }),
       response: `IX create failed: ${ixError}`,
       status: 500,
+    });
+
+    // Day-scoped dedup: the queue retries this same refusal, and one row per
+    // day per sale is the record — not one per attempt.
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "create_failed",
+      dedupKey: `create_failed:${orderId}:${new Date().toISOString().slice(0, 10)}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `O InvoiceXpress recusou emitir o documento da encomenda ${order.name ?? orderId}: ${explainPlatformError(ixError, "invoicexpress")}`,
+      detail: { error: ixError.slice(0, 1500) },
     });
 
     // Mark webhook as failed

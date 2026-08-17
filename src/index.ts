@@ -18,7 +18,7 @@ import {
   otaPolicyFrom,
   otaStayCollectedSqlPredicate,
 } from "./services/lodgify-amounts";
-import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql } from "./services/document-log";
+import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent } from "./services/document-log";
 import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
@@ -2778,9 +2778,41 @@ async function emitLodgifyPartialInvoice(env: Env, o: {
   }
 
   const { invoiceId } = await destAdapter.createDraft(normalized, ctx);
+  await logDocumentEvent(env, {
+    externalId: String(o.bookingId),
+    event: "built",
+    dedupKey: `built:${invoiceId}`,
+    invoiceId,
+    userId: o.config?.user_id ?? null,
+    shopifyDomain: null,
+    sourceKind: "lodgify",
+    destinationKind: String(o.destination),
+    actor: "cron:lodgify-poll",
+    summary: `Documento ${invoiceId} emitido por ${o.deltaAmount.toFixed(2)} € — parcela ${o.seq} da reserva LOD-${o.bookingId}, referência ${reference}.`,
+    detail: {
+      intent: {
+        total: Number.isFinite(o.deltaAmount) ? o.deltaAmount : null,
+        reference,
+        exemptionCode: null,
+      },
+      seq: o.seq,
+    },
+  });
   if (ctx.config?.auto_finalize === 1) {
     try {
       await destAdapter.finalize(invoiceId, ctx);
+      await logDocumentEvent(env, {
+        externalId: String(o.bookingId),
+        event: "finalized",
+        dedupKey: `finalized:${invoiceId}`,
+        invoiceId,
+        userId: o.config?.user_id ?? null,
+        shopifyDomain: null,
+        sourceKind: "lodgify",
+        destinationKind: String(o.destination),
+        actor: "cron:lodgify-poll",
+        summary: `Documento ${invoiceId} (parcela ${o.seq} da reserva LOD-${o.bookingId}) fechado no destino.`,
+      });
     } catch (e: any) {
       // The document EXISTS and is recorded — rethrowing here would make the
       // caller believe the instalment was never billed and bill it again on the

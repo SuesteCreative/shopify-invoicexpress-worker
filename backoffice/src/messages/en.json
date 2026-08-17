@@ -91,7 +91,8 @@
         "superadmin": "Superadmin",
         "clientRules": "Client rules",
         "onboardingHelper": "Client Onboarding",
-        "tooltipNeedRegister": "Complete dashboard registration first"
+        "tooltipNeedRegister": "Complete dashboard registration first",
+        "ops": "Ops"
     },
     "dashboardHome": {
         "welcome": "Welcome",
@@ -2377,5 +2378,30 @@
         "sendEmailOn": "ON: The finalized document is emailed to the order's customer, with the PDF attached.",
         "sendEmailOff": "OFF: Nothing is emailed to the customer.",
         "sendEmailNeedsFinalize": "No effect while Auto-finalize is off: documents stay as drafts, and a draft is never sent to the customer."
+    },
+    "ops": {
+        "title": "Ops",
+        "subtitle": "Open failures across the fleet, worst first.",
+        "subtitleCritical": "{count} critical failure(s) waiting.",
+        "statusOpen": "Open",
+        "statusAcknowledged": "Acknowledged",
+        "statusAll": "All",
+        "allKinds": "All kinds",
+        "refresh": "Refresh",
+        "incidentsTitle": "Incidents ({count})",
+        "acknowledge": "Ack",
+        "resolve": "Resolve",
+        "destinationSaid": "What the destination said",
+        "technicalDetail": "Technical detail",
+        "affected": "Affected sales ({count})",
+        "andMore": "+{count} more",
+        "timelineFor": "Timeline for {id}",
+        "timelineError": "Could not read the timeline (worker unreachable).",
+        "timelineEmpty": "No events recorded for this sale.",
+        "openDevMode": "Open Dev Mode",
+        "noIncidents": "Nothing open. Nothing needs you right now.",
+        "driftsTitle": "Drifts and refusals, last 7 days ({count})",
+        "driftsHelp": "Documents that came back different from what was sent, and the ones the destination refused outright. A drift is a verdict; a lead is unconfirmed until checked.",
+        "noDrifts": "No drifts or refusals in the last 7 days."
     }
 }

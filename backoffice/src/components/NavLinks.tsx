@@ -200,6 +200,14 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         )}
                         {canAccessAdmin && (
                             <LinkItem
+                                href="/ops"
+                                icon={Activity}
+                                label={t("ops")}
+                                activeClass={ACTIVE_DANGER}
+                            />
+                        )}
+                        {canAccessAdmin && (
+                            <LinkItem
                                 href="/onboarding-helper"
                                 icon={Wrench}
                                 label={t("onboardingHelper")}

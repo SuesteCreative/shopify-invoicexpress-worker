@@ -30,24 +30,35 @@ export async function GET(request: NextRequest) {
         const filterKind = params.get("kind");
         const limit = Math.min(parseInt(params.get("limit") ?? "100", 10) || 100, 500);
 
+        // Qualified with `i.` because of the join below — `status` alone would be
+        // ambiguous the moment another joined table grows one.
         const where: string[] = [];
         const binds: any[] = [];
         if (status !== "all") {
-            where.push("status = ?");
+            where.push("i.status = ?");
             binds.push(status);
         }
         if (filterUserId) {
-            where.push("user_id = ?");
+            where.push("i.user_id = ?");
             binds.push(filterUserId);
         }
         if (filterKind) {
-            where.push("kind = ?");
+            where.push("i.kind = ?");
             binds.push(filterKind);
         }
 
         const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-        const sql = `SELECT id, user_id, connection_id, severity, kind, summary, detail_json, affected_ids_json, status, first_seen_at, last_seen_at, occurrences, notified_at, resolved_at
-                     FROM incidents ${whereSql} ORDER BY last_seen_at DESC LIMIT ?`;
+        // The merchant label is joined in so the triage view can group by company:
+        // `user_id` alone makes every row read as an anonymous id, which is the
+        // reason incident lists get skimmed rather than worked.
+        const sql = `SELECT i.id, i.user_id, i.connection_id, i.severity, i.kind, i.summary,
+                            i.detail_json, i.affected_ids_json, i.status, i.first_seen_at,
+                            i.last_seen_at, i.occurrences, i.notified_at, i.resolved_at,
+                            COALESCE(NULLIF(u.admin_label, ''), NULLIF(u.company_name, ''), u.name, u.email) AS merchant_label
+                       FROM incidents i
+                       LEFT JOIN users u ON u.id = i.user_id
+                     ${whereSql}
+                     ORDER BY i.last_seen_at DESC LIMIT ?`;
         binds.push(limit);
 
         const result = await db.prepare(sql).bind(...binds).all();

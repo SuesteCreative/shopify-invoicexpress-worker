@@ -12,6 +12,12 @@
  */
 
 export type IncidentKind =
+  // We created the document and the destination stored something else — a total,
+  // a reference or an exemption code that differs from the payload we sent.
+  // OPS-ONLY on purpose: deliberately absent from MERCHANT_ACTIONABLE_KINDS,
+  // because the merchant cannot act on the gap between our request and the
+  // destination's storage, and the document is usually otherwise fine.
+  | "document_drift"
   | "auth_failure_destination"
   | "auth_failure_source"
   | "destination_reject"
@@ -789,8 +795,39 @@ export function tplSimplifiedInvoiceDowngraded(input: IncidentTemplateInput): Re
   };
 }
 
+/**
+ * Ops-only. The document EXISTS and the merchant is not being asked to do
+ * anything — this is us discovering that the destination stored something other
+ * than what we sent, which is a fault in our integration or in theirs.
+ */
+export function tplDocumentDrift(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph("Emitimos o documento e, ao relê-lo no destino, ele não está como o enviámos. O documento existe — o que difere é o que lá ficou guardado.")}
+    ${calloutBox("Porque é que isto importa", "A referência é a chave de idempotência entre nós e o destino: guardada diferente, perguntar \\\"já emitiste isto?\\\" passa a devolver a resposta errada, e daí saem faturas em falta ou duplicadas. O código de isenção é o que segue no SAF-T para a AT. Um total diferente significa um documento fiscal que não vale o que o cliente pagou.", BRAND.critical)}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
+    ${stepsList([
+      "Ver no detalhe abaixo que campo divergiu e os dois valores.",
+      "Confirmar no destino se o documento está fechado — um documento fechado só se corrige com nota de crédito e reemissão.",
+      "Se o campo for a referência, verificar se outras vendas da mesma ligação partilham o mesmo valor.",
+    ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Documento ficou diferente do que enviámos",
+    html: shell({
+      title: "Divergência entre o enviado e o guardado",
+      preheader: "O documento existe, mas o destino guardou outra coisa.",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTemplateInput): RenderedTemplate {
   switch (kind) {
+    case "document_drift": return tplDocumentDrift(input);
     case "auth_failure_destination": return tplAuthFailureDestination(input);
     case "auth_failure_source": return tplAuthFailureSource(input);
     case "destination_reject": return tplDestinationReject(input);

@@ -4,11 +4,15 @@ import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
 import { IxApi } from "../api/ix";
 import { IxBuilder, type IxCreditNote } from "../ix/builder";
+import { resolveExemptionCode } from "../ix/exemption";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
 import { reportIncident } from "../services/incidents";
 import { refundReference } from "../services/document-references";
+import { ixEnvelopeError } from "../adapters/destinations/ix-destination";
+import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
+import { logDocumentEvent } from "../services/document-log";
 
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
@@ -52,12 +56,34 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
     };
 
     // Get the invoice from InvoiceXpress
-    const { data: ixInvoice } = await IxApi.v2.documents.byId.get({
+    const { data: ixInvoice, error: ixReadError } = await IxApi.v2.documents.byId.get({
       headers: ixHeaders,
       path: {
         id: Number(invoice.invoice_id),
       }
     });
+
+    // An unreadable document is NOT a finalized one.
+    //
+    // `error` used not to be destructured at all, so a failed read produced
+    // `ownerStatus = ""`, which is not "draft", which meant the guard below let
+    // it through and we went on to credit a document whose state we did not
+    // know. Refuse instead: the queue retries, and a refund is never lost by
+    // waiting.
+    const ixReadEnvelopeError = ixEnvelopeError(ixInvoice);
+    if (ixReadError || ixReadEnvelopeError || !(ixInvoice as any)?.data) {
+      const detail = JSON.stringify(ixReadError ?? ixReadEnvelopeError ?? "empty body").slice(0, 400);
+      console.error(`[Rioko] Refund for order ${orderId}: could not read document ${invoice.invoice_id}: ${detail}`);
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }),
+        response: `InvoiceXpress read failed for document ${invoice.invoice_id}: ${detail}`,
+        status: 500,
+      });
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
+      throw new Error(`InvoiceXpress read failed for document ${invoice.invoice_id}: ${detail}`);
+    }
 
     // A credit note can only be issued against a FINALIZED document — there is
     // nothing to correct on a draft, and InvoiceXpress rejects the attempt. The
@@ -87,6 +113,19 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         order_ref: normalizedOrderResponse.normalized.order.order_number != null ? `#${normalizedOrderResponse.normalized.order.order_number}` : undefined,
       });
       if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await logDocumentEvent(env, {
+        externalId: String(orderId),
+        event: "skipped",
+        dedupKey: `skipped:credit_held:${invoice.invoice_id}`,
+        invoiceId: String(invoice.invoice_id),
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: "shopify",
+        destinationKind: "invoicexpress",
+        actor: "pipeline",
+        summary: `Reembolso sem nota de crédito: ${why}. Um rascunho corrige-se ou apaga-se; só um documento fechado se credita.`,
+        detail: { invoiceId: String(invoice.invoice_id), status: ownerStatus, holdReason: invoice.hold_reason ?? null },
+      });
       await appStorage.saveLog({
         shopify_domain: config.shopify_domain,
         topic: webhookTopic,
@@ -274,7 +313,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           reference: refundReference(credit.refundId),
           tax_exemption_reason: reverseChargeReason
             ?? (requireTaxExemption
-              ? ixInvoice?.data?.tax_exemption ?? config.ix_exemption_reason ?? undefined
+              ? resolveExemptionCode(ixInvoice?.data?.tax_exemption, config.ix_exemption_reason) ?? undefined
               : undefined),
           owner_invoice_id: Number(invoice.invoice_id)
         };
@@ -290,13 +329,28 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           }
         });
 
-        // Finalize credit note
+        // Did the credit note get created?
+        //
+        // `error` was destructured and never read. When IX refused, `creditNoteId`
+        // came out undefined, the whole finalize/email block below was skipped,
+        // and the only trace was a console line — while the outer flow went on to
+        // write "Processed" with status 200. A refund the buyer already received
+        // ended up with no credit note and no record saying so.
+        const creditEnvelopeError = ixEnvelopeError(creditNoteResponse);
         const creditNoteId = (creditNoteResponse?.data as any)?.id ??
           (creditNoteResponse?.data as any)?.credit_note?.id ??
           (creditNoteResponse?.data as any)?.creditNote?.id;
 
-        if (creditNoteId) {
-          await IxApi.v2.changeState.post({
+        if (error || creditEnvelopeError || !creditNoteId) {
+          const detail = JSON.stringify(error ?? creditEnvelopeError ?? "no id in response").slice(0, 500);
+          console.error(`[Rioko] Credit note refused for refund ${credit.refundId} (invoice ${invoice.invoice_id}): ${detail}`);
+          throw new Error(`InvoiceXpress credit create failed for refund ${credit.refundId}: ${detail}`);
+        }
+
+        {
+          // Finalize credit note. Its refusal was discarded too — an unfinalized
+          // credit note is not a fiscal document.
+          const { data: cnFinalizeData, error: cnFinalizeError } = await IxApi.v2.changeState.post({
             body: {
               type: "credit_note",
               id: creditNoteId,
@@ -304,8 +358,32 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
             },
             headers: ixHeaders
           });
+          const cnFinalizeEnvelope = ixEnvelopeError(cnFinalizeData);
+          const cnProblem = cnFinalizeError ?? cnFinalizeEnvelope;
+          if (cnProblem && !isAlreadyFinalizedIxError(cnProblem)) {
+            const detail = JSON.stringify(cnProblem).slice(0, 500);
+            console.error(`[Rioko] Credit note ${creditNoteId} created but not finalized: ${detail}`);
+            throw new Error(`InvoiceXpress finalize failed for credit note ${creditNoteId}: ${detail}`);
+          }
+        }
 
-          if (config.ix_send_email) {
+        // Written before the email block, whose missing-address path returns
+        // early — the credit note exists and is finalized at this point.
+        await logDocumentEvent(env, {
+          externalId: String(orderId),
+          event: "credit_issued",
+          dedupKey: `credit_issued:${credit.refundId}`,
+          invoiceId: String(invoice.invoice_id),
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: "shopify",
+          destinationKind: "invoicexpress",
+          actor: "pipeline",
+          summary: `Nota de crédito ${creditNoteId} emitida e fechada por ${Number(credit.amount).toFixed(2)} € sobre o documento ${invoice.invoice_id} (reembolso ${credit.refundId}).`,
+          detail: { creditNoteId, refundId: credit.refundId, amount: credit.amount },
+        });
+
+        if (config.ix_send_email) {
             // if (!creditNote.client.email || !creditNote.client.fiscal_id) {
             if (!creditNote.client.email) {
               // console.error(`[Rioko] Refund has no email address or nif`);
@@ -337,10 +415,9 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
               console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);
               throw new Error(`Failed to send credit note email for invoice ${invoice.invoice_id}`);
             }
-          }
         }
 
-        console.log(`[Rioko] Credit note created for refund ${credit.refundId}`, { error });
+        console.log(`[Rioko] Credit note ${creditNoteId} issued and finalized for refund ${credit.refundId}`);
       })
     );
 

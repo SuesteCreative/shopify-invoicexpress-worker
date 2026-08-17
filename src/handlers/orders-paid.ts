@@ -10,6 +10,9 @@ import { handleOrderCreated } from "./orders-created";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
 import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
+import { ixEnvelopeError } from "../adapters/destinations/ix-destination";
+import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
+import { logDocumentEvent } from "../services/document-log";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -128,7 +131,49 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
       { isOk: (r) => !r.error, label: `finalize ${invoice.invoice_id}` },
     );
 
+    // Did it actually finalize?
+    //
+    // This used to destructure `error`, print it to the console, and carry on to
+    // mark the webhook a success and write "Finalized" with status 200. So an
+    // InvoiceXpress refusal produced a record indistinguishable from a document
+    // that certified cleanly, and the draft stayed a draft with nobody told.
+    //
+    // Two answers count as done: no error at all, and IX saying the document was
+    // already finalized — a re-delivered orders/paid must not be treated as a
+    // failure just because the first delivery already did the work.
+    const envelopeError = ixEnvelopeError(data);
+    const finalizeError = error ?? envelopeError;
+    if (finalizeError && !isAlreadyFinalizedIxError(finalizeError)) {
+      const detail = JSON.stringify(finalizeError).slice(0, 500);
+      console.error(`[Rioko] Finalize refused for order ${orderId} (invoice ${invoice.invoice_id}): ${detail}`);
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }),
+        response: `InvoiceXpress finalize failed: ${detail}`,
+        status: 500,
+      });
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
+      // Throw so the queue consumer classifies it (classifyPipelineError already
+      // keys on "invoicexpress finalize failed") and retries or escalates. The
+      // document exists either way; what must not happen is calling it certified.
+      throw new Error(`InvoiceXpress finalize failed for order ${orderId}: ${detail}`);
+    }
+
     console.log(`[Rioko] Invoice finalized for order ${orderId}`, { data, error });
+
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "finalized",
+      dedupKey: `finalized:${invoice.invoice_id}`,
+      invoiceId: invoice.invoice_id,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "pipeline",
+      summary: `Documento ${invoice.invoice_id} fechado no destino após confirmação do pagamento — é agora um documento fiscal definitivo.`,
+    });
 
     // Mark webhook as processed
     if (webhookId) {
@@ -147,6 +192,20 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
     // turning "the email didn't go out" into a stream of false finalize errors.
     const emailOutcome = await sendIxDocumentEmail(config, invoice.invoice_id, { holdReason: invoice.hold_reason });
     console.log(`[Rioko] ${describeIxEmailOutcome(invoice.invoice_id, emailOutcome)}`);
+    if (emailOutcome.sent) {
+      await logDocumentEvent(env, {
+        externalId: orderId,
+        event: "emailed",
+        dedupKey: `emailed:${invoice.invoice_id}`,
+        invoiceId: invoice.invoice_id,
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: "shopify",
+        destinationKind: "invoicexpress",
+        actor: "pipeline",
+        summary: `Documento ${invoice.invoice_id} enviado por email ao comprador.`,
+      });
+    }
     if (!emailOutcome.sent && (emailOutcome.reason === "send_failed" || emailOutcome.reason === "lookup_failed")) {
       await appStorage.saveLog({
         shopify_domain: config.shopify_domain,

@@ -10,6 +10,7 @@ import { IxApi } from "../api/ix";
 import { IxBuilder, nifHoldReason, type NifHold } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
 import { reportIncident } from "../services/incidents";
+import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 
 const RETRY_BACKOFF_MS = [15 * 60_000, 60 * 60_000];
 
@@ -63,14 +64,66 @@ export async function submitInvoiceForPendingRow(
 
   const invoiceId = res.data?.data?.id;
   if (!invoiceId) {
+    const refusal = JSON.stringify(res.error ?? res.data ?? "no id in response").slice(0, 1500);
+    await logDocumentEvent(env, {
+      externalId: row.order_id,
+      event: "create_failed",
+      dedupKey: `create_failed:${row.order_id}:${new Date().toISOString().slice(0, 10)}`,
+      userId: row.user_id,
+      shopifyDomain: row.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "vies-retry",
+      summary: `O InvoiceXpress recusou emitir o documento adiado (VIES) da encomenda ${row.order_id}: ${explainPlatformError(refusal, "invoicexpress")}`,
+      detail: { error: refusal, disposition },
+    });
     return { ok: false, error: "IX create returned no id" };
   }
 
+  const holdReason = build.nifHold ? nifHoldReason(build.nifHold) : null;
   // Carry any address-line NIF hold onto the row so the later finalize leaves
   // this draft alone, exactly as the create path would have.
   await appStorage.saveProcessedInvoice(row.order_id, String(invoiceId), {
-    holdReason: build.nifHold ? nifHoldReason(build.nifHold) : null,
+    holdReason,
   });
+  await logDocumentEvent(env, {
+    externalId: row.order_id,
+    event: "built",
+    dedupKey: `built:${invoiceId}`,
+    invoiceId: String(invoiceId),
+    userId: row.user_id,
+    shopifyDomain: row.shopify_domain,
+    sourceKind: "shopify",
+    destinationKind: "invoicexpress",
+    actor: "vies-retry",
+    summary: `Documento ${invoiceId} emitido após a decisão VIES (${disposition === "apply" ? "autoliquidação aplicada" : "sem autoliquidação"}) para a encomenda ${row.order_id}${build.invoice?.tax_exemption_reason ? `, isenção ${build.invoice.tax_exemption_reason}` : ""}.`,
+    detail: {
+      intent: {
+        // The paid total is not on this deferred row; the reference and the
+        // exemption code are, and they are the fields this path can be held to.
+        total: null,
+        reference: build.invoice?.reference ?? null,
+        exemptionCode: build.invoice?.tax_exemption_reason ?? null,
+      },
+      disposition,
+      holdReason,
+    },
+  });
+  if (holdReason) {
+    await logDocumentEvent(env, {
+      externalId: row.order_id,
+      event: "held",
+      dedupKey: `held:${invoiceId}`,
+      invoiceId: String(invoiceId),
+      userId: row.user_id,
+      shopifyDomain: row.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "vies-retry",
+      summary: `Documento ${invoiceId} ficou retido em rascunho para revisão: ${holdReason}.`,
+      detail: { invoiceId: String(invoiceId), holdReason },
+    });
+  }
   await appStorage.resolvePending(row.id, disposition === "apply" ? "approved" : "rejected");
   await appStorage.saveLog({
     shopify_domain: row.shopify_domain,

@@ -1241,6 +1241,25 @@ async function fetchMoloniDocument(
  * Moloni labels the two totals inconsistently (see the moloni-api-quirks note),
  * so the gross is whichever is larger rather than whichever is named `gross`.
  */
+/**
+ * The exemption code Moloni is holding for a document.
+ *
+ * Unlike InvoiceXpress, which stamps one `tax_exemption` on the header, Moloni
+ * attaches `exemption_reason` to each product line. So the document's code is
+ * the code its lines agree on. When they disagree — which is itself worth
+ * seeing, since a single mismatched line changes what the document declares —
+ * the codes are returned joined rather than resolved to the first one.
+ */
+function moloniExemptionCode(doc: any): string | null {
+  const codes = new Set<string>();
+  for (const p of (doc?.products ?? doc?.items ?? []) as any[]) {
+    const c = p?.exemption_reason ?? p?.exemption ?? null;
+    if (c != null && String(c).trim()) codes.add(String(c).trim());
+  }
+  if (codes.size === 0) return null;
+  return [...codes].sort().join("+");
+}
+
 function moloniDocTotal(doc: any): number | null {
   const total = Math.max(Number(doc?.net_value ?? 0), Number(doc?.gross_value ?? 0)) || Number(doc?.total ?? 0);
   return Number.isFinite(total) && total !== 0 ? total : null;
@@ -1470,6 +1489,10 @@ export class MoloniDestination implements DestinationAdapter {
       // Moloni numbers a document only once it closes.
       number: d.document_set_name && d.number ? `${d.document_set_name} ${d.number}` : (d.number ?? null),
       permalink: null,
+      // Moloni carries the exemption on the LINES, not the header, so the
+      // document's code is the one its products agree on; a mix is reported as
+      // such rather than silently picking the first.
+      exemption_code: moloniExemptionCode(d),
       raw: d,
     };
   }

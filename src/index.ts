@@ -18,6 +18,8 @@ import {
   otaPolicyFrom,
   otaStayCollectedSqlPredicate,
 } from "./services/lodgify-amounts";
+import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent } from "./services/document-log";
+import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
 import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
@@ -840,6 +842,80 @@ app.get("/admin/unprocessed-orders", async (c) => {
 async function requireAdmin(c: Context<{ Bindings: Env }>) {
   return requireAdminAuth(c);
 }
+
+/**
+ * The life of one sale, in order, in words — every step we took and what the
+ * destination did with it, successes included.
+ *
+ * `external_id` is the sale, not the document: a creation that never produced a
+ * document is exactly the case worth reading, and it has no invoice id to look
+ * itself up by.
+ */
+app.get("/admin/document-log", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const externalId = c.req.query("external_id") ?? c.req.query("order_id");
+  if (!externalId) return c.json({ error: "Missing external_id" }, 400);
+  try {
+    const events = await readDocumentTimeline(c.env, externalId, Math.min(Number(c.req.query("limit") ?? 200) || 200, 500));
+    return c.json({ external_id: externalId, events });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to read document log");
+  }
+})
+
+/**
+ * Run the verification sweep on demand — the same code the 04:00 cron runs.
+ *
+ * `dry_run` reports how many documents WOULD be checked without reading the
+ * destination at all, which is how you confirm candidate selection before
+ * pointing it at a merchant. Widening `days` is also how history gets
+ * backfilled: there is no separate backfill mechanism to keep in step.
+ */
+app.post("/admin/run-document-verify", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { dry_run?: boolean; days?: number; scopes?: string[] | string; limit?: number; history?: boolean } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  const scopes = Array.isArray(body.scopes)
+    ? body.scopes
+    : (typeof body.scopes === "string" ? body.scopes.split(",").map(s => s.trim()).filter(Boolean) : undefined);
+  try {
+    return c.json(await runDocumentVerifySweep(c.env, {
+      dryRun: body.dry_run === true,
+      days: body.days,
+      scopes,
+      limit: body.limit,
+      // `history: true` verifies documents issued before this log existed, from
+      // processed_orders. Only the exemption code is comparable there.
+      history: body.history === true,
+    }));
+  } catch (e) {
+    return errorResponse(c, e, "Document verification sweep failed");
+  }
+})
+
+/**
+ * Everything that came out different from what we sent, newest first. Ops-only —
+ * this is the feed a corrections queue would be built on. Includes `drift_lead`
+ * rows (history-mode findings, `detail.unconfirmed = true`) so unconfirmed leads
+ * are triaged from the same place; only `drift` is a verdict.
+ */
+app.get("/admin/document-drifts", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 7) || 7, 1), 90);
+  try {
+    const events = await readRecentDrifts(c.env, {
+      userId: c.req.query("user_id") ?? null,
+      sinceIso: new Date(Date.now() - days * 864e5).toISOString(),
+      limit: Math.min(Number(c.req.query("limit") ?? 100) || 100, 500),
+    });
+    return c.json({ days, count: events.length, events });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to read document drifts");
+  }
+})
 
 // Admin: run the self-healing reconciliation sweep on demand (validation +
 // immediate backlog heal). dry_run:true reports what WOULD happen and writes
@@ -2702,9 +2778,63 @@ async function emitLodgifyPartialInvoice(env: Env, o: {
   }
 
   const { invoiceId } = await destAdapter.createDraft(normalized, ctx);
+  await logDocumentEvent(env, {
+    externalId: String(o.bookingId),
+    event: "built",
+    dedupKey: `built:${invoiceId}`,
+    invoiceId,
+    userId: o.config?.user_id ?? null,
+    shopifyDomain: null,
+    sourceKind: "lodgify",
+    destinationKind: String(o.destination),
+    actor: "cron:lodgify-poll",
+    summary: `Documento ${invoiceId} emitido por ${o.deltaAmount.toFixed(2)} € — parcela ${o.seq} da reserva LOD-${o.bookingId}, referência ${reference}.`,
+    detail: {
+      intent: {
+        total: Number.isFinite(o.deltaAmount) ? o.deltaAmount : null,
+        reference,
+        exemptionCode: null,
+      },
+      seq: o.seq,
+    },
+  });
   if (ctx.config?.auto_finalize === 1) {
-    try { await destAdapter.finalize(invoiceId, ctx); }
-    catch (e: any) { console.error(`[LodgifyPoll] finalize partial ${reference} failed: ${e?.message ?? e}`); }
+    try {
+      await destAdapter.finalize(invoiceId, ctx);
+      await logDocumentEvent(env, {
+        externalId: String(o.bookingId),
+        event: "finalized",
+        dedupKey: `finalized:${invoiceId}`,
+        invoiceId,
+        userId: o.config?.user_id ?? null,
+        shopifyDomain: null,
+        sourceKind: "lodgify",
+        destinationKind: String(o.destination),
+        actor: "cron:lodgify-poll",
+        summary: `Documento ${invoiceId} (parcela ${o.seq} da reserva LOD-${o.bookingId}) fechado no destino.`,
+      });
+    } catch (e: any) {
+      // The document EXISTS and is recorded — rethrowing here would make the
+      // caller believe the instalment was never billed and bill it again on the
+      // next poll. So the create stands and the finalize failure is escalated
+      // instead of being a console line nobody reads: the merchant is left with
+      // a draft that will never certify itself, which is exactly the shape of
+      // failure this integration keeps being bitten by.
+      const detail = String(e?.message ?? e).slice(0, 400);
+      console.error(`[LodgifyPoll] finalize partial ${reference} failed: ${detail}`);
+      await reportIncident(env, {
+        user_id: o.config?.user_id ?? null,
+        severity: "error",
+        kind: "destination_reject",
+        dedup_key: String(invoiceId),
+        summary: `A prestação ${reference} da reserva ${o.bookingId} foi emitida (documento ${invoiceId}) mas ficou por fechar: ${detail}`,
+        detail: { booking_id: o.bookingId, seq: o.seq, reference, invoiceId, error: detail },
+        affected_ids: [String(o.bookingId)],
+        connection_label: `lodgify → ${o.destination}`,
+        order_ref: `#${o.bookingId}`,
+        bucket: "daily",
+      });
+    }
   }
   return invoiceId;
 }
@@ -3422,6 +3552,19 @@ export default {
           console.error(`[Cron] Stripe heal failed: ${e.message}`);
         }
       }
+
+      // Hold every document issued since the last run to what we said we were
+      // issuing. Runs LAST in this block on purpose: it only reads, so if the
+      // budget is already spent by the heals — which fix things — it can wait
+      // for tomorrow without anything being lost.
+      if (env.DOC_VERIFY_ENABLED === "1") {
+        try {
+          const v = await runDocumentVerifySweep(env);
+          console.log(`[Cron] Document verify: candidates=${v.candidates} matched=${v.matched} drifted=${v.drifted} unreadable=${v.unreadable}`);
+        } catch (e: any) {
+          console.error(`[Cron] Document verify failed: ${e.message}`);
+        }
+      }
       return;
     }
 
@@ -3513,7 +3656,13 @@ export default {
          WHERE created_at < datetime('now', '-90 day')
            AND type NOT IN ('invoice.paid','invoice.payment_failed','charge.refunded')`
       ).run();
-      console.log(`[Cron] TTL purge: webhook_info=${wi.meta?.changes ?? 0} billing_events=${be.meta?.changes ?? 0}`);
+      // Document events age in two tiers. A `verified` says "we checked this
+      // three months ago and it matched" — true, and of no use to anyone now. A
+      // `drift` is evidence about a document that may still be open with the AT,
+      // and that question gets asked a year later. See RETENTION_TIER.
+      const deRoutine = await env.DB.prepare(documentEventPurgeSql("routine")).run();
+      const deEvidence = await env.DB.prepare(documentEventPurgeSql("evidence")).run();
+      console.log(`[Cron] TTL purge: webhook_info=${wi.meta?.changes ?? 0} billing_events=${be.meta?.changes ?? 0} document_events=${(deRoutine.meta?.changes ?? 0) + (deEvidence.meta?.changes ?? 0)}`);
     } catch (e: any) {
       console.error(`[Cron] TTL purge failed: ${e.message}`);
     }

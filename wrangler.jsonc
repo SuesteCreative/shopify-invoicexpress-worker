@@ -39,7 +39,14 @@
     "NORMALIZE_IN_WORKER": "1",
     "STRIPE_HEAL_ENABLED": "1",
     "STRIPE_HEAL_DAYS": "30",
-    "STRIPE_HEAL_USERS": ""
+    "STRIPE_HEAL_USERS": "",
+    // Document verification sweep. Enabled 2026-08-15 after a manual run proved
+    // the capped concurrency holds: 300 documents read from Zoo de Lagos in 18s
+    // with zero unreadable, against a proxy that collapsed at 200 simultaneous.
+    "DOC_VERIFY_ENABLED": "1",
+    "DOC_VERIFY_DAYS": "3",
+    "DOC_VERIFY_LIMIT": "500",
+    "DOC_VERIFY_BUDGET_MS": "480000"
   },
   "kv_namespaces": [
     {

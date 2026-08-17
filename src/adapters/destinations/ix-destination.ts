@@ -12,6 +12,7 @@ import type {
   NormalizedRefund,
 } from "../types";
 import { parseIxDate } from "../../ix/date";
+import { resolveExemptionCode } from "../../ix/exemption";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
@@ -182,6 +183,11 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       // once the document leaves draft, so empty reads as "not numbered yet".
       number: d.sequence_number ? String(d.sequence_number) : null,
       permalink: d.permalink ? String(d.permalink) : null,
+      // What IX STORED, which is not always what we sent — see
+      // DestinationDocument.exemption_code. An empty string reads as "no code
+      // known", not as a code: reported literally it makes the verify sweep
+      // announce a drift from "M10" to "" on a document nobody touched.
+      exemption_code: resolveExemptionCode(d.tax_exemption, null),
       raw: d,
     };
   }
@@ -288,8 +294,11 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       items,
       reference: opts.reference,
       ...(opts.reason ? { observations: String(opts.reason) } : {}),
+      // Same trap as the date PUT: IX reads an exemption back as `tax_exemption`
+      // and sometimes as "", which `??` would keep and the wire would then drop,
+      // leaving IX to stamp M99 on the credit note. See resolveExemptionCode.
       tax_exemption_reason: requireTaxExemption
-        ? inv?.tax_exemption ?? ctx.config.ix_exemption_reason ?? undefined
+        ? resolveExemptionCode(inv?.tax_exemption, ctx.config.ix_exemption_reason) ?? undefined
         : undefined,
       owner_invoice_id: Number(invoiceId),
     };
@@ -359,11 +368,38 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     });
   }
 
+  /**
+   * Does InvoiceXpress already hold a document under this reference?
+   *
+   * `null` means NO — and it must only ever mean that. This used to ignore the
+   * error entirely, so a 5xx from the proxy (which sits on shared hosting and
+   * falls over under load) answered "no such document" to the question every
+   * create asks before issuing one. The three callers are all idempotency
+   * guards: the create path, the refund credit-note dedup, and the Lodgify
+   * instalment dedup. A wrong "no" from any of them mints a duplicate fiscal
+   * document.
+   *
+   * So an unreadable answer throws. The queue retries, the poll comes back in
+   * thirty minutes, and nothing is lost by waiting — which is not true of a
+   * duplicate. Moloni's own findByReference already works this way
+   * (`if (isMoloniTransient(e)) throw e`); this was the outlier.
+   */
   async findByReference(reference: string, ctx: AdapterCtx) {
     const res = await IxApi.v2.documents.reference.post({
       headers: ixHeadersFromCtx(ctx),
       body: { reference },
     });
+
+    // A failure can also arrive as HTTP 200 carrying `success: false`.
+    const problem = res.error ?? ixEnvelopeError(res.data);
+    if (problem) {
+      // A genuine "there is no such document" is the answer we were asked for.
+      if (isNotFoundIxError(problem, res.response)) return null;
+      throw new Error(
+        `InvoiceXpress reference lookup failed for "${reference}": ${JSON.stringify(problem).slice(0, 300)}`,
+      );
+    }
+
     const id = res.data?.data?.id;
     return id ? { id: String(id) } : null;
   }
@@ -413,11 +449,16 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   }
 
   async finalize(invoiceId: string, ctx: AdapterCtx): Promise<void> {
-    const { error } = await IxApi.v2.changeState.post({
+    const { data, error } = await IxApi.v2.changeState.post({
       body: { type: ixDocType(ctx), id: Number(invoiceId), state: "finalized" },
       headers: ixHeadersFromCtx(ctx),
     });
-    if (error) throw new Error(`InvoiceXpress finalize failed: ${JSON.stringify(error)}`);
+    // `error` alone is not enough: the proxy answers some failures with HTTP 200
+    // and `success: false`, which the SDK never surfaces as an error. Without the
+    // envelope check a refused finalize returned quietly and the caller went on
+    // to treat the document as certified.
+    const problem = error ?? ixEnvelopeError(data);
+    if (problem) throw new Error(`InvoiceXpress finalize failed: ${JSON.stringify(problem)}`);
   }
 
   async issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult> {
@@ -461,7 +502,12 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       body: { credit_note: creditNote },
       query: { resolvers: "on_tax_fallback_search_tax_by_value" },
     });
-    if (error) throw new Error(`InvoiceXpress credit create failed: ${JSON.stringify(error)}`);
+    // Envelope included so the REASON survives into the message. Without it a
+    // 200-with-`success:false` fell through to "credit returned no id", and
+    // classifyPipelineError keys on the message text — so a bad NIF stopped
+    // being recognisable as one.
+    const creditProblem = error ?? ixEnvelopeError(data);
+    if (creditProblem) throw new Error(`InvoiceXpress credit create failed: ${JSON.stringify(creditProblem)}`);
 
     const creditId = (data?.data as any)?.id
       ?? (data?.data as any)?.credit_note?.id

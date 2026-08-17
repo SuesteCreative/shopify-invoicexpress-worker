@@ -5,6 +5,7 @@ import type { AdapterCtx } from "../adapters/types";
 import { getMoloniCfg, getAccessToken, moloniCall } from "../adapters/destinations/moloni-destination";
 import { stripeFetch } from "../services/stripe";
 import { scoreHeuristicMatch } from "./reconciliation-score";
+import { mapWithConcurrency } from "../services/concurrency";
 import { saleReference, cancelReference } from "../services/document-references";
 import { isBookingFullyCollected } from "../services/lodgify-amounts";
 import { resolveConnectionContext } from "../services/connection-context";
@@ -172,26 +173,6 @@ function dateOnly(input: string): string {
   return m ? m[1] : "";
 }
 
-/** Map over items with a bounded number of in-flight promises. The IX proxy
- * (ix-proxy.kapta.app) sits on shared hosting and collapses under a burst of
- * ~200 simultaneous reads — a single reconciliation fired one fetch per invoice
- * via Promise.all with NO cap, so a 200-order shop hammered the proxy with 200
- * parallel GETs. Half timed out, their metas came back null, and every one of
- * those *issued* invoices was then rendered as "Sem fatura emitida" — the bug
- * that made a merchant think dozens of real invoices had vanished. Capping the
- * concurrency keeps the proxy responsive so the reads actually succeed. */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      out[i] = await fn(items[i]);
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}
 
 // ── Source fetchers (left side) ───────────────────────────────────────────────
 

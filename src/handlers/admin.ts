@@ -10,12 +10,14 @@ import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-docu
 import { saleReference, cancelReference } from "../services/document-references";
 import { fetchShopifyOrders, fetchOrdersByIds, shopifyOrderNotFoundHint } from "../services/shopify-orders";
 import { parseIxDate, formatPtDate, todayUtcYmd } from "../ix/date";
+import { resolveExemptionCode } from "../ix/exemption";
 // The IX-specific finalize machinery lives with the IX adapter now; these were
 // duplicated here and in admin-stripe.ts, and the copies had already drifted.
 import {
   buildIxDatePutBody, fetchAccountTaxes, fetchSeriesLastFinalizedDate,
   isAlreadyFinalizedIxError, isDateRejectionIxError,
 } from "../adapters/destinations/ix-finalize";
+import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 
 interface ShopifyOrderSummary {
   id: number;
@@ -537,7 +539,7 @@ export async function issueCreditNoteByOrderNumber(
     ...built,
     reference,
     tax_exemption_reason: requireTaxExemption
-      ? (lookup.ixInvoice as any)?.tax_exemption ?? config.ix_exemption_reason ?? undefined
+      ? resolveExemptionCode((lookup.ixInvoice as any)?.tax_exemption, config.ix_exemption_reason) ?? undefined
       : undefined,
     owner_invoice_id: Number(lookup.invoiceId),
   };
@@ -1091,6 +1093,19 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       if (existingId) {
         // Exists in IX but not in our DB — save the reference
         await appStorage.saveProcessedInvoice(orderId, existingId);
+        await logDocumentEvent(env, {
+          externalId: orderId,
+          event: "created",
+          dedupKey: `created:${existingId}`,
+          invoiceId: String(existingId),
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: "shopify",
+          destinationKind: "invoicexpress",
+          actor: "backfill",
+          summary: `O destino já tinha o documento ${existingId} com a referência ${ixRef}; foi associado à encomenda ${order.name ?? orderId} em vez de emitir um novo.`,
+          detail: { reference: ixRef, linked: true },
+        });
         return { order_id: order.id, order_number: order.order_number, status: "skipped", message: `Already exists in InvoiceXpress (id=${existingId}), synced to DB` };
       }
     }
@@ -1121,14 +1136,71 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       // Writing the hold (or NULL) here is what makes a re-emit the fix for a
       // held order: the merchant corrects the address in Shopify, re-emits, and
       // the fresh build has no hold, so finalize is unblocked.
+      const invoiceId = String(ixCreateResponse.data.data.id);
       const holdReason = nifHold ? nifHoldReason(nifHold) : null;
-      await appStorage.saveProcessedInvoice(orderId, String(ixCreateResponse.data.data.id), { holdReason });
+      await appStorage.saveProcessedInvoice(orderId, invoiceId, { holdReason });
+
+      // The intent, on THE path that has stamped wrong exemption codes before:
+      // every confirmed M99 case (Mindful Muse, Bikini Books, DO IT BRAVELY,
+      // lliberta) came from a backfill/re-emission, and none of them recorded
+      // what was sent — so the 04:00 sweep can now hold the next backfill to it.
+      await logDocumentEvent(env, {
+        externalId: orderId,
+        event: "built",
+        dedupKey: `built:${invoiceId}`,
+        invoiceId,
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: "shopify",
+        destinationKind: "invoicexpress",
+        actor: "backfill",
+        summary: `Documento ${invoiceId} emitido (backfill/reemissão) para a encomenda ${order.name ?? orderId} por ${Number(order.total_price ?? 0).toFixed(2)} €${invoice.tax_exemption_reason ? `, isenção ${invoice.tax_exemption_reason}` : ""}.`,
+        detail: {
+          intent: {
+            total: Number.isFinite(Number(order.total_price)) ? Number(order.total_price) : null,
+            reference: invoice.reference ?? null,
+            exemptionCode: invoice.tax_exemption_reason ?? null,
+          },
+          via,
+          holdReason,
+        },
+      });
+
+      if (holdReason) {
+        await logDocumentEvent(env, {
+          externalId: orderId,
+          event: "held",
+          dedupKey: `held:${invoiceId}`,
+          invoiceId,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: "shopify",
+          destinationKind: "invoicexpress",
+          actor: "backfill",
+          summary: `Documento ${invoiceId} ficou retido em rascunho para revisão: ${holdReason}.`,
+          detail: { invoiceId, holdReason },
+        });
+      }
+
       const suffix = via !== "none" ? ` (cliente recriado via fallback: ${via})` : "";
       const holdNote = holdReason ? ` — em rascunho: ${holdReason}` : "";
-      return { order_id: order.id, order_number: order.order_number, status: "created", message: `Invoice ${ixCreateResponse.data.data.id} created${suffix}${holdNote}` };
+      return { order_id: order.id, order_number: order.order_number, status: "created", message: `Invoice ${invoiceId} created${suffix}${holdNote}` };
     }
 
-    return { order_id: order.id, order_number: order.order_number, status: "error", message: `IX API returned no id: ${JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data)}` };
+    const ixRefusal = JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data).slice(0, 1500);
+    await logDocumentEvent(env, {
+      externalId: orderId,
+      event: "create_failed",
+      dedupKey: `create_failed:${orderId}:${new Date().toISOString().slice(0, 10)}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: "shopify",
+      destinationKind: "invoicexpress",
+      actor: "backfill",
+      summary: `O InvoiceXpress recusou emitir o documento da encomenda ${order.name ?? orderId} (backfill/reemissão): ${explainPlatformError(ixRefusal, "invoicexpress")}`,
+      detail: { error: ixRefusal },
+    });
+    return { order_id: order.id, order_number: order.order_number, status: "error", message: `IX API returned no id: ${ixRefusal}` };
   } catch (e) {
     return { order_id: order.id, order_number: order.order_number, status: "error", message: String(e) };
   }

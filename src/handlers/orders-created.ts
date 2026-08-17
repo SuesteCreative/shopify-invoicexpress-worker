@@ -18,10 +18,26 @@ import { logDocumentEvent, explainPlatformError } from "../services/document-log
 import { platformError } from "../services/platform-error";
 
 /**
- * Tell the merchant a document was left as a draft because the buyer's address
- * line 2 held something that was meant to be a NIF and did not validate. They
- * are the only person who can resolve it, and only while the order is fresh —
- * so this is a real-time email, not a digest line.
+ * The half-sentence that says what the merchant has to go and fix. Two shapes,
+ * because the two holds ask for different corrections: one is a number that
+ * does not validate, the other is a number that does not belong to the country
+ * on the address.
+ */
+function holdCause(hold: NifHold): string {
+  if (hold.kind === "country_mismatch") {
+    return `o número de contribuinte "${hold.raw}" não pertence ao país da morada de facturação`
+      + `${hold.billingCountry ? ` (${hold.billingCountry})` : " (que ficou por indicar)"}`
+      + `. Corrija a morada ou o número e reemita`;
+  }
+  return `a morada trazia um NIF inválido ("${hold.raw}" em ${hold.field})`;
+}
+
+/**
+ * Tell the merchant a document was left as a draft because of the buyer's tax
+ * id — an address line that held something meant to be a NIF and did not
+ * validate, or an EU VAT whose country contradicts the address. They are the
+ * only person who can resolve either, and only while the order is fresh — so
+ * this is a real-time email, not a digest line.
  *
  * Best-effort throughout: the invoice is already created and saved by the time
  * we get here, so nothing in this function may fail the webhook.
@@ -47,8 +63,13 @@ async function notifyNifHold(
       // hour joins the first one's bucket and the merchant is never told about
       // it — they would see one email and two stuck drafts.
       dedup_key: invoiceId,
-      summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque a morada trazia um NIF inválido ("${hold.raw}" em ${hold.field}).`,
-      detail: { invoiceId, raw: hold.raw, field: hold.field, permalink, orderRef, clientName, orderId: String(order?.id ?? "") },
+      summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque ${holdCause(hold)}.`,
+      detail: {
+        invoiceId, raw: hold.raw, permalink, orderRef, clientName, orderId: String(order?.id ?? ""),
+        ...(hold.kind === "country_mismatch"
+          ? { billing_country: hold.billingCountry }
+          : { field: hold.field }),
+      },
       affected_ids: [String(order?.id ?? invoiceId)],
       connection_label: "shopify → invoicexpress",
       order_ref: orderRef,

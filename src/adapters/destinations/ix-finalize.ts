@@ -3,6 +3,7 @@ import type { AdapterCtx, FinalizeDateStrategy, FinalizeOutcome } from "../types
 import { IxApi } from "../../api/ix";
 import { ixExpectedTotals } from "../../ix/create-invoice";
 import { parseIxDate, formatPtDate, todayUtcYmd } from "../../ix/date";
+import { resolveExemptionCode } from "../../ix/exemption";
 
 /**
  * Certifying a draft in InvoiceXpress, and the date negotiation that goes with it.
@@ -224,13 +225,37 @@ export function buildIxDatePutBody(
     );
   }
 
-  // IX rejects a document with a 0% line unless a razão de isenção travels with
-  // it — the PUT included. Without this, an exempt document (art. 53, exports,
-  // reverse charge) could never have its date moved: every retro-finalize died
-  // on "Razão de isenção deve ter uma opção selecionada". Prefer the code the
-  // document already carries, fall back to the shop's configured one.
+  // A 0% line must name the legal reason it is exempt, and this PUT REPLACES the
+  // document — so a reason that does not travel with it is a reason the document
+  // no longer has.
+  //
+  // The old spelling was `doc.tax_exemption ?? (isExempt ? ctx.exemptionReason : null)`,
+  // and it is how lliberta's 11/LL came to declare M99. IX read the draft back
+  // with `tax_exemption: ""`; `??` keeps an empty string, the truthiness test
+  // below then dropped the field, and IX — which does NOT refuse an exempt
+  // document with no reason, contrary to what this code assumed — stamped its own
+  // default, M99. The observations still print the M10 text to this day, because
+  // observations ARE sent verbatim: the sentence survived and the code did not.
+  // Same for the Bikini Books and DO IT BRAVELY documents, all of them backfills,
+  // because only a date that has to MOVE reaches this rewrite at all.
+  //
+  // The shop's configured code applies ONLY to a document that is actually
+  // exempt. Handing it to a fully taxed document would declare an exemption it
+  // does not have — the mirror image of the bug above, and just as wrong.
   const isExemptDocument = items.some((it: any) => Number(it?.tax?.value ?? 0) === 0);
-  const exemptionReason = doc.tax_exemption ?? (isExemptDocument ? ctx.exemptionReason ?? null : null);
+  const storedCode = resolveExemptionCode(doc.tax_exemption, null);
+  const exemptionReason = storedCode ?? (isExemptDocument ? resolveExemptionCode(null, ctx.exemptionReason) : null);
+
+  // Refuse rather than restate the document's tax regime. Same posture as the
+  // tax rebuild above: leaving a draft un-certified is recoverable, quietly
+  // reissuing it under a regime nobody chose is not.
+  if (isExemptDocument && !exemptionReason) {
+    throw new Error(
+      `O documento tem linhas isentas e não sei a razão de isenção `
+      + `(nem o documento a devolve, nem a loja tem uma configurada) `
+      + `— não reescrevo o documento sem ela, o IX ficaria com M99`,
+    );
+  }
 
   return {
     type: ixDocType,
@@ -241,7 +266,7 @@ export function buildIxDatePutBody(
       items,
       observations,
       ...(doc.reference ? { reference: String(doc.reference) } : {}),
-      ...(exemptionReason ? { tax_exemption_reason: String(exemptionReason) } : {}),
+      ...(exemptionReason ? { tax_exemption_reason: exemptionReason } : {}),
     },
   };
 }

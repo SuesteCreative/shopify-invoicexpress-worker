@@ -95,7 +95,10 @@ export function historicalDocumentsSql(scopeCount = 0): string {
        AND NOT EXISTS (
              SELECT 1 FROM document_events v
               WHERE v.invoice_id = p.invoice_id
-                AND v.event IN ('verified', 'drift')
+                -- drift_lead counts as a verdict HERE: an unconfirmed lead is
+                -- resolved by a person, not by re-reading the same document on
+                -- every history run.
+                AND v.event IN ('verified', 'drift', 'drift_lead')
            )
      ORDER BY p.created_at DESC
      LIMIT ?`;
@@ -274,6 +277,9 @@ export async function runDocumentVerifySweep(
         destinationKind: c.destinationKind,
         actor: "cron:document-verify",
         orderRef: c.externalId,
+        // In history mode a mismatch is a `drift_lead`, not a `drift`: the
+        // acceptable set above is today's config, and config changes over time.
+        historical: history,
       }).catch((e: any) => {
         console.error(`[DocVerify] ${c.invoiceId} threw: ${e?.message ?? e}`);
         return { checked: false, drifts: [] as any[] };

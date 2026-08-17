@@ -167,6 +167,12 @@ export interface VerifyArgs {
   actor?: string | null;
   /** For the incident summary: "#1013", "pi_3U4H6U…". */
   orderRef?: string | null;
+  /**
+   * History mode: the comparison ran against TODAY's configuration, not a
+   * recorded intent, so a mismatch is a lead to confirm rather than a verdict.
+   * Writes `drift_lead` (info, routine retention) and raises no incident.
+   */
+  historical?: boolean;
 }
 
 /**
@@ -243,6 +249,27 @@ export async function verifyCreatedDocument(args: VerifyArgs): Promise<VerifyOut
       },
     });
     return { checked: true, drifts: [] };
+  }
+
+  // A historical finding is NOT proof of a fault: the acceptable set was built
+  // from today's configuration, and configuration changes over time — Bikini
+  // Books' documents predating its M01→M05 change would read as "drifted" for
+  // ever under the strict event. The lead is written so it is not re-found every
+  // run, but it stays info-severity and raises no incident until a person
+  // confirms it against the document's own day.
+  if (args.historical) {
+    const leadLines = drifts.map(d => `${d.field}: a configuração de hoje permite ${d.sent}, o documento declara ${d.stored}`).join(" · ");
+    await logDocumentEvent(env, {
+      ...base,
+      event: "drift_lead",
+      dedupKey: `drift_lead:${invoiceId}`,
+      summary:
+        `Documento ${docName} da venda ${label} difere da configuração ACTUAL da loja — ${leadLines}. `
+        + `É uma pista, não um veredicto: a configuração pode ter sido outra no dia da emissão. `
+        + `Confirmar documento a documento antes de agir.`,
+      detail: { invoiceId, state: stored.state, number: stored.number, drifts, unconfirmed: true },
+    });
+    return { checked: true, drifts };
   }
 
   const lines = drifts.map(d => `${d.field}: enviámos ${d.sent}, ficou ${d.stored}`).join(" · ");

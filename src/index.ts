@@ -897,7 +897,9 @@ app.post("/admin/run-document-verify", async (c) => {
 
 /**
  * Everything that came out different from what we sent, newest first. Ops-only —
- * this is the feed a corrections queue would be built on.
+ * this is the feed a corrections queue would be built on. Includes `drift_lead`
+ * rows (history-mode findings, `detail.unconfirmed = true`) so unconfirmed leads
+ * are triaged from the same place; only `drift` is a verdict.
  */
 app.get("/admin/document-drifts", async (c) => {
   const unauth = await requireAdmin(c);

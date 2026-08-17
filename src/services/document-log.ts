@@ -40,6 +40,14 @@ export type DocumentEventKind =
   | "verified"
   /** Read back and something did NOT match. The row this whole table exists for. */
   | "drift"
+  /**
+   * A history-mode mismatch — a lead, not a verdict. History compares a document
+   * against TODAY's configuration, and configuration changes over time (Bikini
+   * Books went M01→M05 this year), so the stored code may be the config of its
+   * day rather than a fault. Confirmed per document, it is promoted to `drift`;
+   * disproven, it is deleted.
+   */
+  | "drift_lead"
   /** Could not read it back (proxy down, rate limited). NOT evidence of a problem. */
   | "verify_failed"
   | "credit_issued"
@@ -56,6 +64,7 @@ const SEVERITY: Record<DocumentEventKind, "info" | "warning" | "error"> = {
   emailed: "info",
   verified: "info",
   drift: "error",
+  drift_lead: "info",
   verify_failed: "warning",
   credit_issued: "info",
   reissued: "info",
@@ -72,6 +81,7 @@ export const EVENT_LABELS: Record<DocumentEventKind, string> = {
   emailed: "Enviado ao comprador",
   verified: "Conferido no destino",
   drift: "Divergência no destino",
+  drift_lead: "Divergência por confirmar",
   verify_failed: "Conferência indisponível",
   credit_issued: "Nota de crédito emitida",
   reissued: "Reemitido",
@@ -99,6 +109,9 @@ export const RETENTION_TIER: Record<DocumentEventKind, "routine" | "evidence"> =
   verified: "routine",
   verify_failed: "routine",
   skipped: "routine",
+  // A lead is routine on purpose: unconfirmed, it must not enjoy the 365-day
+  // evidence window — either it is confirmed into a `drift` or it ages out.
+  drift_lead: "routine",
   // Evidence. Something went wrong, or a document was undone — the things you go
   // looking for months later, usually because an accountant asked.
   create_failed: "evidence",
@@ -297,10 +310,10 @@ export async function readRecentDrifts(
   const limit = opts.limit ?? 100;
   const sql = opts.userId
     ? `SELECT id, external_id, invoice_id, event, severity, summary, detail_json, actor, created_at
-         FROM document_events WHERE event IN ('drift','create_failed') AND user_id = ? AND created_at >= ?
+         FROM document_events WHERE event IN ('drift','drift_lead','create_failed') AND user_id = ? AND created_at >= ?
          ORDER BY created_at DESC LIMIT ?`
     : `SELECT id, external_id, invoice_id, event, severity, summary, detail_json, actor, created_at
-         FROM document_events WHERE event IN ('drift','create_failed') AND created_at >= ?
+         FROM document_events WHERE event IN ('drift','drift_lead','create_failed') AND created_at >= ?
          ORDER BY created_at DESC LIMIT ?`;
   const stmt = opts.userId
     ? env.DB.prepare(sql).bind(opts.userId, since, limit)

@@ -51,7 +51,7 @@ describe("retention tiers", () => {
     // the table for ever.
     const kinds: DocumentEventKind[] = [
       "built", "create_failed", "created", "held", "finalized", "emailed",
-      "verified", "drift", "verify_failed", "credit_issued", "reissued", "skipped",
+      "verified", "drift", "drift_lead", "verify_failed", "credit_issued", "reissued", "skipped",
     ];
     for (const k of kinds) expect(RETENTION_TIER[k]).toBeDefined();
   });
@@ -61,6 +61,9 @@ describe("retention tiers", () => {
     expect(RETENTION_TIER.drift).toBe("evidence");
     expect(RETENTION_TIER.create_failed).toBe("evidence");
     expect(RETENTION_TIER.verified).toBe("routine");
+    // An unconfirmed lead does not enjoy the evidence window: it is confirmed
+    // into a `drift` or it ages out with the routine tier.
+    expect(RETENTION_TIER.drift_lead).toBe("routine");
   });
 
   it("does not expire a drift at an age that expires a verified", () => {

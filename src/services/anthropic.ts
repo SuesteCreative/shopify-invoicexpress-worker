@@ -45,6 +45,10 @@ export interface RedactedIncident {
   destination?: string;
   currency?: string;
   error_message?: string;
+  /** The destination's own HTTP status. Permanent-vs-transient hinges on it. */
+  http_status?: number;
+  /** How many times the queue had tried before giving up. */
+  attempts?: number;
   totals?: { paid?: number; expected?: number; drift?: number };
   lines?: RedactedLine[];
 }
@@ -97,6 +101,9 @@ export function redactIncident(input: ReportIncidentInput): RedactedIncident {
     source: typeof detail.source === "string" ? detail.source : undefined,
     destination: typeof detail.destination === "string" ? detail.destination : undefined,
     currency: typeof detail.currency === "string" ? detail.currency : undefined,
+    // Numbers, so they cannot smuggle free text past the whitelist.
+    http_status: typeof detail.http_status === "number" ? detail.http_status : undefined,
+    attempts: typeof detail.attempts === "number" ? detail.attempts : undefined,
   };
   if (input.kind === "reconcile_drift" && rawMessage) {
     const { totals, lines } = parseReconcile(rawMessage);
@@ -120,7 +127,9 @@ ${RIOKO_DOMAIN_KNOWLEDGE}
 - reconcile_drift: usa totals (paid/expected/drift) + as linhas e a regra do IVA incluído/effectiveRate;
   nomeia o SKU em causa e a correção (override tax_rate/vat_inclusion ou definição de impostos da loja).
 - destination_reject / queue_retry_exhausted: interpreta error_message — permanente (4xx) vs transitório
-  (5xx/502/timeout) vs autenticação (401/token).
+  (5xx/502/timeout) vs autenticação (401/token). Quando http_status vier preenchido, é o estado HTTP REAL
+  devolvido pelo destino: prefere-o a qualquer número que apareça dentro do texto do erro. A sua ausência
+  significa que o destino nunca chegou a responder (falha de transporte), não que a resposta foi 200.
 - nif_invalid: o NIF não validou — confirmar com o cliente ou tratar como estrangeiro.
 - nif_invalid_draft: a segunda linha da morada trazia algo com forma de NIF que não validou; o documento
   FOI emitido em rascunho sem esse número. Diz o que corrigir no Shopify e que basta reemitir.

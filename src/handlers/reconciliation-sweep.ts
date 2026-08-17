@@ -188,7 +188,13 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
           severity: "error",
           kind: "queue_retry_exhausted",
           summary: `Reconciliation sweep: ${row.errors} order(s) could not be auto-invoiced for ${row.displayName}`.slice(0, 500),
-          detail: { shop: shopify_domain, merchant: row.displayName, window: { from: fromIso, to: toIso }, errors: row.errorSamples },
+          detail: {
+            shop: shopify_domain, merchant: row.displayName, window: { from: fromIso, to: toIso }, errors: row.errorSamples,
+            // The per-order reasons were nested inside `errors`, where the
+            // triage redaction never looked — so the email carrying the most
+            // diagnostic detail was the one the model called uninformative.
+            message: summarizeErrorSamples(row.errorSamples),
+          },
           // Use the Shopify order_id (what processed_orders is keyed by) so the
           // weekly digest can verify these against invoices and auto-close them
           // once healed. Fall back to order_number only when id is unknown
@@ -302,7 +308,10 @@ async function reportStarvedShops(
       severity: "critical",
       kind: "queue_retry_exhausted",
       summary: `Sweep de reconciliação não completa há mais de ${staleHours}h para ${displayName} — faturas em falta podem não estar a ser recuperadas.`,
-      detail: { shop: shop.shopify_domain, last_completed_at: last, stale_hours: staleHours },
+      detail: {
+        shop: shop.shopify_domain, last_completed_at: last, stale_hours: staleHours,
+        message: `O sweep de reconciliação desta loja não completa há mais de ${staleHours}h (última conclusão: ${last ?? "nunca"}). Não é uma recusa do destino — o próprio varrimento não está a correr até ao fim.`,
+      },
       connection_label: "shopify → invoicexpress",
       merchant_name: displayName,
       bucket: "daily",
@@ -527,7 +536,11 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
           severity: "error",
           kind: "queue_retry_exhausted",
           summary: `Stripe auto-heal: ${row.errors} payment(s) could not be auto-invoiced for ${displayName}`.slice(0, 500),
-          detail: { user_id: conn.user_id, merchant: displayName, destination: conn.destination_kind, window: { from: fromIso, to: toIso }, errors: row.errorSamples },
+          detail: {
+            user_id: conn.user_id, merchant: displayName, destination: conn.destination_kind,
+            window: { from: fromIso, to: toIso }, errors: row.errorSamples,
+            message: summarizeErrorSamples(row.errorSamples),
+          },
           connection_label: `stripe → ${conn.destination_kind}`,
           merchant_name: displayName,
           bucket: "daily",
@@ -551,6 +564,25 @@ function collectErrors(row: ShopSweepRow, results: Array<{ order_id?: string | n
   for (const r of results ?? []) {
     if (r.status === "error") row.errorSamples.push({ order_number: r.order_number, order_id: r.order_id != null ? String(r.order_id) : undefined, message: String(r.message).slice(0, 300) });
   }
+}
+
+/**
+ * The distinct reasons behind an aggregate sweep failure, as one sentence.
+ *
+ * A sweep incident covers many orders, and dozens of them usually failed on the
+ * same thing — so the useful summary is the distinct reasons, not the first N.
+ * Feeds `detail.message`, which is what the triage redaction reads.
+ */
+function summarizeErrorSamples(
+  samples: Array<{ order_number?: number; message: string }> | string[] | undefined,
+  max = 3,
+): string | undefined {
+  const texts = (samples ?? []).map((s) => (typeof s === "string" ? s : s.message)).filter(Boolean);
+  if (texts.length === 0) return undefined;
+  const distinct = Array.from(new Set(texts));
+  const shown = distinct.slice(0, max).join(" | ");
+  const rest = distinct.length - max;
+  return `${texts.length} falha(s), ${distinct.length} motivo(s) distinto(s): ${shown}${rest > 0 ? ` (+${rest} outro(s))` : ""}`.slice(0, 1500);
 }
 
 function escapeHtml(s: string): string {

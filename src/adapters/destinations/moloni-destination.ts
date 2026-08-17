@@ -15,6 +15,7 @@ import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { redactSecrets } from "../../security";
 import { refundReference, isRefundReference, documentReference } from "../../services/document-references";
+import { platformError } from "../../services/platform-error";
 
 /**
  * MoloniDestination
@@ -357,7 +358,7 @@ export async function moloniCall<T = unknown>(
   if (!res.ok) {
     // Moloni returns 401 on expired tokens — propagate so the error classifier
     // in generic-pipeline tags it as auth_failure_destination.
-    throw new Error(`Moloni ${opName} failed: ${res.status} — ${safeErrorJson(json)}`);
+    throw platformError(`Moloni ${opName} failed: ${res.status} — ${safeErrorJson(json)}`, res.status);
   }
   // Moloni often returns `{valid: 1, ...}` on success; `{valid: 0, errors: ...}`
   // on logical failure (e.g. invalid NIF). Treat both 200+valid:0 as errors.

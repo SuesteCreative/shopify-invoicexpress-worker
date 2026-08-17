@@ -20,6 +20,7 @@ import { IxBuilder, nifHoldReason, type IxCreditNote } from "../../ix/builder";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../../services/ix-document-email";
 import { refundReference } from "../../services/document-references";
+import { platformError } from "../../services/platform-error";
 
 // Sequences cache: accountName → [{id, serie}]. Survives within a Worker isolate,
 // flushed on cold start. The sequences list changes rarely so this is safe.
@@ -442,14 +443,18 @@ export class InvoiceXpressDestination implements DestinationAdapter {
 
     const id = res.data?.data?.id;
     if (!id) {
+      const status = res.response?.status;
       const detail = JSON.stringify({ body: res.data, error: res.error });
-      throw new Error(`InvoiceXpress create failed: ${detail.slice(0, 500)}`);
+      throw platformError(
+        `InvoiceXpress create failed${status ? ` (HTTP ${status})` : ""}: ${detail.slice(0, 500)}`,
+        status,
+      );
     }
     return { invoiceId: String(id), holdReason: nifHold ? nifHoldReason(nifHold) : null };
   }
 
   async finalize(invoiceId: string, ctx: AdapterCtx): Promise<void> {
-    const { data, error } = await IxApi.v2.changeState.post({
+    const { data, error, response } = await IxApi.v2.changeState.post({
       body: { type: ixDocType(ctx), id: Number(invoiceId), state: "finalized" },
       headers: ixHeadersFromCtx(ctx),
     });
@@ -458,7 +463,9 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     // envelope check a refused finalize returned quietly and the caller went on
     // to treat the document as certified.
     const problem = error ?? ixEnvelopeError(data);
-    if (problem) throw new Error(`InvoiceXpress finalize failed: ${JSON.stringify(problem)}`);
+    if (problem) {
+      throw platformError(`InvoiceXpress finalize failed: ${JSON.stringify(problem)}`, response?.status);
+    }
   }
 
   async issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult> {
@@ -497,7 +504,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       owner_invoice_id: Number(invoiceId),
     };
 
-    const { data, error } = await IxApi.v2.creditNotes.post({
+    const { data, error, response } = await IxApi.v2.creditNotes.post({
       headers: ixHeadersFromCtx(ctx),
       body: { credit_note: creditNote },
       query: { resolvers: "on_tax_fallback_search_tax_by_value" },
@@ -507,7 +514,12 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     // classifyPipelineError keys on the message text — so a bad NIF stopped
     // being recognisable as one.
     const creditProblem = error ?? ixEnvelopeError(data);
-    if (creditProblem) throw new Error(`InvoiceXpress credit create failed: ${JSON.stringify(creditProblem)}`);
+    if (creditProblem) {
+      throw platformError(
+        `InvoiceXpress credit create failed: ${JSON.stringify(creditProblem)}`,
+        response?.status,
+      );
+    }
 
     const creditId = (data?.data as any)?.id
       ?? (data?.data as any)?.credit_note?.id

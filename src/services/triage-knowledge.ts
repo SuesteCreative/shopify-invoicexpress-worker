@@ -62,6 +62,9 @@ menção M16 (art. 196.º Directiva IVA). Requer VIES confirmado + flags da cont
 (vies_unconfirmed) à espera de validação manual.
 
 ## Destinos e como ler os erros
+- O campo http_status, quando existe, é o estado HTTP que o destino devolveu, capturado na origem —
+  não um número extraído do texto. É a evidência mais fiável para separar permanente de transitório.
+  Quando falta, o erro pode nem ter chegado ao destino (falha de transporte, retries esgotadas).
 - destination_reject / queue_retry_exhausted trazem o erro CRU do destino. Distingue:
   • Permanente (4xx determinístico): NIF/cliente inválido, campo obrigatório em falta, série sem
     permissões, documento inválido. Não resolve com retry — exige correção dos dados.

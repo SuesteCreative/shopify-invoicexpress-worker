@@ -309,7 +309,10 @@ export async function runDocumentVerifySweep(
         kind: "queue_retry_exhausted",
         bucket: "daily",
         summary: `O registo de documentos perdeu ${lost} escrita(s) — o histórico desta janela está incompleto.`,
-        detail: { lost, window: result.window },
+        detail: {
+          lost, window: result.window,
+          message: `${lost} escrita(s) no registo de documentos falharam nesta janela (desde ${result.window?.from ?? "?"}, ${result.window?.days ?? "?"} dia(s)). Não é uma recusa do destino: as gravações em D1 é que não passaram, pelo que o histórico desta janela está incompleto.`,
+        },
       });
     } catch (e: any) {
       console.error(`[DocVerify] could not report ${lost} lost log write(s): ${e?.message ?? e}`);

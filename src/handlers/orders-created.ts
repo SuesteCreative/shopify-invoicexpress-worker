@@ -15,6 +15,7 @@ import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { saleReference } from "../services/document-references";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
+import { platformError } from "../services/platform-error";
 
 /**
  * Tell the merchant a document was left as a draft because the buyer's address
@@ -436,6 +437,9 @@ async function createInvoiceForOrder(
     // it to the log row AND embed it in the thrown Error so the queue consumer's
     // own error log / incident carries it too.
     const ixError = JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data ?? null).slice(0, 1500);
+    // The status answers "will retrying help?" — the one thing the error body
+    // never says outright. It rides along on the SDK result and was discarded.
+    const httpStatus = ixCreateResponse.response?.status;
     console.log(`[Rioko] Failed to create invoice for order ${orderId}: ${ixError}`);
 
     // If the failure is the IX plan's document-quota limit, alert the merchant
@@ -446,7 +450,7 @@ async function createInvoiceForOrder(
       shopify_domain: config.shopify_domain,
       topic: webhookTopic,
       payload: JSON.stringify({ orderId }),
-      response: `IX create failed: ${ixError}`,
+      response: `IX create failed${httpStatus ? ` (HTTP ${httpStatus})` : ""}: ${ixError}`,
       status: 500,
     });
 
@@ -462,7 +466,7 @@ async function createInvoiceForOrder(
       destinationKind: "invoicexpress",
       actor: "pipeline",
       summary: `O InvoiceXpress recusou emitir o documento da encomenda ${order.name ?? orderId}: ${explainPlatformError(ixError, "invoicexpress")}`,
-      detail: { error: ixError.slice(0, 1500) },
+      detail: { error: ixError.slice(0, 1500), http_status: httpStatus },
     });
 
     // Mark webhook as failed
@@ -470,6 +474,6 @@ async function createInvoiceForOrder(
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
     }
 
-    throw new Error(`Failed to create invoice for order ${orderId}: ${ixError}`);
+    throw platformError(`Failed to create invoice for order ${orderId}: ${ixError}`, httpStatus);
   }
 }

@@ -13,6 +13,7 @@ import { refundReference, documentReference } from "../services/document-referen
 import { buildAdapterCtx } from "../services/adapter-ctx";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 import { connectionLabelOf } from "../services/connection-context";
+import { httpStatusOf } from "../services/platform-error";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
@@ -82,6 +83,13 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
   const isDestCreateError =
     msg.includes("invoicexpress create failed")
     || msg.includes("invoicexpress credit create failed")
+    // The legacy Shopify→IX handler phrases the same refusal differently
+    // ("Failed to create invoice for order N: {IX body}"). Without this the
+    // message matched nothing, fell through to the default destination_reject
+    // /non-permanent branch — the one branch exempted from the transient
+    // give-up — so a bad NIF ground all 10 attempts into the DLQ, where the
+    // incident carries no error text at all.
+    || msg.includes("failed to create invoice")
     || (msg.includes("moloni") && msg.includes("fail"))
     || (msg.includes("vendus") && msg.includes("fail"));
   if (isDestCreateError) {
@@ -217,7 +225,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
         summary: `${logTopic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(err as any)?.message ?? String(err)}`.slice(0, 500),
         // `raw`/`field` are set by InvalidAddressNifError so the merchant email
         // can quote the exact address-line-2 value that blocked the invoice.
-        detail: { message: (err as any)?.message, raw: (err as any)?.raw, field: (err as any)?.field, orderRef, clientName, externalId, topic, source, destination },
+        detail: { message: (err as any)?.message, http_status: httpStatusOf(err), raw: (err as any)?.raw, field: (err as any)?.field, orderRef, clientName, externalId, topic, source, destination },
         affected_ids: [externalId],
         connection_label: connectionLabel,
         order_ref: orderRef,
@@ -240,7 +248,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
           destinationKind: destination,
           actor: "pipeline",
           summary: `O destino recusou emitir o documento da venda ${externalId}: ${explainPlatformError(String((err as any)?.message ?? err), destination)}`,
-          detail: { kind, message: String((err as any)?.message ?? err).slice(0, 600) },
+          detail: { kind, message: String((err as any)?.message ?? err).slice(0, 600), http_status: httpStatusOf(err) },
         });
       }
       // Same payload will never succeed. Persist a failure log, ack-by-return,

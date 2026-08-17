@@ -15,12 +15,29 @@ import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { saleReference } from "../services/document-references";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
+import { platformError } from "../services/platform-error";
 
 /**
- * Tell the merchant a document was left as a draft because the buyer's address
- * line 2 held something that was meant to be a NIF and did not validate. They
- * are the only person who can resolve it, and only while the order is fresh —
- * so this is a real-time email, not a digest line.
+ * The half-sentence that says what the merchant has to go and fix. Two shapes,
+ * because the two holds ask for different corrections: one is a number that
+ * does not validate, the other is a number that does not belong to the country
+ * on the address.
+ */
+function holdCause(hold: NifHold): string {
+  if (hold.kind === "country_mismatch") {
+    return `o número de contribuinte "${hold.raw}" não pertence ao país da morada de facturação`
+      + `${hold.billingCountry ? ` (${hold.billingCountry})` : " (que ficou por indicar)"}`
+      + `. Corrija a morada ou o número e reemita`;
+  }
+  return `a morada trazia um NIF inválido ("${hold.raw}" em ${hold.field})`;
+}
+
+/**
+ * Tell the merchant a document was left as a draft because of the buyer's tax
+ * id — an address line that held something meant to be a NIF and did not
+ * validate, or an EU VAT whose country contradicts the address. They are the
+ * only person who can resolve either, and only while the order is fresh — so
+ * this is a real-time email, not a digest line.
  *
  * Best-effort throughout: the invoice is already created and saved by the time
  * we get here, so nothing in this function may fail the webhook.
@@ -46,8 +63,13 @@ async function notifyNifHold(
       // hour joins the first one's bucket and the merchant is never told about
       // it — they would see one email and two stuck drafts.
       dedup_key: invoiceId,
-      summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque a morada trazia um NIF inválido ("${hold.raw}" em ${hold.field}).`,
-      detail: { invoiceId, raw: hold.raw, field: hold.field, permalink, orderRef, clientName, orderId: String(order?.id ?? "") },
+      summary: `A factura ${invoiceId}${orderRef ? `, referente à encomenda ${orderRef},` : ""} ficou em rascunho porque ${holdCause(hold)}.`,
+      detail: {
+        invoiceId, raw: hold.raw, permalink, orderRef, clientName, orderId: String(order?.id ?? ""),
+        ...(hold.kind === "country_mismatch"
+          ? { billing_country: hold.billingCountry }
+          : { field: hold.field }),
+      },
       affected_ids: [String(order?.id ?? invoiceId)],
       connection_label: "shopify → invoicexpress",
       order_ref: orderRef,
@@ -436,6 +458,9 @@ async function createInvoiceForOrder(
     // it to the log row AND embed it in the thrown Error so the queue consumer's
     // own error log / incident carries it too.
     const ixError = JSON.stringify(ixCreateResponse.error ?? ixCreateResponse.data ?? null).slice(0, 1500);
+    // The status answers "will retrying help?" — the one thing the error body
+    // never says outright. It rides along on the SDK result and was discarded.
+    const httpStatus = ixCreateResponse.response?.status;
     console.log(`[Rioko] Failed to create invoice for order ${orderId}: ${ixError}`);
 
     // If the failure is the IX plan's document-quota limit, alert the merchant
@@ -446,7 +471,7 @@ async function createInvoiceForOrder(
       shopify_domain: config.shopify_domain,
       topic: webhookTopic,
       payload: JSON.stringify({ orderId }),
-      response: `IX create failed: ${ixError}`,
+      response: `IX create failed${httpStatus ? ` (HTTP ${httpStatus})` : ""}: ${ixError}`,
       status: 500,
     });
 
@@ -462,7 +487,7 @@ async function createInvoiceForOrder(
       destinationKind: "invoicexpress",
       actor: "pipeline",
       summary: `O InvoiceXpress recusou emitir o documento da encomenda ${order.name ?? orderId}: ${explainPlatformError(ixError, "invoicexpress")}`,
-      detail: { error: ixError.slice(0, 1500) },
+      detail: { error: ixError.slice(0, 1500), http_status: httpStatus },
     });
 
     // Mark webhook as failed
@@ -470,6 +495,6 @@ async function createInvoiceForOrder(
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "failed");
     }
 
-    throw new Error(`Failed to create invoice for order ${orderId}: ${ixError}`);
+    throw platformError(`Failed to create invoice for order ${orderId}: ${ixError}`, httpStatus);
   }
 }

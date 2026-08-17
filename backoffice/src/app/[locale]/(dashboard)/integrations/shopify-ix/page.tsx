@@ -200,41 +200,7 @@ export default function ShopifyIXIntegration() {
     };
 
     // --- Step 2: Install webhooks & verify ---
-    const handleWebhooksInstall = async () => {
-        if (!shopifyWebhookSecret) return;
-        setSaving(true);
-        setActivating(true);
-        setWebhookStatus("idle");
-        try {
-            await fetch("/api/integrations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    shopify_domain: shopifyDomain, shopify_token: shopifyToken,
-                    shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
-                    ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid, ix_send_email: ixSendEmail ? 1 : 0, ix_email_subject: ixEmailSubject, ix_email_body: ixEmailBody,
-                    ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
-                })
-            });
-
-            const actRes = await fetch("/api/integrations/activate", { method: "POST" });
-            if (actRes.ok) {
-                setWebhookStatus("success");
-                setWebhooksActive(true);
-                setStep(3);
-            } else {
-                setWebhookStatus("error");
-            }
-        } catch {
-            setWebhookStatus("error");
-        } finally {
-            setSaving(false);
-            setActivating(false);
-        }
-    };
-
-    // --- Step 2b: Manually confirm webhooks were installed ---
+    // --- Step 2: confirm the webhooks were installed by hand ---
     const handleWebhooksConfirm = async () => {
         if (!shopifyWebhookSecret) return;
         setSaving(true);
@@ -480,7 +446,11 @@ export default function ShopifyIXIntegration() {
             icon: Webhook, logo: "/images/shopify-logo.webp", logoWidth: 80, isAuthorized: webhooksActive,
             errorMsg: webhookStatus === "error" ? t("webhookInstallError") : "",
             fields: [{ label: t("fieldWebhookSecretLabel"), value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: t("fieldWebhookSecretPlaceholder"), type: "password", helpAnchor: "shopify-webhook" }],
-            action: handleWebhooksInstall, actionLabel: webhookStatus === "error" ? t("retryWebhooks") : t("installWebhooks"), isDisabled: !shopifyWebhookSecret, isWebhookStep: true,
+            // The primary action confirms the MANUAL installation. It used to
+            // create the webhooks through the Admin API, which produced a second
+            // set signed with a secret Rioko does not hold — see the comment on
+            // /api/integrations/activate, which now refuses.
+            action: handleWebhooksConfirm, actionLabel: t("confirmManualInstall"), isDisabled: !shopifyWebhookSecret, isWebhookStep: true,
         },
         {
             id: 3, title: t("step3Title"), description: t("step3Desc"),

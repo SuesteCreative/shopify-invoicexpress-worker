@@ -61,4 +61,16 @@ export interface Env {
   DOC_VERIFY_DAYS?: string;               // lookback over `built` events; default "3". Widen to backfill.
   DOC_VERIFY_LIMIT?: string;              // max documents examined per run; default "500"
   DOC_VERIFY_BUDGET_MS?: string;          // wall-clock budget; default 8 min, same as the recon sweep
+
+  // Which commit is actually running. Stamped by `npm run deploy` at deploy
+  // time (`wrangler deploy --var`), never committed — a value checked into the
+  // repo is a value that goes stale and lies. Absent means the worker was
+  // deployed by a bare `wrangler deploy`, and /admin/version says so rather
+  // than guessing. Cloudflare reports only an opaque version id and a wall
+  // clock, which is why "is the fix live?" used to be answered by comparing
+  // commit timestamps against deployment timestamps across two timezones.
+  GIT_SHA?: string;
+  GIT_BRANCH?: string;
+  GIT_DIRTY?: string;                     // "1" when the tree had uncommitted changes
+  BUILT_AT?: string;                      // ISO timestamp of the deploy
 }

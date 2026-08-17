@@ -91,7 +91,8 @@
         "superadmin": "Superadmin",
         "clientRules": "Client rules",
         "onboardingHelper": "Client Onboarding",
-        "tooltipNeedRegister": "Complete dashboard registration first"
+        "tooltipNeedRegister": "Complete dashboard registration first",
+        "ops": "Ops"
     },
     "dashboardHome": {
         "welcome": "Welcome",
@@ -854,27 +855,159 @@
     },
     "clientRules": {
         "title": "Rules",
-        "subtitle": "Active configurations and overrides. Hiperadmin only.",
-        "searchPlaceholder": "Name, email or domain...",
-        "sortDesc": "Z-A",
-        "sortAsc": "A-Z",
-        "exemption": "Exemption: {code}",
-        "shopifyForce": "Shopify Force",
-        "webhookForce": "Webhook Force",
-        "ixForce": "IX Force",
-        "activatedAt": "Activated: {date}",
-        "posModeLabel": "🏪 POS Mode (VAT ID Matrix)",
-        "posModeDesc": "Enables name resolution by VAT ID for physical stores. Instead of 'Final Consumer', uses 'VAT XXXXXXXXX' as the unique identifier when there's no customer name.",
-        "posModeWarn": "Enabled: customers without a name will be identified by VAT ID in InvoiceXpress.",
-        "vatIncludedLabel": "💰 VAT Included in Prices",
-        "vatIncludedDesc": "If your Shopify store prices already include VAT, Rioko performs the reverse calculation for the invoice.",
-        "autoFinalizeLabel": "⚡ Auto-Finalize",
-        "autoFinalizeDesc": "Invoices are issued and finalized immediately after creation. If off, they remain as drafts.",
-        "autoFinalizeWarn": "Finalized invoices cannot be edited in InvoiceXpress.",
-        "clientSyncLabel": "🧹 Sync Records (Cleanup)",
-        "clientSyncDesc": "If enabled, Rioko updates the name in IX (e.g. 'Client' → 'John Smith') when new data is found. Only operates on generic names.",
+        "subtitle": "Every client's fiscal configuration, per integration. Read: superadmin. Change: hiperadmin.",
+        "searchPlaceholder": "Name, email, domain or integration...",
+        "emptyList": "No clients match.",
         "saving": "Saving...",
-        "emptyList": "No clients with a configured integration."
+        "notSet": "Not set",
+        "hasNotes": "Has notes",
+        "noIntegrations": "No integration configured",
+        "notesTitle": "What you know about this company",
+        "notesHelp": "Context that explains failures rather than causing them — quota renewal dates, an accountant's standing instruction, a platform quirk. This changes no document: settings below are what the system enforces. It is attached to this company's incident diagnoses, so an alert reads with the same background you have.",
+        "notesPlaceholder": "e.g. IX plan quota renews on the 5th; the client refuses simplified invoices.",
+        "notesPrivacy": "Saved on blur. Sent to the diagnosis model with emails and VAT numbers scrubbed.",
+        "legacyTaxInclusionNote": "On this path IX takes tax inclusion from Shopify's own taxes_included flag and from per-SKU overrides — not from the VAT-included setting below, which only gates B2B reverse charge. To emit VAT-excluded for a product whose Shopify price includes it, use the per-SKU overrides page.",
+        "dangerousBadge": "Fiscal",
+        "dangerousConfirm": "Change \"{field}\" for {client}?\n\nThis affects the VAT or the fiscal identity of EVERY document issued from now on. Existing documents are untouched. The change is recorded with your name.",
+        "dangerousConfirmGeneric": "This setting affects the VAT or fiscal identity of every future document. Continue?",
+        "fields": {
+            "customInvoiceNote": {
+                "label": "Standing invoice note",
+                "help": "Appended to every document's observations, after the mandatory legal mentions. IX caps the field at 200 characters and truncates this first."
+            },
+            "ixSequenceName": {
+                "label": "Series",
+                "help": "IX series name (e.g. RVFR). Blank uses the account's default series."
+            },
+            "ixDocumentType": {
+                "label": "Document type",
+                "help": "invoice_receipt suits a sale already paid; invoice leaves it outstanding."
+            },
+            "ixExemptionReason": {
+                "label": "Exemption reason",
+                "help": "Stamped on any 0% line (default M01). Wrong here means legally exempt documents that nobody notices."
+            },
+            "ixB2bExemptionReason": {
+                "label": "B2B exemption reason",
+                "help": "Used instead of the above on confirmed reverse-charge sales (default M16)."
+            },
+            "ixStampExemptionNote": {
+                "label": "Print the legal exemption text",
+                "help": "Writes the bilingual legal mention for the exemption code into observations — for carriers and customs."
+            },
+            "ixPaymentTerm": {
+                "label": "Payment term (days)",
+                "help": "Due date offset from the document date."
+            },
+            "autoFinalize": {
+                "label": "Auto-finalize",
+                "help": "Certify the document on issue. Off leaves drafts, which can still be edited."
+            },
+            "onlyInvoiceWhenPaid": {
+                "label": "Only invoice once paid",
+                "help": "Hold emission until the source confirms payment. On by default."
+            },
+            "invoiceZeroTotal": {
+                "label": "Invoice zero-total orders",
+                "help": "Issue documents for fully discounted orders instead of skipping them."
+            },
+            "posMode": {
+                "label": "POS mode",
+                "help": "Identify a nameless buyer by VAT number instead of \"Consumidor Final\"."
+            },
+            "clientSync": {
+                "label": "Sync client records",
+                "help": "Update a generic client name in the destination when better data arrives."
+            },
+            "ixRetentionEnabled": {
+                "label": "Withholding tax",
+                "help": "Carry a retention percentage on every document."
+            },
+            "ixRetention": {
+                "label": "Withholding rate (%)",
+                "help": "Only applied when withholding is on."
+            },
+            "vatIncludedLegacy": {
+                "label": "VAT included (reverse-charge gate only)",
+                "help": "On this legacy path this is NOT the tax-inclusion switch: it is one of seven preconditions for B2B reverse charge. Turning it off silently disables reverse charge."
+            },
+            "ossEnabled": {
+                "label": "OSS",
+                "help": "Required alongside reverse charge for cross-border EU B2B handling."
+            },
+            "b2bReverseCharge": {
+                "label": "B2B reverse charge",
+                "help": "Invoice qualifying EU B2B sales as reverse charge, after VIES confirms the buyer."
+            },
+            "forceTaxRate": {
+                "label": "Force VAT rate (%)",
+                "help": "Charge this rate on every product line whatever the source says — for shops whose place of supply never varies. A wrong value here misstates the VAT on every invoice. Blank means \"trust the source\"."
+            },
+            "forceShippingTaxRate": {
+                "label": "Force shipping VAT rate (%)",
+                "help": "Same, for shipping lines."
+            },
+            "vatIncludedConnection": {
+                "label": "Prices include VAT",
+                "help": "Here this IS the tax-inclusion switch: it tells the destination to net the amount down when the source sent no tax breakdown."
+            },
+            "sendEmail": {
+                "label": "Email the document to the buyer",
+                "help": "Send the issued document to the customer."
+            },
+            "exemptionReason": {
+                "label": "Exemption reason",
+                "help": "Code carried on 0% lines for this connection (default M01)."
+            },
+            "defaultVatRate": {
+                "label": "Default VAT rate (%)",
+                "help": "Used when the payment carries no tax breakdown at all."
+            },
+            "moloniDocumentSet": {
+                "label": "Document set (series)",
+                "help": "The Moloni document set documents are issued into."
+            },
+            "moloniDocumentType": {
+                "label": "Document type",
+                "help": "Which Moloni document family to issue."
+            },
+            "moloniDefaultTaxId": {
+                "label": "Pinned tax rule",
+                "help": "Pins one Moloni tax rule instead of resolving by rate. Wrong here misstates VAT on every line."
+            },
+            "moloniCategoryId": {
+                "label": "Product category",
+                "help": "Category new products are created under. Blank uses the account's first category, which on a fresh account is the demo entry."
+            },
+            "moloniMaturityDateId": {
+                "label": "Payment terms",
+                "help": "Moloni maturity-date id. Blank sends none."
+            },
+            "moloniPaymentMethod": {
+                "label": "Payment method",
+                "help": "Overrides the method derived from the sales channel."
+            },
+            "moloniPartialInvoicing": {
+                "label": "Partial invoicing",
+                "help": "Allow a booking to be invoiced across several documents."
+            },
+            "vendusRegisterId": {
+                "label": "Register",
+                "help": "Vendus register id."
+            },
+            "vendusSeriesId": {
+                "label": "Series",
+                "help": "Vendus series id."
+            },
+            "lodgifyExtrasVatRate": {
+                "label": "Extras VAT rate (%)",
+                "help": "Rate applied to Lodgify extras."
+            },
+            "lodgifyOtaInvoiceOn": {
+                "label": "Invoice OTA stays on",
+                "help": "Whether an OTA booking is invoiced on arrival or on departure."
+            }
+        }
     },
     "superadmin": {
         "title": "Superadmin",
@@ -1708,10 +1841,10 @@
         "back": "Back",
         "title": "Dev Mode",
         "noShop": "This account has no `shopify_domain` configured. Dev Mode actions unavailable.",
-    "noConnections": "This account has no active connection. With no connection there is nothing to recover.",
-    "connection": "Connection",
-    "reasonRequired": "Reason (required)...",
-    "lodgifyWholeBooking": "A booking can hold several documents (one per instalment). The action applies to all of them — crediting a single instalment is not supported.",
+        "noConnections": "This account has no active connection. With no connection there is nothing to recover.",
+        "connection": "Connection",
+        "reasonRequired": "Reason (required)...",
+        "lodgifyWholeBooking": "A booking can hold several documents (one per instalment). The action applies to all of them — crediting a single instalment is not supported.",
         "subscriptionTitle": "Subscription",
         "subscriptionAdminDesc": "Admins don't need a subscription — integration always runs.",
         "subscriptionAdminBadge": "{role} account · exempt from subscription",
@@ -2248,5 +2381,30 @@
         "sendEmailOn": "ON: The finalized document is emailed to the order's customer, with the PDF attached.",
         "sendEmailOff": "OFF: Nothing is emailed to the customer.",
         "sendEmailNeedsFinalize": "No effect while Auto-finalize is off: documents stay as drafts, and a draft is never sent to the customer."
+    },
+    "ops": {
+        "title": "Ops",
+        "subtitle": "Open failures across the fleet, worst first.",
+        "subtitleCritical": "{count} critical failure(s) waiting.",
+        "statusOpen": "Open",
+        "statusAcknowledged": "Acknowledged",
+        "statusAll": "All",
+        "allKinds": "All kinds",
+        "refresh": "Refresh",
+        "incidentsTitle": "Incidents ({count})",
+        "acknowledge": "Ack",
+        "resolve": "Resolve",
+        "destinationSaid": "What the destination said",
+        "technicalDetail": "Technical detail",
+        "affected": "Affected sales ({count})",
+        "andMore": "+{count} more",
+        "timelineFor": "Timeline for {id}",
+        "timelineError": "Could not read the timeline (worker unreachable).",
+        "timelineEmpty": "No events recorded for this sale.",
+        "openDevMode": "Open Dev Mode",
+        "noIncidents": "Nothing open. Nothing needs you right now.",
+        "driftsTitle": "Drifts and refusals, last 7 days ({count})",
+        "driftsHelp": "Documents that came back different from what was sent, and the ones the destination refused outright. A drift is a verdict; a lead is unconfirmed until checked.",
+        "noDrifts": "No drifts or refusals in the last 7 days."
     }
 }

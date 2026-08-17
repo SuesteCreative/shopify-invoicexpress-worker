@@ -29,15 +29,32 @@ export type Address2TaxId =
  * "encontrámos 500000001 na morada de entrega" is actionable, "NIF inválido"
  * is not.
  */
-export interface NifHold {
-  /** The exact text read out of the address line, e.g. "500000001". */
-  raw: string;
-  /** Which field it came from, e.g. "shipping.address2". */
-  field: string;
-}
+export type NifHold =
+  | {
+    /** Something meant to be a PT tax id, written into an address line, that
+     *  does not validate. */
+    kind: "address_tax_id";
+    /** The exact text read out of the address line, e.g. "500000001". */
+    raw: string;
+    /** Which field it came from, e.g. "shipping.address2". */
+    field: string;
+  }
+  | {
+    /** A perfectly readable EU VAT whose country prefix contradicts the
+     *  billing address. IX validates the pair, not the number, and rejects
+     *  the whole document — so neither half can be trusted enough to send. */
+    kind: "country_mismatch";
+    /** The VAT number as read, e.g. "FR18898261615". */
+    raw: string;
+    /** What the billing address claims, e.g. "PT" ("" when unstated). */
+    billingCountry: string;
+  };
 
 /** Human reason string persisted on processed_orders.hold_reason. */
 export function nifHoldReason(hold: NifHold): string {
+  if (hold.kind === "country_mismatch") {
+    return `nif_country_mismatch: "${hold.raw}" com morada em ${hold.billingCountry || "país não indicado"}`;
+  }
   return `nif_invalid: "${hold.raw}" em ${hold.field}`;
 }
 
@@ -287,7 +304,13 @@ export class IxBuilder {
       // declared rate. Reverse-charge shipping reports rate but price=0.
       const shipTaxLines = Array.isArray(sl?.tax_lines) ? sl.tax_lines : [];
       const shipTaxCollected = shipTaxLines.reduce((acc: number, t: any) => acc + Number(t?.price ?? 0), 0);
-      const shipCollectedRate = shipTaxCollected > 0 ? Number(shipTaxLines[0]?.rate ?? 0) * 100 : 0;
+      // The rate of the tax line that actually collected something, not
+      // `tax_lines[0]`: Shopify orders these by rate, so a basket carrying a
+      // 0%-rated article can put `{rate: 0, price: 0}` first and the whole
+      // shipping would be read as untaxed.
+      const shipCollectedRate = shipTaxCollected > 0
+        ? Number(shipTaxLines.find((t: any) => Number(t?.price ?? 0) > 0)?.rate ?? 0) * 100
+        : 0;
       const grossUnit = Number(sl?.price ?? 0);
       const allocations = Array.isArray(sl?.discount_allocations) ? sl.discount_allocations : [];
       const grossLineDiscount = allocations.reduce((acc: number, a: any) => acc + Number(a?.amount ?? 0), 0);
@@ -305,25 +328,50 @@ export class IxBuilder {
           ? false
           : undefined;
 
-      // F-SHIP: mixed-rate shipping. On an OSS basket with items at >1 VAT rate,
+      // F-SHIP: mixed-rate shipping. On a basket with items at >1 VAT rate,
       // Shopify splits the shipping tax across those rates (e.g. a 12€ CTT line
       // with tax_lines [21%:1.57, 10%:0.45]). The single-rate path above would
-      // stamp the WHOLE shipping at tax_lines[0].rate and over/under-tax it
-      // (#4172: +0.50€). When the collected shipping tax spans >1 distinct rate
-      // (and we're not forcing a rate or zero), emit one sub-line per rate, each
-      // sized from that rate's own tax basis, so each portion is taxed correctly.
+      // stamp the WHOLE shipping at one rate and over/under-tax it (#4172:
+      // +0.50€), so each taxed portion is sized from its own tax basis instead.
+      //
+      // One of those rates can be ZERO, and that is the case this missed for
+      // months: a 25€ line on a basket holding one 0%-rated article arrives as
+      // tax_lines [23%: 5.46, 0%: 0.00], meaning only 23.74€ of the shipping is
+      // taxable. Splitting on `distinctShipRates.size > 1` counted the taxed
+      // rates only, saw one, and stamped the whole 25€ at 23% — 0.29€ of VAT
+      // the buyer never paid. On a short order the reconcile guard then refused
+      // the document and the order sat unbilled (Angel #4799); on a long one
+      // `absorbReconcileResidual` swallowed the same error and the invoice went
+      // out with the VAT quietly shifted onto another line, which is worse.
+      //
+      // So: size every taxed portion from its tax basis, and give whatever is
+      // left of the shipping its own 0% sub-line. That also recovers the few
+      // cents the taxed bases leave short in the genuinely multi-rate case.
       const nonzeroShipTax = shipTaxLines.filter((t: any) => Number(t?.price ?? 0) > 0);
       const distinctShipRates = new Set(nonzeroShipTax.map((t: any) => Number(t?.rate ?? 0)));
       const effectiveShipIncluded = shipIncluded ?? shopifyIncluded;
-      if (!forceZeroTax && forceTaxShipping == null && grossLineDiscount === 0 && distinctShipRates.size > 1) {
-        for (const tl of nonzeroShipTax) {
-          const rate = Number(tl?.rate ?? 0) * 100;
-          const taxAmt = Number(tl?.price ?? 0);
-          if (rate <= 0 || taxAmt <= 0) continue;
-          const basisNet = taxAmt / (rate / 100);                                  // pre-tax portion for this rate
-          const portionGross = effectiveShipIncluded ? basisNet + taxAmt : basisNet; // buildLine wants gross when included, net when not
-          const subName = `${name} (${rate % 1 === 0 ? rate : rate.toFixed(2)}%)`.slice(0, 200);
-          const item = buildLine(portionGross, 1, 0, rate, rate, subName, undefined, effectiveShipIncluded);
+      const taxedShipPortions = nonzeroShipTax
+        .map((t: any) => ({ rate: Number(t?.rate ?? 0) * 100, taxAmt: Number(t?.price ?? 0) }))
+        .filter((t: { rate: number; taxAmt: number }) => t.rate > 0 && t.taxAmt > 0)
+        .map((t: { rate: number; taxAmt: number }) => ({ ...t, basisNet: t.taxAmt / (t.rate / 100) }));
+      // `sl.price` carries VAT only where the store prices that way; the bases
+      // above are always net, so bring both to net before subtracting.
+      const shipNetTotal = effectiveShipIncluded ? grossUnit - shipTaxCollected : grossUnit;
+      const untaxedShipNet = shipNetTotal - taxedShipPortions.reduce((acc: number, t: { basisNet: number }) => acc + t.basisNet, 0);
+      // Half a cent: below that it is float noise from dividing by the rate,
+      // above it is a real untaxed portion that has to appear on the document.
+      const hasUntaxedShip = untaxedShipNet > 0.005;
+      const splitShipping = taxedShipPortions.length > 0 && (distinctShipRates.size > 1 || hasUntaxedShip);
+      if (!forceZeroTax && forceTaxShipping == null && grossLineDiscount === 0 && splitShipping) {
+        for (const t of taxedShipPortions) {
+          const portionGross = effectiveShipIncluded ? t.basisNet + t.taxAmt : t.basisNet; // buildLine wants gross when included, net when not
+          const subName = `${name} (${t.rate % 1 === 0 ? t.rate : t.rate.toFixed(2)}%)`.slice(0, 200);
+          const item = buildLine(portionGross, 1, 0, t.rate, t.rate, subName, undefined, effectiveShipIncluded);
+          if (item) items.push(item);
+        }
+        if (hasUntaxedShip) {
+          // Rate 0 either way, so the net remainder is also its gross.
+          const item = buildLine(untaxedShipNet, 1, 0, 0, 0, `${name} (0%)`.slice(0, 200), undefined, effectiveShipIncluded);
           if (item) items.push(item);
         }
       } else {
@@ -541,9 +589,25 @@ export class IxBuilder {
     // tax id when it validates), and we flag the build. The caller creates it
     // as a draft, skips finalize + the customer email, and tells the merchant.
     const addressTaxId = this.inspectAddressTaxId(normalized);
-    const nifHold: NifHold | undefined = addressTaxId.kind === "invalid"
-      ? { raw: addressTaxId.raw, field: addressTaxId.field }
+    let nifHold: NifHold | undefined = addressTaxId.kind === "invalid"
+      ? { kind: "address_tax_id", raw: addressTaxId.raw, field: addressTaxId.field }
       : undefined;
+
+    // Same treatment for a tax id we can read perfectly and still cannot use:
+    // an EU VAT whose country prefix contradicts the billing address. Only
+    // reached when nothing better was found, mirroring buildInvoiceClient's
+    // own order of preference — a buyer with a good NIF is never held for a
+    // stray VAT number sitting in a note.
+    if (!nifHold && addressTaxId.kind !== "valid" && !this.extractAndValidateNIF(normalized)) {
+      const euVat = this.pickEuVatCandidate(normalized);
+      if (euVat?.mismatched) {
+        nifHold = {
+          kind: "country_mismatch",
+          raw: euVat.vat,
+          billingCountry: String(normalized.order.billing_address?.country_code ?? "").trim().toUpperCase(),
+        };
+      }
+    }
 
     const client = this.buildInvoiceClient(normalized);
     const usingRawPath = !!normalized.raw_order;
@@ -594,7 +658,12 @@ export class IxBuilder {
       this.config.ix_stamp_exemption_note === 1 && requestTaxExemptionReason && !shopifyReverseCharge
         ? buildExemptionMention(rcReason)
         : "";
-    const obsCombined = [exemptionMention, noteRaw, rcMention].filter(Boolean).join(" | ").slice(0, 200);
+    // The merchant's own standing note (VAT scheme wording, licence number, a
+    // fixed legal reference) goes last of the configured texts: the mandatory
+    // fiscal mentions come first so the 200-char cap eats this instead of them.
+    const customNote = (this.config.custom_invoice_note ?? "").trim();
+    const obsCombined = [exemptionMention, noteRaw, rcMention, customNote]
+      .filter(Boolean).join(" | ").slice(0, 200);
 
     const invoice: IxInvoice = {
       client,
@@ -641,10 +710,11 @@ export class IxBuilder {
     }
 
     if (!nif) {
-      const buyerCC = String(order.billing_address?.country_code ?? "").trim().toUpperCase();
-      const euCandidates = this.extractEuVatCandidates(normalized);
-      const preferred = euCandidates.find(c => c.countryCode === buyerCC) ?? euCandidates[0];
-      if (preferred) nif = `${preferred.countryCode}${preferred.vatNumber}`;
+      const euVat = this.pickEuVatCandidate(normalized);
+      // A VAT whose country prefix contradicts the billing country is NOT
+      // stamped — see `pickEuVatCandidate`. The build is flagged instead and
+      // the document goes out as a draft the merchant can correct.
+      if (euVat && !euVat.mismatched) nif = euVat.vat;
     }
 
     // A Portuguese client's fiscal_id is nine bare digits. The EU fallback
@@ -947,6 +1017,32 @@ export class IxBuilder {
     if (!isPortugueseOrUnknown && labeled.length > 0) return labeled[0];
 
     return null;
+  }
+
+  /**
+   * The EU VAT the client would carry, and whether its country prefix
+   * contradicts the buyer's billing country.
+   *
+   * `extractEuVatCandidates` reads the company field, the notes and the order
+   * attributes — everywhere a buyer might paste a tax number. When none of
+   * them matches the billing country we used to stamp the first one anyway,
+   * and a French VAT on a client IX is told lives in Portugal comes back as
+   * "Contribuinte não é válido": the whole document refused, the order left
+   * unbilled, no email to anyone (Angel #4783, 325.55€ stuck since 12/08).
+   *
+   * IX validates the PAIR, so there is nothing to guess our way out of — either
+   * the address is wrong or the number is, and only the merchant knows which.
+   * The caller turns this into a draft plus a message rather than a silence.
+   *
+   * An unstated billing country counts as Portugal, which is how IX files it.
+   */
+  private pickEuVatCandidate(normalized: Normalized): { vat: string; mismatched: boolean } | null {
+    const buyerCC = String(normalized.order.billing_address?.country_code ?? "").trim().toUpperCase();
+    const candidates = this.extractEuVatCandidates(normalized);
+    if (candidates.length === 0) return null;
+    const matching = candidates.find(c => c.countryCode === (buyerCC || "PT"));
+    const chosen = matching ?? candidates[0];
+    return { vat: `${chosen.countryCode}${chosen.vatNumber}`, mismatched: !matching };
   }
 
   // Pulls EU VAT candidates (country-code prefixed) from the same fields the

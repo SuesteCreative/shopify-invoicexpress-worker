@@ -3,6 +3,7 @@ import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
 import { renderIncidentTemplate, tplPatternReport, type IncidentKind } from "./email-templates";
 import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type IncidentDiagnosis, type RedactedIncident } from "./anthropic";
+import { getCompanyRulesNotes } from "./company-rules";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -351,7 +352,8 @@ async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: st
   let aiSuggestedFix: string | undefined;
   if (AI_TRIAGE_ORDER_KINDS.has(input.kind)) {
     try {
-      const diag = await diagnoseIncident(env, redactIncident(input), bucketKey);
+      const notes = await getCompanyRulesNotes(env, input.user_id);
+      const diag = await diagnoseIncident(env, redactIncident(input), bucketKey, notes);
       if (diag) { aiDiagnosis = diag.diagnosis; aiSuggestedFix = diag.suggested_fix; }
     } catch (e: any) {
       console.warn(`[incidents] AI triage failed (advisory, ignored): ${e?.message ?? e}`);
@@ -413,7 +415,8 @@ export async function explainIncidentById(
   }
   if (!row) return { ok: false, error: "incident not found" };
 
-  const diag = await diagnoseIncident(env, redactIncident(incidentRowToInput(row)), row.bucket_key ?? `explain:${id}`);
+  const notes = await getCompanyRulesNotes(env, row.user_id);
+  const diag = await diagnoseIncident(env, redactIncident(incidentRowToInput(row)), row.bucket_key ?? `explain:${id}`, notes);
   if (!diag) return { ok: false, error: "no diagnosis (feature disabled, hourly cap reached, or model error)" };
   return { ok: true, diagnosis: diag };
 }
@@ -536,15 +539,50 @@ function parseEmailList(s: string | undefined): string[] {
  * email per merchant, marks `notified_at`. Also auto-resolves stale incidents
  * (no recurrence in 24h).
  */
-export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number; autoResolved: number }> {
+/**
+ * Close incidents that stopped happening.
+ *
+ * An incident is a bucket that something writes to while a thing is going
+ * wrong. Nothing writes to it once the thing stops, so silence is the only
+ * signal that it recovered — 24 hours without a recurrence means over. There
+ * is no success event to wait for: a shop whose webhooks start verifying again
+ * simply stops producing failures.
+ *
+ * This used to live inside `runIncidentDigest`, which is gated by
+ * INCIDENT_DIGEST_ENABLED, and that flag has been "0" for months. So nothing
+ * ever closed anything: 180 `webhook_invalid_signature` and 56
+ * `queue_retry_exhausted` sat open, some since June, and every audit read FAIL
+ * on 13 of 14 shops. Twelve of those thirteen were stale noise — which is how
+ * Angel Piercing spent five days with 325€ unbilled without anyone noticing:
+ * its line was indistinguishable from the other twelve.
+ *
+ * Housekeeping is not notification. Whether we email a merchant is a judgement
+ * about noise; whether the table tells the truth is not, so this runs on its
+ * own and unconditionally.
+ *
+ * `auto_resolved`, never `resolved`: a human closing something is a different
+ * fact from a thing that went quiet, and reportIncident's ON CONFLICT reopens
+ * only the human kind.
+ */
+export async function autoResolveStaleIncidents(
+  env: Env,
+  opts: { staleHours?: number } = {},
+): Promise<{ autoResolved: number }> {
+  const staleHours = opts.staleHours ?? 24;
   const nowIso = new Date().toISOString();
-  const cutoffIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-  // 1. Auto-resolve stale incidents (last_seen older than 24h, still open).
-  const resolveResult = await env.DB.prepare(
+  const cutoffIso = new Date(Date.now() - staleHours * 60 * 60 * 1000).toISOString();
+  const res = await env.DB.prepare(
     "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE status = 'open' AND last_seen_at < ?"
   ).bind(nowIso, cutoffIso).run();
-  const autoResolved = (resolveResult as any).meta?.changes ?? 0;
+  return { autoResolved: (res as any).meta?.changes ?? 0 };
+}
+
+export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number; autoResolved: number }> {
+  // Kept here too so a manual digest run still tidies up first, and because the
+  // grouping below must not pick up incidents that are already over. Idempotent
+  // with the cron's own call.
+  const { autoResolved } = await autoResolveStaleIncidents(env);
+  const nowIso = new Date().toISOString();
 
   // 2. Group remaining open un-notified incidents by user_id.
   const rows = await env.DB.prepare(

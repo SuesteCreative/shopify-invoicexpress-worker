@@ -91,7 +91,8 @@
         "superadmin": "Superadmin",
         "clientRules": "Regras de Clientes",
         "onboardingHelper": "Onboarding Cliente",
-        "tooltipNeedRegister": "Faça o registo no dashboard primeiro"
+        "tooltipNeedRegister": "Faça o registo no dashboard primeiro",
+        "ops": "Operação"
     },
     "dashboardHome": {
         "welcome": "Bem-vindo",
@@ -854,27 +855,159 @@
     },
     "clientRules": {
         "title": "Regras",
-        "subtitle": "Configurações e overrides activos. Exclusivo Hiperadmin.",
-        "searchPlaceholder": "Nome, email ou domínio...",
-        "sortDesc": "Z-A",
-        "sortAsc": "A-Z",
-        "exemption": "Isenção: {code}",
-        "shopifyForce": "Shopify Force",
-        "webhookForce": "Webhook Force",
-        "ixForce": "IX Force",
-        "activatedAt": "Ativado: {date}",
-        "posModeLabel": "🏪 Modo POS (NIF Matrix)",
-        "posModeDesc": "Activa a resolução de nome por NIF para lojas físicas. Em vez de 'Consumidor Final', usa 'NIF XXXXXXXXX' como identificador único quando não há nome de cliente.",
-        "posModeWarn": "Activado: os clientes sem nome serão identificados pelo NIF na ficha do InvoiceXpress.",
-        "vatIncludedLabel": "💰 IVA Incluído nos Preços",
-        "vatIncludedDesc": "Se os preços da loja Shopify já incluem IVA, o Rioko faz o cálculo inverso para a fatura.",
-        "autoFinalizeLabel": "⚡ Finalizar Automaticamente",
-        "autoFinalizeDesc": "As faturas são emitidas e finalizadas imediatamente após a criação. Se desligado, ficam em rascunho.",
-        "autoFinalizeWarn": "Faturas finalizadas não podem ser editadas no InvoiceXpress.",
-        "clientSyncLabel": "🧹 Sincronizar Fichas (Limpeza)",
-        "clientSyncDesc": "Se ativo, o Rioko atualiza o nome no IX (ex: 'Client' → 'João Silva') se encontrar novos dados. Só actua sobre nomes genéricos.",
+        "subtitle": "A configuração fiscal de cada cliente, por integração. Ler: superadmin. Alterar: hiperadmin.",
+        "searchPlaceholder": "Nome, email, domínio ou integração...",
+        "emptyList": "Nenhum cliente corresponde.",
         "saving": "A guardar...",
-        "emptyList": "Nenhum cliente com integração configurada."
+        "notSet": "Por definir",
+        "hasNotes": "Tem notas",
+        "noIntegrations": "Sem integração configurada",
+        "notesTitle": "O que sabes desta empresa",
+        "notesHelp": "Contexto que explica falhas, não que as provoca — datas de renovação de quota, uma instrução do contabilista, um hábito da plataforma. Isto não altera nenhum documento: o que o sistema aplica são as definições abaixo. Vai anexado aos diagnósticos de incidentes desta empresa, para que um alerta seja lido com o mesmo enquadramento que tu tens.",
+        "notesPlaceholder": "ex.: a quota do plano IX renova dia 5; este cliente recusa faturas simplificadas.",
+        "notesPrivacy": "Guardado ao sair do campo. Enviado ao modelo de diagnóstico com emails e NIFs removidos.",
+        "legacyTaxInclusionNote": "Neste caminho o IX tira a inclusão de IVA do próprio taxes_included do Shopify e dos overrides por SKU — não da definição de IVA incluído abaixo, que só condiciona a autoliquidação B2B. Para emitir com IVA excluído um produto cujo preço no Shopify já o inclui, usa a página de overrides por SKU.",
+        "dangerousBadge": "Fiscal",
+        "dangerousConfirm": "Alterar \"{field}\" em {client}?\n\nIsto afeta o IVA ou a identidade fiscal de TODOS os documentos emitidos a partir de agora. Os documentos já emitidos não mudam. A alteração fica registada com o teu nome.",
+        "dangerousConfirmGeneric": "Esta definição afeta o IVA ou a identidade fiscal de todos os documentos futuros. Continuar?",
+        "fields": {
+            "customInvoiceNote": {
+                "label": "Nota fixa na fatura",
+                "help": "Acrescentada às observações de todos os documentos, depois das menções legais obrigatórias. O IX limita o campo a 200 caracteres e é esta que é cortada primeiro."
+            },
+            "ixSequenceName": {
+                "label": "Série",
+                "help": "Nome da série no IX (ex.: RVFR). Em branco usa a série predefinida da conta."
+            },
+            "ixDocumentType": {
+                "label": "Tipo de documento",
+                "help": "invoice_receipt serve uma venda já paga; invoice deixa-a por liquidar."
+            },
+            "ixExemptionReason": {
+                "label": "Razão de isenção",
+                "help": "Aplicada a qualquer linha a 0% (por omissão M01). Errada aqui, produz documentos legalmente isentos sem que ninguém dê por isso."
+            },
+            "ixB2bExemptionReason": {
+                "label": "Razão de isenção B2B",
+                "help": "Usada em vez da anterior nas vendas com autoliquidação confirmada (por omissão M16)."
+            },
+            "ixStampExemptionNote": {
+                "label": "Imprimir o texto legal da isenção",
+                "help": "Escreve nas observações a menção legal bilingue do código de isenção — para transportadoras e alfândegas."
+            },
+            "ixPaymentTerm": {
+                "label": "Prazo de pagamento (dias)",
+                "help": "Desvio da data de vencimento face à data do documento."
+            },
+            "autoFinalize": {
+                "label": "Finalizar automaticamente",
+                "help": "Certifica o documento ao emitir. Desligado deixa rascunhos, que ainda podem ser corrigidos."
+            },
+            "onlyInvoiceWhenPaid": {
+                "label": "Só faturar depois de pago",
+                "help": "Segura a emissão até a origem confirmar o pagamento. Ligado por omissão."
+            },
+            "invoiceZeroTotal": {
+                "label": "Faturar encomendas a zero",
+                "help": "Emite documento para encomendas totalmente descontadas em vez de as ignorar."
+            },
+            "posMode": {
+                "label": "Modo POS",
+                "help": "Identifica um comprador sem nome pelo NIF em vez de \"Consumidor Final\"."
+            },
+            "clientSync": {
+                "label": "Sincronizar fichas de cliente",
+                "help": "Atualiza um nome genérico no destino quando aparecem dados melhores."
+            },
+            "ixRetentionEnabled": {
+                "label": "Retenção na fonte",
+                "help": "Faz cada documento levar uma percentagem de retenção."
+            },
+            "ixRetention": {
+                "label": "Taxa de retenção (%)",
+                "help": "Só aplicada com a retenção ligada."
+            },
+            "vatIncludedLegacy": {
+                "label": "IVA incluído (só condiciona a autoliquidação)",
+                "help": "Neste caminho legado isto NÃO é o interruptor da inclusão de IVA: é uma das sete precondições da autoliquidação B2B. Desligá-lo desativa a autoliquidação sem o dizer."
+            },
+            "ossEnabled": {
+                "label": "OSS",
+                "help": "Necessário, com a autoliquidação, para o tratamento B2B intracomunitário."
+            },
+            "b2bReverseCharge": {
+                "label": "Autoliquidação B2B",
+                "help": "Fatura as vendas B2B da UE elegíveis com autoliquidação, depois de o VIES confirmar o comprador."
+            },
+            "forceTaxRate": {
+                "label": "Forçar taxa de IVA (%)",
+                "help": "Aplica esta taxa a todas as linhas de produto, diga o que disser a origem — para lojas cujo lugar de tributação nunca varia. Um valor errado aqui deturpa o IVA de todas as faturas. Em branco significa \"confiar na origem\"."
+            },
+            "forceShippingTaxRate": {
+                "label": "Forçar taxa de IVA dos portes (%)",
+                "help": "O mesmo, para as linhas de portes."
+            },
+            "vatIncludedConnection": {
+                "label": "Preços com IVA incluído",
+                "help": "Aqui isto É o interruptor da inclusão de IVA: diz ao destino para descontar o IVA do valor quando a origem não enviou decomposição de impostos."
+            },
+            "sendEmail": {
+                "label": "Enviar o documento ao comprador",
+                "help": "Envia o documento emitido para o cliente."
+            },
+            "exemptionReason": {
+                "label": "Razão de isenção",
+                "help": "Código levado pelas linhas a 0% nesta ligação (por omissão M01)."
+            },
+            "defaultVatRate": {
+                "label": "Taxa de IVA por omissão (%)",
+                "help": "Usada quando o pagamento não traz decomposição de impostos nenhuma."
+            },
+            "moloniDocumentSet": {
+                "label": "Conjunto de documentos (série)",
+                "help": "O conjunto Moloni onde os documentos são emitidos."
+            },
+            "moloniDocumentType": {
+                "label": "Tipo de documento",
+                "help": "Que família de documentos Moloni emitir."
+            },
+            "moloniDefaultTaxId": {
+                "label": "Regra de imposto fixada",
+                "help": "Fixa uma regra de imposto Moloni em vez de a resolver pela taxa. Errada aqui, deturpa o IVA de todas as linhas."
+            },
+            "moloniCategoryId": {
+                "label": "Categoria de produto",
+                "help": "Categoria onde os produtos novos são criados. Em branco usa a primeira categoria da conta, que numa conta nova é a entrada de demonstração."
+            },
+            "moloniMaturityDateId": {
+                "label": "Condições de pagamento",
+                "help": "Id da data de vencimento no Moloni. Em branco não envia nenhuma."
+            },
+            "moloniPaymentMethod": {
+                "label": "Meio de pagamento",
+                "help": "Prevalece sobre o meio deduzido do canal de venda."
+            },
+            "moloniPartialInvoicing": {
+                "label": "Faturação parcial",
+                "help": "Permite faturar uma reserva em vários documentos."
+            },
+            "vendusRegisterId": {
+                "label": "Caixa",
+                "help": "Id da caixa Vendus."
+            },
+            "vendusSeriesId": {
+                "label": "Série",
+                "help": "Id da série Vendus."
+            },
+            "lodgifyExtrasVatRate": {
+                "label": "Taxa de IVA dos extras (%)",
+                "help": "Taxa aplicada aos extras do Lodgify."
+            },
+            "lodgifyOtaInvoiceOn": {
+                "label": "Faturar estadias OTA",
+                "help": "Se uma reserva de OTA é faturada na chegada ou na partida."
+            }
+        }
     },
     "superadmin": {
         "title": "Superadmin",
@@ -1708,10 +1841,10 @@
         "back": "Voltar",
         "title": "Dev Mode",
         "noShop": "Esta conta não tem `shopify_domain` configurado. Ações Dev Mode indisponíveis.",
-    "noConnections": "Esta conta não tem nenhuma ligação activa. Sem ligação não há nada para recuperar.",
-    "connection": "Ligação",
-    "reasonRequired": "Motivo (obrigatório)...",
-    "lodgifyWholeBooking": "Uma reserva pode ter vários documentos (um por prestação). A acção aplica-se a todos — não é possível anular só uma prestação.",
+        "noConnections": "Esta conta não tem nenhuma ligação activa. Sem ligação não há nada para recuperar.",
+        "connection": "Ligação",
+        "reasonRequired": "Motivo (obrigatório)...",
+        "lodgifyWholeBooking": "Uma reserva pode ter vários documentos (um por prestação). A acção aplica-se a todos — não é possível anular só uma prestação.",
         "subscriptionTitle": "Subscrição",
         "subscriptionAdminDesc": "Admins não precisam de subscrição — integração corre sempre.",
         "subscriptionAdminBadge": "Conta {role} · isenta de subscrição",
@@ -2248,5 +2381,30 @@
         "sendEmailOn": "ON: O documento finalizado é enviado por email ao cliente da encomenda, com o PDF em anexo.",
         "sendEmailOff": "OFF: Nenhum email é enviado ao cliente.",
         "sendEmailNeedsFinalize": "Sem efeito enquanto o Auto Finalizar estiver desligado: os documentos ficam em rascunho e um rascunho nunca é enviado ao cliente."
+    },
+    "ops": {
+        "title": "Operação",
+        "subtitle": "Falhas em aberto em toda a frota, as piores primeiro.",
+        "subtitleCritical": "{count} falha(s) crítica(s) à espera.",
+        "statusOpen": "Em aberto",
+        "statusAcknowledged": "Reconhecidas",
+        "statusAll": "Todas",
+        "allKinds": "Todos os tipos",
+        "refresh": "Actualizar",
+        "incidentsTitle": "Incidentes ({count})",
+        "acknowledge": "Reconhecer",
+        "resolve": "Resolver",
+        "destinationSaid": "O que o destino respondeu",
+        "technicalDetail": "Detalhe técnico",
+        "affected": "Vendas afectadas ({count})",
+        "andMore": "+{count} outras",
+        "timelineFor": "Histórico de {id}",
+        "timelineError": "Não foi possível ler o histórico (worker inacessível).",
+        "timelineEmpty": "Sem eventos registados para esta venda.",
+        "openDevMode": "Abrir Dev Mode",
+        "noIncidents": "Nada em aberto. Neste momento nada precisa de ti.",
+        "driftsTitle": "Divergências e recusas, últimos 7 dias ({count})",
+        "driftsHelp": "Documentos que voltaram diferentes do que foi enviado, e aqueles que o destino recusou de todo. Uma divergência é um veredicto; uma pista fica por confirmar até ser verificada.",
+        "noDrifts": "Sem divergências nem recusas nos últimos 7 dias."
     }
 }

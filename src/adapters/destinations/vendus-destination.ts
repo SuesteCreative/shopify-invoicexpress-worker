@@ -8,6 +8,7 @@ import type {
 import type { Normalized } from "../../api/normalize-shopify";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { refundReference, documentReference } from "../../services/document-references";
+import { platformError } from "../../services/platform-error";
 
 // -----------------------------------------------------------------------------
 // VendusDestination — Cegid Vendus v1.1
@@ -404,7 +405,7 @@ export class VendusDestination implements DestinationAdapter {
       cfg, "POST", "/documents/", body,
     );
     if (!ok) {
-      throw new Error(`Vendus create failed: status=${status} body=${raw.slice(0, 500)}`);
+      throw platformError(`Vendus create failed: status=${status} body=${raw.slice(0, 500)}`, status);
     }
     const id = extractDocId(data);
     if (!id) {
@@ -434,7 +435,7 @@ export class VendusDestination implements DestinationAdapter {
       cfg, "GET", `/documents/${encodeURIComponent(invoiceId)}/`,
     );
     if (!get.ok || !get.data) {
-      throw new Error(`Vendus credit create failed: cannot fetch original ${invoiceId}: status=${get.status} body=${get.raw.slice(0, 500)}`);
+      throw platformError(`Vendus credit create failed: cannot fetch original ${invoiceId}: status=${get.status} body=${get.raw.slice(0, 500)}`, get.status);
     }
     const original = extractDoc(get.data);
     const originalNumber = original?.number;
@@ -492,7 +493,7 @@ export class VendusDestination implements DestinationAdapter {
       cfg, "POST", "/documents/", body,
     );
     if (!ok) {
-      throw new Error(`Vendus credit create failed: status=${status} body=${raw.slice(0, 500)}`);
+      throw platformError(`Vendus credit create failed: status=${status} body=${raw.slice(0, 500)}`, status);
     }
     const creditId = extractDocId(data);
     if (!creditId) {

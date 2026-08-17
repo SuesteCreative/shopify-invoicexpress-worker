@@ -9,6 +9,7 @@ import type { AdapterCtx, DestinationKind } from "./adapters/types";
 import { loadTagRoutingRules, matchTagRouting, normalizeRule, applyTagRoute } from "./services/tag-routing";
 import { loadProductMappings } from "./services/product-mappings";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
+import { httpStatusOf } from "./services/platform-error";
 import {
   firstNum,
   bookingCollectedAmount,
@@ -18,9 +19,9 @@ import {
   otaPolicyFrom,
   otaStayCollectedSqlPredicate,
 } from "./services/lodgify-amounts";
-import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent } from "./services/document-log";
+import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent, lookupLastEmissionError } from "./services/document-log";
 import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
-import { reportIncident, runIncidentDigest, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
+import { reportIncident, runIncidentDigest, autoResolveStaleIncidents, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
@@ -338,7 +339,9 @@ app.post("/webhooks/stripe", async (c) => {
         severity: "critical",
         kind: "queue_retry_exhausted",
         summary: `Falha ao enfileirar evento Stripe ${eventId} (${canonical}). Evento NÃO foi processado.`,
-        detail: { eventId, topic: canonical, error: String(err?.message ?? err) },
+        // `message` is the key the triage redaction reads; `error` predates it
+        // and is kept so nothing already reading it breaks.
+        detail: { eventId, topic: canonical, message: String(err?.message ?? err), error: String(err?.message ?? err) },
         affected_ids: [eventId],
         connection_label: `stripe → ${ownerRow.destination_kind ?? "invoicexpress"}`,
       });
@@ -577,6 +580,31 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     await appStorage.markWebhookAsProcessed(externalId, storageTopic, "failed");
     return errorResponse(c, e, "Pipeline error");
   }
+});
+
+// ── Admin: what is actually deployed ─────────────────────────────────────────
+// Cloudflare tells you a version id and a timestamp, neither of which says
+// which commit is serving traffic. Without this, "is the fix live?" is answered
+// by lining up `git log` (Lisbon) against `wrangler deployments list` (UTC) and
+// hoping — which is exactly how a deploy from the wrong branch goes unnoticed.
+//
+// `unknown` is a real answer, not a failure: it means the worker was deployed
+// with a bare `wrangler deploy` instead of `npm run deploy`, so nothing stamped
+// it, and you should not trust any belief you hold about what is running.
+app.get("/admin/version", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const sha = c.env.GIT_SHA ?? null;
+  return c.json({
+    commit: sha,
+    commit_short: sha ? sha.slice(0, 7) : null,
+    branch: c.env.GIT_BRANCH ?? null,
+    // A deploy from a dirty tree is not reproducible from the commit alone.
+    dirty: c.env.GIT_DIRTY === "1",
+    built_at: c.env.BUILT_AT ?? null,
+    stamped: !!sha,
+    ...(sha ? {} : { note: "Deployed without `npm run deploy` — the running commit is unknown." }),
+  });
 });
 
 // ── Admin: Stripe webhook + event recovery (Phase 3 ops tooling) ──────────────
@@ -2423,7 +2451,7 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
             summary: `${topic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
             // `raw` carries the offending address-line-2 text so the merchant
             // email can quote the exact value instead of saying "invalid NIF".
-            detail: { message: (e as any)?.message, raw: (e as any)?.raw, field: (e as any)?.field, orderRef, clientName, externalId, topic, shopDomain, attempts, permanent },
+            detail: { message: (e as any)?.message, http_status: httpStatusOf(e), raw: (e as any)?.raw, field: (e as any)?.field, orderRef, clientName, externalId, topic, shopDomain, attempts, permanent },
             affected_ids: [externalId],
             connection_label: "shopify → invoicexpress",
             merchant_name: merchantName,
@@ -2606,6 +2634,13 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
 
     const { orderRef, clientName } = describeOrder(body?.body);
     const orderLabel = orderRef ?? externalId;
+
+    // The queue tells us the retries ran out; it never says what they failed on.
+    // Both write sites persisted the destination's own words before rethrowing,
+    // so read them back — otherwise this, the loudest alert the platform sends,
+    // is also the only one with nothing in it to act on.
+    const lastError = await lookupLastEmissionError(env, externalId, { shopifyDomain: shopDomain, userId });
+
     try {
       await reportIncident(env, {
         user_id: userId,
@@ -2616,8 +2651,15 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
         // hunting for an invoice that exists.
         summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${orderLabel}${clientName ? ` — ${clientName}` : ""}. ${
           topic.toLowerCase().includes("refund") ? "Nota de crédito NÃO foi emitida." : "Encomenda NÃO foi facturada."
-        }`,
-        detail: { sourceQueue, topic, orderRef, clientName, externalId, eventId, shopDomain, messageBody: JSON.stringify(body).slice(0, 1000) },
+        }${lastError ? ` Último erro do destino: ${lastError.message.slice(0, 200)}` : ""}`.slice(0, 500),
+        detail: {
+          sourceQueue, topic, orderRef, clientName, externalId, eventId, shopDomain,
+          message: lastError?.message,
+          http_status: lastError?.http_status,
+          last_error_source: lastError?.source,
+          last_error_at: lastError?.at,
+          messageBody: JSON.stringify(body).slice(0, 1000),
+        },
         affected_ids: [externalId],
         connection_label: sourceQueue === "stripeeventsqueue" ? "stripe → invoicexpress" : "shopify → invoicexpress",
         merchant_name: shopDomain ?? undefined,
@@ -2626,6 +2668,25 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
       });
     } catch (e) {
       console.error("[DLQ] Failed to emit incident:", e);
+    }
+
+    // A sale that died of exhausted retries has no `create_failed` row when the
+    // failures were transient — the pipeline only writes that event for
+    // permanent ones. Without a row the timeline simply stops mid-story, which
+    // is the failure mode this log exists to end. Recorded here, at the point
+    // where "transient" has definitively become "never".
+    if (!lastError && externalId !== "unknown") {
+      await logDocumentEvent(env, {
+        externalId,
+        event: "create_failed",
+        dedupKey: `create_failed:dlq:${externalId}`,
+        userId,
+        shopifyDomain: shopDomain,
+        sourceKind: sourceQueue === "stripeeventsqueue" ? "stripe" : "shopify",
+        actor: "dlq",
+        summary: `As tentativas de processar ${topic} para ${orderLabel} esgotaram-se sem que o destino chegasse a aceitar o documento. Nenhum erro do destino ficou registado — a falha foi de transporte (rede, timeout ou indisponibilidade), não uma recusa.`,
+        detail: { sourceQueue, topic, eventId },
+      });
     }
 
     // ack() — do not bounce back to the DLQ. The incident is the record.
@@ -3387,7 +3448,12 @@ async function reportLodgifyBacklog(
         severity: "critical",
         kind: "queue_retry_exhausted",
         summary: `${n} reserva(s) Lodgify pagas continuam por facturar (mais antiga: ${String(row?.oldest ?? "?").slice(0, 10)}).`,
-        detail: { uninvoiced: n, oldest: row?.oldest, value: row?.value },
+        detail: {
+          uninvoiced: n, oldest: row?.oldest, value: row?.value,
+          // Aggregate alert: there is no single destination error behind it, so
+          // say what the condition IS rather than leaving triage with nothing.
+          message: `${n} reserva(s) Lodgify pagas sem documento emitido (mais antiga: ${String(row?.oldest ?? "?").slice(0, 10)}, valor total ${row?.value ?? "?"}). Não houve recusa do destino — as reservas nunca chegaram a ser facturadas.`,
+        },
         connection_label: connLabel,
         bucket: "daily",
       });
@@ -3609,9 +3675,22 @@ export default {
       }
     }
 
+    // Close incidents that stopped happening. Deliberately OUTSIDE the digest
+    // flag: whether we email a merchant is a judgement about noise, whether the
+    // incidents table tells the truth is not. This lived inside the digest, the
+    // digest has been off for months, and so nothing ever closed — 180
+    // signature failures and 56 exhausted-retry buckets still open, some since
+    // June, drowning the two that were real.
+    try {
+      const { autoResolved } = await autoResolveStaleIncidents(env);
+      if (autoResolved > 0) console.log(`[Cron] Incidents auto-resolved: ${autoResolved}`);
+    } catch (e: any) {
+      console.error(`[Cron] Incident auto-resolve failed: ${e.message}`);
+    }
+
     // Phase 4a.1 — daily incident digest. Sends one summary email per merchant
-    // with all open + un-notified incidents from the last 24h, and auto-resolves
-    // stale incidents (no recurrence in 24h). Gated by INCIDENT_DIGEST_ENABLED.
+    // with all open + un-notified incidents from the last 24h. Gated by
+    // INCIDENT_DIGEST_ENABLED.
     if (env.INCIDENT_DIGEST_ENABLED === "1") {
       try {
         const result = await runIncidentDigest(env);

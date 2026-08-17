@@ -337,6 +337,87 @@ function safeParse(s: string): unknown {
   try { return JSON.parse(s); } catch { return s; }
 }
 
+/** What the destination actually said, recovered after the fact. */
+export interface LastEmissionError {
+  message: string;
+  http_status?: number;
+  source: "document_events" | "logs";
+  at: string;
+}
+
+/**
+ * Recover the destination's own refusal for a sale that has already failed.
+ *
+ * The dead-letter consumer is handed a message and the fact that it ran out of
+ * retries — never the error that caused them, because Cloudflare Queues does not
+ * carry it. So the most alarming email the platform sends ("Tentativas esgotadas")
+ * was the one that said least: the AI triage received a kind and a connection
+ * label and correctly reported that it had nothing to reason with.
+ *
+ * The reason was on disk the whole time. Both write sites persist it before
+ * rethrowing — the document timeline as `create_failed`, and the log row the
+ * legacy handler writes — so this reads it back rather than adding another
+ * store. The timeline is preferred: it is already the platform's own words,
+ * explained.
+ */
+export async function lookupLastEmissionError(
+  env: Env,
+  externalId: string,
+  opts: { shopifyDomain?: string | null; userId?: string | null } = {},
+): Promise<LastEmissionError | null> {
+  if (!externalId || externalId === "unknown") return null;
+
+  try {
+    const row = await env.DB.prepare(
+      `SELECT summary, detail_json, created_at FROM document_events
+        WHERE external_id = ? AND event = 'create_failed'
+        ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    ).bind(String(externalId)).first<{ summary: string; detail_json: string | null; created_at: string }>();
+
+    if (row) {
+      const detail = row.detail_json ? safeParse(row.detail_json) as any : null;
+      const message = String(detail?.error ?? detail?.message ?? row.summary ?? "").slice(0, 1500);
+      if (message) {
+        return {
+          message,
+          http_status: typeof detail?.http_status === "number" ? detail.http_status : undefined,
+          source: "document_events",
+          at: String(row.created_at),
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("[document-log] create_failed lookup failed:", e);
+  }
+
+  // Fallback: the legacy Shopify→IX handler's own failure log. Scoped by the
+  // owning shop/user so one merchant's incident can never quote another's error.
+  // `saveLog` JSON-encodes both columns before storing, so the stored text is a
+  // quoted JSON string — hence the unanchored LIKE and the parse on the way out.
+  try {
+    const scope = opts.shopifyDomain ?? opts.userId;
+    if (!scope) return null;
+    const row = await env.DB.prepare(
+      `SELECT response, created_at FROM logs
+        WHERE ${opts.shopifyDomain ? "shopify_domain = ?" : "user_id = ?"}
+          AND status >= 400
+          AND response LIKE '%IX create failed%'
+          AND payload LIKE ?
+        ORDER BY created_at DESC LIMIT 1`,
+    ).bind(scope, `%${externalId}%`).first<{ response: string; created_at: string }>();
+
+    if (row?.response) {
+      const parsed = safeParse(String(row.response));
+      const message = (typeof parsed === "string" ? parsed : String(row.response)).slice(0, 1500);
+      return { message, source: "logs", at: String(row.created_at) };
+    }
+  } catch (e) {
+    console.warn("[document-log] logs fallback lookup failed:", e);
+  }
+
+  return null;
+}
+
 /**
  * Turn a platform's raw refusal into a sentence that says what it means.
  *

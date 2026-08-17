@@ -12,6 +12,10 @@ export interface RiokoEnv {
     INVOICEXPRESS_TAX_INCLUDED?: string;
     INVOICEXPRESS_AUTO_FINALIZE?: string;
     INVOICEXPRESS_DOCUMENT_TYPE?: string;
+    INVOICEXPRESS_SEQUENCE_NAME?: string;
+    INVOICEXPRESS_EXEMPTION_REASON?: string;
+    INVOICEXPRESS_PAYMENT_TERM?: string;
+    CLIENT_SYNC?: string;
     POS_MODE?: string;
 }
 

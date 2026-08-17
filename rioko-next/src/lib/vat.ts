@@ -19,12 +19,7 @@ export function determineVATRate(item: LineItem): number {
         return Math.round(rate * 100); // e.g., 0.23 -> 23
     }
 
-    // 2. Explicitly non-taxable in Shopify
-    if (item.taxable === false) {
-        return 0;
-    }
-
-    // 3. Global Fallback (Exempt)
+    // 2. Global Fallback (Exempt)
     // As per user request: "se o produto não tem informação de iva aplica isento"
     return 0;
 }

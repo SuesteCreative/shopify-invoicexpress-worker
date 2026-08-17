@@ -1,4 +1,4 @@
-import { Env } from "./storage";
+import { RiokoEnv as Env } from "./storage";
 import { LineItem, determineVATRate } from "./vat";
 
 export interface IXClient {

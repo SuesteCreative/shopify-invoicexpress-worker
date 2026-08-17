@@ -107,7 +107,8 @@ export interface DestinationCapabilities {
   deleteDraft: boolean;
   creditFullDocument: boolean;
   /** finalize can move the document's date to satisfy a series chronology rule.
-   *  InvoiceXpress only — Moloni fixes the date at insert and never rejects. */
+   *  InvoiceXpress and Moloni both enforce one, and both reject the close (not
+   *  just the insert) when the document falls behind the series. */
   finalizeWithDate: boolean;
   emailDocument: boolean;
   /** The document's state/total/date can be read back. */

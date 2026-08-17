@@ -49,6 +49,7 @@ import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
 import {
   connectionCapabilities, backfillConnection, reemitConnection,
   deleteConnectionDraft, creditConnectionDocument, finalizeConnectionDrafts,
+  setConnectionInvoiceCutoff,
 } from "./handlers/admin-connection";
 import type { FinalizeDateStrategy } from "./adapters/types";
 import { delay } from "./utils";
@@ -1538,6 +1539,8 @@ interface ConnectionRouteBody {
   limit?: number;
   /** Backfill only: also bill sales from before the connection's invoice_cutoff. */
   ignore_cutoff?: boolean;
+  /** /invoice-cutoff only: the new cutoff (YYYY-MM-DD or ISO), null to clear. */
+  invoice_cutoff?: string | null;
   force?: boolean;
   reason?: string;
   triggered_by?: string;
@@ -1684,6 +1687,29 @@ app.post("/admin/connection/finalize-drafts", async (c) => {
     }));
   } catch (e) {
     return errorResponse(c, e, "Finalize drafts failed");
+  }
+})
+
+/**
+ * Move the connection's `invoice_cutoff` — the date it starts invoicing from.
+ *
+ * Stamped from the Stripe subscription's start at activation, which is wrong for
+ * any merchant whose subscription was created after the sales Rioko is meant to
+ * bill: everything older is skipped as "Anterior ao início da facturação". This
+ * is how that is corrected, deliberately, per connection.
+ */
+app.post("/admin/connection/invoice-cutoff", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<ConnectionRouteBody>();
+  const resolved = await resolveRouteConnection(c, body);
+  if ("error" in resolved) return resolved.error;
+  try {
+    return c.json(await setConnectionInvoiceCutoff(
+      c.env, resolved.ctx, body.invoice_cutoff ?? null, { triggered_by: body.triggered_by ?? null },
+    ));
+  } catch (e) {
+    return errorResponse(c, e, "Could not set invoice cutoff");
   }
 })
 

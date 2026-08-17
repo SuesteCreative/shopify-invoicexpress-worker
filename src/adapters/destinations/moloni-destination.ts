@@ -5,6 +5,8 @@ import type {
   DestinationCreditResult,
   DestinationDocument,
   CreditFullResult,
+  FinalizeBatch,
+  FinalizeDateStrategy,
   FinalizeOutcome,
   NormalizedRefund,
 } from "../types";
@@ -1282,6 +1284,22 @@ async function fetchMoloniDocLines(
   }));
 }
 
+/**
+ * The date Moloni's series-chronology rule is demanding, or null if the failure
+ * was about something else.
+ *
+ * Moloni words it as a validation entry — `["12 date >= 2026-08-12"]` — and
+ * raises it on BOTH ends of a document's life: at insert, and again at close
+ * (status 0 → 1), because closing is when the document takes its number in the
+ * series. The second half cost a bulk run: 21 of 22 drafts were rejected after
+ * the first one closed at a later date and lifted the floor over all of them.
+ */
+export function moloniSeriesMinDate(error: unknown): string | null {
+  const msg = String((error as { message?: string })?.message ?? error ?? "");
+  const m = msg.match(/date\s*>=\s*(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
 async function insertMoloniDoc(
   cfg: MoloniCfg,
   token: string,
@@ -1291,10 +1309,8 @@ async function insertMoloniDoc(
   try {
     return await moloniCall<{ document_id?: number }>(cfg, token, insertPath, payload, "create");
   } catch (e) {
-    const msg = String((e as { message?: string })?.message ?? e);
-    const m = msg.match(/date\s*>=\s*(\d{4}-\d{2}-\d{2})/);
-    if (!m) throw e;
-    const minYmd = m[1];
+    const minYmd = moloniSeriesMinDate(e);
+    if (!minYmd) throw e;
     const originalYmd = typeof payload.date === "string" ? payload.date : todayYmd();
     const paymentNote = `Data do pagamento: ${formatPtYmd(originalYmd)}`;
     const existingNotes = typeof payload.notes === "string" ? payload.notes.trim() : "";
@@ -1308,18 +1324,100 @@ async function insertMoloniDoc(
   }
 }
 
+/**
+ * Move a draft's date forward, stamping the real transaction date in its notes.
+ *
+ * Moloni's update is a partial one — the same endpoint closes a document with
+ * nothing but `{document_id, status}` — so only the header fields travel here.
+ * `expiration_date` moves WITH `date`: a due date behind the issue date is the
+ * other half of every rejected re-date we have seen, on Moloni and IX alike.
+ *
+ * The document is read back before it is closed. A date change must never move
+ * money, and closing is irreversible, so a read-back whose total no longer
+ * matches the draft we measured stops the run for that row instead of certifying
+ * a document we have stopped recognising.
+ */
+async function redateMoloniDraft(
+  cfg: MoloniCfg,
+  token: string,
+  updatePath: string,
+  o: {
+    documentId: string;
+    targetDate: string;
+    originalDate: string;
+    existingNotes: string;
+    note: string | null;
+    expectedTotal: number | null;
+  },
+): Promise<void> {
+  // The caller's note names the transaction ("o pagamento Stripe pi_… de
+  // 30/07/2026"); with none, say at least when the money actually moved — a
+  // document dated later than its payment must carry the real date somewhere.
+  const note = o.note ?? `Data do pagamento: ${formatPtYmd(o.originalDate)}`;
+  const existing = o.existingNotes.trim();
+  const notes = (existing ? `${existing} | ${note}` : note).slice(0, 200);
+
+  await moloniCall(cfg, token, updatePath, {
+    document_id: Number(o.documentId),
+    date: o.targetDate,
+    expiration_date: o.targetDate,
+    notes,
+  }, "finalize");
+
+  const after = await fetchMoloniDocument(cfg, token, o.documentId);
+  if (!after) throw new Error(`documento ${o.documentId} desapareceu depois da mudança de data`);
+  if (Number(after.doc.status ?? 0) !== 0) {
+    throw new Error(`documento ${o.documentId} já não é rascunho depois da mudança de data`);
+  }
+  const storedDate = typeof after.doc.date === "string" ? after.doc.date.slice(0, 10) : null;
+  if (storedDate !== o.targetDate) {
+    throw new Error(`o Moloni ficou com a data ${storedDate ?? "?"} e não ${o.targetDate}`);
+  }
+  const afterTotal = moloniDocTotal(after.doc);
+  if (o.expectedTotal != null && (afterTotal == null || Math.abs(afterTotal - o.expectedTotal) > 0.011)) {
+    throw new Error(
+      `o total mudou de ${o.expectedTotal.toFixed(2)}€ para ${afterTotal?.toFixed(2) ?? "?"}€ — não fecho o documento`,
+    );
+  }
+}
+
+/**
+ * Per-run state for one bulk finalize.
+ *
+ * `seriesMinDate` is the floor Moloni is currently enforcing on the series, and
+ * it is deliberately mutable: it advances as this run closes documents, so the
+ * second row already knows the date the first one just imposed instead of
+ * learning it from a rejection. It starts null and is learned from Moloni's own
+ * error rather than read up-front — Moloni reports the exact minimum it wants,
+ * which is more reliable than reconstructing it from a document listing.
+ */
+export interface MoloniFinalizeBatch extends FinalizeBatch {
+  readonly kind: "moloni";
+  seriesMinDate: string | null;
+}
+
+function isMoloniBatch(b: FinalizeBatch | undefined): b is MoloniFinalizeBatch {
+  return !!b && b.kind === "moloni";
+}
+
+/** The later of two YYYY-MM-DD dates; string order is date order for ISO days. */
+function laterYmd(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
 export class MoloniDestination implements DestinationAdapter {
   readonly kind = "moloni" as const;
 
-  // `finalizeWithDate: false` is a statement about Moloni, not a gap: the date is
-  // fixed at insert and Moloni never rejects a document for falling behind its
-  // series, so there is no date to negotiate at finalize time. The method still
-  // exists, so the generic engine drives Moloni with no special case.
+  // Moloni DOES reject a close whose date falls behind the last document already
+  // closed in the series ("12 date >= 2026-08-12"), exactly like InvoiceXpress —
+  // so `finalizeWithDate` negotiates the date here too, and the flag says so.
   readonly capabilities = {
     drafts: true,
     deleteDraft: true,
     creditFullDocument: true,
-    finalizeWithDate: false,
+    finalizeWithDate: true,
     emailDocument: true,
     readDocument: true,
   } as const;
@@ -1635,42 +1733,138 @@ export class MoloniDestination implements DestinationAdapter {
     return { creditId: String(creditId), number: null, alreadyExisted: false };
   }
 
+  async prepareFinalizeBatch(
+    _ctx: AdapterCtx,
+    _opts?: { strategy?: FinalizeDateStrategy },
+  ): Promise<MoloniFinalizeBatch> {
+    // Nothing to fetch: the floor is whatever Moloni tells us it is, on the
+    // first close that hits it. One rejected close per run costs a round-trip
+    // and writes nothing, which beats guessing the series state from a listing.
+    return { kind: "moloni", seriesMinDate: null };
+  }
+
   /**
-   * Moloni fixes a document's date at insert and never rejects a close for
-   * falling behind its series, so there is no date to negotiate: this delegates
-   * to `finalize` and reports the date the document already carries.
+   * Certify one draft, keeping it on the transaction's own date for as long as
+   * Moloni allows.
    *
-   * Present rather than absent so the generic engine can drive Moloni without a
-   * special case; `capabilities.finalizeWithDate` stays false to say that the
-   * strategy argument has nothing to act on here.
+   * This used to be a bare `finalize()` on the strength of "Moloni fixes the
+   * date at insert and never rejects a close". It does reject: closing is when
+   * the document takes its place in the series, and a draft dated behind the
+   * last CLOSED document is refused with `["12 date >= 2026-08-12"]`. So a bulk
+   * run that closed a 12/08 sale first left every older draft in the batch
+   * permanently un-certifiable, and `today` was no escape either, since the
+   * strategy was never applied to the document at all.
+   *
+   * Re-dating a draft forward and noting the real transaction date in the
+   * document is the correct fiscal handling of issuing today for a past
+   * payment — the same thing `insertMoloniDoc` already does at insert.
    */
   async finalizeWithDate(
     invoiceId: string,
     ctx: AdapterCtx,
-    opts: { paidTotal?: number | null; dryRun?: boolean },
+    opts: {
+      strategy: FinalizeDateStrategy;
+      batch?: FinalizeBatch;
+      paidTotal?: number | null;
+      dateMovedNote?: (originalDate: string) => string | null;
+      dryRun?: boolean;
+    },
   ): Promise<FinalizeOutcome> {
-    const doc = await this.getDocument(invoiceId, ctx);
-    if (!doc) return { status: "error", message: `Documento ${invoiceId} não encontrado no Moloni` };
-    if (doc.state !== "draft") return { status: "skipped", message: `Já fechado (status=${doc.state})` };
+    const cfg = await getMoloniCfg(ctx);
+    const token = await getAccessToken(cfg);
+
+    // Resolve the document through whichever endpoint family holds it: tag
+    // routing means an id stored on an invoice_receipt connection may live under
+    // /invoices/, and update/close must be addressed to the same family.
+    const found = await fetchMoloniDocument(cfg, token, invoiceId);
+    if (!found) return { status: "error", message: `Documento ${invoiceId} não encontrado no Moloni` };
+    if (Number(found.doc.status ?? 0) !== 0) {
+      return { status: "skipped", message: `Já fechado (status=${found.doc.status})` };
+    }
+    const updatePath = found.path.replace(/getOne\/$/, "update/");
 
     // Closing is irreversible — a closed document is undone only with a credit
     // note — so a draft whose total is not what the buyer paid is never closed.
+    const docTotal = moloniDocTotal(found.doc);
     const paid = opts.paidTotal;
     if (typeof paid === "number" && Number.isFinite(paid) && paid > 0
-      && doc.total != null && Math.abs(doc.total - paid) > 0.011) {
+      && docTotal != null && Math.abs(docTotal - paid) > 0.011) {
       return {
         status: "error",
-        message: `Total do documento (${doc.total.toFixed(2)}€) não é o valor pago (${paid.toFixed(2)}€) — não certifico`,
+        message: `Total do documento (${docTotal.toFixed(2)}€) não é o valor pago (${paid.toFixed(2)}€) — não certifico`,
       };
     }
 
-    const date = doc.date ?? todayYmd();
+    const originalDate = typeof found.doc.date === "string" ? found.doc.date.slice(0, 10) : todayYmd();
+    const batch = isMoloniBatch(opts.batch) ? opts.batch : null;
+    const floor = batch?.seriesMinDate ?? null;
+    // `today` never negotiates; every other strategy keeps the transaction's own
+    // date and moves it forward only as far as the series forces.
+    let targetDate = opts.strategy === "today"
+      ? todayYmd()
+      : (floor && floor > originalDate ? floor : originalDate);
+
     if (opts.dryRun) {
-      return { status: "dry_run", date, originalDate: date, message: `Fecharia com a data ${date}` };
+      // Advance the floor so the preview predicts the same dates the real run
+      // would produce — otherwise the operator approves a run they won't get.
+      if (batch) batch.seriesMinDate = laterYmd(batch.seriesMinDate, targetDate);
+      return {
+        status: "dry_run",
+        date: targetDate,
+        originalDate,
+        message: targetDate === originalDate
+          ? `Fecharia com a data da transacção (${formatPtYmd(originalDate)})`
+          : `Mudaria a data ${formatPtYmd(originalDate)} → ${formatPtYmd(targetDate)} e fecharia`,
+      };
     }
 
-    await this.finalize(invoiceId, ctx);
-    return { status: "finalized", date, originalDate: date, message: `Fechado com a data ${date}` };
+    let currentDate = originalDate;
+    let lastError = "";
+    // At most three passes: as issued, re-dated to the floor Moloni named, and
+    // one more in case another document closed underneath us mid-run.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (targetDate !== currentDate) {
+        try {
+          await redateMoloniDraft(cfg, token, updatePath, {
+            documentId: invoiceId,
+            targetDate,
+            originalDate,
+            existingNotes: typeof found.doc.notes === "string" ? found.doc.notes : "",
+            note: opts.dateMovedNote?.(originalDate) ?? null,
+            expectedTotal: docTotal,
+          });
+        } catch (e) {
+          return {
+            status: "error",
+            message: `Não consegui mudar a data para ${formatPtYmd(targetDate)}: ${String((e as { message?: string })?.message ?? e)}`,
+          };
+        }
+        currentDate = targetDate;
+      }
+
+      try {
+        await moloniCall(cfg, token, updatePath, { document_id: Number(invoiceId), status: 1 }, "finalize");
+        if (batch) batch.seriesMinDate = laterYmd(batch.seriesMinDate, targetDate);
+        return {
+          status: "finalized",
+          date: targetDate,
+          originalDate,
+          message: targetDate === originalDate
+            ? `Fechado com a data da transacção (${formatPtYmd(originalDate)})`
+            : `Fechado a ${formatPtYmd(targetDate)} — o Moloni recusou a data da transacção (${formatPtYmd(originalDate)}), que ficou anotada no documento`,
+        };
+      } catch (e) {
+        lastError = String((e as { message?: string })?.message ?? e);
+        const minDate = moloniSeriesMinDate(e);
+        // Not a date complaint, or a floor we already tried: moving the date
+        // again would not fix it, so leave the draft exactly as it is.
+        if (!minDate || minDate <= targetDate) return { status: "error", message: lastError };
+        if (batch) batch.seriesMinDate = laterYmd(batch.seriesMinDate, minDate);
+        targetDate = minDate;
+      }
+    }
+
+    return { status: "error", message: lastError || "Moloni recusou o fecho sem indicar uma data aceitável" };
   }
 
   async issueCredit(

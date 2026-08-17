@@ -28,6 +28,10 @@ export interface Connection {
     label: string;
     external_id: { kind: string; label: string; placeholder: string };
     capabilities: ConnectionCapabilities;
+    /** Where this connection starts invoicing: sales paid before it are skipped
+     *  by every automatic path AND by the backfill. Null on the legacy Shopify
+     *  stand-in, which has no connection row to carry one. */
+    invoice_cutoff?: string | null;
 }
 
 export const connKey = (c: Connection) => `${c.source}:${c.destination}`;

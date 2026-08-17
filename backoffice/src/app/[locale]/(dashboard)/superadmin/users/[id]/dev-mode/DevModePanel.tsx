@@ -40,6 +40,9 @@ const connNames = (c: Connection) => ({
     destination: kindLabel(c.destination),
 });
 
+/** An ISO timestamp as the YYYY-MM-DD an <input type="date"> can hold. */
+const ymdOf = (iso: string | null | undefined) => (iso ? String(iso).slice(0, 10) : "");
+
 /** Sending a recovery action. The routing decision itself lives in
  *  @/lib/recovery-request, where it is unit-tested — the payload key for the
  *  record differs per connection and a wrong one is invisible in the UI. */
@@ -652,6 +655,41 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
     // explicit window.
     const isLegacyShopify = usesLegacyShopifyRoutes(conn);
 
+    // Where this connection starts invoicing. Stamped from the subscription's
+    // start date, so a merchant whose Rioko subscription was created after the
+    // sales it should bill gets "Anterior ao início da facturação" for all of
+    // them — with nothing on screen saying which date did that. Two ways out,
+    // both here: move the cutoff (durable), or exempt this one run.
+    const [cutoff, setCutoff] = useState<string>(ymdOf(conn.invoice_cutoff));
+    const [savedCutoff, setSavedCutoff] = useState<string>(ymdOf(conn.invoice_cutoff));
+    const [savingCutoff, setSavingCutoff] = useState(false);
+    const [ignoreCutoff, setIgnoreCutoff] = useState(false);
+
+    useEffect(() => {
+        setCutoff(ymdOf(conn.invoice_cutoff));
+        setSavedCutoff(ymdOf(conn.invoice_cutoff));
+        setIgnoreCutoff(false);
+    }, [conn.source, conn.destination, conn.invoice_cutoff]);
+
+    const saveCutoff = async () => {
+        setSavingCutoff(true);
+        try {
+            const res = await fetch("/api/admin/dev-mode/connection/invoice-cutoff", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    targetUserId, source: conn.source, destination: conn.destination,
+                    invoice_cutoff: cutoff || null,
+                }),
+            });
+            const d: any = await res.json();
+            if (!res.ok) { setResult(d); return; }
+            setSavedCutoff(ymdOf(d.invoice_cutoff));
+            setCutoff(ymdOf(d.invoice_cutoff));
+        } catch (e: any) { setResult({ error: String(e) }); }
+        finally { setSavingCutoff(false); }
+    };
+
     const run = async () => {
         setLoading(true); setResult(null);
         try {
@@ -663,6 +701,7 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
                 };
             setResult(await callRecovery(conn, "backfill", targetUserId, {
                 ...(isLegacyShopify ? { type } : {}),
+                ...(ignoreCutoff && !isLegacyShopify ? { ignore_cutoff: true } : {}),
                 dry_run: dryRun, reason, notify_emails: notifyEmails, ...window,
             }));
         } catch (e: any) { setResult({ error: String(e) }); }
@@ -701,6 +740,27 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                     {t("to")} <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
                 </label>
+
+                {!isLegacyShopify && (
+                    <div className="md:col-span-2 rounded-2xl border border-hairline bg-surface-2/30 p-4 space-y-3">
+                        <div className="flex flex-wrap items-end gap-3">
+                            <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
+                                {t("cutoffLabel")}
+                                <input type="date" value={cutoff} onChange={e => setCutoff(e.target.value)}
+                                    className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                            </label>
+                            <button onClick={saveCutoff} disabled={savingCutoff || cutoff === savedCutoff}
+                                className="px-4 py-2 rounded-xl border border-hairline text-[10px] font-black uppercase tracking-widest text-fg hover:text-accent hover:border-[rgba(2,141,196,0.40)] transition-all disabled:opacity-40">
+                                {savingCutoff ? <Loader2 className="w-3 h-3 animate-spin" /> : t("cutoffSave")}
+                            </button>
+                        </div>
+                        <p className="text-[11px] font-medium text-fg-40">{t("cutoffDesc")}</p>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" checked={ignoreCutoff} onChange={e => setIgnoreCutoff(e.target.checked)} className="accent-soon w-4 h-4" />
+                            <span className="text-xs font-bold text-fg">{t("ignoreCutoff")}</span>
+                        </label>
+                    </div>
+                )}
 
                 <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={dryRun} onChange={e => setDryRun(e.target.checked)} className="accent-soon w-4 h-4" />

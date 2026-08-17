@@ -39,6 +39,9 @@ export interface ConnectionSummary {
   source: SourceKind;
   destination: DestinationKind;
   label: string;
+  /** Effective `invoice_cutoff` (the column, else the connection's created_at).
+   *  Absent on the legacy Shopify stand-in, which has no connection row. */
+  invoiceCutoff?: string | null;
 }
 
 export type ResolveConnectionResult =
@@ -226,7 +229,7 @@ export async function resolveConnectionContext(
 /** Every active connection a user has, for the dev-mode connection selector. */
 export async function listUserConnections(env: Env, userId: string): Promise<ConnectionSummary[]> {
   const rows: any[] = ((await env.DB.prepare(
-    `SELECT source_kind, destination_kind FROM connections
+    `SELECT source_kind, destination_kind, invoice_cutoff, created_at FROM connections
      WHERE user_id = ? AND status = 'active' ORDER BY updated_at DESC`
   ).bind(userId).all()).results ?? []) as any[];
 
@@ -234,6 +237,10 @@ export async function listUserConnections(env: Env, userId: string): Promise<Con
     source: r.source_kind as SourceKind,
     destination: r.destination_kind as DestinationKind,
     label: connectionLabelOf(r.source_kind, r.destination_kind),
+    // The same value backfill enforces (resolveConnectionContext falls back to
+    // created_at the same way), so the panel can SAY where its cutoff comes from
+    // instead of an operator inferring it from "23 skipped".
+    invoiceCutoff: (r.invoice_cutoff ?? r.created_at) ?? null,
   }));
 
   // A merchant who predates the connections table has no row at all; surface the

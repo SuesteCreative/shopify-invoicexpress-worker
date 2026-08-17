@@ -4,8 +4,8 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev -c wrangler.jsonc",
-    "deploy": "wrangler deploy",
-    "deploy:safe": "node scripts/pre-deploy-backup.mjs && wrangler deploy",
+    "deploy": "node scripts/deploy.mjs",
+    "deploy:safe": "node scripts/pre-deploy-backup.mjs && node scripts/deploy.mjs",
     "backup": "node scripts/pre-deploy-backup.mjs",
     "gen:builder": "esbuild src/ix/builder.ts --bundle --format=esm --platform=node --outfile=scripts/.gen/builder.mjs",
     "gen:normalize": "esbuild src/ix/normalize-local.ts --bundle --format=esm --platform=node --outfile=scripts/.gen/normalize-local.mjs",

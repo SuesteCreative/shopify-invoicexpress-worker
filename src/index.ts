@@ -583,6 +583,31 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
   }
 });
 
+// ── Admin: what is actually deployed ─────────────────────────────────────────
+// Cloudflare tells you a version id and a timestamp, neither of which says
+// which commit is serving traffic. Without this, "is the fix live?" is answered
+// by lining up `git log` (Lisbon) against `wrangler deployments list` (UTC) and
+// hoping — which is exactly how a deploy from the wrong branch goes unnoticed.
+//
+// `unknown` is a real answer, not a failure: it means the worker was deployed
+// with a bare `wrangler deploy` instead of `npm run deploy`, so nothing stamped
+// it, and you should not trust any belief you hold about what is running.
+app.get("/admin/version", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const sha = c.env.GIT_SHA ?? null;
+  return c.json({
+    commit: sha,
+    commit_short: sha ? sha.slice(0, 7) : null,
+    branch: c.env.GIT_BRANCH ?? null,
+    // A deploy from a dirty tree is not reproducible from the commit alone.
+    dirty: c.env.GIT_DIRTY === "1",
+    built_at: c.env.BUILT_AT ?? null,
+    stamped: !!sha,
+    ...(sha ? {} : { note: "Deployed without `npm run deploy` — the running commit is unknown." }),
+  });
+});
+
 // ── Admin: Stripe webhook + event recovery (Phase 3 ops tooling) ──────────────
 // All operate on the Stripe-source connection for ?userId / body.userId, using
 // the connection's stored restricted_key.

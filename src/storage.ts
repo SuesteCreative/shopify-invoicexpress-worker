@@ -51,6 +51,14 @@ export interface IRequestConfig {
   // default; enabled per shop that needs the exemption spelled out for carriers
   // /customs (e.g. UPS on US exports). Derived from ix_exemption_reason.
   ix_stamp_exemption_note: number | null;
+  /**
+   * A standing note the merchant wants on every document (VAT scheme wording, a
+   * licence number, a fixed legal reference). Appended to `observations` AFTER
+   * the mandatory fiscal mentions, so IX's 200-char cap truncates this rather
+   * than a legal text. Connection-based clients carry the same key inside
+   * `destination_config_json`.
+   */
+  custom_invoice_note: string | null;
   // 0 or 1
   webhooks_active: number | null;
   // 0 or 1

@@ -3,6 +3,7 @@ import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
 import { renderIncidentTemplate, tplPatternReport, type IncidentKind } from "./email-templates";
 import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type IncidentDiagnosis, type RedactedIncident } from "./anthropic";
+import { getCompanyRulesNotes } from "./company-rules";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -351,7 +352,8 @@ async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: st
   let aiSuggestedFix: string | undefined;
   if (AI_TRIAGE_ORDER_KINDS.has(input.kind)) {
     try {
-      const diag = await diagnoseIncident(env, redactIncident(input), bucketKey);
+      const notes = await getCompanyRulesNotes(env, input.user_id);
+      const diag = await diagnoseIncident(env, redactIncident(input), bucketKey, notes);
       if (diag) { aiDiagnosis = diag.diagnosis; aiSuggestedFix = diag.suggested_fix; }
     } catch (e: any) {
       console.warn(`[incidents] AI triage failed (advisory, ignored): ${e?.message ?? e}`);
@@ -413,7 +415,8 @@ export async function explainIncidentById(
   }
   if (!row) return { ok: false, error: "incident not found" };
 
-  const diag = await diagnoseIncident(env, redactIncident(incidentRowToInput(row)), row.bucket_key ?? `explain:${id}`);
+  const notes = await getCompanyRulesNotes(env, row.user_id);
+  const diag = await diagnoseIncident(env, redactIncident(incidentRowToInput(row)), row.bucket_key ?? `explain:${id}`, notes);
   if (!diag) return { ok: false, error: "no diagnosis (feature disabled, hourly cap reached, or model error)" };
   return { ok: true, diagnosis: diag };
 }

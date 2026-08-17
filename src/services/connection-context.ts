@@ -122,6 +122,12 @@ export function projectConnectionBehaviour(
   if (typeof destinationConfig.send_email === "boolean") {
     c.ix_send_email = destinationConfig.send_email ? 1 : 0;
   }
+  // A connection-based client has no legacy row to hold this, so without the
+  // projection its standing invoice note would be settable in the console and
+  // silently absent from every document it issued.
+  if (typeof destinationConfig.custom_invoice_note === "string") {
+    c.custom_invoice_note = destinationConfig.custom_invoice_note;
+  }
   return config;
 }
 

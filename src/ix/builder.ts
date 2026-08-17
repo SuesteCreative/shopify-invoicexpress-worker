@@ -594,7 +594,12 @@ export class IxBuilder {
       this.config.ix_stamp_exemption_note === 1 && requestTaxExemptionReason && !shopifyReverseCharge
         ? buildExemptionMention(rcReason)
         : "";
-    const obsCombined = [exemptionMention, noteRaw, rcMention].filter(Boolean).join(" | ").slice(0, 200);
+    // The merchant's own standing note (VAT scheme wording, licence number, a
+    // fixed legal reference) goes last of the configured texts: the mandatory
+    // fiscal mentions come first so the 200-char cap eats this instead of them.
+    const customNote = (this.config.custom_invoice_note ?? "").trim();
+    const obsCombined = [exemptionMention, noteRaw, rcMention, customNote]
+      .filter(Boolean).join(" | ").slice(0, 200);
 
     const invoice: IxInvoice = {
       client,

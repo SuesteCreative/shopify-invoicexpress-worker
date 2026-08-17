@@ -47,10 +47,12 @@
     "DOC_VERIFY_DAYS": "3",
     "DOC_VERIFY_LIMIT": "500",
     "DOC_VERIFY_BUDGET_MS": "480000",
-    // Ships dark: flip to "1" after a manual /admin/run-webhook-health run looks
-    // right. WORKER_PUBLIC_URL must match the address the shops' webhooks point
-    // at, or every hook reads as missing and gets re-registered.
-    "WEBHOOK_HEALTH_ENABLED": "0",
+    // On since 2026-08-17, after the first manual run found 10 of 12 shops with
+    // no webhooks at all — Angel Piercing since May — while every one of them
+    // showed `webhooks_active = 1`, most of it set by the manual confirm button
+    // that never asks Shopify anything. WORKER_PUBLIC_URL must match the address
+    // the shops' hooks point at, or every hook reads as missing.
+    "WEBHOOK_HEALTH_ENABLED": "1",
     "WORKER_PUBLIC_URL": "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev"
   },
   "kv_namespaces": [

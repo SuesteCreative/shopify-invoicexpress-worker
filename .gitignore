@@ -27,6 +27,9 @@ scripts/reemit-*.mjs
 # Local fixtures / PII order payloads
 clients/
 
+# Generated client profiles (names, emails, NIFs of real merchants — local only)
+docs/customer-profiles.md
+
 # Editor / OS / build junk
 .DS_Store
 *.tsbuildinfo

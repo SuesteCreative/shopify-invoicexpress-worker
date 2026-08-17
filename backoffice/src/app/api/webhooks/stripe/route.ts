@@ -29,6 +29,21 @@ async function activatePausedConnections(db: D1Database, userId: string, cutoffI
         `UPDATE connections SET status='active', invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
          WHERE user_id=? AND status='paused'`
     ).bind(cutoffIso, userId).run();
+
+    // A connection built AFTER the payment is never 'paused' — the wizard
+    // activates it on the spot — so the branch above never touched it and its
+    // cutoff stayed NULL. Everything downstream then falls back to the row's
+    // created_at, which is "the day somebody ran the wizard" and not "the day
+    // this client started paying"; on the Alliance connection those were the
+    // same afternoon, and the difference is which sales are ours to issue.
+    // Only NULLs are filled: a date an admin set by hand must survive every
+    // renewal webhook that follows.
+    if (cutoffIso) {
+        await db.prepare(
+            `UPDATE connections SET invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
+             WHERE user_id=? AND status='active' AND invoice_cutoff IS NULL`
+        ).bind(cutoffIso, userId).run();
+    }
     await db.prepare(
         `UPDATE integrations SET is_paused=0, updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND is_paused=1`
     ).bind(userId).run();

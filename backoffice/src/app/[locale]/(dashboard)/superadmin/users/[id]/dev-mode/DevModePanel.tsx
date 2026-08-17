@@ -131,6 +131,23 @@ export function DevModePanel({ target }: { target: Target }) {
     const conn = connections?.find(c => connKey(c) === selected) ?? null;
     const cap = conn?.capabilities;
 
+    // Read separately from the capabilities payload because this one tells apart
+    // a stored date from the created_at fallback — the difference between "we
+    // decided this" and "nobody ever set it", which an editor has to show.
+    const [cutoffs, setCutoffs] = useState<ConnectionCutoff[]>([]);
+    useEffect(() => {
+        fetch(`/api/admin/dev-mode/connection-cutoffs?targetUserId=${target.id}`)
+            .then(r => r.json())
+            .then((d: any) => setCutoffs(d.connections ?? []))
+            .catch(console.error);
+    }, [target.id]);
+
+    const onCutoffSaved = (next: ConnectionCutoff) => setCutoffs(prev => prev.map(p =>
+        p.source === next.source && p.destination === next.destination ? next : p));
+    const connCutoff = conn
+        ? cutoffs.find(c => c.source === conn.source && c.destination === conn.destination) ?? null
+        : null;
+
     return (
         <div className="space-y-10 animate-in fade-in duration-500">
             {/* Header */}
@@ -168,7 +185,12 @@ export function DevModePanel({ target }: { target: Target }) {
 
             {/* Per-user, not per-connection: a merchant has one subscription and
                 one set of notification addresses however many pipes they run. */}
-            <SubscriptionAdminCard targetUserId={target.id} targetRole={target.role} />
+            <SubscriptionAdminCard
+                targetUserId={target.id}
+                targetRole={target.role}
+                cutoffs={cutoffs}
+                onCutoffSaved={onCutoffSaved}
+            />
             <StripeRecoveryCard targetUserId={target.id} />
             <NotifyEmailsCard emails={notifyEmails} input={emailInput} setInput={setEmailInput} onAdd={addEmail} onRemove={removeEmail} saving={savingEmails} />
 
@@ -184,7 +206,7 @@ export function DevModePanel({ target }: { target: Target }) {
                         </>
                     )}
 
-                    {cap.backfill && <BackfillCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
+                    {cap.backfill && <BackfillCard targetUserId={target.id} conn={conn} cutoff={connCutoff} notifyEmails={notifyEmails} />}
                     {cap.reemit && <ReemitCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
                     {(cap.deleteDraft || cap.creditNote) && <CancelInvoiceCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
                     {cap.finalizeDrafts && <FinalizeDraftsCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
@@ -254,7 +276,96 @@ function ResultBox({ result }: { result: JobResult | null }) {
     );
 }
 
-function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: string; targetRole: string }) {
+type ConnectionCutoff = {
+    source: string;
+    destination: string;
+    status: string;
+    invoice_cutoff: string | null;
+    created_at: string | null;
+    effective: string | null;
+    source_of_date: "explicit" | "connection_created";
+};
+
+/**
+ * When Rioko starts invoicing this client, per connection.
+ *
+ * It lives beside the subscription because that is what fills it: the date is
+ * stamped when the first payment lands (or when an existing Stripe subscription
+ * is linked by hand, taking that subscription's start). Sales paid before it are
+ * skipped by the backfill, by the nightly healing sweep and by the Lodgify poll,
+ * so it is the single control that decides whether a merchant's back-catalogue
+ * is ours to issue — and it has to be correctable, because a subscription
+ * created after the sales it should cover would otherwise lock them out for good.
+ */
+function IntegrationStartRow({
+    targetUserId, conn, onSaved,
+}: { targetUserId: string; conn: ConnectionCutoff; onSaved: (next: ConnectionCutoff) => void }) {
+    const t = useTranslations("devMode");
+    const [value, setValue] = useState(ymdOf(conn.effective));
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => { setValue(ymdOf(conn.effective)); }, [conn.effective]);
+
+    const save = async () => {
+        setSaving(true); setError(null);
+        try {
+            const res = await fetch("/api/admin/dev-mode/connection/invoice-cutoff", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    targetUserId, source: conn.source, destination: conn.destination,
+                    invoice_cutoff: value || null,
+                }),
+            });
+            const d: any = await res.json().catch(() => ({}));
+            if (!res.ok) { setError(d?.error ?? `HTTP ${res.status}`); return; }
+            const stored = d.invoice_cutoff ?? null;
+            onSaved({
+                ...conn,
+                invoice_cutoff: stored,
+                effective: stored ?? conn.created_at,
+                source_of_date: stored ? "explicit" : "connection_created",
+            });
+            setSavedAt(Date.now());
+        } catch (e: any) { setError(String(e?.message ?? e)); }
+        finally { setSaving(false); }
+    };
+
+    return (
+        <div className="space-y-2">
+            <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
+                    {t("integrationStart")} · {connectionLabel(conn.source, conn.destination)}
+                    <input type="date" value={value} onChange={e => { setValue(e.target.value); setError(null); }}
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                </label>
+                <button onClick={save} disabled={saving || value === ymdOf(conn.effective)}
+                    className="px-4 py-2.5 rounded-xl border border-hairline text-[10px] font-black uppercase tracking-widest text-fg hover:text-accent hover:border-[rgba(2,141,196,0.40)] transition-all disabled:opacity-40">
+                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("cutoffSave")}
+                </button>
+            </div>
+            <p className="text-[10px] text-fg-40 font-medium">
+                {conn.source_of_date === "explicit" ? t("cutoffExplicit") : t("cutoffDerived")}
+            </p>
+            {error && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] text-destructive text-xs font-bold">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-px" /><span>{error}</span>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSaved }: {
+    targetUserId: string;
+    targetRole: string;
+    /** Owned by the panel, not by this card: the backfill card shows the same
+     *  date, and two copies of it drift the moment one of them is saved. */
+    cutoffs: ConnectionCutoff[];
+    onCutoffSaved: (next: ConnectionCutoff) => void;
+}) {
     const t = useTranslations("devMode");
     const [sub, setSub] = useState<any>(null);
     const [earlyBird, setEarlyBird] = useState(false);
@@ -263,7 +374,6 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
-
     const isAdminTarget = targetRole === "superadmin" || targetRole === "hiperadmin";
 
     useEffect(() => {
@@ -378,6 +488,20 @@ function SubscriptionAdminCard({ targetUserId, targetRole }: { targetUserId: str
                     <span>{error}</span>
                 </div>
             )}
+            {cutoffs.length > 0 && (
+                <div className="pt-4 mt-2 border-t border-hairline space-y-4">
+                    {cutoffs.map((c) => (
+                        <IntegrationStartRow
+                            key={`${c.source}:${c.destination}`}
+                            targetUserId={targetUserId}
+                            conn={c}
+                            onSaved={onCutoffSaved}
+                        />
+                    ))}
+                    <p className="text-[10px] text-fg-40 font-medium">{t("integrationStartDesc")}</p>
+                </div>
+            )}
+
             {sub && (
                 <div className="text-[10px] text-fg-40 font-medium space-y-1">
                     <p><strong className="text-fg-60">{t("statusNow")}</strong> {sub.status}{sub.stripe_subscription_id && <span className="text-fg-40"> · {sub.stripe_subscription_id}</span>}</p>
@@ -639,7 +763,7 @@ function NotifyEmailsCard({ emails, input, setInput, onAdd, onRemove, saving }: 
     );
 }
 
-function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: string; conn: Connection; notifyEmails: string[] }) {
+function BackfillCard({ targetUserId, conn, cutoff, notifyEmails }: { targetUserId: string; conn: Connection; cutoff: ConnectionCutoff | null; notifyEmails: string[] }) {
     const t = useTranslations("devMode");
     const [mode, setMode] = useState<"date_range" | "since_last">("date_range");
     const [from, setFrom] = useState("");
@@ -655,40 +779,14 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
     // explicit window.
     const isLegacyShopify = usesLegacyShopifyRoutes(conn);
 
-    // Where this connection starts invoicing. Stamped from the subscription's
-    // start date, so a merchant whose Rioko subscription was created after the
-    // sales it should bill gets "Anterior ao início da facturação" for all of
-    // them — with nothing on screen saying which date did that. Two ways out,
-    // both here: move the cutoff (durable), or exempt this one run.
-    const [cutoff, setCutoff] = useState<string>(ymdOf(conn.invoice_cutoff));
-    const [savedCutoff, setSavedCutoff] = useState<string>(ymdOf(conn.invoice_cutoff));
-    const [savingCutoff, setSavingCutoff] = useState(false);
+    // Sales paid before the connection's cutoff are skipped, and the reason on
+    // screen ("Anterior ao início da facturação") means nothing without the date
+    // it refers to — so the date is shown here, next to the run that obeys it.
+    // Editing it lives with the subscription, which is what fills it; here the
+    // only lever is exempting THIS run.
     const [ignoreCutoff, setIgnoreCutoff] = useState(false);
 
-    useEffect(() => {
-        setCutoff(ymdOf(conn.invoice_cutoff));
-        setSavedCutoff(ymdOf(conn.invoice_cutoff));
-        setIgnoreCutoff(false);
-    }, [conn.source, conn.destination, conn.invoice_cutoff]);
-
-    const saveCutoff = async () => {
-        setSavingCutoff(true);
-        try {
-            const res = await fetch("/api/admin/dev-mode/connection/invoice-cutoff", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    targetUserId, source: conn.source, destination: conn.destination,
-                    invoice_cutoff: cutoff || null,
-                }),
-            });
-            const d: any = await res.json();
-            if (!res.ok) { setResult(d); return; }
-            setSavedCutoff(ymdOf(d.invoice_cutoff));
-            setCutoff(ymdOf(d.invoice_cutoff));
-        } catch (e: any) { setResult({ error: String(e) }); }
-        finally { setSavingCutoff(false); }
-    };
+    useEffect(() => { setIgnoreCutoff(false); }, [conn.source, conn.destination]);
 
     const run = async () => {
         setLoading(true); setResult(null);
@@ -743,18 +841,13 @@ function BackfillCard({ targetUserId, conn, notifyEmails }: { targetUserId: stri
 
                 {!isLegacyShopify && (
                     <div className="md:col-span-2 rounded-2xl border border-hairline bg-surface-2/30 p-4 space-y-3">
-                        <div className="flex flex-wrap items-end gap-3">
-                            <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                {t("cutoffLabel")}
-                                <input type="date" value={cutoff} onChange={e => setCutoff(e.target.value)}
-                                    className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
-                            </label>
-                            <button onClick={saveCutoff} disabled={savingCutoff || cutoff === savedCutoff}
-                                className="px-4 py-2 rounded-xl border border-hairline text-[10px] font-black uppercase tracking-widest text-fg hover:text-accent hover:border-[rgba(2,141,196,0.40)] transition-all disabled:opacity-40">
-                                {savingCutoff ? <Loader2 className="w-3 h-3 animate-spin" /> : t("cutoffSave")}
-                            </button>
-                        </div>
-                        <p className="text-[11px] font-medium text-fg-40">{t("cutoffDesc")}</p>
+                        <p className="text-[11px] font-medium text-fg-40">
+                            {t("cutoffCurrent", {
+                                date: (cutoff?.effective ?? conn.invoice_cutoff)
+                                    ? new Date((cutoff?.effective ?? conn.invoice_cutoff)!).toLocaleDateString("pt-PT")
+                                    : "—",
+                            })}
+                        </p>
                         <label className="flex items-center gap-3 cursor-pointer">
                             <input type="checkbox" checked={ignoreCutoff} onChange={e => setIgnoreCutoff(e.target.checked)} className="accent-soon w-4 h-4" />
                             <span className="text-xs font-bold text-fg">{t("ignoreCutoff")}</span>

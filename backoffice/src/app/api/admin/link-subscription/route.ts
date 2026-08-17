@@ -92,10 +92,20 @@ export async function POST(req: NextRequest) {
 
         // Release any connection paused pending payment + stamp the invoice cutoff.
         try {
+            const subStart = isoFromUnix((sub as any).start_date);
             await db.prepare(
                 `UPDATE connections SET status='active', invoice_cutoff = COALESCE(invoice_cutoff, ?), updated_at=CURRENT_TIMESTAMP
                  WHERE user_id = ? AND status = 'paused'`
-            ).bind(isoFromUnix((sub as any).start_date), targetUserId).run();
+            ).bind(subStart, targetUserId).run();
+            // Linking a subscription by hand is also the moment we learn when the
+            // client actually started paying — so an already-active connection
+            // that never had a cutoff gets this subscription's start instead of
+            // keeping the day its row happened to be created. COALESCE keeps an
+            // admin's own date; the panel can still override it afterwards.
+            await db.prepare(
+                `UPDATE connections SET invoice_cutoff = COALESCE(invoice_cutoff, ?), updated_at=CURRENT_TIMESTAMP
+                 WHERE user_id = ? AND status = 'active'`
+            ).bind(subStart, targetUserId).run();
         } catch (e: any) {
             console.warn("[link-subscription] connection activate failed:", e?.message ?? e);
         }

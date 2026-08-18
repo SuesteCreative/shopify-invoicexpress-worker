@@ -3,10 +3,15 @@ import { IxBuilder, nifHoldReason } from "./builder";
 
 // Angel Piercing #4783, 325.55€, unbilled since 12/08/2026. The buyer put a
 // French VAT number in the company field of an address that says Portugal. We
-// stamped it as the client's fiscal_id anyway and InvoiceXpress refused the
-// whole document with "Contribuinte não é válido" — no invoice, no email,
-// nobody told. IX validates the pair, so there is nothing to guess: the draft
-// plus a message to the merchant is the only honest outcome.
+// stamped it as the client's fiscal_id and InvoiceXpress refused the whole
+// document with "Contribuinte não é válido" — no invoice, no email, nobody
+// told. IX validates the PAIR, so the number cannot go on the document.
+//
+// It is not, however, a reason to stop invoicing. Someone French who moves to
+// Portugal keeps their French number and updates their address, and that is an
+// ordinary customer, not a suspect one. Holding every such sale builds a review
+// queue that never empties. So the number is left off and the sale is invoiced
+// like any other.
 
 const shopConfig = (extra: any = {}): any => ({
   user_id: "u1", shopify_domain: "2d0604-3.myshopify.com", ix_document_type: "invoice_receipt",
@@ -34,7 +39,7 @@ const orderWith = (billing: any, extra: any = {}): any => {
   };
 };
 
-describe("a VAT number that contradicts the address is never stamped", () => {
+describe("a VAT number that contradicts the address is left off, not blocked", () => {
   const frenchVatOnPtAddress = orderWith({
     country_code: "PT", country: "Portugal", address1: "", city: "", company: "FR18898261615",
   });
@@ -44,10 +49,12 @@ describe("a VAT number that contradicts the address is never stamped", () => {
     expect(client.fiscal_id).toBeUndefined();
   });
 
-  it("holds the build so the caller drafts it and writes to the merchant", () => {
-    const { nifHold } = new IxBuilder(shopConfig()).createInvoiceFromNormalizedOrder(frenchVatOnPtAddress);
-    expect(nifHold).toEqual({ kind: "country_mismatch", raw: "FR18898261615", billingCountry: "PT" });
-    expect(nifHoldReason(nifHold!)).toBe('nif_country_mismatch: "FR18898261615" com morada em PT');
+  it("issues the document normally — the pairing is ordinary, not suspect", () => {
+    const { nifHold, invoice } = new IxBuilder(shopConfig()).createInvoiceFromNormalizedOrder(frenchVatOnPtAddress);
+    // No hold: nothing here needs a human, so finalize and the buyer email
+    // proceed exactly as they would for any other sale.
+    expect(nifHold).toBeUndefined();
+    expect(invoice.items.length).toBeGreaterThan(0);
   });
 
   it("stamps it when the address agrees with the prefix", () => {

@@ -29,6 +29,7 @@ import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
 import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
 import { checkSubscriptionGate } from "./services/subscription-gate";
+import type { IRequestConfig } from "./storage";
 import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
 import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts, externalIdFromEvent } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
@@ -3512,14 +3513,27 @@ async function reportLodgifyBacklog(
  * 6h threshold against an hourly feeder = five consecutive missed runs before
  * anyone is woken. Daily bucket, so a dead feeder costs one email per day.
  */
-async function reportStaleLodgifyIngest(env: Env): Promise<{ checked: number; stale: number }> {
-  const out = { checked: 0, stale: 0 };
+async function reportStaleLodgifyIngest(env: Env): Promise<{ checked: number; stale: number; skipped: number }> {
+  const out = { checked: 0, stale: 0, skipped: 0 };
   const rows = await env.DB.prepare(
     `SELECT user_id, destination_kind FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`
   ).all();
 
   const staleMs = 6 * 60 * 60 * 1000;
   for (const conn of (rows?.results ?? []) as any[]) {
+    // A client we would not invoice for cannot have an ingestion problem worth
+    // waking anyone at 08:00 for. Even if every booking arrived on time the gate
+    // would refuse to document them, so silence is the correct state and not a
+    // symptom — `connections.status` stays "active" long after a subscription
+    // ends, which is why the row alone cannot answer this.
+    //
+    // Casa de Celebrar a Vida is the case: cancelled, dormant until 2027, and
+    // sending one critical "as reservas não estão a chegar" every single day.
+    // Alarms that are known-wrong are worse than no alarm, because they teach
+    // you to skim the ones that are right.
+    const gate = await checkSubscriptionGate(env, { user_id: conn.user_id } as IRequestConfig);
+    if (!gate.allowed) { out.skipped++; continue; }
+
     out.checked++;
     const state: any = await env.DB.prepare(
       "SELECT last_completed_at FROM sweep_state WHERE shopify_domain = ?"
@@ -3708,6 +3722,7 @@ export default {
     try {
       const r = await reportStaleLodgifyIngest(env);
       if (r.stale > 0) console.warn(`[Cron] Lodgify ingestion stale for ${r.stale}/${r.checked} connection(s)`);
+      if (r.skipped > 0) console.log(`[Cron] Lodgify staleness: ${r.skipped} connection(s) skipped (subscription inactive)`);
     } catch (e: any) {
       console.error(`[Cron] Lodgify ingest check failed: ${e.message}`);
     }

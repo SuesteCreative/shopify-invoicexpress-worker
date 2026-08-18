@@ -14,6 +14,29 @@ import { ixEnvelopeError } from "../adapters/destinations/ix-destination";
 import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
 import { logDocumentEvent } from "../services/document-log";
 
+/**
+ * Whether a refund arriving with no invoice behind it is simply nothing to do.
+ *
+ * `only_invoice_when_paid` holds an unpaid order at orders/created, so a return
+ * registered against one has no document to credit and never will. Shopify
+ * fires refunds/create regardless (Angel #4814: 234,20 € awaiting Multibanco, a
+ * 0,00 € refund logged against it, six retries and a critical alert about a
+ * credit note nobody could have issued).
+ *
+ * Narrow on purpose: a PAID order whose refund lands before its invoice was
+ * written is a transient race that must keep retrying, and an absent status
+ * (the raw Shopify fetch failed) is unknown rather than unpaid.
+ */
+export function refundHasNothingToCredit(
+  financialStatus: string | null | undefined,
+  onlyInvoiceWhenPaid: number | null | undefined,
+): boolean {
+  if (onlyInvoiceWhenPaid !== 1) return false;
+  const status = String(financialStatus ?? "").trim();
+  if (!status) return false;
+  return !["paid", "partially_refunded", "refunded"].includes(status);
+}
+
 export async function handleRefundCreate(env: Env, config: IRequestConfig, webhookId: string | null, refund: any) {
   const webhookTopic = "refunds/create";
   const appStorage = new AppStorage(env, config.shopify_domain!);
@@ -46,6 +69,36 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
     const invoice = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
 
     if (!invoice || !invoice.invoice_id) {
+      // See refundHasNothingToCredit: a return on an order that was never paid
+      // has no document to credit, and never will.
+      const financialStatus = String(normalizedOrderResponse.normalized.raw_order?.financial_status ?? "");
+      if (refundHasNothingToCredit(financialStatus, config.only_invoice_when_paid)) {
+        console.log(`[Rioko] Refund on never-paid order ${orderId} (financial_status=${financialStatus}) — nothing to credit`);
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+        await appStorage.saveLog({
+          shopify_domain: config.shopify_domain,
+          topic: webhookTopic,
+          payload: JSON.stringify({ orderId, refundId: refund.id, financial_status: financialStatus }),
+          response: "Skipped: order never paid — no invoice to credit",
+          status: 200,
+        });
+        // The sale's own timeline is where "why is there no credit note" gets
+        // answered, months later, by someone with no memory of today.
+        await logDocumentEvent(env, {
+          externalId: String(orderId),
+          event: "skipped",
+          dedupKey: `skipped:refund-unpaid:${refund.id}`,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: "shopify",
+          destinationKind: "invoicexpress",
+          actor: "pipeline",
+          summary: `Devolução registada numa encomenda que nunca chegou a ser paga (${financialStatus}), por isso nunca foi facturada — não há documento para creditar. Nada a fazer.`,
+          detail: { refundId: String(refund.id), financial_status: financialStatus },
+        });
+        return;
+      }
+
       throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
     }
 

@@ -29,32 +29,18 @@ export type Address2TaxId =
  * "encontrámos 500000001 na morada de entrega" is actionable, "NIF inválido"
  * is not.
  */
-export type NifHold =
-  | {
-    /** Something meant to be a PT tax id, written into an address line, that
-     *  does not validate. */
-    kind: "address_tax_id";
-    /** The exact text read out of the address line, e.g. "500000001". */
-    raw: string;
-    /** Which field it came from, e.g. "shipping.address2". */
-    field: string;
-  }
-  | {
-    /** A perfectly readable EU VAT whose country prefix contradicts the
-     *  billing address. IX validates the pair, not the number, and rejects
-     *  the whole document — so neither half can be trusted enough to send. */
-    kind: "country_mismatch";
-    /** The VAT number as read, e.g. "FR18898261615". */
-    raw: string;
-    /** What the billing address claims, e.g. "PT" ("" when unstated). */
-    billingCountry: string;
-  };
+export type NifHold = {
+  /** Something meant to be a PT tax id, written into an address line, that
+   *  does not validate. */
+  kind: "address_tax_id";
+  /** The exact text read out of the address line, e.g. "500000001". */
+  raw: string;
+  /** Which field it came from, e.g. "shipping.address2". */
+  field: string;
+};
 
 /** Human reason string persisted on processed_orders.hold_reason. */
 export function nifHoldReason(hold: NifHold): string {
-  if (hold.kind === "country_mismatch") {
-    return `nif_country_mismatch: "${hold.raw}" com morada em ${hold.billingCountry || "país não indicado"}`;
-  }
   return `nif_invalid: "${hold.raw}" em ${hold.field}`;
 }
 
@@ -593,22 +579,6 @@ export class IxBuilder {
       ? { kind: "address_tax_id", raw: addressTaxId.raw, field: addressTaxId.field }
       : undefined;
 
-    // Same treatment for a tax id we can read perfectly and still cannot use:
-    // an EU VAT whose country prefix contradicts the billing address. Only
-    // reached when nothing better was found, mirroring buildInvoiceClient's
-    // own order of preference — a buyer with a good NIF is never held for a
-    // stray VAT number sitting in a note.
-    if (!nifHold && addressTaxId.kind !== "valid" && !this.extractAndValidateNIF(normalized)) {
-      const euVat = this.pickEuVatCandidate(normalized);
-      if (euVat?.mismatched) {
-        nifHold = {
-          kind: "country_mismatch",
-          raw: euVat.vat,
-          billingCountry: String(normalized.order.billing_address?.country_code ?? "").trim().toUpperCase(),
-        };
-      }
-    }
-
     const client = this.buildInvoiceClient(normalized);
     const usingRawPath = !!normalized.raw_order;
     const items = usingRawPath
@@ -712,8 +682,16 @@ export class IxBuilder {
     if (!nif) {
       const euVat = this.pickEuVatCandidate(normalized);
       // A VAT whose country prefix contradicts the billing country is NOT
-      // stamped — see `pickEuVatCandidate`. The build is flagged instead and
-      // the document goes out as a draft the merchant can correct.
+      // stamped: IX validates the PAIR, and a French VAT on an address that
+      // says Portugal is refused outright ("Contribuinte não é válido"),
+      // taking the whole document with it.
+      //
+      // The document is still issued, and normally — not held. The pairing is
+      // ordinary rather than suspicious: someone French who moves to Portugal
+      // keeps their French number and updates their address, and holding every
+      // such sale for review would be a queue that never empties. What cannot
+      // happen is the number going onto a Portuguese document as the fiscal
+      // id, so it is left off and the sale is invoiced as any other.
       if (euVat && !euVat.mismatched) nif = euVat.vat;
     }
 

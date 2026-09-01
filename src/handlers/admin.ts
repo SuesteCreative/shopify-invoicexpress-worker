@@ -50,6 +50,17 @@ export interface ProcessOrdersOptions {
   /** Explicit-id path only: keep only financial_status=paid orders. Auto-heal
    *  must never invoice an order that has since been refunded/cancelled. */
   paid_only?: boolean;
+  /**
+   * Most orders this call will touch. The point is a call that RETURNS.
+   *
+   * A single order costs 20-110s on this path (measured 2026-09-01), so a shop
+   * with a 141-order backlog needs hours and the invocation is killed long
+   * before it answers — which is exactly what happened to Zoo de Lagos: every
+   * attempt to drain it, by cron and by hand, died mid-flight and reported
+   * nothing. Bounded calls that resume beat one call that cannot finish.
+   * Whatever is left over comes back as `deferred`.
+   */
+  max_orders?: number;
 }
 
 function summarizeOrder(order: any): ShopifyOrderSummary {
@@ -187,6 +198,16 @@ export async function processOrders(
     }
   }
 
+  // Cap AFTER candidate selection (and, for finalize, after the oldest-first
+  // sort below) so each run drains the front of the queue and the next run
+  // picks up where this one stopped.
+  let deferred = 0;
+  const maxOrders = Number(options.max_orders) > 0 ? Number(options.max_orders) : 0;
+  if (maxOrders > 0 && type === "create_orders" && orders.length > maxOrders) {
+    deferred = orders.length - maxOrders;
+    orders = orders.slice(0, maxOrders);
+  }
+
   const jobId = crypto.randomUUID();
   await appStorage.startDevJob({
     id: jobId,
@@ -209,6 +230,10 @@ export async function processOrders(
   if (!dryRun && type === "finalize_orders") {
     orders = [...orders].sort((a, b) =>
       String(a.processed_at ?? a.created_at ?? "").localeCompare(String(b.processed_at ?? b.created_at ?? "")));
+    if (maxOrders > 0 && orders.length > maxOrders) {
+      deferred = orders.length - maxOrders;
+      orders = orders.slice(0, maxOrders);
+    }
     seriesLastFinalizedDate = await fetchSeriesLastFinalizedDate(
       config,
       config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
@@ -237,6 +262,7 @@ export async function processOrders(
     skipped: results.filter((r) => r.status === "skipped").length,
     errors: results.filter((r) => r.status === "error").length,
     would_create: results.filter((r) => r.status === "dry_run").length,
+    deferred,
     from: effectiveFrom,
     to: effectiveTo,
   };

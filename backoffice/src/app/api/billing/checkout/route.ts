@@ -32,9 +32,28 @@ export async function POST(req: NextRequest) {
 
         const body = (await req.json().catch(() => ({}))) as { plan?: "monthly" | "annual"; source?: string };
         const plan = body.plan === "annual" ? "annual" : "monthly";
-        const source = body.source ?? "";
+        const rawSource = body.source ?? "";
 
         const stripe = getStripe();
+        const db = getDB();
+
+        // The dashboard card sits above every integration, so the page cannot say
+        // which price to bill. Resolve it from the merchant's own set-up connection
+        // (oldest wins when there is more than one); with nothing set up yet, the
+        // default Shopify→IX price applies.
+        const CONNECTION_SOURCES: Record<string, string> = {
+            "shopify:invoicexpress": "faturacao",
+            "lodgify:moloni": "lodgify-moloni",
+            "stripe:moloni": "stripe-moloni",
+            "stripe:invoicexpress": "stripe-ix",
+        };
+        let source = rawSource;
+        if (rawSource === "dashboard") {
+            const conn: any = await db.prepare(
+                "SELECT source_kind, destination_kind FROM connections WHERE user_id = ? AND status IN ('active','paused') ORDER BY created_at ASC LIMIT 1"
+            ).bind(targetUserId).first();
+            source = (conn && CONNECTION_SOURCES[`${conn.source_kind}:${conn.destination_kind}`]) || "faturacao";
+        }
 
         // Each integration bills its OWN price. Explicit source → lookup mapping;
         // an unknown source is rejected (400) rather than silently defaulting to the
@@ -76,7 +95,6 @@ export async function POST(req: NextRequest) {
         if (price.currency !== "eur") return NextResponse.json({ error: `Price ${price.id} currency must be EUR (got ${price.currency})` }, { status: 500 });
         const priceId = price.id;
 
-        const db = getDB();
         const sub: any = await db.prepare(
             "SELECT stripe_customer_id, stripe_subscription_id, status, early_bird, trial_end FROM subscriptions WHERE user_id = ?"
         ).bind(targetUserId).first();
@@ -91,9 +109,11 @@ export async function POST(req: NextRequest) {
             "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
             "stripe-moloni":  { ok: "/integrations/stripe-moloni?stripe=success",  cancel: "/integrations/stripe-moloni?stripe=cancel" },
             "faturacao":      { ok: "/faturacao?stripe=success",                   cancel: "/faturacao?stripe=cancel" },
+            "dashboard":      { ok: "/dashboard?stripe=success",                   cancel: "/dashboard?stripe=cancel" },
         };
         const appBaseUrl = new URL(getStripeEnv("SUCCESS_REDIRECT_URL")).origin;
-        const paths = SOURCE_PATHS[source] ?? null;
+        // Come back where the merchant clicked, not where the price came from.
+        const paths = SOURCE_PATHS[rawSource] ?? SOURCE_PATHS[source] ?? null;
         const successUrl = paths ? `${appBaseUrl}${paths.ok}` : getStripeEnv("SUCCESS_REDIRECT_URL");
         const cancelUrl  = paths ? `${appBaseUrl}${paths.cancel}` : getStripeEnv("CANCEL_REDIRECT_URL");
         const taxRateId = getStripeEnvOptional("STRIPE_TAX_RATE_ID");

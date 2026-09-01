@@ -341,7 +341,9 @@ export interface IncidentHealResult {
   dryRun: boolean;
   shopsScanned: number;
   totals: { candidates: number; created: number; skipped: number; errors: number; wouldCreate: number };
-  perShop: Array<{ shop: string; displayName: string; candidates: number; created: number; skipped: number; errors: number; wouldCreate: number; sampleIds: string[] }>;
+  perShop: Array<{ shop: string; displayName: string; candidates: number; created: number; skipped: number; errors: number; wouldCreate: number; sampleIds: string[]; deferred?: number }>;
+  /** Shops the wall-clock budget never reached. Empty = full coverage. */
+  skippedForBudget?: string[];
 }
 
 export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolean; shops?: string[] } = {}): Promise<IncidentHealResult> {
@@ -360,7 +362,29 @@ export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolea
   };
   const kindPh = INVOICE_FAILURE_KINDS.map(() => "?").join(",");
 
+  // WHY these two bounds exist, learned the hard way on 2026-08-26: this pass
+  // was written assuming "a small, bounded set that always completes", which
+  // holds on a normal night and fails on exactly the night it is needed. Zoo de
+  // Lagos hit its InvoiceXpress plan limit and accumulated ~200 failed orders;
+  // the heal handed all 200 to processOrders in one call, at ~75s each, and the
+  // cron invocation was killed long before it returned. Everything scheduled
+  // AFTER it — the reconciliation sweep, the Stripe heal, the document verify
+  // pass — therefore never ran, for five consecutive nights. The bigger the
+  // outage, the more certainly the healer dies, so the outage never heals.
+  //
+  // So: stop starting new shops once the budget is spent, and drain a large
+  // backlog across several nights instead of choking on it in one. What is left
+  // is reported as `deferred`, not dropped silently.
+  const healStartMs = Date.now();
+  const healBudgetMs = Number(env.INCIDENT_HEAL_BUDGET_MS) || 4 * 60 * 1000;
+  const maxPerShop = Number(env.INCIDENT_HEAL_MAX_ORDERS) || 25;
+  const notReached: string[] = [];
+
   for (const { shopify_domain } of shops) {
+    if (!dryRun && Date.now() - healStartMs > healBudgetMs) {
+      notReached.push(shopify_domain);
+      continue;
+    }
     const config = await new AppStorage(env, shopify_domain).loadConfig();
     if (!config || Number(config.is_paused) === 1) continue;
 
@@ -398,7 +422,13 @@ export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolea
     result.totals.candidates += missing.length;
 
     if (missing.length > 0) {
-      const numeric = missing.map(Number).filter((n) => Number.isFinite(n));
+      const batch = missing.slice(0, maxPerShop);
+      const deferred = missing.length - batch.length;
+      if (deferred > 0) {
+        (row as any).deferred = deferred;
+        console.warn("[IncidentHeal] " + shopify_domain + ": healing " + batch.length + " of " + missing.length + "; " + deferred + " deferred to the next run.");
+      }
+      const numeric = batch.map(Number).filter((n) => Number.isFinite(n));
       try {
         const res = await processOrders(env, config, "create_orders", numeric, undefined, undefined, {
           dry_run: dryRun, paid_only: true, triggered_by: "incident-heal-cron", reason: "Incident-driven auto-heal",
@@ -417,6 +447,11 @@ export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolea
     result.totals.errors += row.errors;
     result.totals.wouldCreate += row.wouldCreate;
     result.perShop.push(row);
+  }
+
+  if (notReached.length) {
+    result.skippedForBudget = notReached;
+    console.warn("[IncidentHeal] time budget (" + healBudgetMs + "ms) reached; " + notReached.length + " shop(s) not reached: " + notReached.join(", "));
   }
 
   return result;

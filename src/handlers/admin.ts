@@ -61,6 +61,31 @@ export interface ProcessOrdersOptions {
    * Whatever is left over comes back as `deferred`.
    */
   max_orders?: number;
+  /** Most time one order may take before the loop gives up on it. Default 45s. */
+  order_deadline_ms?: number;
+  /** Most time the whole loop may take before it stops and defers the rest. Default 5m. */
+  budget_ms?: number;
+}
+
+/**
+ * Give up on one order rather than lose the whole batch to it.
+ *
+ * Nothing in this path had a deadline. A single stalled subrequest — and they
+ * do stall: three admin jobs sat in `running` for over an hour on 2026-09-01 —
+ * meant the request never answered at all, so 20 healthy orders were lost to
+ * one sick one, and the caller could not even tell which. The order that timed
+ * out is reported as an error and retried by the next run, where it is a skip
+ * if it did eventually land: the reference guard makes a retry safe.
+ */
+async function withDeadline(p: Promise<OrderResult>, ms: number, order: any): Promise<OrderResult> {
+  let timer: any;
+  const timeout = new Promise<OrderResult>((resolve) => {
+    timer = setTimeout(() => resolve({
+      order_id: order?.id, order_number: order?.order_number, status: "error",
+      message: `Gave up after ${Math.round(ms / 1000)}s — will be retried by the next run`,
+    }), ms);
+  });
+  try { return await Promise.race([p, timeout]); } finally { clearTimeout(timer); }
 }
 
 function summarizeOrder(order: any): ShopifyOrderSummary {
@@ -240,13 +265,24 @@ export async function processOrders(
     );
   }
 
+  const loopStartMs = Date.now();
+  const orderDeadlineMs = Number(options.order_deadline_ms) > 0 ? Number(options.order_deadline_ms) : 45_000;
+  const budgetMs = Number(options.budget_ms) > 0 ? Number(options.budget_ms) : 5 * 60_000;
+
   for (const order of orders) {
+    // Stop cleanly instead of being killed mid-order: a run that answers with
+    // "did 8, deferred 12" is worth more than one that does 20 and is cut off
+    // before it can say so.
+    if (!dryRun && Date.now() - loopStartMs > budgetMs) {
+      deferred += orders.length - results.length;
+      break;
+    }
     if (dryRun) {
       results.push(await adminDryRunCreate(env, config, order, type));
     } else if (type === "create_orders") {
-      results.push(await adminCreateOrder(env, config, order));
+      results.push(await withDeadline(adminCreateOrder(env, config, order), orderDeadlineMs, order));
     } else {
-      const r = await adminFinalizeOrder(env, config, order, seriesLastFinalizedDate);
+      const r = await withDeadline(adminFinalizeOrder(env, config, order, seriesLastFinalizedDate), orderDeadlineMs, order);
       if (r.finalized_date && (!seriesLastFinalizedDate || r.finalized_date > seriesLastFinalizedDate)) {
         seriesLastFinalizedDate = r.finalized_date;
       }

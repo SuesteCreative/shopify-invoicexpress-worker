@@ -47,6 +47,40 @@ const hostOf = (url?: string | null): string | null => {
     try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
 };
 
+/**
+ * The four answers that matter operationally: is this client paying, inside a
+ * free window, refused by the gate, or exempt. `sub_state` comes from the API,
+ * which computes it with the same subscriptionUIState the worker gate uses — so
+ * a badge here can never disagree with what the worker does to their invoices.
+ */
+type SubBucket = "all" | "active" | "trialing" | "blocked" | "exempt";
+
+function subBucket(state?: string): Exclude<SubBucket, "all"> {
+    if (state === "active") return "active";
+    if (state === "exempt") return "exempt";
+    if (state === "trialing" || state === "trialing_earlybird") return "trialing";
+    return "blocked";
+}
+
+function SubBadge({ state, t }: { state?: string; t: any }) {
+    const bucket = subBucket(state);
+    const style = {
+        active: "bg-[rgba(16,185,129,0.15)] text-emerald-400 border-[rgba(16,185,129,0.30)]",
+        trialing: "bg-[rgba(234,179,8,0.15)] text-yellow-400 border-[rgba(234,179,8,0.30)]",
+        blocked: "bg-[rgba(244,63,94,0.15)] text-destructive border-[rgba(244,63,94,0.30)]",
+        exempt: "bg-[rgba(168,85,247,0.15)] text-purple-400 border-[rgba(168,85,247,0.30)]",
+    }[bucket];
+    const label = {
+        active: t("subActive"), trialing: t("subTrial"),
+        blocked: t("subBlocked"), exempt: t("subExempt"),
+    }[bucket];
+    return (
+        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${style}`}>
+            {label}
+        </span>
+    );
+}
+
 export default function SuperadminPage() {
     const t = useTranslations("superadmin");
     const { user: clerkUser } = useUser();
@@ -55,6 +89,7 @@ export default function SuperadminPage() {
     const [acting, setActing] = useState<string | null>(null);
     const [search, setSearch] = useState("");
     const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
+    const [subFilter, setSubFilter] = useState<SubBucket>("all");
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const [callerRole, setCallerRole] = useState<Role>("user");
     const [viewerId, setViewerId] = useState<string | null>(null); // impersonation-aware self ID
@@ -95,12 +130,13 @@ export default function SuperadminPage() {
                     u.acq_country?.toLowerCase().includes(q)
                 );
             })
+            .filter(u => subFilter === "all" || subBucket(u.sub_state) === subFilter)
             .sort((a, b) => {
                 const dateA = new Date(a.created_at).getTime();
                 const dateB = new Date(b.created_at).getTime();
                 return sortOrder === "desc" ? dateB - dateA : dateA - dateB;
             }),
-        [users, search, sortOrder]
+        [users, search, sortOrder, subFilter]
     );
 
     // Split filtered users into 3 buckets: admins, fully-integrated, no-integration
@@ -228,6 +264,7 @@ export default function SuperadminPage() {
                         <div className="flex items-center justify-center lg:justify-start gap-3 flex-wrap">
                             <h2 className="text-xl font-bold">{user.name}</h2>
                             <RoleBadge role={targetRole} t={t} />
+                            <SubBadge state={user.sub_state} t={t} />
                             {isSelf && (
                                 <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black uppercase tracking-widest border border-hairline">{t("yourAccount")}</span>
                             )}
@@ -423,6 +460,22 @@ export default function SuperadminPage() {
                             value={search} onChange={e => setSearch(e.target.value)}
                             className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] focus:border-[rgba(244,63,94,0.40)] w-full lg:w-80 transition-all"
                         />
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-surface-2/50 border border-hairline rounded-2xl p-1.5">
+                        {([
+                            ["all", t("filterAll")],
+                            ["active", t("subActive")],
+                            ["trialing", t("subTrial")],
+                            ["blocked", t("subBlocked")],
+                        ] as const).map(([key, label]) => (
+                            <button
+                                key={key}
+                                onClick={() => setSubFilter(key as SubBucket)}
+                                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${subFilter === key ? "bg-destructive/20 text-destructive" : "text-fg-40 hover:text-fg"}`}
+                            >
+                                {label}
+                            </button>
+                        ))}
                     </div>
                     <button
                         onClick={() => setSortOrder(p => p === "desc" ? "asc" : "desc")}

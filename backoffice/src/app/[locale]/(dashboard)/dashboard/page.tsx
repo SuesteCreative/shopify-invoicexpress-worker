@@ -15,6 +15,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 import { RegistrationForm } from "@/components/RegistrationForm";
+import SubscriptionCard from "@/components/SubscriptionCard";
 
 export default function WelcomeDashboard() {
   const t = useTranslations("dashboardHome");
@@ -25,6 +26,9 @@ export default function WelcomeDashboard() {
   const [integrationStatus, setIntegrationStatus] = useState<any>(null);
   const [activeConnections, setActiveConnections] = useState<any[]>([]);
   const [subBlocked, setSubBlocked] = useState(false);
+  // null until the answer arrives, so the payment card never flashes at a
+  // merchant who is actually paying.
+  const [subState, setSubState] = useState<string | null>(null);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<any[] | null>(null);
   const [recentLogs, setRecentLogs] = useState<any[] | null>(null);
@@ -61,8 +65,8 @@ export default function WelcomeDashboard() {
 
     fetch("/api/billing/subscription")
       .then(r => r.ok ? r.json() : null)
-      .then((d: any) => setSubBlocked(!!d?.blocked))
-      .catch(() => setSubBlocked(false));
+      .then((d: any) => { setSubBlocked(!!d?.blocked); setSubState(d?.ui_state ?? null); })
+      .catch(() => { setSubBlocked(false); setSubState(null); });
 
     fetch("/api/dashboard/recent-invoices")
       .then(r => r.ok ? r.json() : { invoices: [] })
@@ -133,6 +137,13 @@ export default function WelcomeDashboard() {
 
   return (
     <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
+      {/* Payment card, first thing on the page, for any account that is not
+          paying: blocked, trialing, or never subscribed. An account whose
+          invoices are about to stop should not have to go looking for this. */}
+      {subState && subState !== "active" && subState !== "exempt" && (
+        <SubscriptionCard source="dashboard" />
+      )}
+
       {/* Welcome Message */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="space-y-2">

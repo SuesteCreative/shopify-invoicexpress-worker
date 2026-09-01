@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, isSuperAdmin, isHiperadmin, getRole, getImpersonationId } from "@/lib/admin";
+import { subscriptionUIState } from "@/lib/stripe";
 
 export const runtime = "edge";
 
@@ -30,9 +31,13 @@ export async function GET(request: NextRequest) {
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
         i.ix_authorized, i.ix_error,
         CASE WHEN i.shopify_token IS NOT NULL AND i.ix_api_key IS NOT NULL THEN 1 ELSE 0 END as is_connected,
-        conn.active_connections
+        conn.active_connections,
+        s.status as sub_status, s.plan as sub_plan, s.trial_end as sub_trial_end,
+        s.current_period_end as sub_period_end, s.early_bird as sub_early_bird,
+        s.stripe_subscription_id as sub_stripe_id
       FROM users u
       LEFT JOIN integrations i ON u.id = i.user_id
+      LEFT JOIN subscriptions s ON u.id = s.user_id
       LEFT JOIN (
         SELECT user_id, GROUP_CONCAT(source_kind || ':' || destination_kind) as active_connections
         FROM connections
@@ -43,6 +48,22 @@ export async function GET(request: NextRequest) {
     `).all();
 
         let users = results.results as any[];
+
+        // The badge a superadmin reads must be the SAME verdict the worker gate
+        // applies, or this page will call a shop active while its invoices are
+        // being refused. Both go through subscriptionUIState; admins are exempt
+        // by role, exactly as checkSubscriptionGate exempts them.
+        users = users.map((u: any) => ({
+            ...u,
+            sub_state: (u.role === "superadmin" || u.role === "hiperadmin")
+                ? "exempt"
+                : subscriptionUIState({
+                    status: u.sub_status,
+                    trial_end: u.sub_trial_end,
+                    early_bird: u.sub_early_bird,
+                    stripe_subscription_id: u.sub_stripe_id,
+                } as any),
+        }));
 
         // Filter visible users based on the VIEWER's role (impersonation-aware)
         if (viewerRole === "superadmin") {

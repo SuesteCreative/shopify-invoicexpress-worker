@@ -1042,7 +1042,12 @@
         "groupAdmins": "Administradores",
         "groupIntegrated": "Integração Completa",
         "groupPending": "Sem Integração",
-        "groupEmpty": "Nenhuma conta neste grupo"
+        "groupEmpty": "Nenhuma conta neste grupo",
+        "subActive": "Activa",
+        "subTrial": "Trial",
+        "subBlocked": "Sem sub",
+        "subExempt": "Isento",
+        "filterAll": "Todas"
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Voltar para Integrações",

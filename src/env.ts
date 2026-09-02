@@ -45,6 +45,7 @@ export interface Env {
   INCIDENT_HEAL_MAX_ORDERS?: string;      // per-shop cap per run, so one backlog cannot starve the rest; default 25
   RECON_SWEEP_MAX_ORDERS?: string;        // per-shop order cap per sweep run, so one big shop still returns; default 25
   RECON_SWEEP_ORDER_DEADLINE_MS?: string; // give up on one order rather than lose the pass to it; default 45000
+  RECON_REF_CONCURRENCY?: string;         // reference probes in flight on the Conciliação recovery pass; default 6
   RECON_SWEEP_STALE_HOURS?: string;       // alert when a shop hasn't completed a sweep pass in this long; default 48
   // Stripe→(Moloni/IX/Vendus) self-heal. Same backstop idea as the Shopify sweep but
   // for Stripe-source connections: re-emits any succeeded Stripe payment in the window

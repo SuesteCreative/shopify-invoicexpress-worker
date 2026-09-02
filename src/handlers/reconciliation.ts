@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { findViaInvoiceXpress } from "../services/ix-find-reference";
 import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
 import type { AdapterCtx } from "../adapters/types";
@@ -576,8 +577,20 @@ interface MetaFetcher {
   refNs: string;
   refAccount: string;
   fetchMeta(invoiceId: string, orderId: string, deadline?: number): Promise<InvoiceMeta | null>;
-  /** Resolve an invoice id from our "Order #N" reference, or null on miss. */
-  findByReference(reference: string, deadline?: number): Promise<string | null>;
+  /**
+   * Resolve an invoice id from our "Order #N" reference.
+   *
+   * THREE answers, not two. `null` used to mean both "the destination has no
+   * such document" and "I could not find out", and the caller wrote the second
+   * one into a one-hour cache as if it were the first. One timed-out probe
+   * against a real invoice then pinned that order as "Sem fatura" for an hour,
+   * for every page load and every audit run — which is how a backlog of 85 was
+   * reported as 141, and as 194 over a wider window.
+   */
+  findByReference(reference: string, deadline?: number): Promise<RefLookup>;
+  /** False when the destination has no reference lookup at all (Vendus today):
+   *  probing it would cache a "MISS" for every order it was asked about. */
+  canFindByReference: boolean;
   /** Credit notes issued against `invoiceId` at the destination, linked via the
    * provider's own back-reference (IX `owner_invoice_id` / Moloni
    * `associated_documents`). `orderNumber` lets destinations that can't read the
@@ -591,6 +604,18 @@ interface MetaFetcher {
 // cancelled at `budget`, and the caller renders the invoice as
 // issued-but-detail-unavailable rather than "missing".
 const IX_PROXY_BASE = "https://ix-proxy.kapta.app";
+
+/**
+ * What a reference lookup actually found out.
+ *
+ * `unknown` is the answer this file was missing. Everything downstream — the
+ * cache, the row's verdict, the count the operator reads — depends on being able
+ * to tell "there is no document" apart from "I ran out of time asking".
+ */
+export type RefLookup =
+  | { state: "found"; invoiceId: string }
+  | { state: "absent" }
+  | { state: "unknown" };
 
 async function fetchIxInvoiceMeta(
   config: IRequestConfig,
@@ -700,16 +725,31 @@ async function fetchIxCredits(
   return [];
 }
 
-async function fetchIxByReference(config: IRequestConfig, ref: string, deadline?: number): Promise<string | null> {
+async function fetchIxByReference(config: IRequestConfig, ref: string, deadline?: number): Promise<RefLookup> {
   const ixHeaders = {
     "x-account-name": config.ix_account_name!,
     "x-api-key": config.ix_api_key!,
     "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
   };
+
+  // Ask InvoiceXpress directly. The proxy answers a miss in ~152s and this whole
+  // pass has seconds to work with, so through the proxy a miss could never
+  // finish — every probe was cut off and recorded as "no document". Direct is
+  // ~1s whether the document exists or not.
+  const budget = deadline ? Math.max(500, Math.min(15_000, deadline - Date.now())) : 15_000;
   try {
-    const budget = deadline ? Math.max(500, Math.min(4000, deadline - Date.now())) : 4000;
+    const found = await findViaInvoiceXpress(ixHeaders, ref, budget);
+    return found ? { state: "found", invoiceId: found } : { state: "absent" };
+  } catch { /* fall through: the proxy may still know */ }
+
+  // The proxy is the fallback, on what is left of the budget. It rarely fits,
+  // and that is fine — "unknown" is now sayable, so an aborted probe no longer
+  // masquerades as a confirmed absence.
+  const left = deadline ? deadline - Date.now() : 4000;
+  if (left < 500) return { state: "unknown" };
+  try {
     const c = new AbortController();
-    const t = setTimeout(() => c.abort(), budget);
+    const t = setTimeout(() => c.abort(), Math.min(4000, left));
     const r = await fetch(`${IX_PROXY_BASE}/v2/documents/reference`, {
       method: "POST",
       headers: { ...ixHeaders, "Accept": "application/json", "Content-Type": "application/json" },
@@ -717,10 +757,13 @@ async function fetchIxByReference(config: IRequestConfig, ref: string, deadline?
       signal: c.signal,
     });
     clearTimeout(t);
-    const j: any = r.ok ? await r.json().catch(() => null) : null;
-    return j?.data?.data?.id ? String(j.data.data.id) : (j?.data?.id ? String(j.data.id) : null);
+    if (r.status === 404) return { state: "absent" };
+    if (!r.ok) return { state: "unknown" };
+    const j: any = await r.json().catch(() => null);
+    const id = j?.data?.data?.id ?? j?.data?.id ?? null;
+    return id ? { state: "found", invoiceId: String(id) } : { state: "absent" };
   } catch {
-    return null;
+    return { state: "unknown" };
   }
 }
 
@@ -756,6 +799,7 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
     !!d && typeof d === "object" && !Array.isArray(d) && d.document_id != null;
 
   return {
+    canFindByReference: true,
     metaNs: "molmeta",
     refNs: "molref",
     refAccount: account,
@@ -817,25 +861,29 @@ function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
         return null;
       }
     },
-    async findByReference(reference, deadline) {
-      if (deadline && Date.now() >= deadline) return null;
+    async findByReference(reference, deadline): Promise<RefLookup> {
+      if (deadline && Date.now() >= deadline) return { state: "unknown" };
       try {
         const { cfg, token } = await getCreds();
         // Search across BOTH doc types and ALL series (no document_set_id) —
         // tag-routing can file the doc under a different series (e.g. VLFR),
         // which a set-scoped lookup would miss. our_reference "Order #N" is
         // unique per booking.
+        let ranOut = false;
         for (const path of getAllPaths) {
-          if (deadline && Date.now() >= deadline) break;
+          if (deadline && Date.now() >= deadline) { ranOut = true; break; }
           const found = await moloniCall<Array<{ document_id?: number }>>(
             cfg, token, path, { our_reference: reference }, "lookup",
           );
           const first = Array.isArray(found) ? found[0] : null;
-          if (first?.document_id) return String(first.document_id);
+          if (first?.document_id) return { state: "found", invoiceId: String(first.document_id) };
         }
-        return null;
+        // Only a search that actually finished may say "there is none". Stopping
+        // half way through the document types is not evidence of absence.
+        return ranOut ? { state: "unknown" } : { state: "absent" };
       } catch {
-        return null;
+        // Same rule the IX adapter already follows: an error is not an answer.
+        return { state: "unknown" };
       }
     },
     async fetchCredits(invoiceId, orderNumber, deadline) {
@@ -946,6 +994,7 @@ function makeIxMetaFetcher(ctx: ReconContext): MetaFetcher {
     metaNs: "ixmeta",
     refNs: "ixref",
     refAccount: config.ix_account_name ?? "ix",
+    canFindByReference: true,
     fetchMeta: (invoiceId, orderId, deadline) => fetchIxInvoiceMeta(config, invoiceId, orderId, deadline),
     findByReference: (reference, deadline) => fetchIxByReference(config, reference, deadline),
     fetchCredits: (invoiceId, _orderNumber, deadline) => fetchIxCredits(config, invoiceId, deadline),
@@ -960,8 +1009,13 @@ function getMetaFetcher(ctx: ReconContext): MetaFetcher {
       // Vendus/others: no meta fetcher yet — treat every invoice as detail-unavailable.
       return {
         metaNs: `meta_${ctx.destination}`, refNs: `ref_${ctx.destination}`, refAccount: ctx.destination,
+        // No lookup exists for this destination. Saying so keeps the recovery
+        // pass from "probing" it: the stub answered null for every order, which
+        // was then cached as a confirmed absence for an hour — poisoning the
+        // page for a destination that had never been asked anything at all.
+        canFindByReference: false,
         fetchMeta: async () => null,
-        findByReference: async () => null,
+        findByReference: async () => ({ state: "unknown" as const }),
         fetchCredits: async () => [],
       };
   }
@@ -987,9 +1041,17 @@ export async function resolveReconContext(
 
 // ── Core ──────────────────────────────────────────────────────────────────────
 
-export async function getReconciliation(env: Env, ctx: ReconContext, from: string, to: string) {
+export async function getReconciliation(
+  env: Env,
+  ctx: ReconContext,
+  from: string,
+  to: string,
+  opts: { skipRefCache?: boolean } = {},
+) {
   const appStorage = new AppStorage(env, ctx.scope, ctx.userId);
   const meta = getMetaFetcher(ctx);
+  /** How much of the recovery pass actually ran. See `summary.recovery_*`. */
+  const recovery = { probed: 0, found: 0, unknown: 0, remaining: 0 };
 
   // 1. Orders/bookings from the source.
   const orders = await getSourceOrders(env, ctx, from, to);
@@ -1213,20 +1275,47 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
   // followed the reference convention. Bounded (capped concurrency + deadline)
   // and cached per reference (id or "MISS", 1h TTL).
   const noneRows = rows.filter(r => r.match.type === "none");
-  if (noneRows.length > 0) {
+  if (noneRows.length > 0 && meta.canFindByReference) {
     const refOf = (r: ReconciliationRow) => r.order.invoice_reference ?? saleReference(r.order.order_number);
-    const refDeadline = Date.now() + 8_000;
-    const cachedRefs = await appStorage.getCachedRefLookups(meta.refAccount, noneRows.map(refOf), meta.refNs);
-    await mapWithConcurrency(noneRows, 4, async (row) => {
-      if (Date.now() >= refDeadline) return;
+    // Budget sized to the work, not fixed at 8s. With the direct lookup at ~1s
+    // and 6 in flight, 141 rows fit in ~26s; the old fixed 8s could probe about
+    // eight of them and left the other 133 reported as "no invoice" without ever
+    // having asked. Capped so a huge window still returns.
+    const refDeadline = Date.now() + Math.min(45_000, 5_000 + noneRows.length * 250);
+    // 6 at ~1s each is ~360 requests/minute against InvoiceXpress's documented
+    // 780/minute per account, which leaves room for a second operator loading
+    // the same merchant at the same time.
+    const refConcurrency = Number(env.RECON_REF_CONCURRENCY) || 6;
+    const cachedRefs = opts.skipRefCache
+      ? new Map<string, string>()
+      : await appStorage.getCachedRefLookups(meta.refAccount, noneRows.map(refOf), meta.refNs);
+    await mapWithConcurrency(noneRows, refConcurrency, async (row) => {
+      // Per-row isolation. mapWithConcurrency runs these inside Promise.all with
+      // no error handling of its own, so one throw would reject the whole
+      // recovery pass — and with it the HTTP request the operator is waiting on.
+      try {
+      if (Date.now() >= refDeadline) { recovery.remaining++; return; }
       const ref = refOf(row);
       let invoiceId: string | null = null;
       const cached = cachedRefs.get(ref);
       if (cached === "MISS") return;
       if (cached) invoiceId = cached;
       else {
-        invoiceId = await meta.findByReference(ref, refDeadline);
-        await appStorage.cacheRefLookup(meta.refAccount, ref, invoiceId ?? "MISS", meta.refNs);
+        const looked = await meta.findByReference(ref, refDeadline);
+        recovery.probed++;
+        if (looked.state === "found") {
+          invoiceId = looked.invoiceId;
+          recovery.found++;
+          await appStorage.cacheRefLookup(meta.refAccount, ref, invoiceId, meta.refNs);
+        } else if (looked.state === "absent") {
+          // Only a confirmed absence may be cached. Caching an aborted probe as
+          // "MISS" is what pinned real invoices as "Sem fatura" for an hour, on
+          // every reload and in every audit run.
+          await appStorage.cacheRefLookup(meta.refAccount, ref, "MISS", meta.refNs);
+        } else {
+          recovery.unknown++;
+          return;
+        }
       }
       if (!invoiceId) return;
       const m = await meta.fetchMeta(invoiceId, row.order.id, refDeadline);
@@ -1241,7 +1330,15 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       row.invoice = recovered;
       row.invoices = [recovered];
       row.candidates = [];
+      } catch (e: any) {
+        // One row failing must not cost the other hundred and forty.
+        recovery.unknown++;
+        console.warn(`[Recon] reference recovery failed for order ${row.order.id}: ${String(e?.message ?? e).slice(0, 120)}`);
+      }
     });
+  } else if (noneRows.length > 0) {
+    // No lookup for this destination — say so rather than implying we checked.
+    recovery.remaining += noneRows.length;
   }
 
   // 6c. Credit notes (notas de crédito). ONLY for rows whose order carries a
@@ -1328,6 +1425,18 @@ export async function getReconciliation(env: Env, ctx: ReconContext, from: strin
       // integration. Shown so the operator can read "N sem fatura, dos quais M
       // são anteriores a nós" instead of reading them all as our misses.
       pre_cutoff: rows.filter(r => !!r.pre_cutoff).length,
+      // How much of `none` was actually checked against the destination.
+      //
+      // `none` is a LOWER BOUND on what is invoiced unless recovery_complete is
+      // 1: the pass has a budget, and anything it did not reach stays counted as
+      // "no invoice". Reading it as a count is how a backlog of 85 was chased as
+      // 141, and as 194 over a wider window. Flat keys because the payload is
+      // typed as Record<string, number> by the backoffice.
+      recovery_probed: recovery.probed,
+      recovery_found: recovery.found,
+      recovery_unknown: recovery.unknown,
+      recovery_remaining: recovery.remaining,
+      recovery_complete: recovery.unknown === 0 && recovery.remaining === 0 ? 1 : 0,
     },
     rows,
   };

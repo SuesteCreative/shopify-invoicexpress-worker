@@ -103,7 +103,9 @@ const rows = [];
 console.log(`Auditoria de ${targets.length} merchants · janela ${iso(from)} → ${iso(to)}\n`);
 
 for (const t of targets) {
-  const url = `${WORKER_URL}/admin/reconciliation?${t.query}&from=${iso(from)}&to=${iso(to)}`;
+  // `refresh=1`: an audit must ask the destination, not read back an hour-old
+  // answer. This is the run people act on.
+  const url = `${WORKER_URL}/admin/reconciliation?${t.query}&from=${iso(from)}&to=${iso(to)}&refresh=1`;
   let data;
   try {
     const res = await fetch(url, { headers: { "x-api-key": ADMIN_API_KEY } });
@@ -134,6 +136,15 @@ for (const t of targets) {
   const unbilled = paidRows.filter(r => !r.pre_cutoff && Number(r.order?.total ?? 0) > 0);
   const amount = unbilled.reduce((s, r) => s + Number(r.order?.total ?? 0), 0);
 
+  // Did the recovery pass actually finish? When it did not, "sem fatura" is a
+  // LOWER BOUND: rows it never reached stay counted as missing. On 2026-09-02 an
+  // 85-order backlog read as 141 here, and as 194 over a wider window, and a
+  // whole day went into chasing the difference. An incomplete answer is now
+  // labelled instead of printed as a fact.
+  const s = data.summary ?? {};
+  const recoveryComplete = s.recovery_complete === undefined ? true : s.recovery_complete === 1;
+  const unprobed = (s.recovery_unknown ?? 0) + (s.recovery_remaining ?? 0);
+
   // Shared-reference detector: the defect behind the 2026-08-13 incident. If two
   // sales carry the SAME document reference, the destination's idempotency check
   // will discard every later payment as a duplicate of the first.
@@ -163,6 +174,8 @@ for (const t of targets) {
     issued: issued.length,
     drafts: drafts.length,
     collisions: collisions.map(([ref, n]) => `${ref} ×${n}`),
+    recovery_complete: recoveryComplete,
+    unprobed,
     ids: unbilled.map(r => ({ id: r.order?.id, date: r.order?.paid_at?.slice(0, 10), total: r.order?.total })),
   };
   rows.push(row);
@@ -170,7 +183,12 @@ for (const t of targets) {
   const flag = row.unbilled > 0 ? "⚠ " : collisions.length ? "◆ " : "  ";
   const detail = [
     `${row.total} vendas`,
-    row.unbilled ? `${row.unbilled} SEM FATURA (${money(amount)})` : "tudo faturado",
+    // "no mínimo" when the pass did not finish. The number is not wrong, it is
+    // an upper bound on what is missing — say which one it is.
+    row.unbilled
+      ? `${recoveryComplete ? "" : "NO MÍNIMO "}${row.unbilled} SEM FATURA (${money(amount)})`
+      : recoveryComplete ? "tudo faturado" : "nada em falta CONFIRMADO",
+    recoveryComplete ? "" : `⚠ verificação incompleta: ${unprobed} por sondar`,
     preCutoff.length ? `${preCutoff.length} anteriores à integração` : "",
     zeroTotal.length ? `${zeroTotal.length} a 0 €` : "",
     drafts.length ? `${drafts.length}/${issued.length} SÓ RASCUNHO` : "",
@@ -191,6 +209,16 @@ console.log(`Com faturas em falta: ${bad.length}`);
 console.log(`Valor por faturar   : ${money(totalMoney)}`);
 console.log(`Referência partilhada (risco de dedup): ${collided.length}`);
 if (failed.length) console.log(`Não auditados (erro): ${failed.map(f => f.name).join(", ")}`);
+
+// The line that would have saved a day. A merchant whose recovery pass did not
+// finish has an UPPER bound, not a count, and acting on it means chasing orders
+// that already have documents.
+const partial = rows.filter(r => r.recovery_complete === false);
+if (partial.length) {
+  console.log(`\n⚠ Verificação incompleta em ${partial.length} merchant(s) — os números acima são um limite superior, não uma contagem:`);
+  for (const r of partial) console.log(`    ${r.name}: ${r.unprobed} referência(s) por sondar`);
+  console.log(`  Repita a auditoria; o que ficou por sondar é retomado.`);
+}
 
 if (bad.length) {
   console.log(`\nDetalhe:`);

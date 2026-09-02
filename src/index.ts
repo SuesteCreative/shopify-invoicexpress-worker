@@ -2065,7 +2065,14 @@ app.get("/admin/reconciliation", async (c) => {
   if (!ctx) return c.json({ error: `No integration found for ${shop ?? userId}` }, 404);
 
   try {
-    const result = await getReconciliation(c.env, ctx, from, to);
+    // `refresh=1` ignores the cached reference lookups for this request. It
+    // exists because a bad "MISS" used to be cached for an hour, so there was no
+    // way to re-ask without waiting it out — and no way to prove a fix. It skips
+    // only the cache READ; the budget and concurrency caps still apply, so it
+    // cannot be used to hammer the destination.
+    const result = await getReconciliation(c.env, ctx, from, to, {
+      skipRefCache: c.req.query("refresh") === "1",
+    });
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to load reconciliation");

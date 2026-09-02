@@ -73,15 +73,35 @@ export async function findViaInvoiceXpress(headers: IxRefHeaders, reference: str
   return pickExactReference(list, reference);
 }
 
-/** The original path, kept as the fallback. Slow on a miss, but it works. */
-async function findViaProxy(headers: IxRefHeaders, reference: string, attempts: number): Promise<string | null> {
+/**
+ * The original path, kept as the fallback. Slow on a miss, but it works.
+ *
+ * Called with a plain `fetch` rather than the generated SDK for one reason: a
+ * deadline. Without it this waits ~152s per attempt, twice, and the caller — a
+ * webhook holding an `order_claims` CAS claim, or an operator's HTTP request —
+ * is gone long before it answers.
+ *
+ * The retry only fires for a failure that could be transient. A 404 is the
+ * answer, not an error: retrying it just spends another ~152s to be told the
+ * same thing.
+ */
+async function findViaProxy(headers: IxRefHeaders, reference: string, attempts: number, timeoutMs: number): Promise<string | null> {
   let lastErr: unknown = null;
   for (let i = 1; i <= attempts; i++) {
     try {
-      const res = await IxApi.v2.documents.reference.post({ headers, body: { reference } });
-      const id = res.data?.data?.id;
-      if (id) return String(id);
-      return null;
+      const res = await fetch("https://ix-proxy.kapta.app/v2/documents/reference", {
+        method: "POST",
+        headers: { ...headers, Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ reference }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.status === 404) return null;             // answered: no such document
+      if (res.ok) {
+        const body: any = await res.json().catch(() => null);
+        const id = body?.data?.data?.id ?? body?.data?.id ?? null;
+        return id ? String(id) : null;
+      }
+      lastErr = new Error(`proxy HTTP ${res.status}`); // 5xx and friends: worth one more try
     } catch (e) {
       lastErr = e;
     }
@@ -104,13 +124,16 @@ async function findViaProxy(headers: IxRefHeaders, reference: string, attempts: 
 export async function findIxDocumentIdByReference(
   headers: IxRefHeaders,
   reference: string,
-  opts: { timeoutMs?: number; proxyAttempts?: number } = {},
+  opts: { timeoutMs?: number; proxyAttempts?: number; proxyTimeoutMs?: number } = {},
 ): Promise<string | null> {
   const timeoutMs = opts.timeoutMs ?? 15_000;
   try {
     return await findViaInvoiceXpress(headers, reference, timeoutMs);
   } catch (e: any) {
     console.warn(`[Rioko] direct IX reference lookup unavailable for "${reference}" (${String(e?.message ?? e).slice(0, 80)}); falling back to proxy`);
-    return await findViaProxy(headers, reference, opts.proxyAttempts ?? 2);
+    // 20s, not the ~152s the proxy would take on a miss. Well above the measured
+    // 1.6s hit, so a slow-but-correct answer is never cut off and turned into a
+    // duplicate. Worst case for the whole helper: 15s direct + 2 × 20s ≈ 55s.
+    return await findViaProxy(headers, reference, opts.proxyAttempts ?? 2, opts.proxyTimeoutMs ?? 20_000);
   }
 }

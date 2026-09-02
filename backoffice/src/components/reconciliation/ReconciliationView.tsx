@@ -64,13 +64,18 @@ export function ReconciliationView({ identifier, source, destination }: { identi
         }
     };
 
-    const load = async () => {
+    const load = async (opts: { refresh?: boolean } = {}) => {
         setLoading(true);
         setError(null);
         try {
             const fromIso = new Date(from + "T00:00:00Z").toISOString();
             const toIso = new Date(to + "T23:59:59Z").toISOString();
-            const res = await fetch(`/api/conciliacao?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`);
+            // `refresh` re-asks the destination instead of reading the cached
+            // answer, for the rows the previous pass could not reach.
+            const res = await fetch(
+                `/api/conciliacao?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+                + (opts.refresh ? "&refresh=1" : ""),
+            );
             const j: any = await res.json();
             if (!res.ok) { setError(j.error ?? "Erro"); setData(null); }
             else setData(j);
@@ -147,7 +152,7 @@ export function ReconciliationView({ identifier, source, destination }: { identi
 
             <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end">
                 <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
-                <button onClick={load} disabled={loading}
+                <button onClick={() => load()} disabled={loading}
                     className="bg-fg text-surface px-6 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent-hot transition-all disabled:opacity-50">
                     {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
                     Atualizar
@@ -189,6 +194,25 @@ export function ReconciliationView({ identifier, source, destination }: { identi
                         credit_missing: data.summary.credit_missing ?? 0,
                     }}
                 />
+            )}
+
+            {/* When the recovery pass did not finish, "sem fatura" is an upper
+                bound and not a count: rows it never reached stay counted as
+                missing. Saying so is the difference between chasing 141 orders
+                and chasing the 85 that are actually missing. */}
+            {data && data.summary.recovery_complete === 0 && (
+                <div className="rounded-2xl border border-[rgba(234,179,8,0.30)] bg-[rgba(234,179,8,0.05)] p-4 text-sm">
+                    <strong>Verificação incompleta.</strong>{" "}
+                    {(data.summary.recovery_unknown ?? 0) + (data.summary.recovery_remaining ?? 0)}{" "}
+                    encomenda(s) não chegaram a ser confirmadas no destino, por isso o número
+                    de <em>sem fatura</em> acima é um máximo, não uma contagem.
+                    <button
+                        onClick={() => load({ refresh: true })}
+                        className="ml-2 underline underline-offset-2 hover:text-accent"
+                    >
+                        Verificar outra vez
+                    </button>
+                </div>
             )}
 
             {error && (

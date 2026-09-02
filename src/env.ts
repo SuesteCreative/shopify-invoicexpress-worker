@@ -43,6 +43,8 @@ export interface Env {
   RECON_SWEEP_BUDGET_MS?: string;         // wall-clock cap for the full-scan backstop; default 480000 (8m)
   INCIDENT_HEAL_BUDGET_MS?: string;       // wall-clock cap for the incident heal; default 240000 (4m)
   INCIDENT_HEAL_MAX_ORDERS?: string;      // per-shop cap per run, so one backlog cannot starve the rest; default 25
+  RECON_SWEEP_MAX_ORDERS?: string;        // per-shop order cap per sweep run, so one big shop still returns; default 25
+  RECON_SWEEP_ORDER_DEADLINE_MS?: string; // give up on one order rather than lose the pass to it; default 45000
   RECON_SWEEP_STALE_HOURS?: string;       // alert when a shop hasn't completed a sweep pass in this long; default 48
   // Stripe→(Moloni/IX/Vendus) self-heal. Same backstop idea as the Shopify sweep but
   // for Stripe-source connections: re-emits any succeeded Stripe payment in the window

@@ -33,7 +33,16 @@ const ctx: any = {
 
 const dest: any = new (InvoiceXpressDestination as any)();
 
-beforeEach(() => referencePost.mockReset());
+beforeEach(() => {
+  referencePost.mockReset();
+  // `findByReference` now tries InvoiceXpress directly before the proxy, because
+  // the proxy answers a miss in ~152s. These tests are about the PROXY contract,
+  // so the direct probe is made to fail immediately: that is what "the direct
+  // lookup could not answer" looks like, and it is the only state in which the
+  // proxy path — the one under test — runs at all. Without this the test reaches
+  // the real network and dies on its own 15s deadline instead of asserting.
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("direct lookup unavailable in test"); }));
+});
 
 describe("findByReference", () => {
   it("returns the document when the destination holds one", async () => {

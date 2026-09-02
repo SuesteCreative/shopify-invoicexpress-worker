@@ -3,6 +3,7 @@ import { AppStorage } from "../storage";
 import { processOrders } from "./admin";
 import { processStripeBackfill } from "./admin-stripe";
 import { reportIncident, INVOICE_FAILURE_KINDS } from "../services/incidents";
+import { checkSubscriptionGate } from "../services/subscription-gate";
 import { sendEmail } from "../services/email";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,6 +52,10 @@ interface ShopSweepRow {
   skipped: number;
   errors: number;
   wouldCreate: number;
+  /** Left for the next run by the per-shop cap or the budget. 0 = fully drained. */
+  deferred: number;
+  /** 1 when the shop was skipped for having no active subscription. */
+  skippedNoSubscription?: number;
   errorSamples: Array<{ order_number: number; order_id?: string; message: string }>;
 }
 
@@ -59,7 +64,7 @@ export interface ReconSweepResult {
   dryRun: boolean;
   window: { from: string; to: string };
   shopsScanned: number;
-  totals: { created: number; finalized: number; skipped: number; errors: number; wouldCreate: number };
+  totals: { created: number; finalized: number; skipped: number; errors: number; wouldCreate: number; deferred: number; skippedNoSubscription: number };
   perShop: ShopSweepRow[];
   /** Shops the wall-clock budget did not reach this run. Empty = full coverage. */
   skippedForBudget?: string[];
@@ -115,7 +120,7 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     dryRun,
     window: { from: fromIso, to: toIso },
     shopsScanned: 0,
-    totals: { created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0 },
+    totals: { created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0, deferred: 0, skippedNoSubscription: 0 },
     perShop: [],
   };
 
@@ -125,6 +130,13 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
   // runtime; skipped shops are covered by incident-heal + the next run.
   const startMs = Date.now();
   const budgetMs = Number(env.RECON_SWEEP_BUDGET_MS) || 8 * 60 * 1000;
+  /** What is left of the run's budget, so no single shop can spend it all. */
+  const remainingBudgetMs = () => Math.max(0, budgetMs - (Date.now() - startMs));
+  // Per-shop cap. A backlog is drained over several nights instead of choking on
+  // it in one, and what is left over comes back as `deferred` rather than being
+  // silently truncated.
+  const maxOrdersPerShop = Number(env.RECON_SWEEP_MAX_ORDERS) || 25;
+  const orderDeadlineMs = Number(env.RECON_SWEEP_ORDER_DEADLINE_MS) || 45_000;
 
   const skippedForBudget: string[] = [];
   for (const { shopify_domain } of shops) {
@@ -146,15 +158,47 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     result.shopsScanned++;
 
     const displayName = (config.user_id && nameByUser.get(config.user_id)) || shopify_domain;
-    const row: ShopSweepRow = { shop: shopify_domain, displayName, created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0, errorSamples: [] };
+    const row: ShopSweepRow = { shop: shopify_domain, displayName, created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0, deferred: 0, errorSamples: [] };
+
+    // The paywall has to be applied HERE too, or it is not a paywall.
+    //
+    // The live path refuses to invoice a shop without an active subscription
+    // (checkSubscriptionGate, called from orders-created and generic-pipeline),
+    // and then this sweep invoiced it anyway the same night, because it never
+    // asked. Measured on 2026-09-02: every sale that entered a gate-blocked shop
+    // since 01/09 had a document, and its author was `backfill` — this code.
+    // The merchant saw an incident that resolved itself and a document a day
+    // late, and nobody could explain either.
+    //
+    // Same function as the live path on purpose: two answers to "may we invoice
+    // this shop?" is how they drift apart.
+    const gate = await checkSubscriptionGate(env, config);
+    if (!gate.allowed) {
+      row.skippedNoSubscription = 1;
+      result.totals.skippedNoSubscription++;
+      result.perShop.push(row);
+      await markSweep(env, shopify_domain, "skipped_no_subscription", { reason: gate.reason });
+      continue;
+    }
 
     try {
       // CREATE pass — reuses the double-guarded reemit path.
+      //
+      // The bounds are passed, not left to their defaults: without them one
+      // shop's create pass can run for the whole 5-minute default budget and the
+      // finalize pass for another, so a single high-volume shop overruns the
+      // sweep's own 8-minute budget before it is next consulted — the outer
+      // budget is only checked BETWEEN shops. That is why a 7-day sweep of a
+      // busy shop never returned at all.
       const created = await processOrders(env, config, "create_orders", undefined, fromIso, toIso, {
         dry_run: dryRun,
         triggered_by: "recon-sweep-cron",
         reason: `Auto reconciliation sweep (${days}d window)`,
+        max_orders: maxOrdersPerShop,
+        budget_ms: remainingBudgetMs(),
+        order_deadline_ms: orderDeadlineMs,
       });
+      row.deferred += created.deferred ?? 0;
       row.created += created.success ?? 0;
       row.skipped += created.skipped ?? 0;
       row.errors += created.errors ?? 0;
@@ -163,12 +207,18 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
 
       // FINALIZE pass — only for shops that auto-finalize (fiscal-validity parity).
       // Short window (finalizeFromIso), independent of the create drain window.
-      if (Number(config.auto_finalize) === 1) {
+      // Check the budget again BEFORE the second pass, not only between shops:
+      // the create pass above may have spent everything that was left.
+      if (Number(config.auto_finalize) === 1 && (dryRun || remainingBudgetMs() > 0)) {
         const finalized = await processOrders(env, config, "finalize_orders", undefined, finalizeFromIso, toIso, {
           dry_run: dryRun,
           triggered_by: "recon-sweep-cron",
           reason: `Auto reconciliation sweep finalize (${finalizeDays}d window)`,
+          max_orders: maxOrdersPerShop,
+          budget_ms: remainingBudgetMs(),
+          order_deadline_ms: orderDeadlineMs,
         });
+        row.deferred += finalized.deferred ?? 0;
         row.finalized += finalized.success ?? 0;
         row.skipped += finalized.skipped ?? 0;
         row.errors += finalized.errors ?? 0;
@@ -214,13 +264,17 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     result.totals.skipped += row.skipped;
     result.totals.errors += row.errors;
     result.totals.wouldCreate += row.wouldCreate;
+    result.totals.deferred += row.deferred;
     result.perShop.push(row);
 
     // This shop got a full pass. Recording it is what lets the staleness check
     // below tell "nothing to heal" apart from "never ran".
     if (!dryRun) {
-      await markSweep(env, shopify_domain, row.errors > 0 ? "error" : "ok", {
-        created: row.created, finalized: row.finalized, errors: row.errors,
+      // A shop the cap left work on is NOT a completed pass. Marking it "ok"
+      // would reset last_completed_at, so a shop that is 25%-drained every night
+      // for weeks would read as healthy and never trip reportStarvedShops.
+      await markSweep(env, shopify_domain, sweepStatusFor(row), {
+        created: row.created, finalized: row.finalized, errors: row.errors, deferred: row.deferred,
       });
     }
   }
@@ -260,7 +314,32 @@ async function orderByStaleness<T extends { shopify_domain: string }>(env: Env, 
   }
 }
 
-async function markSweep(env: Env, shop: string, status: "ok" | "error" | "skipped_budget", detail: unknown): Promise<void> {
+export type SweepStatus = "ok" | "error" | "skipped_budget" | "skipped_no_subscription" | "partial";
+
+/**
+ * What this shop's pass was, in one word.
+ *
+ * `partial` exists because the per-shop cap made "we drained 25 of 141" possible,
+ * and calling that `ok` is how a shop stays permanently behind while reading as
+ * healthy: `ok` stamps `last_completed_at`, which is the clock the starvation
+ * alert watches. Errors outrank a partial drain — an error needs a human either
+ * way, and the deferred remainder will come back tomorrow on its own.
+ */
+export function sweepStatusFor(row: { errors: number; deferred: number }): SweepStatus {
+  if (row.errors > 0) return "error";
+  if (row.deferred > 0) return "partial";
+  return "ok";
+}
+
+/**
+ * Whether a status means "this shop was fully seen", which is the only thing
+ * that may move `last_completed_at`. Everything else has to keep ageing.
+ */
+export function countsAsCompletion(status: SweepStatus): boolean {
+  return status === "ok" || status === "error";
+}
+
+async function markSweep(env: Env, shop: string, status: SweepStatus, detail: unknown): Promise<void> {
   const nowIso = new Date().toISOString();
   try {
     await env.DB.prepare(
@@ -268,14 +347,16 @@ async function markSweep(env: Env, shop: string, status: "ok" | "error" | "skipp
        VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(shopify_domain) DO UPDATE SET
          last_started_at   = excluded.last_started_at,
-         -- A budget skip is NOT a completion; keep the previous timestamp so the
-         -- shop keeps ageing and eventually trips the alert.
-         last_completed_at = CASE WHEN excluded.last_status = 'skipped_budget'
+         -- Only a full pass counts as a completion. A budget skip, a partial
+         -- drain and a paywall skip all keep the previous timestamp, so the shop
+         -- keeps ageing and eventually trips the starvation alert instead of
+         -- reading as healthy while it is quietly never finished.
+         last_completed_at = CASE WHEN excluded.last_status IN ('skipped_budget','partial','skipped_no_subscription')
                                   THEN sweep_state.last_completed_at
                                   ELSE excluded.last_completed_at END,
          last_status       = excluded.last_status,
          last_detail_json  = excluded.last_detail_json`
-    ).bind(shop, nowIso, status === "skipped_budget" ? null : nowIso, status, JSON.stringify(detail ?? null)).run();
+    ).bind(shop, nowIso, countsAsCompletion(status) ? nowIso : null, status, JSON.stringify(detail ?? null)).run();
   } catch (e: any) {
     console.warn(`[ReconSweep] markSweep(${shop}) failed: ${e?.message ?? e}`);
   }
@@ -340,7 +421,7 @@ export interface IncidentHealResult {
   ranAt: string;
   dryRun: boolean;
   shopsScanned: number;
-  totals: { candidates: number; created: number; skipped: number; errors: number; wouldCreate: number };
+  totals: { candidates: number; created: number; skipped: number; errors: number; wouldCreate: number; skippedNoSubscription: number };
   perShop: Array<{ shop: string; displayName: string; candidates: number; created: number; skipped: number; errors: number; wouldCreate: number; sampleIds: string[]; deferred?: number }>;
   /** Shops the wall-clock budget never reached. Empty = full coverage. */
   skippedForBudget?: string[];
@@ -358,7 +439,7 @@ export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolea
 
   const result: IncidentHealResult = {
     ranAt: now.toISOString(), dryRun, shopsScanned: 0,
-    totals: { candidates: 0, created: 0, skipped: 0, errors: 0, wouldCreate: 0 }, perShop: [],
+    totals: { candidates: 0, created: 0, skipped: 0, errors: 0, wouldCreate: 0, skippedNoSubscription: 0 }, perShop: [],
   };
   const kindPh = INVOICE_FAILURE_KINDS.map(() => "?").join(",");
 
@@ -387,6 +468,11 @@ export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolea
     }
     const config = await new AppStorage(env, shopify_domain).loadConfig();
     if (!config || Number(config.is_paused) === 1) continue;
+
+    // Same paywall as the live path and the sweep. Healing a shop the gate is
+    // refusing would re-invoice exactly what the gate declined, one night later.
+    const healGate = await checkSubscriptionGate(env, config);
+    if (!healGate.allowed) { result.totals.skippedNoSubscription++; continue; }
 
     // Open invoice-failure incidents for this merchant, within the reporting horizon.
     let incRows: any[] = [];

@@ -567,14 +567,77 @@ function parseEmailList(s: string | undefined): string[] {
 export async function autoResolveStaleIncidents(
   env: Env,
   opts: { staleHours?: number } = {},
-): Promise<{ autoResolved: number }> {
+): Promise<{ autoResolved: number; keptUnbilled: number }> {
   const staleHours = opts.staleHours ?? 24;
   const nowIso = new Date().toISOString();
   const cutoffIso = new Date(Date.now() - staleHours * 60 * 60 * 1000).toISOString();
+
+  // Everything EXCEPT a failure to invoice: silence really is recovery. A shop
+  // whose webhooks start verifying again simply stops producing failures, and
+  // there is no success event to wait for.
+  const kindPh = INVOICE_FAILURE_KINDS.map(() => "?").join(",");
   const res = await env.DB.prepare(
-    "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE status = 'open' AND last_seen_at < ?"
-  ).bind(nowIso, cutoffIso).run();
-  return { autoResolved: (res as any).meta?.changes ?? 0 };
+    `UPDATE incidents SET status = 'auto_resolved', resolved_at = ?
+      WHERE status = 'open' AND last_seen_at < ? AND kind NOT IN (${kindPh})`
+  ).bind(nowIso, cutoffIso, ...INVOICE_FAILURE_KINDS).run();
+  let autoResolved = (res as any).meta?.changes ?? 0;
+
+  // A failure to invoice is different in kind, and closing it on silence is how
+  // Zoo de Lagos lost five days. Its InvoiceXpress plan limit stopped rejecting
+  // once the blackout ended, so the incidents went quiet and were closed — while
+  // 141 orders remained unbilled. runIncidentDrivenHeal works off OPEN incidents,
+  // so closing them emptied the healer's work list and guaranteed nothing would
+  // ever fix them. Here silence is not the signal; a document existing is.
+  let keptUnbilled = 0;
+  try {
+    const stale = await env.DB.prepare(
+      `SELECT id, affected_ids_json FROM incidents
+        WHERE status = 'open' AND last_seen_at < ? AND kind IN (${kindPh})`
+    ).bind(cutoffIso, ...INVOICE_FAILURE_KINDS).all();
+
+    for (const row of ((stale.results ?? []) as any[])) {
+      let ids: string[] = [];
+      try {
+        ids = (JSON.parse(row.affected_ids_json || "[]") as unknown[])
+          .map(String).filter((x) => /^d{10,}$/.test(x));
+      } catch { /* malformed: nothing to verify against */ }
+
+      // Nothing checkable (a refund reference, a Lodgify booking, an empty list)
+      // falls back to the old behaviour rather than staying open forever.
+      if (ids.length === 0) {
+        await env.DB.prepare(
+          "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE id = ?"
+        ).bind(nowIso, row.id).run();
+        autoResolved++;
+        continue;
+      }
+
+      const ph = ids.map(() => "?").join(",");
+      const found = await env.DB.prepare(
+        `SELECT order_id AS oid FROM processed_orders WHERE invoice_id IS NOT NULL AND order_id IN (${ph})
+         UNION SELECT order_id AS oid FROM reconciliation_match WHERE invoice_id IS NOT NULL AND order_id IN (${ph})
+         UNION SELECT booking_id AS oid FROM lodgify_partial_invoices WHERE invoice_id IS NOT NULL AND booking_id IN (${ph})`
+      ).bind(...ids, ...ids, ...ids).all();
+      const invoiced = new Set(((found.results ?? []) as any[]).map((r) => String(r.oid)));
+
+      if (ids.every((id) => invoiced.has(id))) {
+        await env.DB.prepare(
+          "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE id = ?"
+        ).bind(nowIso, row.id).run();
+        autoResolved++;
+      } else {
+        keptUnbilled++;
+      }
+    }
+  } catch (e: any) {
+    // Never let the verification break the housekeeping it guards.
+    console.error(`[Incidents] invoice-failure verification failed: ${e?.message ?? e}`);
+  }
+
+  if (keptUnbilled > 0) {
+    console.warn(`[Incidents] kept ${keptUnbilled} quiet-but-unbilled incident(s) open so the heal can still see them.`);
+  }
+  return { autoResolved, keptUnbilled };
 }
 
 export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number; autoResolved: number }> {

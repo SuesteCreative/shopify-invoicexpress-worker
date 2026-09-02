@@ -8,6 +8,7 @@ import { createIxInvoiceWithFallback, ixExpectedTotals } from "../ix/create-invo
 import { sendDevModeEmail } from "./notify";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
 import { saleReference, cancelReference } from "../services/document-references";
+import { findIxDocumentIdByReference } from "../services/ix-find-reference";
 import { fetchShopifyOrders, fetchOrdersByIds, shopifyOrderNotFoundHint } from "../services/shopify-orders";
 import { parseIxDate, formatPtDate, todayUtcYmd } from "../ix/date";
 import { resolveExemptionCode } from "../ix/exemption";
@@ -50,6 +51,42 @@ export interface ProcessOrdersOptions {
   /** Explicit-id path only: keep only financial_status=paid orders. Auto-heal
    *  must never invoice an order that has since been refunded/cancelled. */
   paid_only?: boolean;
+  /**
+   * Most orders this call will touch. The point is a call that RETURNS.
+   *
+   * A single order costs 20-110s on this path (measured 2026-09-01), so a shop
+   * with a 141-order backlog needs hours and the invocation is killed long
+   * before it answers — which is exactly what happened to Zoo de Lagos: every
+   * attempt to drain it, by cron and by hand, died mid-flight and reported
+   * nothing. Bounded calls that resume beat one call that cannot finish.
+   * Whatever is left over comes back as `deferred`.
+   */
+  max_orders?: number;
+  /** Most time one order may take before the loop gives up on it. Default 45s. */
+  order_deadline_ms?: number;
+  /** Most time the whole loop may take before it stops and defers the rest. Default 5m. */
+  budget_ms?: number;
+}
+
+/**
+ * Give up on one order rather than lose the whole batch to it.
+ *
+ * Nothing in this path had a deadline. A single stalled subrequest — and they
+ * do stall: three admin jobs sat in `running` for over an hour on 2026-09-01 —
+ * meant the request never answered at all, so 20 healthy orders were lost to
+ * one sick one, and the caller could not even tell which. The order that timed
+ * out is reported as an error and retried by the next run, where it is a skip
+ * if it did eventually land: the reference guard makes a retry safe.
+ */
+async function withDeadline(p: Promise<OrderResult>, ms: number, order: any): Promise<OrderResult> {
+  let timer: any;
+  const timeout = new Promise<OrderResult>((resolve) => {
+    timer = setTimeout(() => resolve({
+      order_id: order?.id, order_number: order?.order_number, status: "error",
+      message: `Gave up after ${Math.round(ms / 1000)}s — will be retried by the next run`,
+    }), ms);
+  });
+  try { return await Promise.race([p, timeout]); } finally { clearTimeout(timer); }
 }
 
 function summarizeOrder(order: any): ShopifyOrderSummary {
@@ -81,6 +118,19 @@ function summarizeOrder(order: any): ShopifyOrderSummary {
  * only after the retries agree it's absent.
  */
 async function findIxInvoiceByReference(
+  ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
+  reference: string,
+  attempts = 2,
+): Promise<string | null> {
+  // Asks InvoiceXpress directly and keeps the proxy as the fallback. The proxy
+  // answers a MISS in ~152s, and a miss is the normal case here — a document is
+  // only created when it does not exist — which is why every backlog drain died
+  // before it could answer. See services/ix-find-reference.ts for the numbers.
+  return findIxDocumentIdByReference(ixHeaders, reference, { proxyAttempts: attempts });
+}
+
+/** The proxy-only lookup this replaced. Unused; kept until the proxy is fixed. */
+async function findIxInvoiceByReferenceViaProxy(
   ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
   reference: string,
   attempts = 2,
@@ -187,6 +237,16 @@ export async function processOrders(
     }
   }
 
+  // Cap AFTER candidate selection (and, for finalize, after the oldest-first
+  // sort below) so each run drains the front of the queue and the next run
+  // picks up where this one stopped.
+  let deferred = 0;
+  const maxOrders = Number(options.max_orders) > 0 ? Number(options.max_orders) : 0;
+  if (maxOrders > 0 && type === "create_orders" && orders.length > maxOrders) {
+    deferred = orders.length - maxOrders;
+    orders = orders.slice(0, maxOrders);
+  }
+
   const jobId = crypto.randomUUID();
   await appStorage.startDevJob({
     id: jobId,
@@ -209,19 +269,34 @@ export async function processOrders(
   if (!dryRun && type === "finalize_orders") {
     orders = [...orders].sort((a, b) =>
       String(a.processed_at ?? a.created_at ?? "").localeCompare(String(b.processed_at ?? b.created_at ?? "")));
+    if (maxOrders > 0 && orders.length > maxOrders) {
+      deferred = orders.length - maxOrders;
+      orders = orders.slice(0, maxOrders);
+    }
     seriesLastFinalizedDate = await fetchSeriesLastFinalizedDate(
       config,
       config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
     );
   }
 
+  const loopStartMs = Date.now();
+  const orderDeadlineMs = Number(options.order_deadline_ms) > 0 ? Number(options.order_deadline_ms) : 45_000;
+  const budgetMs = Number(options.budget_ms) > 0 ? Number(options.budget_ms) : 5 * 60_000;
+
   for (const order of orders) {
+    // Stop cleanly instead of being killed mid-order: a run that answers with
+    // "did 8, deferred 12" is worth more than one that does 20 and is cut off
+    // before it can say so.
+    if (!dryRun && Date.now() - loopStartMs > budgetMs) {
+      deferred += orders.length - results.length;
+      break;
+    }
     if (dryRun) {
       results.push(await adminDryRunCreate(env, config, order, type));
     } else if (type === "create_orders") {
-      results.push(await adminCreateOrder(env, config, order));
+      results.push(await withDeadline(adminCreateOrder(env, config, order), orderDeadlineMs, order));
     } else {
-      const r = await adminFinalizeOrder(env, config, order, seriesLastFinalizedDate);
+      const r = await withDeadline(adminFinalizeOrder(env, config, order, seriesLastFinalizedDate), orderDeadlineMs, order);
       if (r.finalized_date && (!seriesLastFinalizedDate || r.finalized_date > seriesLastFinalizedDate)) {
         seriesLastFinalizedDate = r.finalized_date;
       }
@@ -237,6 +312,7 @@ export async function processOrders(
     skipped: results.filter((r) => r.status === "skipped").length,
     errors: results.filter((r) => r.status === "error").length,
     would_create: results.filter((r) => r.status === "dry_run").length,
+    deferred,
     from: effectiveFrom,
     to: effectiveTo,
   };

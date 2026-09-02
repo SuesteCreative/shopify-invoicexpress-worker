@@ -1154,6 +1154,29 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       return { order_id: order.id, order_number: order.order_number, status: "skipped", message: "Zero-amount order — invoice not required (total €0,00)" };
     }
 
+    // Claim the order, exactly as the live path does.
+    //
+    // Everything before this only READ. The write that would make the check
+    // above answer "yes" happens after a normalize and a create, so two
+    // emitters — a sweep and a webhook, or a sweep and an operator's re-emit —
+    // both read "not processed" and both issue a document. This path had no
+    // claim at all: that is where the twelve orphan drafts on Zoo de Lagos came
+    // from, ids seconds apart, on the very orders someone was recovering.
+    //
+    // The reference lookup is not a substitute. It is a text search whose index
+    // can lag a create by seconds, which is precisely the window two emitters
+    // race inside.
+    if (!await appStorage.claimOrder(orderId)) {
+      // `skipped`, never `error`: the sweep turns errors into a critical
+      // incident and an email, and losing a lock race is routine, not a fault.
+      // The winner is already issuing this exact document.
+      return {
+        order_id: order.id, order_number: order.order_number, status: "skipped",
+        message: "Outra emissão está a decorrer para esta encomenda — reavaliada na próxima passagem.",
+      };
+    }
+    try {
+
     const ixRef = saleReference(order.order_number);
     const ixHeaders = {
       "x-account-name": config.ix_account_name!,
@@ -1277,6 +1300,13 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       detail: { error: ixRefusal },
     });
     return { order_id: order.id, order_number: order.order_number, status: "error", message: `IX API returned no id: ${ixRefusal}` };
+
+    } finally {
+      // Release whatever happened. A claim left behind would block the next
+      // pass for its full staleness window; releasing on the failure paths is
+      // what makes the retry immediate rather than three minutes away.
+      await appStorage.releaseOrderClaim(orderId);
+    }
   } catch (e) {
     return { order_id: order.id, order_number: order.order_number, status: "error", message: String(e) };
   }

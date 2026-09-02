@@ -90,6 +90,9 @@ interface VendusClientPayload {
 
 interface VendusDocumentResponse {
   id: number | string;
+  /** Our own "Order #N". Needed because `?reference=` is a SUBSTRING match, so
+   *  the caller has to confirm the hit rather than trust the filter. */
+  reference?: string;
   type?: string;
   number?: string;
   date?: string;
@@ -341,26 +344,55 @@ export class VendusDestination implements DestinationAdapter {
     readDocument: false,
   } as const;
 
+  /**
+   * Does the destination already hold this document?
+   *
+   * `null` means NO, and nothing else may produce it. This is the last guard
+   * between a redelivered webhook and a duplicate fiscal document, so an error
+   * has to travel as an error: the callers (create dedup, credit-note dedup,
+   * Lodgify instalment dedup) are all queue- or cron-retried, and a retry is
+   * recoverable while a duplicate is not.
+   *
+   * It used to answer `null` on any non-2xx — the destination failing was read
+   * as "there is no such document" and a second one was issued. The IX adapter
+   * had the same bug and was fixed; Moloni already re-throws transient errors.
+   * This was the last one left.
+   *
+   * The exact-reference filter is the second half. Vendus's `?reference=` is a
+   * documented SUBSTRING match, and this took `list[0]` regardless: asking for
+   * "Order #536" could return the document for "Order #5366" and hand back
+   * somebody else's invoice id.
+   */
   async findByReference(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null> {
-    // NOTE: Vendus's `?reference=` filter is documented to substring-match
-    // against the document's stored `reference`. IX-style refund references
-    // such as "OrderRefund #123" may collide with the parent order if both
-    // share the same prefix — coordinator should treat duplicates as
-    // suspicious rather than authoritative.
     const cfg = readVendusConfig(ctx);
     const path = `/documents/?reference=${encodeURIComponent(reference)}`;
-    const { ok, data } = await vendusFetch<VendusDocumentResponse[] | { data: VendusDocumentResponse[] }>(
+    const { ok, status, data, raw } = await vendusFetch<VendusDocumentResponse[] | { data: VendusDocumentResponse[] }>(
       cfg, "GET", path,
     );
-    if (!ok || !data) return null;
+    // An explicit "not found" is an answer. Anything else is a failure to ask.
+    if (status === 404) return null;
+    if (!ok) {
+      throw new Error(`Vendus reference lookup failed for "${reference}": HTTP ${status} ${String(raw ?? "").slice(0, 200)}`);
+    }
     const list: VendusDocumentResponse[] = Array.isArray(data)
       ? data
       : Array.isArray((data as { data?: VendusDocumentResponse[] }).data)
         ? (data as { data: VendusDocumentResponse[] }).data
         : [];
-    const first = list[0];
-    if (!first) return null;
-    return { id: String(first.id) };
+    if (list.length === 0) return null;
+
+    const want = reference.trim();
+    const exact = list.find((d) => String((d as any).reference ?? "").trim() === want);
+    if (exact) return { id: String(exact.id) };
+
+    // Documents came back but none of them carries a `reference` we can compare.
+    // Refusing is the only safe reading: returning null here would claim the
+    // destination holds nothing while it just handed us candidates, and the
+    // caller would issue a duplicate.
+    if (!list.some((d) => (d as any).reference != null)) {
+      throw new Error(`Vendus reference lookup for "${reference}" returned ${list.length} document(s) with no reference field to match on`);
+    }
+    return null;
   }
 
   async createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult> {

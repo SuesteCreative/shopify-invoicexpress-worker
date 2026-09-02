@@ -8,6 +8,7 @@ import { createIxInvoiceWithFallback, ixExpectedTotals } from "../ix/create-invo
 import { sendDevModeEmail } from "./notify";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
 import { saleReference, cancelReference } from "../services/document-references";
+import { findIxDocumentIdByReference } from "../services/ix-find-reference";
 import { fetchShopifyOrders, fetchOrdersByIds, shopifyOrderNotFoundHint } from "../services/shopify-orders";
 import { parseIxDate, formatPtDate, todayUtcYmd } from "../ix/date";
 import { resolveExemptionCode } from "../ix/exemption";
@@ -117,6 +118,19 @@ function summarizeOrder(order: any): ShopifyOrderSummary {
  * only after the retries agree it's absent.
  */
 async function findIxInvoiceByReference(
+  ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
+  reference: string,
+  attempts = 2,
+): Promise<string | null> {
+  // Asks InvoiceXpress directly and keeps the proxy as the fallback. The proxy
+  // answers a MISS in ~152s, and a miss is the normal case here — a document is
+  // only created when it does not exist — which is why every backlog drain died
+  // before it could answer. See services/ix-find-reference.ts for the numbers.
+  return findIxDocumentIdByReference(ixHeaders, reference, { proxyAttempts: attempts });
+}
+
+/** The proxy-only lookup this replaced. Unused; kept until the proxy is fixed. */
+async function findIxInvoiceByReferenceViaProxy(
   ixHeaders: { "x-account-name": string; "x-api-key": string; "x-env": "prod" | "dev" },
   reference: string,
   attempts = 2,

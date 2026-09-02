@@ -16,6 +16,7 @@ import { resolveExemptionCode } from "../../ix/exemption";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
+import { findViaInvoiceXpress } from "../../services/ix-find-reference";
 import { IxBuilder, nifHoldReason, type IxCreditNote } from "../../ix/builder";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../../services/ix-document-email";
@@ -386,6 +387,16 @@ export class InvoiceXpressDestination implements DestinationAdapter {
    * (`if (isMoloniTransient(e)) throw e`); this was the outlier.
    */
   async findByReference(reference: string, ctx: AdapterCtx) {
+    // Fast path: InvoiceXpress answers this in ~1s either way, while the proxy
+    // takes ~152s to say "no such document" — and "no" is the normal answer
+    // before a create. Only a confirmed answer short-circuits; anything it
+    // cannot determine throws and falls through to the proxy below, which keeps
+    // this method's contract of never turning "I don't know" into "no".
+    try {
+      const direct = await findViaInvoiceXpress(ixHeadersFromCtx(ctx) as any, reference);
+      return direct ? { id: direct } : null;
+    } catch { /* fall through to the proxy */ }
+
     const res = await IxApi.v2.documents.reference.post({
       headers: ixHeadersFromCtx(ctx),
       body: { reference },

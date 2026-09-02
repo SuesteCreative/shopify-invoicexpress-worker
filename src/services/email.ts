@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import type { Env } from "../env";
+import { redactSecrets } from "./redact";
 
 export interface SendEmailParams {
   to: string | string[];
@@ -41,10 +42,28 @@ function normalize(addr: string | string[] | undefined): string[] {
  * Caller is responsible for templating — pass already-rendered html (and
  * optional text). For incident emails, use email-templates.ts to build the
  * html string first.
+ *
+ * Redaction happens HERE, on the rendered body, and not only where the text was
+ * assembled. Every alert we send is built out of destination error strings, and
+ * InvoiceXpress carries its credential in the query string — it accepts the key
+ * ONLY as `?api_key=`, verified 2026-09-02 (Authorization, X-Api-Key and
+ * Api-Key headers all answer 401), so the key is in the URL of every failing
+ * request by construction and there is no upstream fix available to us. On
+ * 2026-09-02 a merchant's key reached a sweep response on its way to D1 and to
+ * the ops digest.
+ *
+ * This is the last gate before text leaves the building, and it is the one place
+ * that cannot be forgotten by whoever writes the next template.
  */
 export async function sendEmail(env: Env, params: SendEmailParams): Promise<SendEmailResult> {
   const to = normalize(params.to);
   if (to.length === 0) return { ok: false, provider: "none", detail: "No valid recipients" };
+  params = {
+    ...params,
+    subject: redactSecrets(params.subject),
+    html: redactSecrets(params.html),
+    ...(params.text != null ? { text: redactSecrets(params.text) } : {}),
+  };
 
   const cc = normalize(params.cc);
   const bcc = normalize(params.bcc);

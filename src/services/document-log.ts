@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { redactSecrets, redactDeep } from "./redact";
 
 /**
  * The narrative of one document, written as it happens.
@@ -221,7 +222,11 @@ export function takeLostWriteCount(): number {
  * Leave it unset for events that may legitimately repeat.
  */
 export async function logDocumentEvent(env: Env, input: DocumentEventInput): Promise<void> {
-  const detailRaw = input.detail != null ? JSON.stringify(input.detail) : null;
+  // Redact before storing: a `create_failed` summary is the destination's own
+  // refusal text, and InvoiceXpress puts its credential in the query string of
+  // every request, so its errors carry the merchant's key. Same boundary rule
+  // as incidents and dev_jobs — redact where text becomes a record.
+  const detailRaw = input.detail != null ? JSON.stringify(redactDeep(input.detail)) : null;
   const truncated = detailRaw != null && detailRaw.length > DETAIL_LIMIT;
 
   const write = () => env.DB.prepare(
@@ -240,7 +245,7 @@ export async function logDocumentEvent(env: Env, input: DocumentEventInput): Pro
     input.invoiceId != null ? String(input.invoiceId) : null,
     input.event,
     input.severity ?? SEVERITY[input.event],
-    input.summary.slice(0, 1000),
+    redactSecrets(input.summary).slice(0, 1000),
     detailRaw != null ? detailRaw.slice(0, DETAIL_LIMIT) : null,
     truncated ? 1 : 0,
     input.actor ?? null,

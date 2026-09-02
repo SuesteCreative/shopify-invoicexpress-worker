@@ -2,7 +2,6 @@ import type { Env } from "../env";
 import type { IRequestConfig } from "../storage";
 import { AppStorage } from "../storage";
 import { Shopify } from "../shopify";
-import { IxApi } from "../api/ix";
 import { IxBuilder, nifHoldReason, type NifHold } from "../ix/builder";
 import { createIxInvoiceWithFallback } from "../ix/create-invoice";
 import { maybeSendQuotaReachedAlert } from "../services/quota-alert";
@@ -14,6 +13,7 @@ import { reportIncident } from "../services/incidents";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
 import { saleReference } from "../services/document-references";
+import { findIxDocumentIdByReference } from "../services/ix-find-reference";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 import { platformError } from "../services/platform-error";
 
@@ -256,37 +256,39 @@ async function createInvoiceForOrder(
     "x-api-key": config.ix_api_key!,
     "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
   };
-  // Check if invoice already exists in InvoiceXpress system
-  const ixExisting = await IxApi.v2.documents.reference.post({
-    headers: ixHeaders,
-    body: {
-      reference: ixRef,
-    },
-  });
+  // Check if invoice already exists in InvoiceXpress system.
+  //
+  // Asked of InvoiceXpress directly, not of ix-proxy: the proxy answers a HIT in
+  // ~1.6s and a MISS in ~152s, and a MISS is what this call gets on every order
+  // that still needs invoicing — which is to say, on the normal path. This is
+  // the hottest call in the system (one per Shopify order, inside the
+  // order_claims CAS claim, so every second here blocks the other delivery of
+  // the same order), and it was the last one still going through the proxy.
+  const existingInvoiceId = await findIxDocumentIdByReference(ixHeaders, ixRef);
 
-  if (ixExisting.data?.data?.id) {
+  if (existingInvoiceId) {
     console.log(`[Rioko] Invoice already exists for order ${orderId}`);
     // Persist the mapping. Without this, orders/paid can never find the invoice
     // (the IX doc exists but processed_orders has no row) and retries forever
     // with "Invoice not found by order.id".
-    await appStorage.saveProcessedInvoice(orderId, String(ixExisting.data.data.id));
+    await appStorage.saveProcessedInvoice(orderId, String(existingInvoiceId));
     if (webhookId) {
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
     }
     await logDocumentEvent(env, {
       externalId: orderId,
       event: "created",
-      dedupKey: `created:${ixExisting.data.data.id}`,
-      invoiceId: String(ixExisting.data.data.id),
+      dedupKey: `created:${existingInvoiceId}`,
+      invoiceId: String(existingInvoiceId),
       userId: config.user_id,
       shopifyDomain: config.shopify_domain,
       sourceKind: "shopify",
       destinationKind: "invoicexpress",
       actor: "pipeline",
-      summary: `O destino já tinha o documento ${ixExisting.data.data.id} com a referência ${ixRef}; foi associado à encomenda ${order.name ?? orderId} em vez de emitir um novo.`,
+      summary: `O destino já tinha o documento ${existingInvoiceId} com a referência ${ixRef}; foi associado à encomenda ${order.name ?? orderId} em vez de emitir um novo.`,
       detail: { reference: ixRef, linked: true },
     });
-    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: ixExisting.data.data.id }), response: "Already exists — linked", status: 200 });
+    await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, invoiceId: existingInvoiceId }), response: "Already exists — linked", status: 200 });
     return;
   }
 

@@ -1,4 +1,5 @@
 import { Env } from "./env";
+import { redactDeep } from "./services/redact";
 
 export interface IRequestConfig {
   id: string | null;
@@ -566,9 +567,13 @@ export class AppStorage {
 
   async finishDevJob(id: string, status: "success" | "partial" | "error", summary: any, results: any) {
     try {
+      // Redact before storing. A destination error arrives as a whole request
+      // description, and InvoiceXpress carries its credential in the query
+      // string — so a timed-out read lands here as "GET https://…?api_key=<real
+      // key>". Found live on 2026-09-02 in a sweep result on its way to D1.
       await this.db.prepare(
         "UPDATE dev_jobs SET status = ?, summary = ?, results = ?, finished_at = ? WHERE id = ?"
-      ).bind(status, JSON.stringify(summary), JSON.stringify(results), new Date().toISOString(), id).run();
+      ).bind(status, JSON.stringify(redactDeep(summary)), JSON.stringify(redactDeep(results)), new Date().toISOString(), id).run();
     } catch (e) {
       console.warn("[Rioko] Failed to finish dev job:", e);
     }

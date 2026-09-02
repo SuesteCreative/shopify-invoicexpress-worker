@@ -4,6 +4,7 @@ import { sendEmail } from "./email";
 import { renderIncidentTemplate, tplPatternReport, type IncidentKind } from "./email-templates";
 import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type IncidentDiagnosis, type RedactedIncident } from "./anthropic";
 import { getCompanyRulesNotes } from "./company-rules";
+import { redactSecrets, redactDeep } from "./redact";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -80,7 +81,7 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
   const bucketKey = bucketKeyFor(input, now);
   const id = crypto.randomUUID();
   const affectedJson = input.affected_ids ? JSON.stringify(input.affected_ids.map(String)) : null;
-  const detailJson = input.detail != null ? JSON.stringify(input.detail) : null;
+  const detailJson = input.detail != null ? JSON.stringify(redactDeep(input.detail)) : null;
 
   let wasNew = false;
   let notifyNow = false;
@@ -118,7 +119,12 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
       bucketKey,
       input.severity,
       input.kind,
-      input.summary,
+      // Redact at the boundary where text becomes a stored record. An incident
+      // summary is assembled from destination error strings, and InvoiceXpress
+      // puts its credential in the query string — so "Request timed out: GET
+      // https://…?api_key=<real key>" was going into D1 and out in the ops
+      // digest email. Seen live on 2026-09-02.
+      redactSecrets(input.summary),
       detailJson,
       affectedJson,
       nowIso,

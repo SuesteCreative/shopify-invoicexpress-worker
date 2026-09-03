@@ -1183,7 +1183,7 @@ app.post("/admin/lodgify/unbill-premature", async (c) => {
 app.post("/admin/lodgify/settle-receipts", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  let body: { user_id?: string; dry_run?: boolean; booking_ids?: string[]; limit?: number } = {};
+  let body: { user_id?: string; dry_run?: boolean; booking_ids?: string[]; limit?: number; force?: boolean } = {};
   try { body = await c.req.json(); } catch { /* empty body = defaults */ }
   if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
   const dryRun = body.dry_run !== false;
@@ -1210,6 +1210,9 @@ app.post("/admin/lodgify/settle-receipts", async (c) => {
   }
 
   const destination: DestinationKind = (conn.destination_kind as DestinationKind) ?? "moloni";
+  if (!getDestinationAdapter(destination).settleDocument) {
+    return c.json({ error: `${destination} não sabe registar pagamentos sobre um documento fechado` }, 400);
+  }
   const legacy: any = (await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(body.user_id).first())
     ?? synthLegacyConfig(body.user_id);
 
@@ -1226,8 +1229,8 @@ app.post("/admin/lodgify/settle-receipts", async (c) => {
       destinationConfig,
       connLabel: `lodgify → ${destination}`,
       bookingIds: body.booking_ids,
+      force: body.force === true,
       dryRun,
-      mirrorSourced: true,
       limit: body.limit,
       actor: "admin:settle-receipts",
     });
@@ -3104,6 +3107,8 @@ interface LodgifyPollResult {
   reversed: number;
   /** Payments recorded against already-certified documents (Moloni Recibos). */
   settled: number;
+  /** Documents a guard refused and parked for a human. Silence here is the point. */
+  settleBlocked: number;
   settleErrors: number;
   /**
    * Dry-run only: the bookings this run WOULD have billed, in the order it would
@@ -3167,7 +3172,7 @@ export interface LodgifyPollOptions {
 async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Promise<LodgifyPollResult> {
   const result: LodgifyPollResult = {
     connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0, reversed: 0,
-    settled: 0, settleErrors: 0,
+    settled: 0, settleBlocked: 0, settleErrors: 0,
   };
   const dryRun = !!opts.dryRun;
   if (dryRun) result.wouldInvoice = [];
@@ -3502,10 +3507,14 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
           connLabel,
           items: bookings,
           dryRun: false,
-          limit: Number(env.LODGIFY_SETTLE_MAX_DOCS) || undefined,
+          limit: Number.isFinite(Number(env.LODGIFY_SETTLE_MAX_DOCS))
+            && String(env.LODGIFY_SETTLE_MAX_DOCS ?? "").trim() !== ""
+            ? Number(env.LODGIFY_SETTLE_MAX_DOCS)
+            : undefined,
           actor: "cron:lodgify-poll",
         });
         result.settled += settle.settled;
+        result.settleBlocked += settle.blocked;
         result.settleErrors += settle.errors;
         if (settle.settled > 0 || settle.errors > 0 || settle.blocked > 0) {
           console.log(`[LodgifyPoll] user ${conn.user_id}: settled ${settle.settled}, blocked ${settle.blocked}, errors ${settle.errors}`);

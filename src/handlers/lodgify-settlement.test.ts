@@ -64,6 +64,14 @@ describe("shouldAskDestination", () => {
     expect(shouldAskDestination({ ...draft, nextCheckAt: null }, 334.5, NOW)).toBe(true);
   });
 
+  it("asks again when a payment is corrected DOWNWARDS", () => {
+    // The over-settled guard lives in the destination and can only fire if the
+    // document is asked about again. Reacting to increases alone made it
+    // unreachable the moment a state row existed: the merchant corrects 334,50 €
+    // to 200 €, the Fatura stays settled for 334,50 €, and nobody is told.
+    expect(shouldAskDestination(state(), 200, NOW)).toBe(true);
+  });
+
   it("asks when it has a closed document but no settled figure", () => {
     // Nothing cached to reason from — the destination is the authority, so go
     // and ask rather than assume either way.

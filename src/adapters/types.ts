@@ -218,7 +218,7 @@ export type SettleOutcome =
   | { status: "settled"; receiptId: string; value: number; settledTotal: number; message: string; doc?: SettleDocSnapshot }
   | { status: "skipped"; reason?: "not_closed" | "nothing_due"; message: string; doc?: SettleDocSnapshot }
   | { status: "blocked"; reason: string; message: string; doc?: SettleDocSnapshot }
-  | { status: "error"; code?: "config" | "not_found" | "not_reconciled" | "insert_unknown" | "platform"; message: string; doc?: SettleDocSnapshot }
+  | { status: "error"; code?: "config" | "not_found" | "not_reconciled" | "insert_unknown" | "verify_failed" | "platform"; message: string; doc?: SettleDocSnapshot }
   | { status: "dry_run"; value: number; message: string; doc?: SettleDocSnapshot };
 
 export type FinalizeOutcome =

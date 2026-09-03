@@ -1165,14 +1165,20 @@ export class AppStorage {
         });
       }
     } catch (e) {
-      // Losing the gate costs reads, not correctness: an empty map means every
-      // document is asked about this pass, which is the pre-gate behaviour.
+      // FAIL CLOSED, for the same reason `claimSettlement` does. An empty map is
+      // not "no state" — it is "every document looks new", including one parked
+      // with `needs_human` because a Recibo was accepted and did not reconcile.
+      // Re-asking about that one issues a second Recibo for the same money, and
+      // repeats it every thirty minutes. The commonest cause is the plainest:
+      // migration 0036 not applied to this database yet.
       console.error("[Rioko] listSettlementState failed:", e);
+      throw e;
     }
     return out;
   }
 
-  async upsertSettlementState(userId: string, row: SettlementState): Promise<void> {
+  /** True when the row landed. A caller storing a `needs_human` latch must check. */
+  async upsertSettlementState(userId: string, row: SettlementState): Promise<boolean> {
     try {
       await this.db.prepare(
         `INSERT INTO lodgify_settlements
@@ -1196,8 +1202,10 @@ export class AppStorage {
         row.lastReceiptId, row.needsHuman ? 1 : 0, row.attempts,
         row.lastCheckedAt, row.nextCheckAt, row.lastMessage,
       ).run();
+      return true;
     } catch (e) {
       console.error("[Rioko] upsertSettlementState failed:", e);
+      return false;
     }
   }
 
@@ -1212,33 +1220,51 @@ export class AppStorage {
    * Keyed in `order_claims` under its own scope so it can never collide with the
    * invoicing claims, which share a bucket per shop domain.
    */
-  async claimSettlement(userId: string, invoiceId: string, staleAfterMs = 120_000): Promise<boolean> {
+  async claimSettlement(
+    userId: string,
+    invoiceId: string,
+    // Ten minutes, not the two a first draft had: one `settleDocument` makes up
+    // to six sequential Moloni calls and `moloniCall` has neither timeout nor
+    // retry, so a single hung request outlives a short window. Losing the lock
+    // costs a second certified Recibo; holding it too long only defers the work
+    // to the next tick.
+    staleAfterMs = 10 * 60_000,
+  ): Promise<string | null> {
     const scope = `settle:${userId}`;
     const now = new Date();
+    const token = now.toISOString();
     try {
       const res = await this.db
         .prepare("INSERT OR IGNORE INTO order_claims (shopify_domain, order_id, claimed_at) VALUES (?, ?, ?)")
-        .bind(scope, String(invoiceId), now.toISOString())
+        .bind(scope, String(invoiceId), token)
         .run();
-      if ((res.meta?.changes ?? 0) > 0) return true;
+      if ((res.meta?.changes ?? 0) > 0) return token;
 
       const cutoff = new Date(now.getTime() - staleAfterMs).toISOString();
       const steal = await this.db
         .prepare("UPDATE order_claims SET claimed_at = ? WHERE shopify_domain = ? AND order_id = ? AND claimed_at < ?")
-        .bind(now.toISOString(), scope, String(invoiceId), cutoff)
+        .bind(token, scope, String(invoiceId), cutoff)
         .run();
-      return (steal.meta?.changes ?? 0) > 0;
+      return (steal.meta?.changes ?? 0) > 0 ? token : null;
     } catch (e) {
       console.error("[Rioko] claimSettlement failed — refusing to settle:", e);
-      return false;
+      return null;
     }
   }
 
-  async releaseSettlementClaim(userId: string, invoiceId: string): Promise<void> {
+  /**
+   * Release a settlement lock, and ONLY if it is still ours.
+   *
+   * `claimed_at` doubles as the ownership token. An unconditional DELETE would
+   * let a slow run, whose claim another run has already taken over, delete that
+   * other run's lock on its way out — handing a third run the same document
+   * while the second is mid-insert.
+   */
+  async releaseSettlementClaim(userId: string, invoiceId: string, token: string): Promise<void> {
     try {
       await this.db
-        .prepare("DELETE FROM order_claims WHERE shopify_domain = ? AND order_id = ?")
-        .bind(`settle:${userId}`, String(invoiceId))
+        .prepare("DELETE FROM order_claims WHERE shopify_domain = ? AND order_id = ? AND claimed_at = ?")
+        .bind(`settle:${userId}`, String(invoiceId), token)
         .run();
     } catch (e) {
       // A claim left behind expires on its own after staleAfterMs.

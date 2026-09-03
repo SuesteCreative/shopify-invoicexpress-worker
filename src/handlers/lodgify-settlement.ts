@@ -69,9 +69,14 @@ export function shouldAskDestination(
   if (!state) return true;
   // A guard refused it or a receipt did not reconcile. Only a human clears this.
   if (state.needsHuman) return false;
-  // The merchant recorded more money than we last saw. This is the event the
-  // whole pass exists to react to.
-  if (state.lastCollected == null || collected > state.lastCollected + 0.01) return true;
+  // What the merchant has recorded MOVED, in either direction.
+  //
+  // Upwards is the event this pass exists for. Downwards matters just as much
+  // and is easy to miss: a payment corrected or refunded leaves the document
+  // settled for more than came in, which `settleDocument` reports as `blocked`
+  // for a human — but only if it is ever asked again. Reacting to increases
+  // alone made that guard unreachable the moment a state row existed.
+  if (state.lastCollected == null || Math.abs(collected - state.lastCollected) > 0.01) return true;
   // Still a draft last time — the merchant may have approved it since, but that
   // is worth one look every few hours, not 48 a day.
   if (state.docStatus !== 1) {
@@ -108,9 +113,17 @@ export interface SettleOptions {
   items?: any[];
   /** Admin path: settle only these bookings. */
   bookingIds?: string[];
+  /**
+   * Admin path: ask again about the bookings NAMED in `bookingIds`, even if they
+   * carry a `needs_human` latch. Nothing else can clear one, and a document
+   * parked by a transient fault would otherwise stay parked for good.
+   *
+   * Deliberately inert without `bookingIds`: forcing a whole connection would
+   * re-ask about every document a human parked, which is the one thing the latch
+   * exists to prevent.
+   */
+  force?: boolean;
   dryRun: boolean;
-  /** Admin path: the items came from the mirror, so their freshness is checked. */
-  mirrorSourced?: boolean;
   limit?: number;
   actor?: string;
 }
@@ -123,7 +136,13 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
   if (!adapter.settleDocument) return result;
 
   const storage = new AppStorage(env, null, o.userId);
-  const limit = Math.min(o.limit ?? MAX_DOCS_DEFAULT, 100);
+  // `0` is a legitimate kill switch — "settle nothing on this pass" — so it must
+  // survive the defaulting rather than read as "unset".
+  const limit = Math.min(
+    Number.isFinite(o.limit) && (o.limit as number) >= 0 ? (o.limit as number) : MAX_DOCS_DEFAULT,
+    100,
+  );
+  if (limit === 0) return result;
   const wanted = new Set((o.bookingIds ?? []).map((b) => String(b)));
 
   // Everything we have issued for this connection, with the mirror row beside
@@ -143,7 +162,31 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
     if (id) fresh.set(id, item);
   }
 
-  const state = await storage.listSettlementState(o.userId);
+  // The latch lives in this table. Unreadable — most plainly, migration 0036 not
+  // applied to this database — means every document would look new, including
+  // one parked because a Recibo was accepted and did not reconcile. So the pass
+  // refuses, loudly, rather than settling unlatched.
+  let state: Map<string, SettlementState>;
+  try {
+    state = await storage.listSettlementState(o.userId);
+  } catch (e: any) {
+    result.errors++;
+    result.rows.push({
+      booking_id: "", invoice_id: "", status: "error",
+      message: `estado de liquidação ilegível (migração 0036 aplicada?) — não liquido: ${String(e?.message ?? e)}`,
+    });
+    await reportIncident(env, {
+      user_id: o.userId,
+      severity: "critical",
+      kind: "destination_reject",
+      dedup_key: `settle-gate-down:${o.userId}`,
+      summary: "Não consigo ler o estado das liquidações — nenhum Recibo é emitido até isto ser resolvido.",
+      detail: { error: String(e?.message ?? e) },
+      affected_ids: [],
+      connection_label: o.connLabel,
+    });
+    return result;
+  }
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
 
@@ -178,10 +221,12 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
       continue;
     }
 
-    // Mirror rows age. On the automatic path freshness is structural (a failed
-    // Lodgify list makes the poll skip this connection before we run), so this
-    // only guards the admin path.
-    if (fromMirror && o.mirrorSourced) {
+    // Mirror rows age, and the automatic path reaches them too: a booking the
+    // fresh Lodgify list did not include falls back to its mirror row, and
+    // `synced_at` only moves when a fetch actually returned that booking. So the
+    // age check covers every mirror-sourced row, not just the admin caller's —
+    // gating it on the caller was what quietly disabled it where it mattered.
+    if (fromMirror) {
       const synced = Date.parse(String(row.synced_at ?? "").replace(" ", "T") + "Z");
       if (!Number.isFinite(synced) || nowMs - synced > 6 * 60 * 60 * 1000) {
         result.rows.push({ booking_id: bookingId, invoice_id: String(row.invoice_id), status: "skipped", message: "espelho com mais de 6h — corra o poll antes de liquidar" });
@@ -193,10 +238,24 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
     const { collected } = bookingCollectedAmount(item);
     const key = `${bookingId}:${row.invoice_id}`;
     const known = state.get(key);
-    if (!shouldAskDestination(known, collected, nowMs)) {
+    const forced = o.force === true && wanted.has(bookingId);
+    if (!forced && !shouldAskDestination(known, collected, nowMs)) {
+      const base = { booking_id: bookingId, invoice_id: String(row.invoice_id), guest: row.guest_name ?? null, collected };
       if (known?.needsHuman) {
-        result.rows.push({ booking_id: bookingId, invoice_id: String(row.invoice_id), status: "blocked", message: known.lastMessage ?? "marcado para verificação humana" });
+        result.rows.push({ ...base, status: "blocked", message: known.lastMessage ?? "marcado para verificação humana" });
         result.blocked++;
+      } else if (wanted.size > 0 || o.dryRun) {
+        // Someone is looking. A row the gate filtered has to say so, or a dry run
+        // asked about one booking answers with silence and reads as "nothing to
+        // do" — the same shape as a broken pass.
+        result.rows.push({
+          ...base,
+          status: "skipped",
+          message: known?.nextCheckAt
+            ? `em espera até ${known.nextCheckAt} (${known.lastMessage ?? "sem alterações"})`
+            : `sem alterações desde a última verificação (${known?.lastMessage ?? "nada registado"})`,
+        });
+        result.skipped++;
       }
       continue;
     }
@@ -221,10 +280,14 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
 
     // Fail-closed: an unreachable claim table means "do not settle". The
     // alternative here is a second certified Recibo, which only a human undoes.
-    if (!o.dryRun && !(await storage.claimSettlement(o.userId, c.invoiceId))) {
-      result.rows.push({ ...base, status: "skipped", message: "outra corrida está a liquidar este documento" });
-      result.skipped++;
-      continue;
+    let claimToken: string | null = null;
+    if (!o.dryRun) {
+      claimToken = await storage.claimSettlement(o.userId, c.invoiceId);
+      if (!claimToken) {
+        result.rows.push({ ...base, status: "skipped", message: "outra corrida está a liquidar este documento" });
+        result.skipped++;
+        continue;
+      }
     }
 
     try {
@@ -244,7 +307,15 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
         ...("value" in outcome ? { value: outcome.value } : {}),
       });
 
-      if (o.dryRun) continue;
+      // A dry run writes nothing, but the outcome it just read IS the point of
+      // the pre-flight. Counting it here keeps the summary from contradicting
+      // the rows underneath it.
+      if (o.dryRun) {
+        if (outcome.status === "skipped") result.skipped++;
+        else if (outcome.status === "blocked") result.blocked++;
+        else if (outcome.status === "error") result.errors++;
+        continue;
+      }
 
       const next: SettlementState = {
         bookingId: c.bookingId,
@@ -260,6 +331,17 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
         nextCheckAt: null,
         lastMessage: outcome.message.slice(0, 300),
       };
+
+      // Written first, deliberately. Everything below is a remote call, and a
+      // latch that never reaches D1 because an incident email timed out is a
+      // latch that does not exist — the document would be re-asked, and a
+      // `not_reconciled` one would take a second Recibo.
+      const latched = await storage.upsertSettlementState(o.userId, next);
+      if (!latched && next.needsHuman) {
+        result.rows.push({ ...base, status: "error", message: "não consegui gravar a trava de verificação — paro aqui para não repetir o Recibo" });
+        result.errors++;
+        break;
+      }
 
       if (outcome.status === "settled") {
         result.settled++;
@@ -332,7 +414,9 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
         });
       }
 
-      await storage.upsertSettlementState(o.userId, next);
+      // The cooldown for a draft is decided after the branch above; store it
+      // too. Losing THIS write really does only cost reads.
+      if (next.nextCheckAt) await storage.upsertSettlementState(o.userId, next);
 
       // A misconfigured connection fails identically for every document, so stop
       // after the first rather than raise forty incidents about one missing key.
@@ -342,6 +426,27 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
       const msg = String(e?.message ?? e);
       result.rows.push({ ...base, status: "error", message: msg });
       console.error(`[LodgifySettle] ${o.userId} booking ${c.bookingId}: ${msg}`);
+      // Same bookkeeping the typed errors get. Without it a document that throws
+      // every pass — a Moloni outage, a malformed row — is retried forever and
+      // never parks, which is the shape of a failure nobody ever looks at.
+      if (!o.dryRun) {
+        const prior = state.get(`${c.bookingId}:${c.invoiceId}`);
+        const attempts = (prior?.attempts ?? 0) + 1;
+        await storage.upsertSettlementState(o.userId, {
+          bookingId: c.bookingId,
+          invoiceId: c.invoiceId,
+          docStatus: prior?.docStatus ?? null,
+          docTotal: prior?.docTotal ?? null,
+          lastCollected: prior?.lastCollected ?? null,
+          lastSettled: prior?.lastSettled ?? null,
+          lastReceiptId: prior?.lastReceiptId ?? null,
+          needsHuman: attempts >= MISSING_MAX_ATTEMPTS,
+          attempts,
+          lastCheckedAt: nowIso,
+          nextCheckAt: null,
+          lastMessage: msg.slice(0, 300),
+        });
+      }
       await reportIncident(env, {
         user_id: o.userId,
         severity: "warning",
@@ -354,7 +459,7 @@ export async function settleLodgifyReceipts(env: Env, o: SettleOptions): Promise
         order_ref: `#${c.bookingId}`,
       });
     } finally {
-      if (!o.dryRun) await storage.releaseSettlementClaim(o.userId, c.invoiceId);
+      if (claimToken) await storage.releaseSettlementClaim(o.userId, c.invoiceId, claimToken);
     }
   }
 

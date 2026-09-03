@@ -2051,30 +2051,50 @@ export class MoloniDestination implements DestinationAdapter {
       };
     }
 
-    // How the money came in. The channel the booking arrived through is the
-    // truthful answer for an OTA stay — Airbnb collected it, and "Airbnb" on the
-    // Recibo is what ties it to the payout line in the bank — so it is what the
-    // caller passes and what `paymentMethodNameFor` derives from. A connection
-    // that names `moloni_payment_method` still overrides it: a merchant whose
-    // Moloni has no channel methods (Origos: Cheque / Multibanco / Numerário /
-    // Transferência Bancária) needs to say so once rather than have every
-    // settlement fail.
+    // How the money came in: the CHANNEL that collected it, first.
+    //
+    // Airbnb collected the guest's card, and "Airbnb" on the Recibo is what ties
+    // it to the payout line in the bank. The configured `moloni_payment_method`
+    // is the fallback, not the winner, and it has two jobs: a merchant whose
+    // Moloni has no channel methods at all (Origos: Cheque / Multibanco /
+    // Numerário / Transferência Bancária) and a DIRECT booking, which has no
+    // channel by definition — a merchant with Airbnb and Booking methods still
+    // needs an answer for the guest who booked on their own site.
+    //
+    // Preferring the channel is what makes both work at once. Config-first would
+    // stamp one name on every Recibo, and forcing the channel would fail every
+    // direct booking; either way a merchant has to choose which half is wrong.
     //
     // Nothing is guessed. Stamping "Numerário" on an Airbnb payout would be a
-    // quiet lie in a fiscal document, so a missing method is an error naming
+    // quiet lie in a fiscal document, so no method at all is an error that names
     // both ways to fix it.
-    const methodName = paymentMethodNameFor(
-      { channel_reference: opts.channelReference ?? null },
-      ctx.destinationConfig,
-    );
-    if (!methodName) {
+    const channelMethod = paymentMethodNameFor({ channel_reference: opts.channelReference ?? null }, undefined);
+    const configuredMethod = typeof ctx.destinationConfig?.moloni_payment_method === "string"
+      && ctx.destinationConfig.moloni_payment_method.trim()
+      ? String(ctx.destinationConfig.moloni_payment_method).trim()
+      : null;
+
+    let paymentMethodId = 0;
+    if (channelMethod) {
+      // A channel the merchant's account has no method for is not an error while
+      // there is a fallback — plenty of accounts never created an "Airbnb".
+      try {
+        paymentMethodId = await resolvePaymentMethodId(cfg, token, channelMethod);
+      } catch (e) {
+        if (!configuredMethod) throw e;
+        console.log(`[Moloni] no payment method named "${channelMethod}" — falling back to "${configuredMethod}"`);
+      }
+    }
+    if (!paymentMethodId && configuredMethod) {
+      paymentMethodId = await resolvePaymentMethodId(cfg, token, configuredMethod);
+    }
+    if (!paymentMethodId) {
       return {
         status: "error",
         message: "Não sei como o dinheiro entrou: a reserva não traz canal e a ligação não tem "
           + "`moloni_payment_method`. Um Recibo tem de dizer o meio de pagamento.",
       };
     }
-    const paymentMethodId = await resolvePaymentMethodId(cfg, token, methodName);
 
     const customerId = Number(doc.customer_id ?? 0);
     if (!customerId) {

@@ -120,6 +120,10 @@ export interface DestinationCapabilities {
   emailDocument: boolean;
   /** The document's state/total/date can be read back. */
   readDocument: boolean;
+  /** Money received against an already-closed document can be recorded on it
+   *  (Moloni: a Recibo associated to a Fatura). Destinations whose only sale
+   *  document already asserts payment have nothing to record: false. */
+  settleDocument?: boolean;
 }
 
 /**
@@ -189,6 +193,13 @@ export interface CreditFullResult {
  */
 export type FinalizeDateStrategy = "closest_available" | "series_or_today" | "today";
 
+/** The result of recording money against a closed document. */
+export type SettleOutcome =
+  | { status: "settled"; receiptId: string; value: number; settledTotal: number; message: string }
+  | { status: "skipped"; message: string }
+  | { status: "error"; message: string }
+  | { status: "dry_run"; value: number; message: string };
+
 export type FinalizeOutcome =
   | { status: "finalized"; date: string; originalDate: string; message: string }
   | { status: "skipped"; message: string }
@@ -252,6 +263,33 @@ export interface DestinationAdapter {
       dryRun?: boolean;
     },
   ): Promise<CreditFullResult>;
+
+  /**
+   * Record money received against a document that is already closed.
+   *
+   * For a stay invoiced in full and paid in halves, this is the second half of
+   * the merchant's actual process: the Fatura states the debt, and each payment
+   * is recorded against it as its own receipt. Deliberately separate from
+   * `createDraft`: a receipt can only be associated to a CLOSED document, so it
+   * can never be part of issuing one.
+   *
+   * Implementations must be safe to call twice — settle what is missing, and
+   * report `skipped` when nothing is.
+   */
+  settleDocument?(
+    invoiceId: string,
+    ctx: AdapterCtx,
+    opts: {
+      /** Amount received in total, as the SOURCE knows it. The destination
+       *  settles the difference against what it has already reconciled, so a
+       *  caller that recomputes the same figure twice cannot double-receipt. */
+      collected: number;
+      /** Date of the payment. Defaults to today at the destination. */
+      date?: string | null;
+      notes?: string | null;
+      dryRun?: boolean;
+    },
+  ): Promise<SettleOutcome>;
 
   /** Fetch once per finalize run whatever `finalizeWithDate` needs across rows. */
   prepareFinalizeBatch?(ctx: AdapterCtx, opts?: { strategy?: FinalizeDateStrategy }): Promise<FinalizeBatch>;

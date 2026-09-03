@@ -10,6 +10,7 @@ import {
   isOtaStayCollected,
   isOtaChannel,
   otaPolicyFrom,
+  partialModeFrom,
 } from "./lodgify-amounts";
 
 /**
@@ -363,5 +364,41 @@ describe("firstNum", () => {
 
   it("treats 0 as a real value, not absence", () => {
     expect(firstNum(0, 99)).toBe(0);
+  });
+});
+
+/**
+ * How a connection says what to do with a deposit.
+ *
+ * The boolean came first and is live on Overbuilding, so reading it through the
+ * new function must not change that connection's behaviour by a hair.
+ */
+describe("partialModeFrom", () => {
+  it("is off when nothing is configured", () => {
+    expect(partialModeFrom(undefined)).toBe("off");
+    expect(partialModeFrom({})).toBe("off");
+    expect(partialModeFrom({ moloni_partial_invoicing: false })).toBe("off");
+  });
+
+  it("keeps the original boolean meaning instalment invoices", () => {
+    expect(partialModeFrom({ moloni_partial_invoicing: true })).toBe("instalment_invoices");
+    expect(partialModeFrom({ moloni_partial_invoicing: 1 })).toBe("instalment_invoices");
+  });
+
+  it("reads the explicit mode", () => {
+    expect(partialModeFrom({ moloni_partial_mode: "invoice_plus_receipts" })).toBe("invoice_plus_receipts");
+    expect(partialModeFrom({ moloni_partial_mode: "instalment_invoices" })).toBe("instalment_invoices");
+  });
+
+  it("lets the explicit mode turn the old boolean off", () => {
+    // Otherwise a connection could not be moved off instalments without
+    // deleting a key, and "off" would be unsayable.
+    expect(partialModeFrom({ moloni_partial_invoicing: true, moloni_partial_mode: "off" })).toBe("off");
+  });
+
+  it("ignores a mode it does not know", () => {
+    expect(partialModeFrom({ moloni_partial_mode: "whatever" })).toBe("off");
+    expect(partialModeFrom({ moloni_partial_mode: "whatever", moloni_partial_invoicing: true }))
+      .toBe("instalment_invoices");
   });
 });

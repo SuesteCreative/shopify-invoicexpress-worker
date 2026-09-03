@@ -991,6 +991,10 @@
                 "label": "Partial invoicing",
                 "help": "Allow a booking to be invoiced across several documents."
             },
+            "moloniPartialMode": {
+                "label": "Part-paid bookings",
+                "help": "What to do with a deposit: nothing (off), one document per payment (instalment_invoices), or one invoice for the total plus a receipt per payment (invoice_plus_receipts)."
+            },
             "vendusRegisterId": {
                 "label": "Register",
                 "help": "Vendus register id."

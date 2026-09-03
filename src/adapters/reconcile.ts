@@ -82,3 +82,29 @@ export function reconcileTotalOrThrow(
         );
     }
 }
+
+function round2(n: number): number {
+    return Math.round(n * 100) / 100;
+}
+
+/**
+ * How much of a closed invoice still has to be receipted.
+ *
+ * `collected` is what Lodgify says came in, `invoiceTotal` what the document is
+ * for, `alreadySettled` what Moloni has reconciled against it. The answer is
+ * bounded by BOTH: never receipt money the merchant has not received, and never
+ * receipt more than the document is worth — a Recibo above the invoice total is
+ * refused by Moloni, and a run that computes one stops mid-way through a fleet.
+ */
+export function receiptDelta(o: {
+  collected: number;
+  invoiceTotal: number;
+  alreadySettled: number;
+}): number {
+  const collected = Number.isFinite(o.collected) ? o.collected : 0;
+  const total = Number.isFinite(o.invoiceTotal) ? o.invoiceTotal : 0;
+  const settled = Number.isFinite(o.alreadySettled) ? o.alreadySettled : 0;
+  const target = Math.min(collected, total);
+  const delta = round2(target - settled);
+  return delta > 0.01 ? delta : 0;
+}

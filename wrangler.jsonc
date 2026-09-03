@@ -45,6 +45,12 @@
     // (a hostname, not a secret, and it must survive a bare `wrangler deploy`);
     // LODGIFY_GATEWAY_KEY is a `wrangler secret` and must NEVER appear here.
     "LODGIFY_EGRESS_MODE": "direct",
+    // The relay: Fly app `rioko-lodgify-relay`, org bruno-22, region cdg, egress
+    // IPv4 209.71.70.77 (the address Lodgify allowlists). A hostname, not a
+    // secret, and it belongs in git so a bare `wrangler deploy` cannot lose it.
+    // Set while MODE is still "direct": only /admin/lodgify/diag reads it until
+    // the flip, which is exactly how the cutover gets tested.
+    "LODGIFY_GATEWAY_URL": "https://rioko-lodgify-relay.fly.dev",
     "STRIPE_HEAL_ENABLED": "1",
     "STRIPE_HEAL_DAYS": "30",
     "STRIPE_HEAL_USERS": "",

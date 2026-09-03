@@ -1447,24 +1447,34 @@ export class MoloniDestination implements DestinationAdapter {
       // `our_reference` is the field Moloni indexes for free-text lookup and it
       // matches draft documents (status 0, number -1) too.
       const isCreditRef = isRefundReference(reference);
-      const getAllPath = isCreditRef
-        ? "/creditNotes/getAll/"
-        : moloniPath(cfg, "getAll");
-      const found = await moloniCall<Array<{ document_id?: number; our_reference?: string }>>(
-        cfg, token, getAllPath, {
-          document_set_id: cfg.documentSetId,
-          our_reference: reference,
-        },
-        "lookup",
-      );
-      // Defensive exact match: Moloni's getAll filters by our_reference, but we
-      // re-check client-side so a loose/ignored filter can never return a
-      // false-positive — which for the refund path would SKIP (drop) a
-      // legitimate credit note, a worse fault than a duplicate.
-      const match = (Array.isArray(found) ? found : []).find(
-        (d) => String(d.our_reference ?? "") === reference,
-      );
-      if (match?.document_id) return { id: String(match.document_id) };
+      // Search EVERY sale-document family, not just the connection's configured
+      // one. The document may have been written elsewhere: a tag routing rule
+      // can send a sale to another type, and the settlement override sends a
+      // part-paid stay to /invoices/ on a connection whose default is
+      // invoice_receipt. Moloni scopes ids and reference lookups per collection,
+      // so a lookup in the wrong family answers "no such document" and the
+      // caller cheerfully issues a second one. Costs one extra call only when
+      // the first family misses.
+      const getAllPaths = isCreditRef
+        ? ["/creditNotes/getAll/"]
+        : moloniPathsWithFallback(cfg, "getAll");
+      for (const getAllPath of getAllPaths) {
+        const found = await moloniCall<Array<{ document_id?: number; our_reference?: string }>>(
+          cfg, token, getAllPath, {
+            document_set_id: cfg.documentSetId,
+            our_reference: reference,
+          },
+          "lookup",
+        );
+        // Defensive exact match: Moloni's getAll filters by our_reference, but we
+        // re-check client-side so a loose/ignored filter can never return a
+        // false-positive — which for the refund path would SKIP (drop) a
+        // legitimate credit note, a worse fault than a duplicate.
+        const match = (Array.isArray(found) ? found : []).find(
+          (d) => String(d.our_reference ?? "") === reference,
+        );
+        if (match?.document_id) return { id: String(match.document_id) };
+      }
       return null;
     } catch (e) {
       // Swallowing a 5xx here would let the pipeline issue a DUPLICATE invoice

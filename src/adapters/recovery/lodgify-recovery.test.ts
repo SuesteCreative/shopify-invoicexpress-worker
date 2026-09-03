@@ -147,3 +147,41 @@ describe("blockerFor — invoice_plus_receipts", () => {
     expect(blockerFor(booked({ total_amount: 0, amount_paid: 0 }), undefined, mode)).toMatch(/sem valor/);
   });
 });
+
+/**
+ * The instalment ledger vetoes, not the mode.
+ *
+ * Found in review before this shipped: lifting the instalment blocker for the
+ * whole connection also disarmed the only thing stopping `/admin/connection/
+ * reemit` from issuing a whole-stay Fatura over a booking that already has
+ * instalment documents. Nothing downstream would have caught it — those
+ * documents are referenced `Order #N-<seq>` and live outside processed_orders —
+ * and it needed no `force`, which is exactly the deliberate step the blocker
+ * exists to demand.
+ */
+describe("blockerFor — bookings the instalment path already owns", () => {
+  const half = () => booked({ total_amount: 669, amount_paid: 334.5, amount_due: 334.5 });
+
+  it("refuses a booking with instalments, even on the receipts mode", () => {
+    expect(blockerFor(half(), undefined, "invoice_plus_receipts", true))
+      .toMatch(/já facturada em prestações/);
+  });
+
+  it("allows one the ledger has never touched", () => {
+    expect(blockerFor(half(), undefined, "invoice_plus_receipts", false)).toBeNull();
+  });
+
+  it("refuses a fully-paid booking with instalments too", () => {
+    // The remaining half arriving does not make a whole-total document safe:
+    // the instalments already cover part of it.
+    expect(blockerFor(booked({ total_amount: 669, amount_paid: 669, amount_due: 0 }), undefined, "invoice_plus_receipts", true))
+      .toMatch(/já facturada em prestações/);
+  });
+
+  it("applies on every mode, not just the new one", () => {
+    // Overbuilding runs instalments today: a re-emit there must refuse for the
+    // same reason, and did not before this.
+    expect(blockerFor(half(), undefined, "instalment_invoices", true)).toMatch(/já facturada em prestações/);
+    expect(blockerFor(half(), undefined, "off", true)).toMatch(/já facturada em prestações/);
+  });
+});

@@ -15,6 +15,7 @@ import { logDocumentEvent, explainPlatformError } from "../services/document-log
 import { connectionLabelOf } from "../services/connection-context";
 import { httpStatusOf } from "../services/platform-error";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
+import { forcedDocTypeForSettlement } from "../services/lodgify-amounts";
 
 export type CanonicalTopic = "created" | "paid" | "refund";
 
@@ -428,6 +429,26 @@ async function runPipelineCore(
           }
         }
 
+        ctx = applyTagRoute(ctx, destination, routedDecision);
+      }
+
+      // A stay paid in part is issued as a FATURA, whatever the rules said.
+      //
+      // Deliberately after tag routing, and deliberately overriding it: a
+      // Fatura/Recibo asserts that the money came in, and on
+      // `invoice_plus_receipts` half of it has not — the payments are recorded
+      // afterwards, each as its own Recibo. Expressing this as a per-merchant
+      // routing rule failed twice over: `matchTagRouting` returns the FIRST rule
+      // by created_at, so a merchant with older `property_id:*` rules matches
+      // those instead, and a merchant put on the mode without the rule gets the
+      // wrong document with nothing to warn anyone. Fiscal correctness must not
+      // depend on the order rows were inserted in.
+      if (destination === "moloni" && forcedDocTypeForSettlement(normalized.order, ctx.destinationConfig)) {
+        routedDecision = {
+          docType: "invoice",
+          finalize: routedDecision?.finalize ?? null,
+          series: routedDecision?.series ?? null,
+        };
         ctx = applyTagRoute(ctx, destination, routedDecision);
       }
 

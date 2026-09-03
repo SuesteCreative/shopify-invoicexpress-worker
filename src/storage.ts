@@ -1115,6 +1115,29 @@ export class AppStorage {
     }
   }
 
+  /**
+   * Every booking of this user that the instalment ledger knows about.
+   *
+   * Includes rows with `invoice_id` NULL on purpose: those are the "caught-up"
+   * markers seeded so an old part-paid booking is never billed retroactively.
+   * A caller asking "has this booking been dealt with by the instalment path?"
+   * must get yes for those too.
+   */
+  async listBookingIdsWithPartials(userId: string): Promise<Set<string>> {
+    try {
+      const res = await this.db.prepare(
+        "SELECT DISTINCT booking_id FROM lodgify_partial_invoices WHERE user_id = ?"
+      ).bind(userId).all();
+      return new Set(((res?.results ?? []) as any[]).map((r) => String(r.booking_id)));
+    } catch (e) {
+      console.error("[Rioko] listBookingIdsWithPartials failed:", e);
+      // Fail CLOSED for the caller that uses this as a duplicate guard: an empty
+      // set would read as "no booking has instalments" and invite a second,
+      // full-total document over documents that already exist.
+      throw e;
+    }
+  }
+
   /** For reconciliation: booking_id → [invoice_id, …] across all instalments. */
   async getPartialInvoicesByBookingIds(userId: string, bookingIds: string[]): Promise<Map<string, string[]>> {
     const map = new Map<string, string[]>();
@@ -1144,13 +1167,21 @@ export class AppStorage {
    *                                                 existing destination document
    *   3. reconciliation_decision NOT_NEEDED       — operator explicitly said this
    *                                                 payment needs no invoice
-   *   4. lodgify_partial_invoices.booking_id      — billed as instalments, which
-   *                                                 never touch processed_orders
+   *   4. lodgify_partial_invoices.booking_id      — the instalment path owns this
+   *                                                 booking; those documents never
+   *                                                 touch processed_orders
    *
    * Without (2)+(3) a heal or backfill resurrects invoices an operator deliberately
    * excluded ("marcar não necessária") or matched by hand — turning a safety
    * backstop into a recurring bug. Without (4) a progressively-billed booking looks
    * unbilled forever.
+   *
+   * (4) deliberately counts rows with `invoice_id` NULL. Those are the seeded
+   * "caught-up" markers that say an old part-paid booking is not ours to bill
+   * retroactively — the question here is "may this be invoiced?", not "was a
+   * document issued?", and for the marker the answer to the first is no. Reads
+   * that genuinely ask the second (getInvoicedOrderIdsAnySource, hasEverInvoiced)
+   * keep their NULL filter.
    *
    * `scope` is the AppStorage key the override tables are keyed by: the shop domain
    * for Shopify, `u:<userId>` for connection-based sources. processed_orders is the
@@ -1171,7 +1202,7 @@ export class AppStorage {
              WHERE shopify_domain = ? AND UPPER(decision) = 'NOT_NEEDED' AND order_id IN (${ph})
            UNION
            SELECT booking_id AS oid FROM lodgify_partial_invoices
-             WHERE invoice_id IS NOT NULL AND booking_id IN (${ph})`
+             WHERE booking_id IN (${ph})`
         ).bind(scope, ...chunk, scope, ...chunk, ...chunk).all();
         for (const row of res.results) resolved.add(String((row as any).oid));
       } catch (e) {

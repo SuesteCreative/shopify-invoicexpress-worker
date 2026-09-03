@@ -40,6 +40,10 @@
     "INCIDENT_DIGEST_ENABLED": "0",
     "WEEKLY_MERCHANT_DIGEST_ENABLED": "1",
     "AI_PATTERN_REPORT_ENABLED": "1",
+    // Recibos issued by the poll with no operator step. Ships off: it writes
+    // fiscal documents into a merchant account unattended, so it is turned on
+    // per fleet only after a dry run on the connection that wants it.
+    "LODGIFY_SETTLE_AUTO": "0",
     "RECON_SWEEP_ENABLED": "1",
     "RECON_SWEEP_DAYS": "7",
     "RECON_SWEEP_DRAIN_DAYS": "90",

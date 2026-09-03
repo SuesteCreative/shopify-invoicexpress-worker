@@ -10,6 +10,7 @@ import type {
   FinalizeOutcome,
   NormalizedRefund,
   SettleOutcome,
+  SettleDocSnapshot,
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
@@ -2003,6 +2004,7 @@ export class MoloniDestination implements DestinationAdapter {
       collected: number;
       date?: string | null;
       channelReference?: string | null;
+      expectedReferences?: string[];
       notes?: string | null;
       dryRun?: boolean;
     },
@@ -2011,8 +2013,20 @@ export class MoloniDestination implements DestinationAdapter {
     const token = await getAccessToken(cfg);
 
     const found = await fetchMoloniDocument(cfg, token, invoiceId);
-    if (!found) return { status: "error", message: `Documento ${invoiceId} não encontrado no Moloni` };
+    if (!found) {
+      return {
+        status: "error",
+        code: "not_found",
+        message: `Documento ${invoiceId} não encontrado no Moloni`,
+        doc: { status: null, total: null, reconciled: null, missing: true },
+      };
+    }
     const doc = found.doc;
+    const snapshot: SettleDocSnapshot = {
+      status: doc.status == null ? null : Number(doc.status),
+      total: moloniDocTotal(doc),
+      reconciled: doc.reconciled_value == null ? null : Number(doc.reconciled_value),
+    };
 
     // A Recibo is associated to a document, and Moloni only associates closed
     // ones — a draft has no number to point at. So this runs AFTER the finalize
@@ -2020,27 +2034,98 @@ export class MoloniDestination implements DestinationAdapter {
     if (Number(doc.status ?? 0) !== 1) {
       return {
         status: "skipped",
+        reason: "not_closed",
         message: `Documento ${invoiceId} não está fechado (status=${doc.status ?? "?"}) — um Recibo só se associa a um documento certificado`,
+        doc: snapshot,
       };
     }
 
-    const total = moloniDocTotal(doc);
+    // Only a FATURA is settled by a Recibo. `fetchMoloniDocument` walks the
+    // families to find an id, so this can land on a Fatura-Recibo — a document
+    // that already asserts the money arrived. One of those issued without a
+    // payment method carries `reconciled_value` 0, which would read as "nothing
+    // settled yet" and document the same money twice.
+    if (!found.path.startsWith("/invoices/")) {
+      return {
+        status: "blocked",
+        reason: "wrong_family",
+        message: `Documento ${invoiceId} não é uma Fatura (${found.path}) — só uma Fatura se liquida com Recibo`,
+        doc: snapshot,
+      };
+    }
+
+    // Not in euros, or issued in a foreign currency: `moloniDocTotal` and the
+    // amount Lodgify reports are then in different units, and the receipt insert
+    // sends none of the exchange fields the invoice insert learned in July.
+    if (doc.exchange_currency_id != null && Number(doc.exchange_currency_id) > 0) {
+      return {
+        status: "blocked",
+        reason: "foreign_currency",
+        message: `Documento ${invoiceId} está em moeda estrangeira — liquidação por Recibo não suportada`,
+        doc: snapshot,
+      };
+    }
+
+    // The document must be the one this booking's reference names. A wrong
+    // `processed_orders.invoice_id` would otherwise settle a stranger's Fatura,
+    // which is the fault class behind the August "Order #0" collision.
+    const expected = (opts.expectedReferences ?? []).filter((r) => r && r.trim());
+    const ourRef = String(doc.our_reference ?? "").trim();
+    if (expected.length > 0 && ourRef && !expected.includes(ourRef)) {
+      return {
+        status: "blocked",
+        reason: "reference_mismatch",
+        message: `Documento ${invoiceId} tem a referência "${ourRef}", esperava ${expected.map((r) => `"${r}"`).join(" ou ")}`,
+        doc: snapshot,
+      };
+    }
+
+    const total = snapshot.total;
     if (total == null) {
-      return { status: "error", message: `Não consigo ler o total do documento ${invoiceId} — não emito Recibo` };
+      return {
+        status: "error",
+        code: "platform",
+        message: `Não consigo ler o total do documento ${invoiceId} — não emito Recibo`,
+        doc: snapshot,
+      };
     }
     const settled = Number(doc.reconciled_value ?? 0);
+
+    // More settled than the source says came in: a payment corrected downwards,
+    // a refund, or a receipt issued by hand. Never unwound automatically — that
+    // takes a human — but never silent either, which is what "Nada a liquidar"
+    // made it.
+    if (settled > opts.collected + 0.01) {
+      return {
+        status: "blocked",
+        reason: "over_settled",
+        message: `Documento ${invoiceId} está liquidado em ${settled.toFixed(2)}€ mas o Lodgify só regista `
+          + `${opts.collected.toFixed(2)}€ recebidos — verificar à mão`,
+        doc: snapshot,
+      };
+    }
+
     const value = receiptDelta({ collected: opts.collected, invoiceTotal: total, alreadySettled: settled });
     if (value <= 0) {
       return {
         status: "skipped",
+        reason: "nothing_due",
         message: `Nada a liquidar em ${invoiceId}: recebido ${opts.collected.toFixed(2)}€, `
           + `já liquidado ${settled.toFixed(2)}€ de ${total.toFixed(2)}€`,
+        doc: snapshot,
       };
     }
 
-    const date = typeof opts.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(opts.date)
+    // Never before the Fatura it settles, never in the future. The receipts
+    // insert bypasses `insertMoloniDoc`, so it gets no series-floor retry: a
+    // date Moloni refuses is simply a failed settlement, every pass.
+    const docDate = typeof doc.date === "string" ? doc.date.slice(0, 10) : todayYmd();
+    const asked = typeof opts.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(opts.date)
       ? opts.date.slice(0, 10)
       : todayYmd();
+    const today = todayYmd();
+    const notBeforeInvoice = asked > docDate ? asked : docDate;
+    const date = notBeforeInvoice > today ? today : notBeforeInvoice;
 
     if (opts.dryRun) {
       return {
@@ -2048,6 +2133,7 @@ export class MoloniDestination implements DestinationAdapter {
         value,
         message: `Emitiria Recibo de ${value.toFixed(2)}€ a ${formatPtYmd(date)} sobre ${invoiceId} `
           + `(liquidado ${settled.toFixed(2)}€ de ${total.toFixed(2)}€)`,
+        doc: snapshot,
       };
     }
 
@@ -2091,14 +2177,21 @@ export class MoloniDestination implements DestinationAdapter {
     if (!paymentMethodId) {
       return {
         status: "error",
+        code: "config",
         message: "Não sei como o dinheiro entrou: a reserva não traz canal e a ligação não tem "
           + "`moloni_payment_method`. Um Recibo tem de dizer o meio de pagamento.",
+        doc: snapshot,
       };
     }
 
     const customerId = Number(doc.customer_id ?? 0);
     if (!customerId) {
-      return { status: "error", message: `Documento ${invoiceId} não traz customer_id — não emito Recibo` };
+      return {
+        status: "error",
+        code: "platform",
+        message: `Documento ${invoiceId} não traz customer_id — não emito Recibo`,
+        doc: snapshot,
+      };
     }
 
     // The série the DOCUMENT carries, not the connection's: tag routing may have
@@ -2124,7 +2217,12 @@ export class MoloniDestination implements DestinationAdapter {
     );
     const receiptId = inserted?.document_id != null ? String(inserted.document_id) : "";
     if (!receiptId) {
-      return { status: "error", message: `O Moloni aceitou o Recibo mas não devolveu document_id (${invoiceId})` };
+      return {
+        status: "error",
+        code: "insert_unknown",
+        message: `O Moloni aceitou o Recibo mas não devolveu document_id (${invoiceId}) — verificar antes de repetir`,
+        doc: snapshot,
+      };
     }
 
     // Did it actually settle? Moloni answering "valid" is not the same as the
@@ -2135,8 +2233,10 @@ export class MoloniDestination implements DestinationAdapter {
     if (settledAfter < settled + value - 0.011) {
       return {
         status: "error",
+        code: "not_reconciled",
         message: `Recibo ${receiptId} criado, mas o documento ${invoiceId} continua liquidado em `
           + `${settledAfter.toFixed(2)}€ (esperava ${(settled + value).toFixed(2)}€) — verificar à mão antes de repetir`,
+        doc: { ...snapshot, reconciled: settledAfter },
       };
     }
 
@@ -2145,6 +2245,7 @@ export class MoloniDestination implements DestinationAdapter {
       receiptId,
       value,
       settledTotal: settledAfter,
+      doc: { ...snapshot, reconciled: settledAfter },
       message: `Recibo ${receiptId} de ${value.toFixed(2)}€ — documento liquidado em `
         + `${settledAfter.toFixed(2)}€ de ${total.toFixed(2)}€`,
     };

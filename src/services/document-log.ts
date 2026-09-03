@@ -54,7 +54,9 @@ export type DocumentEventKind =
   | "credit_issued"
   | "reissued"
   /** Deliberately not invoiced: unpaid, zero total, before the cutoff, already done. */
-  | "skipped";
+  | "skipped"
+  /** Money recorded against an already-certified document (Moloni: a Recibo). */
+  | "settled";
 
 const SEVERITY: Record<DocumentEventKind, "info" | "warning" | "error"> = {
   built: "info",
@@ -70,6 +72,7 @@ const SEVERITY: Record<DocumentEventKind, "info" | "warning" | "error"> = {
   credit_issued: "info",
   reissued: "info",
   skipped: "info",
+  settled: "info",
 };
 
 /** Portuguese labels for the UI. The summary carries the detail; this is the chip. */
@@ -87,6 +90,7 @@ export const EVENT_LABELS: Record<DocumentEventKind, string> = {
   credit_issued: "Nota de crédito emitida",
   reissued: "Reemitido",
   skipped: "Não facturado",
+  settled: "Pagamento registado",
 };
 
 /**
@@ -120,6 +124,7 @@ export const RETENTION_TIER: Record<DocumentEventKind, "routine" | "evidence"> =
   held: "evidence",
   credit_issued: "evidence",
   reissued: "evidence",
+  settled: "evidence",
 };
 
 export const ROUTINE_RETENTION_DAYS = 90;

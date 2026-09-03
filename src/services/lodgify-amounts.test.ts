@@ -11,6 +11,8 @@ import {
   isOtaChannel,
   otaPolicyFrom,
   partialModeFrom,
+  orderSettlementBasis,
+  forcedDocTypeForSettlement,
 } from "./lodgify-amounts";
 
 /**
@@ -400,5 +402,56 @@ describe("partialModeFrom", () => {
     expect(partialModeFrom({ moloni_partial_mode: "whatever" })).toBe("off");
     expect(partialModeFrom({ moloni_partial_mode: "whatever", moloni_partial_invoicing: true }))
       .toBe("instalment_invoices");
+  });
+});
+
+/**
+ * Which document a part-paid stay gets, and why it is decided in code.
+ *
+ * This started life as a per-merchant tag routing rule and had to move: rules
+ * are matched FIRST-created-wins, so Overbuilding's eight older `property_id:*`
+ * rules would have won and issued a Fatura/Recibo — the document that asserts
+ * the money arrived — for a stay with half of it outstanding.
+ */
+describe("forcedDocTypeForSettlement", () => {
+  const order = (basis: string) => ({ note_attributes: [{ name: "property_id", value: "686582" }, { name: "settlement", value: basis }] });
+  const MODE = { moloni_partial_mode: "invoice_plus_receipts" };
+
+  it("forces a Fatura for a part-paid stay on the mode", () => {
+    expect(forcedDocTypeForSettlement(order("instalment"), MODE)).toBe("invoice");
+  });
+
+  it("leaves every other settlement alone", () => {
+    expect(forcedDocTypeForSettlement(order("paid_in_full"), MODE)).toBeNull();
+    expect(forcedDocTypeForSettlement(order("awaiting_payment"), MODE)).toBeNull();
+    expect(forcedDocTypeForSettlement(order("zero_total"), MODE)).toBeNull();
+  });
+
+  it("does nothing for a connection that is not on the mode", () => {
+    // Overbuilding today: instalments, and its own routing rules decide.
+    expect(forcedDocTypeForSettlement(order("instalment"), { moloni_partial_invoicing: true })).toBeNull();
+    expect(forcedDocTypeForSettlement(order("instalment"), {})).toBeNull();
+    expect(forcedDocTypeForSettlement(order("instalment"), undefined)).toBeNull();
+  });
+
+  it("does nothing when the source stamped no settlement", () => {
+    expect(forcedDocTypeForSettlement({ note_attributes: [{ name: "source", value: "manual" }] }, MODE)).toBeNull();
+    expect(forcedDocTypeForSettlement({ note_attributes: null }, MODE)).toBeNull();
+    expect(forcedDocTypeForSettlement(undefined, MODE)).toBeNull();
+  });
+});
+
+describe("orderSettlementBasis", () => {
+  it("reads the attribute the source stamps", () => {
+    expect(orderSettlementBasis({ note_attributes: [{ name: "settlement", value: "instalment" }] })).toBe("instalment");
+  });
+
+  it("ignores a value that is not a settlement basis", () => {
+    // Never guess from a stray attribute — a wrong basis picks a wrong document.
+    expect(orderSettlementBasis({ note_attributes: [{ name: "settlement", value: "partial" }] })).toBeNull();
+  });
+
+  it("is not confused by other attributes", () => {
+    expect(orderSettlementBasis({ note_attributes: [{ name: "nif", value: "instalment" }] })).toBeNull();
   });
 });

@@ -3319,12 +3319,25 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
     // even if the old boolean is still sitting in its config.
     const partialMode = partialModeFrom(destinationConfig);
     const partialEnabled = partialMode === "instalment_invoices" && destination === "moloni";
+    // Bookings already billed as instalments, for a connection that has since
+    // moved to `invoice_plus_receipts`.
+    //
+    // They must STAY on the instalment path. The instalment ledger lives in
+    // `lodgify_partial_invoices` and is invisible to the standard path's dedup
+    // (which reads processed_orders and the webhook marker), so letting them
+    // fall through would issue a second document for the WHOLE total of a stay
+    // that already has documents for part of it — 23 bookings and 23.160,01 €
+    // of them on the one connection this applies to. Skipping them instead
+    // would be the opposite fault: the next instalment would never be billed.
+    const legacyInstalmentBookings = partialMode === "invoice_plus_receipts" && destination === "moloni"
+      ? await new AppStorage(env, null, conn.user_id).listBookingIdsWithPartials(conn.user_id)
+      : new Set<string>();
     // Opt-in per connection: bill an OTA stay once it has happened, for hosts
     // whose channel money never reaches Lodgify and who therefore have nothing
     // to mark as paid. Deliberately not applied to the progressive path — that
     // one bills recorded amounts, and there are none to instal.
     const otaPolicy = otaPolicyFrom(destinationConfig);
-    const partialCtx = partialEnabled
+    const partialCtx = partialEnabled || legacyInstalmentBookings.size > 0
       ? {
           productMappings: await loadProductMappings(env, conn.user_id, "lodgify").catch(() => undefined),
           tagRoutingRules: await loadTagRoutingRules(env, conn.user_id, "lodgify", destination).catch(() => []),
@@ -3365,7 +3378,10 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       }
 
       // ── Progressive path: bill each newly-paid delta ──────────────────────
-      if (partialEnabled && partialCtx) {
+      // Either the connection is on instalments, or it has moved off them and
+      // this booking is one of the ones left mid-ledger (see above).
+      const useProgressive = partialEnabled || legacyInstalmentBookings.has(bookingId);
+      if (useProgressive && partialCtx) {
         const total = Number(item?.total_amount ?? 0);
         // Money recorded in Lodgify is the only trigger. For OTA stays the
         // merchant marks the booking paid by hand once the channel pays out;

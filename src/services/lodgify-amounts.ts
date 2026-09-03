@@ -293,3 +293,44 @@ export function partialModeFrom(destinationConfig: Record<string, any> | undefin
   if (explicit === "off") return "off";
   return destinationConfig?.moloni_partial_invoicing ? "instalment_invoices" : "off";
 }
+
+/**
+ * The settlement basis the source stamped on the order, if any.
+ *
+ * `LodgifySource` writes it as a note attribute so tag routing can match on it.
+ * Reading it back here keeps one spelling of the attribute name in the codebase.
+ */
+export function orderSettlementBasis(
+  order: { note_attributes?: Array<{ name?: string; value?: unknown }> | null } | null | undefined,
+): SettlementBasis | null {
+  const attrs = order?.note_attributes;
+  if (!Array.isArray(attrs)) return null;
+  for (const a of attrs) {
+    if (String(a?.name ?? "").trim() !== "settlement") continue;
+    const v = String(a?.value ?? "").trim();
+    if (v === "instalment" || v === "paid_in_full" || v === "awaiting_payment" || v === "zero_total") return v;
+  }
+  return null;
+}
+
+/**
+ * Must this sale be issued as a plain Fatura, whatever the routing rules say?
+ *
+ * Yes for a part-paid stay on `invoice_plus_receipts`: a Fatura/Recibo asserts
+ * the money came in, and half of it has not. Returning "invoice" here OVERRIDES
+ * tag routing deliberately.
+ *
+ * The rule used to live in a per-merchant routing rule, which was wrong twice
+ * over. `matchTagRouting` returns the FIRST rule by created_at, so a merchant
+ * with older `property_id:*` rules — Overbuilding has eight — would match those
+ * and issue the Fatura/Recibo anyway; and a merchant put on the mode without
+ * anyone remembering to add the rule gets the same wrong document silently.
+ * Fiscal correctness cannot depend on the order rows were inserted in.
+ */
+export function forcedDocTypeForSettlement(
+  order: { note_attributes?: Array<{ name?: string; value?: unknown }> | null } | null | undefined,
+  destinationConfig: Record<string, any> | undefined | null,
+): "invoice" | null {
+  if (partialModeFrom(destinationConfig) !== "invoice_plus_receipts") return null;
+  return orderSettlementBasis(order) === "instalment" ? "invoice" : null;
+}

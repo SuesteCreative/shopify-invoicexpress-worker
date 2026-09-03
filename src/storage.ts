@@ -1115,6 +1115,29 @@ export class AppStorage {
     }
   }
 
+  /**
+   * Every booking of this user that the instalment ledger knows about.
+   *
+   * Includes rows with `invoice_id` NULL on purpose: those are the "caught-up"
+   * markers seeded so an old part-paid booking is never billed retroactively.
+   * A caller asking "has this booking been dealt with by the instalment path?"
+   * must get yes for those too.
+   */
+  async listBookingIdsWithPartials(userId: string): Promise<Set<string>> {
+    try {
+      const res = await this.db.prepare(
+        "SELECT DISTINCT booking_id FROM lodgify_partial_invoices WHERE user_id = ?"
+      ).bind(userId).all();
+      return new Set(((res?.results ?? []) as any[]).map((r) => String(r.booking_id)));
+    } catch (e) {
+      console.error("[Rioko] listBookingIdsWithPartials failed:", e);
+      // Fail CLOSED for the caller that uses this as a duplicate guard: an empty
+      // set would read as "no booking has instalments" and invite a second,
+      // full-total document over documents that already exist.
+      throw e;
+    }
+  }
+
   /** For reconciliation: booking_id → [invoice_id, …] across all instalments. */
   async getPartialInvoicesByBookingIds(userId: string, bookingIds: string[]): Promise<Map<string, string[]>> {
     const map = new Map<string, string[]>();

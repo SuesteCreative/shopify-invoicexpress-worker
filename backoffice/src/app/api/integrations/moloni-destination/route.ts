@@ -115,7 +115,14 @@ export async function POST(request: NextRequest) {
     // destination config in the same row as the source config. All other
     // non-shopify sources collapse to "stripe".
     const sourceKind = body.source_kind === "shopify" ? "shopify" : body.source_kind === "lodgify" ? "lodgify" : "stripe";
-    const status = ["draft", "active", "paused", "error"].includes(body.status || "") ? body.status! : "draft";
+    // Resolved AFTER the existing row is read (below), because the default for a
+    // connection that already exists is the status it already has. Defaulting to
+    // "draft" took a live connection off the air every time someone saved a
+    // single toggle from the wizard — the poll only looks at active ones.
+    let status: "draft" | "active" | "paused" | "error" =
+        ["draft", "active", "paused", "error"].includes(body.status || "")
+            ? (body.status as "draft" | "active" | "paused" | "error")
+            : "draft";
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -124,10 +131,13 @@ export async function POST(request: NextRequest) {
     // Preserve existing credentials when body omits them (lets user save invoice
     // settings or partial drafts without re-pasting secrets).
     const existing: any = await db.prepare(
-        `SELECT destination_config_json FROM connections
+        `SELECT destination_config_json, status FROM connections
          WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`
     ).bind(authResult.targetUserId, sourceKind).first();
     const previousCfg = existing?.destination_config_json ? JSON.parse(existing.destination_config_json) : {};
+    if (!["draft", "active", "paused", "error"].includes(body.status || "") && existing?.status) {
+        status = existing.status;
+    }
 
     const merged = {
         moloni_client_id: body.moloni_client_id ?? previousCfg.moloni_client_id,
@@ -164,7 +174,18 @@ export async function POST(request: NextRequest) {
 
     const env_ = (merged.moloni_environment ?? body.moloni_environment) === "sandbox" ? "sandbox" : "production";
 
+    // Everything already stored, THEN the wizard's own fields over the top.
+    //
+    // This used to be an allow-list, with one field ("moloni_default_tax_id")
+    // explicitly carried across and a comment promising that a re-save never
+    // erases what the UI does not round-trip. It erased everything else: on
+    // 03/09/2026 a merchant asked for auto_finalize to be turned on, and saving
+    // that one toggle dropped their OTA invoicing rule, payment method, article
+    // category, maturity terms and extras VAT rate, and left the connection in
+    // draft. An enumerated list goes stale the day someone adds a setting, which
+    // is every week; a spread cannot.
     const destinationConfig: Record<string, unknown> = {
+        ...previousCfg,
         moloni_client_id: merged.moloni_client_id ? String(merged.moloni_client_id) : undefined,
         moloni_client_secret: merged.moloni_client_secret ? String(merged.moloni_client_secret) : undefined,
         moloni_username: merged.moloni_username ? String(merged.moloni_username) : undefined,
@@ -202,6 +223,17 @@ export async function POST(request: NextRequest) {
                 ? Number(body.default_vat_rate)
                 : previousCfg.default_vat_rate),
     };
+
+    // With the spread above, an `undefined` value no longer removes a key — the
+    // stored one shows through. Clearing therefore has to be said, not implied:
+    // "" / null on default_vat_rate means exempt, and dropping the key is how
+    // that is stored.
+    if (body.default_vat_rate === "" || body.default_vat_rate === null) {
+        delete destinationConfig.default_vat_rate;
+    }
+    for (const key of Object.keys(destinationConfig)) {
+        if (destinationConfig[key] === undefined) delete destinationConfig[key];
+    }
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();

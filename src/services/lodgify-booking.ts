@@ -87,6 +87,17 @@ export function toPreloadedFromItem(item: any): Record<string, unknown> {
   return {
     status: item?.status,
     total: firstNum(item?.total_amount, item?.total) ?? 0,
+    // How much of that total has been collected, and what is outstanding.
+    //
+    // The gate is applied by the caller (see the note above), so these are NOT
+    // here to decide billability — they are here so the source can SAY what the
+    // settlement is. A connection on `invoice_plus_receipts` routes a part-paid
+    // stay to a Fatura through a `settlement:instalment` tag rule, and without
+    // the amounts the source computed "awaiting_payment" from two undefineds,
+    // no rule matched, and a stay with half the money in the bank was issued as
+    // a Fatura/Recibo — a document whose whole assertion is that it was paid.
+    amount_paid: firstNum(item?.amount_paid, item?.total_paid),
+    amount_due: firstNum(item?.amount_due, item?.amount_to_pay, item?.balance_due),
     currency_code: item?.currency_code ?? "EUR",
     guest: {
       name: item?.guest?.name ?? item?.guest?.guest_name?.full_name ?? null,

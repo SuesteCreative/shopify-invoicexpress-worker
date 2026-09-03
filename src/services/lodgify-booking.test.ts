@@ -42,6 +42,36 @@ describe("toPreloadedFromItem", () => {
     expect(p.guest.state).toBe("Porto");
   });
 
+  it("carries what has been collected, so the source can say what the settlement is", () => {
+    // Origos, 03/09/2026: without these the source read two undefineds, called
+    // the stay "awaiting_payment", no `settlement:instalment` rule matched, and
+    // a booking with 334,50 € of 669 € in the bank was issued as a
+    // Fatura/Recibo — a document whose whole assertion is that it was paid.
+    const p = toPreloadedFromItem({
+      id: 22395793, status: "Booked", total_amount: 669, amount_paid: 334.5, amount_due: 334.5,
+    }) as any;
+    expect(p.total).toBe(669);
+    expect(p.amount_paid).toBe(334.5);
+    expect(p.amount_due).toBe(334.5);
+  });
+
+  it("reads the v1 spellings of those amounts", () => {
+    const p = toPreloadedFromItem({
+      id: 1, status: "Booked", total_amount: 100, total_paid: 40, amount_to_pay: 60,
+    }) as any;
+    expect(p.amount_paid).toBe(40);
+    expect(p.amount_due).toBe(60);
+  });
+
+  it("leaves the amounts absent when the item states neither", () => {
+    // Absent must stay absent: `bookingCollectedAmount` treats a missing
+    // amount_paid as "nothing recorded", and inventing a 0 here would be the
+    // same value with none of the caller's intent behind it.
+    const p = toPreloadedFromItem({ id: 1, status: "Booked", total_amount: 100 }) as any;
+    expect(p.amount_paid).toBeNull();
+    expect(p.amount_due).toBeNull();
+  });
+
   it("carries the guest note, which is where a PT NIF arrives", () => {
     expect((toPreloadedFromItem(enrichedItem()) as any).notes).toBe("NIF 263743268");
   });

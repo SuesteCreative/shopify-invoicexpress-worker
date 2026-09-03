@@ -2,6 +2,8 @@ export interface Env {
   INVOICE_KV: KVNamespace;
   DB: D1Database;
   NORMALIZE_SHOPIFY_ORDER_API_KEY: string;
+  /** Populated by Cloudflare on every deploy, whoever made it. See /admin/version. */
+  CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
   SHOPIFY_ORDERS_QUEUE: Queue;
   STRIPE_QUEUE: Queue;
   ADMIN_API_KEY: string;

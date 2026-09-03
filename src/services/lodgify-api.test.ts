@@ -10,6 +10,7 @@ import {
   isAllowedLodgifyPath,
   isGatewayFailure,
   lodgifyFetch,
+  probeLodgifyRelay,
   resolveLodgifyGateway,
 } from "./lodgify-api";
 
@@ -159,6 +160,44 @@ describe("isGatewayFailure", () => {
     // and it must keep its own retry/backoff path.
     expect(isGatewayFailure(new Response("", { status: 429 }))).toBe(false);
     expect(isGatewayFailure(new Response("", { status: 200 }))).toBe(false);
+  });
+});
+
+describe("probeLodgifyRelay", () => {
+  it("reports healthy when /healthz answers", async () => {
+    const calls = stubFetch({ status: 200 });
+    const probe = await probeLodgifyRelay({ ...RELAY });
+    expect(probe).toEqual({ relayed: true, base: "https://relay.example.com", ok: true, status: 200 });
+    // No secret on the probe: /healthz must answer without one, so a rotated
+    // key cannot make a healthy relay look dead.
+    expect(calls[0].url).toBe("https://relay.example.com/healthz");
+    expect(calls[0].init?.headers).toBeUndefined();
+  });
+
+  it("reports unhealthy on a non-2xx", async () => {
+    stubFetch({ status: 502 });
+    const probe = await probeLodgifyRelay({ ...RELAY });
+    expect(probe).toMatchObject({ relayed: true, ok: false, status: 502 });
+  });
+
+  it("reports unhealthy when the box does not answer at all", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("connect ETIMEDOUT")));
+    const probe = await probeLodgifyRelay({ ...RELAY });
+    expect(probe).toMatchObject({ relayed: true, ok: false });
+    expect(probe).toHaveProperty("error", expect.stringContaining("ETIMEDOUT"));
+  });
+
+  it("treats a missing gateway config as an outage, not as Lodgify being down", async () => {
+    // Same shape of consequence — no Lodgify call can be made — and it must not
+    // be reported as the vendor's fault.
+    const probe = await probeLodgifyRelay({ LODGIFY_EGRESS_MODE: "gateway" });
+    expect(probe).toMatchObject({ relayed: true, ok: false, base: "(unconfigured)" });
+  });
+
+  it("says nothing to probe when the egress is deliberately direct", async () => {
+    const calls = stubFetch();
+    expect(await probeLodgifyRelay({ LODGIFY_EGRESS_MODE: "direct" })).toEqual({ relayed: false });
+    expect(calls).toHaveLength(0);
   });
 });
 

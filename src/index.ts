@@ -12,7 +12,8 @@ import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pi
 import { httpStatusOf } from "./services/platform-error";
 import {
   GATEWAY_ERROR_HEADER, LODGIFY_DIRECT_BASE, assertSafePathSegment, describeLodgifyEgress,
-  isGatewayFailure, lodgifyFetch, resolveLodgifyGateway, type LodgifyGateway,
+  isGatewayFailure, lodgifyFetch, probeLodgifyRelay, resolveLodgifyGateway,
+  type LodgifyGateway,
 } from "./services/lodgify-api";
 import {
   firstNum,
@@ -3066,6 +3067,13 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
   const dryRun = !!opts.dryRun;
   if (dryRun) result.wouldInvoice = [];
 
+  // Resolved once: every connection in this run leaves by the same door, and a
+  // missing gateway config should stop the run here rather than have each
+  // connection decide for itself. Throws when the egress is misconfigured —
+  // deliberately, see resolveLodgifyGateway.
+  const gateway = resolveLodgifyGateway(env);
+  const egress = describeLodgifyEgress(gateway);
+
   const baseSql =
     `SELECT id, user_id, source_config_json, destination_kind, destination_config_json, invoice_cutoff
      FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`;
@@ -3148,11 +3156,13 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       bookings = opts.bookings.map(normalizeLodgifyV1Item);
       console.log(`[LodgifyPoll] user ${conn.user_id}: using ${bookings.length} caller-supplied booking(s)`);
     } else try {
-      bookings = await listLodgifyBookings(apiKey, resolveLodgifyGateway(env));
+      bookings = await listLodgifyBookings(apiKey, gateway);
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${msg}`);
-      await reportLodgifyFetchFailure(env, { userId: conn.user_id, connLabel, message: msg });
+      await reportLodgifyFetchFailure(env, {
+        userId: conn.user_id, connLabel, message: msg, egress, relayed: gateway.relayed,
+      });
       continue;
     }
 
@@ -3358,28 +3368,65 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
  */
 async function reportLodgifyFetchFailure(
   env: Env,
-  o: { userId: string; connLabel: string; message: string },
+  o: { userId: string; connLabel: string; message: string; egress?: string; relayed?: boolean },
 ): Promise<void> {
   // A rejected key is permanent until re-authed; anything else is likely a
   // transient Lodgify outage that the next poll clears. Both used to be
   // console-only, so a revoked key looked identical to "nothing to do".
+  const isRelayDown = o.message.includes("LODGIFY_RELAY_DOWN");
   const isBlocked = o.message.includes("LODGIFY_IP_BLOCKED")
     || /unregistered API user|lodgify\.com\/partners|has been blocked/i.test(o.message);
   const isAuth = /\b(401|403)\b|unauthorized|forbidden|invalid api key/i.test(o.message);
+
+  // An alert that names the wrong action is worse than no alert. A block on a
+  // rotating Cloudflare address and a block on the ALLOWLISTED relay IP look
+  // identical in the response body and have opposite remedies, so branch on
+  // which egress actually made the call.
+  const blockedSummary = o.relayed
+    ? `Lodgify bloqueou o IP FIXO do relay (${o.egress ?? "relay"}). O allowlist foi revogado: PARAR o polling e falar com o suporte da Lodgify. NÃO trocar de IP.`
+    : "Lodgify BLOQUEOU o IP do servidor: integrador não registado como parceiro. Nenhuma reserva pode ser sincronizada até registar em lodgify.com/partners.";
+
   await reportIncident(env, {
     user_id: o.userId,
-    severity: isBlocked || isAuth ? "critical" : "error",
-    kind: "auth_failure_source",
-    summary: isBlocked
-      // Names the actual remedy: no amount of retrying or redeploying fixes
-      // this, only registering as a Lodgify partner.
-      ? "Lodgify BLOQUEOU o IP do servidor: integrador não registado como parceiro. Nenhuma reserva pode ser sincronizada até registar em lodgify.com/partners."
-      : isAuth
-        ? "Lodgify rejeitou a chave de API — reservas não estão a ser sincronizadas nem facturadas."
-        : `Não foi possível obter reservas do Lodgify: ${o.message}`.slice(0, 500),
-    detail: { error: o.message },
+    severity: isRelayDown || isBlocked || isAuth ? "critical" : "error",
+    // A dead relay is ours to fix, not a credentials problem and not Lodgify's.
+    kind: isRelayDown ? "lodgify_relay_down" : "auth_failure_source",
+    summary: isRelayDown
+      ? `O relay de saída da Lodgify não respondeu (${o.egress ?? "relay"}). Nenhuma reserva pode ser sincronizada enquanto estiver em baixo.`
+      : isBlocked
+        ? blockedSummary
+        : isAuth
+          ? "Lodgify rejeitou a chave de API — reservas não estão a ser sincronizadas nem facturadas."
+          : `Não foi possível obter reservas do Lodgify: ${o.message}`.slice(0, 500),
+    detail: { error: o.message, egress: o.egress ?? null },
     connection_label: o.connLabel,
-    bucket: "daily",
+    // An outage gets the default hourly bucket: a daily one would sit on it for
+    // the rest of the day. Everything else stays daily, as before.
+    ...(isRelayDown ? {} : { bucket: "daily" as const }),
+  });
+}
+
+/**
+ * The relay is down (or unconfigured), so no connection can be polled at all.
+ *
+ * One ops incident for the platform rather than one per merchant: the cause is
+ * shared, and N identical criticals would bury it. Hourly bucket — this is an
+ * outage, and the 08:00 stale-ingestion check is six hours too late to be the
+ * first thing that notices.
+ */
+async function reportLodgifyRelayDown(
+  env: Env,
+  probe: { base: string; status?: number; error?: string },
+): Promise<void> {
+  const detail = probe.error ?? `HTTP ${probe.status ?? "?"}`;
+  await reportIncident(env, {
+    severity: "critical",
+    kind: "lodgify_relay_down",
+    summary: `O relay de saída da Lodgify não responde (${probe.base}): ${detail}. `
+      + `Nenhuma reserva é sincronizada nem facturada até voltar. `
+      + `Rollback: LODGIFY_EGRESS_MODE="direct" (volta ao estado bloqueado, sem falha nova).`,
+    detail: { base: probe.base, status: probe.status ?? null, error: probe.error ?? null },
+    connection_label: "lodgify → (todas)",
   });
 }
 
@@ -3605,11 +3652,31 @@ export default {
         console.log("[Cron] Lodgify poll disabled (LODGIFY_POLL_ENABLED=0)");
         return;
       }
+      // Is our own egress alive, before spending the poll on it? Every Lodgify
+      // invoice depends on that one box, and the only other detector is stale
+      // ingestion at 08:00 with a six-hour floor — a Saturday-night outage
+      // would surface on Sunday morning. One request every 30 minutes buys
+      // minutes instead of hours, and skipping the poll while it is down keeps
+      // 40 pages × N connections of doomed retries out of the log.
+      const probe = await probeLodgifyRelay(env);
+      if (probe.relayed && !probe.ok) {
+        console.error(`[Cron] Lodgify relay down (${probe.base}): ${probe.error ?? probe.status}`);
+        await reportLodgifyRelayDown(env, probe);
+        return;
+      }
+
       try {
         const r = await pollLodgifyBookings(env);
         console.log(`[Cron] Lodgify poll: synced=${r.synced} scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} reversed=${r.reversed} failed=${r.failed} across ${r.connections} connection(s)`);
       } catch (e: any) {
+        // Was console-only. A throw here is the whole poll failing — a
+        // misconfigured egress, or D1 unreachable — and it used to be
+        // invisible until someone noticed the bookings had stopped.
         console.error(`[Cron] Lodgify poll failed: ${e.message}`);
+        await reportLodgifyRelayDown(env, {
+          base: probe.relayed ? probe.base : "direct (no fixed IP)",
+          error: String(e?.message ?? e).slice(0, 500),
+        }).catch(() => { /* incident reporting must not mask the original failure */ });
       }
       return;
     }

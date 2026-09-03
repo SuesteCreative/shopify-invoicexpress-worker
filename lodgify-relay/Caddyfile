@@ -1,0 +1,133 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Rioko — Lodgify egress relay
+#
+# WHY THIS EXISTS
+#   Since 2026-08-02 Lodgify blocks the Cloudflare Worker's egress: "flagged as
+#   an unregistered API user requesting data for multiple Lodgify end users."
+#   Workers have no stable egress IP. Lodgify support confirmed in writing
+#   (2026-08-18) that they can allowlist by IP address only — not by API key,
+#   not by account. This app IS that address: one stable, identified egress.
+#
+#   It is NOT IP rotation to evade a block. We want to be recognisable, which is
+#   why every request leaves with one honest User-Agent. Partner registration
+#   runs in parallel; when it lands, this app gets deleted.
+#
+# WHAT IT IS NOT
+#   Not a general proxy. The upstream is a literal below and the Host header is
+#   forced, so no request can steer it anywhere but api.lodgify.com. Merchant
+#   Lodgify keys pass through in X-ApiKey untouched and are never logged.
+#
+# NEVER enable Caddy's global `debug`: it logs full request context, and its
+# redaction covers Authorization/Cookie only — not X-ApiKey. Reproduce problems
+# with a throwaway key instead.
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	admin off
+	# Fly terminates TLS at its edge and forwards plain HTTP to this port.
+	auto_https off
+}
+
+:8080 {
+	log {
+		format filter {
+			wrap json
+			fields {
+				# The whole header map goes. It carries the merchants' own
+				# Lodgify credentials (X-ApiKey) and our shared secret, and a
+				# selective redaction list is one new header away from leaking.
+				request>headers delete
+			}
+		}
+		output stdout
+	}
+
+	# Liveness. No secret, no upstream call — the 30-minute cron probes this
+	# before polling so a dead relay is noticed in minutes rather than at the
+	# next daily digest.
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# Shared secret, two accepted values so rotation is not an outage:
+	# set B on the relay → `wrangler secret put` B → drop A.
+	#
+	# The matcher is a conjunction of negations, i.e. "matches neither key".
+	# An UNSET key would make `header X-Rioko-Gateway-Key ""` match the mere
+	# presence of the header, which negated means "any request carrying it
+	# passes" — the proxy would silently open instead of breaking. entrypoint.sh
+	# refuses to start rather than let that happen, and defaults B to A.
+	@unauthed {
+		not header X-Rioko-Gateway-Key {$GW_KEY_A}
+		not header X-Rioko-Gateway-Key {$GW_KEY_B}
+	}
+	handle @unauthed {
+		header X-Rioko-Gateway-Error "unauthorized"
+		respond 403
+	}
+
+	# Paths this relay forwards. Derived from LODGIFY_ALLOWED_PATH_PREFIXES in
+	# src/services/lodgify-api.ts — a path added there and not here fails closed
+	# (404) rather than escaping to a direct, unallowlisted call. `/v2/webhooks/`
+	# is the onboarding wizard's unsubscribe; leaving it out was how the last
+	# design would have pushed onboarding back onto an unallowlisted IP.
+	@allowed {
+		method GET POST PUT DELETE
+		path /v1/reservation* /v2/reservations/* /webhooks/v1/* /v2/webhooks/*
+	}
+
+	handle @allowed {
+		reverse_proxy {
+			# IPv4 ONLY, deliberately. The whole value of this app is the one
+			# fixed address Lodgify allowlists. api.lodgify.com publishes AAAA
+			# records and Go prefers IPv6 when a global v6 address exists, so
+			# without this the traffic would leave from the v6 egress instead
+			# and the block would look unfixed.
+			dynamic a {
+				name api.lodgify.com
+				port 443
+				versions ipv4
+				refresh 1m
+			}
+
+			transport http {
+				tls
+				tls_server_name api.lodgify.com
+				dial_timeout 5s
+				response_header_timeout 20s
+			}
+
+			header_up Host api.lodgify.com
+
+			# Never hand Lodgify the Cloudflare addresses we are consolidating
+			# away from: reverse_proxy adds these by default, and an abuse
+			# heuristic (or a support engineer) reading them behind a "static"
+			# IP sees exactly the rotating pattern that got us flagged.
+			header_up -X-Forwarded-For
+			header_up -X-Forwarded-Proto
+			header_up -X-Forwarded-Host
+			header_up -Fly-Client-Ip
+			header_up -Fly-Forwarded-Port
+			header_up -Fly-Region
+			# Our secret is ours. It never reaches Lodgify.
+			header_up -X-Rioko-Gateway-Key
+
+			# One stable, honest identity. Being recognisable is the point.
+			header_up User-Agent "Rioko/1.0 (+https://rioko.online; ops@rioko.online)"
+		}
+	}
+
+	# Anything else never reaches Lodgify.
+	handle {
+		header X-Rioko-Gateway-Error "path_not_allowed"
+		respond 404
+	}
+
+	# Failures the RELAY generated, marked as ours. Without this header a dead
+	# relay and a dead Lodgify are indistinguishable to the Worker, which then
+	# retries our outage four times as if it were a rate limit.
+	handle_errors {
+		header X-Rioko-Gateway-Error "upstream_{err.status_code}"
+		respond "relay error {err.status_code}" {err.status_code}
+	}
+}

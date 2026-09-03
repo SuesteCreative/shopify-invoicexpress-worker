@@ -51,7 +51,13 @@ export type IncidentKind =
   // (over the art. 40.º CIVA cap, or the buyer gave a NIF). The document WAS
   // issued, as a full invoice — this tells the merchant their rule silently
   // did not apply, so they can narrow the tag or accept the downgrade.
-  | "simplified_invoice_downgraded";
+  | "simplified_invoice_downgraded"
+  // Our own fixed-IP egress relay is not answering, so no Lodgify call can be
+  // made at all. OPS-ONLY, deliberately absent from MERCHANT_ACTIONABLE_KINDS:
+  // the merchant can do nothing about our infrastructure, and the remedy is
+  // ours. Distinct from `auth_failure_source` (their credentials) and from a
+  // Lodgify IP block (their decision) because the action differs completely.
+  | "lodgify_relay_down";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -825,6 +831,37 @@ export function tplDocumentDrift(input: IncidentTemplateInput): RenderedTemplate
   };
 }
 
+/**
+ * Our own Lodgify egress relay is not answering.
+ *
+ * OPS-ONLY: `lodgify_relay_down` is not in MERCHANT_ACTIONABLE_KINDS, so this
+ * never reaches a merchant — it exists for the ops digest. The copy is written
+ * for whoever is on call, and it names the rollback, because the failure mode
+ * this guards against is a Saturday-night outage nobody diagnoses until Monday.
+ */
+export function tplLodgifyRelayDown(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph("As chamadas à API da Lodgify saem por um relay com IP fixo (é o único endereço que a Lodgify aceita). Esse relay não respondeu, por isso nenhuma reserva está a ser sincronizada nem facturada.")}
+    ${calloutBox("Causa provável", "Máquina do relay em baixo, plataforma indisponível, ou LODGIFY_GATEWAY_URL/KEY em falta no worker.", BRAND.error)}
+    ${stepsList([
+      "fly status --app rioko-lodgify-relay — as duas máquinas devem estar started e healthy.",
+      "curl https://rioko-lodgify-relay.fly.dev/healthz — deve responder 200 sem segredo.",
+      "wrangler secret list — confirmar que LODGIFY_GATEWAY_KEY não desapareceu num deploy.",
+      "Rollback, se for preciso ganhar tempo: LODGIFY_EGRESS_MODE=\"direct\". Volta ao estado bloqueado, sem introduzir falha nova.",
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+  `;
+  return {
+    subject: "[Rioko 2.0] Relay de saída da Lodgify em baixo",
+    html: shell({
+      title: "Relay de saída da Lodgify em baixo",
+      preheader: "Sem sincronização de reservas enquanto durar.",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTemplateInput): RenderedTemplate {
   switch (kind) {
     case "document_drift": return tplDocumentDrift(input);
@@ -844,6 +881,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "reconcile_drift": return tplReconcileDrift(input);
     case "currency_not_supported": return tplCurrencyNotSupported(input);
     case "simplified_invoice_downgraded": return tplSimplifiedInvoiceDowngraded(input);
+    case "lodgify_relay_down": return tplLodgifyRelayDown(input);
   }
 }
 

@@ -219,3 +219,43 @@ export function isGatewayFailure(res: Response): boolean {
 export function describeLodgifyEgress(gateway: LodgifyGateway): string {
   return gateway.relayed ? `relay ${gateway.base}` : "direct (no fixed IP)";
 }
+
+export type LodgifyRelayProbe =
+  | { relayed: false }
+  | { relayed: true; base: string; ok: boolean; status?: number; error?: string };
+
+/**
+ * Is the relay alive?
+ *
+ * The relay is a single point of failure for every Lodgify invoice, and the
+ * only other detector is stale ingestion — evaluated once a day at 08:00 with a
+ * six-hour floor. An outage on Saturday night would surface on Sunday morning,
+ * which is exactly how the old Vercel feeder failed silently for 26 days.
+ *
+ * Hits `/healthz`, which answers without the shared secret and without touching
+ * Lodgify, so a failure here means our box and nothing else. Short timeout: this
+ * runs in front of the poll, and a hung probe must not eat the poll's budget.
+ */
+export async function probeLodgifyRelay(
+  env: LodgifyEgressEnv | undefined,
+  timeoutMs = 5_000,
+): Promise<LodgifyRelayProbe> {
+  let gateway: LodgifyGateway;
+  try {
+    gateway = resolveLodgifyGateway(env);
+  } catch (e: any) {
+    // Misconfiguration is an outage of the same shape: no Lodgify call can be
+    // made, and it must not be reported as "Lodgify is down".
+    return { relayed: true, base: "(unconfigured)", ok: false, error: String(e?.message ?? e) };
+  }
+  if (!gateway.relayed) return { relayed: false };
+
+  try {
+    const res = await fetch(`${gateway.base}/healthz`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return { relayed: true, base: gateway.base, ok: res.ok, status: res.status };
+  } catch (e: any) {
+    return { relayed: true, base: gateway.base, ok: false, error: String(e?.message ?? e) };
+  }
+}

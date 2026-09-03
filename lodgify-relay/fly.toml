@@ -1,0 +1,38 @@
+# Rioko — Lodgify egress relay.
+#
+# One purpose: give Lodgify a fixed IPv4 to allowlist. The static egress address
+# is APP-scoped, not machine-scoped, which is the reason this runs on Fly rather
+# than a VPS — two machines share the one allowlisted address, so a machine dying
+# does not stop every merchant's booking sync, and replacing a machine does not
+# risk losing the address Lodgify blessed.
+#
+#   fly ips allocate-egress --app rioko-lodgify-relay -r cdg
+#
+# That command is the one that starts costing money ($3.60/mo for the IPv4).
+# Region is pinned: the egress IP is per-region, so a machine started elsewhere
+# would leave from a different, unallowlisted address.
+
+app = "rioko-lodgify-relay"
+primary_region = "cdg"
+
+[build]
+
+[http_service]
+internal_port = 8080
+force_https = true
+# Never sleep. A suspended machine is a cold start in front of every invoice,
+# and the whole point of this app is to be boringly always there.
+auto_stop_machines = 'off'
+auto_start_machines = true
+min_machines_running = 2
+
+[[http_service.checks]]
+interval = '30s'
+timeout = '5s'
+grace_period = '10s'
+method = 'GET'
+path = '/healthz'
+
+[[vm]]
+size = 'shared-cpu-1x'
+memory = '256mb'

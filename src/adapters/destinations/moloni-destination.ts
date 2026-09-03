@@ -1999,7 +1999,13 @@ export class MoloniDestination implements DestinationAdapter {
   async settleDocument(
     invoiceId: string,
     ctx: AdapterCtx,
-    opts: { collected: number; date?: string | null; notes?: string | null; dryRun?: boolean },
+    opts: {
+      collected: number;
+      date?: string | null;
+      channelReference?: string | null;
+      notes?: string | null;
+      dryRun?: boolean;
+    },
   ): Promise<SettleOutcome> {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
@@ -2045,15 +2051,27 @@ export class MoloniDestination implements DestinationAdapter {
       };
     }
 
-    // A Recibo without a payment method is not a record of anything, and the
-    // merchant's own account decides which names exist ("Transferência
-    // Bancária", "Multibanco", …) — so say what is missing rather than guessing
-    // one and stamping the wrong means of payment on a fiscal document.
-    const methodName = paymentMethodNameFor({ channel_reference: null }, ctx.destinationConfig);
+    // How the money came in. The channel the booking arrived through is the
+    // truthful answer for an OTA stay — Airbnb collected it, and "Airbnb" on the
+    // Recibo is what ties it to the payout line in the bank — so it is what the
+    // caller passes and what `paymentMethodNameFor` derives from. A connection
+    // that names `moloni_payment_method` still overrides it: a merchant whose
+    // Moloni has no channel methods (Origos: Cheque / Multibanco / Numerário /
+    // Transferência Bancária) needs to say so once rather than have every
+    // settlement fail.
+    //
+    // Nothing is guessed. Stamping "Numerário" on an Airbnb payout would be a
+    // quiet lie in a fiscal document, so a missing method is an error naming
+    // both ways to fix it.
+    const methodName = paymentMethodNameFor(
+      { channel_reference: opts.channelReference ?? null },
+      ctx.destinationConfig,
+    );
     if (!methodName) {
       return {
         status: "error",
-        message: "Falta `moloni_payment_method` na ligação — um Recibo tem de dizer como o dinheiro entrou",
+        message: "Não sei como o dinheiro entrou: a reserva não traz canal e a ligação não tem "
+          + "`moloni_payment_method`. Um Recibo tem de dizer o meio de pagamento.",
       };
     }
     const paymentMethodId = await resolvePaymentMethodId(cfg, token, methodName);

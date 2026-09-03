@@ -1,4 +1,5 @@
 import type { Env } from "../../env";
+import { AppStorage } from "../../storage";
 import type { ConnectionContext } from "../../services/connection-context";
 import type { SourceRecovery, SourceRecordRef, SourceDescription } from "./types";
 import { toPreloadedFromItem } from "../../services/lodgify-booking";
@@ -29,7 +30,12 @@ const CANCELLED_STATUSES = new Set(["declined", "cancelled", "canceled"]);
  * grounds that whoever preloaded the data already applied it. So the rule is
  * applied here, from the same helpers the poll uses.
  */
-export function blockerFor(item: any, policy?: OtaPolicy, mode: PartialMode = "off"): string | null {
+export function blockerFor(
+  item: any,
+  policy?: OtaPolicy,
+  mode: PartialMode = "off",
+  hasInstalments = false,
+): string | null {
   const status = String(item?.status ?? "").toLowerCase();
   if (CANCELLED_STATUSES.has(status)) return `reserva ${item?.status}`;
   // Only a confirmed booking is a sale. This used to reject cancellations and
@@ -38,6 +44,22 @@ export function blockerFor(item: any, policy?: OtaPolicy, mode: PartialMode = "o
   // by any bulk path. The poll always required "Booked"; the backfill did not,
   // and a dry run for Origos proposed 9.822,86 € across five Open enquiries.
   if (status !== "booked") return `reserva não confirmada (${item?.status ?? "sem estado"})`;
+
+  // A booking the instalment ledger owns is never billed as one whole document,
+  // whatever its settlement says today.
+  //
+  // Deliberately ahead of the settlement switch, and not inside its `instalment`
+  // arm: the balance arriving does not make a whole-total document safe, because
+  // the instalments already cover part of the same stay. Nothing downstream
+  // would catch it either — instalment documents are referenced `Order #N-<seq>`
+  // and live outside `processed_orders`, so neither the pipeline's processed
+  // check nor its `Order #N` reference probe sees them. The poll was taught this
+  // when Overbuilding moved modes; the recovery layer has to know it too, or the
+  // first thing an operator does after the flip — re-emit one booking to see the
+  // new document — bills a stay twice, with no `force` required.
+  if (hasInstalments) {
+    return "reserva já facturada em prestações — emitir aqui criaria um documento pela estadia inteira por cima delas";
+  }
 
   const settlement = bookingCollectedAmount(item);
   switch (settlement.basis) {
@@ -69,7 +91,13 @@ export function blockerFor(item: any, policy?: OtaPolicy, mode: PartialMode = "o
   }
 }
 
-function toRecord(row: any, item: any, policy?: OtaPolicy, mode: PartialMode = "off"): SourceRecordRef {
+function toRecord(
+  row: any,
+  item: any,
+  policy?: OtaPolicy,
+  mode: PartialMode = "off",
+  hasInstalments = false,
+): SourceRecordRef {
   const bookingId = String(row?.id ?? item?.id ?? "");
   const settlement = bookingCollectedAmount(item);
   // An opted-in OTA stay has no recorded payment by definition, so report the
@@ -100,7 +128,7 @@ function toRecord(row: any, item: any, policy?: OtaPolicy, mode: PartialMode = "
       data: { bookingId: Number(bookingId) || bookingId },
       _preloaded_booking: toPreloadedFromItem(item),
     },
-    blocker: blockerFor(item, policy, mode),
+    blocker: blockerFor(item, policy, mode, hasInstalments),
   };
 }
 
@@ -129,7 +157,12 @@ export class LodgifyRecovery implements SourceRecovery {
         `Reserva ${bookingId} não está no espelho local. Corra /admin/lodgify/poll para sincronizar antes de a re-emitir.`,
       );
     }
-    return toRecord(parsed.row, parsed.item, otaPolicyFrom(ctx.destinationConfig), partialModeFrom(ctx.destinationConfig));
+    const ledger = await new AppStorage(env, null, ctx.userId).listBookingIdsWithPartials(ctx.userId ?? "");
+    return toRecord(
+      parsed.row, parsed.item,
+      otaPolicyFrom(ctx.destinationConfig), partialModeFrom(ctx.destinationConfig),
+      ledger.has(bookingId),
+    );
   }
 
   async listCandidates(
@@ -147,6 +180,11 @@ export class LodgifyRecovery implements SourceRecovery {
     // empty window for exactly the bookings the policy exists to bill.
     const policy = otaPolicyFrom(ctx.destinationConfig);
     const mode = partialModeFrom(ctx.destinationConfig);
+    // One query for the whole window: which of these bookings the instalment
+    // path already owns. Includes the seeded `invoice_id IS NULL` caught-up
+    // markers on purpose — those bookings must not be billed retroactively
+    // either, which is why they were seeded in the first place.
+    const ledger = await new AppStorage(env, null, ctx.userId).listBookingIdsWithPartials(ctx.userId ?? "");
     const otaSql = otaStayCollectedSqlPredicate(policy);
     const billable = otaSql ? `(${collectedSqlPredicate()} OR ${otaSql})` : collectedSqlPredicate();
 
@@ -164,7 +202,7 @@ export class LodgifyRecovery implements SourceRecovery {
     const out: SourceRecordRef[] = [];
     for (const row of (rows.results ?? []) as any[]) {
       const parsed = parseRow(row);
-      if (parsed) out.push(toRecord(parsed.row, parsed.item, policy, mode));
+      if (parsed) out.push(toRecord(parsed.row, parsed.item, policy, mode, ledger.has(String(row.id))));
     }
     return out;
   }

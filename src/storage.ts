@@ -1167,13 +1167,21 @@ export class AppStorage {
    *                                                 existing destination document
    *   3. reconciliation_decision NOT_NEEDED       — operator explicitly said this
    *                                                 payment needs no invoice
-   *   4. lodgify_partial_invoices.booking_id      — billed as instalments, which
-   *                                                 never touch processed_orders
+   *   4. lodgify_partial_invoices.booking_id      — the instalment path owns this
+   *                                                 booking; those documents never
+   *                                                 touch processed_orders
    *
    * Without (2)+(3) a heal or backfill resurrects invoices an operator deliberately
    * excluded ("marcar não necessária") or matched by hand — turning a safety
    * backstop into a recurring bug. Without (4) a progressively-billed booking looks
    * unbilled forever.
+   *
+   * (4) deliberately counts rows with `invoice_id` NULL. Those are the seeded
+   * "caught-up" markers that say an old part-paid booking is not ours to bill
+   * retroactively — the question here is "may this be invoiced?", not "was a
+   * document issued?", and for the marker the answer to the first is no. Reads
+   * that genuinely ask the second (getInvoicedOrderIdsAnySource, hasEverInvoiced)
+   * keep their NULL filter.
    *
    * `scope` is the AppStorage key the override tables are keyed by: the shop domain
    * for Shopify, `u:<userId>` for connection-based sources. processed_orders is the
@@ -1194,7 +1202,7 @@ export class AppStorage {
              WHERE shopify_domain = ? AND UPPER(decision) = 'NOT_NEEDED' AND order_id IN (${ph})
            UNION
            SELECT booking_id AS oid FROM lodgify_partial_invoices
-             WHERE invoice_id IS NOT NULL AND booking_id IN (${ph})`
+             WHERE booking_id IN (${ph})`
         ).bind(scope, ...chunk, scope, ...chunk, ...chunk).all();
         for (const row of res.results) resolved.add(String((row as any).oid));
       } catch (e) {

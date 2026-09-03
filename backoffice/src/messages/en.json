@@ -995,6 +995,14 @@
                 "label": "Part-paid bookings",
                 "help": "What to do with a deposit: nothing (off), one document per payment (instalment_invoices), or one invoice for the total plus a receipt per payment (invoice_plus_receipts)."
             },
+            "moloniReceiptDocumentSet": {
+                "label": "Receipt series",
+                "help": "Series receipts are filed under, for accounts that keep receipts apart from invoices (e.g. invoices in AVENCARB, receipts in RAVENCARB). Empty = the same series as the invoices."
+            },
+            "moloniReceiptSeriesMap": {
+                "label": "Receipt series per invoice series",
+                "help": "JSON map of invoice series to receipt series, for accounts routing sales to several series. E.g. {\"VLFR\": \"VLR\", \"RVFR\": \"R\"}. When set, a series with no entry raises an error instead of filing the receipt in the wrong book."
+            },
             "vendusRegisterId": {
                 "label": "Register",
                 "help": "Vendus register id."

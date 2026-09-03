@@ -594,13 +594,21 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
 // by lining up `git log` (Lisbon) against `wrangler deployments list` (UTC) and
 // hoping — which is exactly how a deploy from the wrong branch goes unnoticed.
 //
-// `unknown` is a real answer, not a failure: it means the worker was deployed
-// with a bare `wrangler deploy` instead of `npm run deploy`, so nothing stamped
-// it, and you should not trust any belief you hold about what is running.
+// TWO answers, because the stamp is not always there. `GIT_SHA` is set by
+// `npm run deploy`, but ANY other deploy overwrites the running version without
+// it — and on 2026-09-03 that turned out to include Workers Builds, which had
+// resumed promoting merges to main and landed an unstamped version 13 seconds
+// after a hand deploy. The endpoint then said "unknown" and nothing more, which
+// is the least useful moment to have no answer.
+//
+// So `version_id` comes from Cloudflare's own version-metadata binding and is
+// always present: cross-reference it with `wrangler versions list` to see who
+// deployed what and when. `commit` stays the better answer when it exists.
 app.get("/admin/version", async (c) => {
   const unauth = await requireAdminAuth(c);
   if (unauth) return unauth;
   const sha = c.env.GIT_SHA ?? null;
+  const meta = c.env.CF_VERSION_METADATA;
   return c.json({
     commit: sha,
     commit_short: sha ? sha.slice(0, 7) : null,
@@ -609,7 +617,15 @@ app.get("/admin/version", async (c) => {
     dirty: c.env.GIT_DIRTY === "1",
     built_at: c.env.BUILT_AT ?? null,
     stamped: !!sha,
-    ...(sha ? {} : { note: "Deployed without `npm run deploy` — the running commit is unknown." }),
+    // Cloudflare's view. Survives every deploy path, ours and CI's.
+    version_id: meta?.id ?? null,
+    version_tag: meta?.tag ?? null,
+    version_created_at: meta?.timestamp ?? null,
+    ...(sha ? {} : {
+      note: "Sem selo de git: este deploy não passou por `npm run deploy` "
+        + "(tipicamente o Workers Builds a promover um merge). Cruzar version_id "
+        + "com `wrangler versions list` para saber o que está a servir.",
+    }),
   });
 });
 

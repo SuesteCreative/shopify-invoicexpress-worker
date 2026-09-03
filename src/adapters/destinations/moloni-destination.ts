@@ -97,6 +97,14 @@ export type MoloniCfg = {
   // Payment terms stamped on the document ("Pronto Pagamento", "30 Dias", …).
   // Unset = none sent, which Moloni renders as due on the issue date.
   maturityDateId: number;
+  // The série a RECIBO is filed under, when the account keeps receipts apart
+  // from invoices. Unset = the invoice série, which is right for an account
+  // whose série covers every document type and wrong for one that pairs each
+  // invoice série with its own receipt série (Overbuilding: AVENCARB invoices,
+  // RAVENCARB receipts). Resolved by name at settle time, not here, because it
+  // is read on one path only and every other operation must not pay for it.
+  receiptDocumentSetName?: string;
+  receiptDocumentSetId?: number;
 };
 
 // Endpoint family per document type. Every operation on a document MUST use the
@@ -216,11 +224,14 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
 
   const defaultTaxId = Number(c.moloni_default_tax_id ?? 0);
   const documentType = String(c.moloni_document_type ?? "invoice").toLowerCase();
+  const receiptDocumentSetName = String(c.moloni_receipt_document_set_name ?? "").trim() || undefined;
+  const receiptDocumentSetId = Number(c.moloni_receipt_document_set_id ?? 0) || undefined;
   const categoryId = Number(c.moloni_category_id ?? 0);
   const maturityDateId = Number(c.moloni_maturity_date_id ?? 0);
   return {
     baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId,
     companyName, documentSetName, defaultTaxId, documentType, categoryId, maturityDateId,
+    receiptDocumentSetName, receiptDocumentSetId,
   };
 }
 
@@ -1349,6 +1360,38 @@ async function insertMoloniDoc(
  * matches the draft we measured stops the run for that row instead of certifying
  * a document we have stopped recognising.
  */
+/**
+ * Which série a Recibo is filed under.
+ *
+ * An account whose série covers every document type (Origos: "2026", 17 AT
+ * codes) settles inside the invoice série. An account that pairs each invoice
+ * série with a receipt série does not: Overbuilding's own receipts sit in
+ * RAVENCARB / RAVENCAABLIS while the invoices sit in AVENCARB / AVENCAABLIS, and
+ * filing a Recibo in the invoice série there would put it in the wrong book.
+ *
+ * Only `moloni_receipt_document_set_name` says which, and only a human knows the
+ * pairing — so this never guesses: unset means the invoice série, the behaviour
+ * that is already live and correct for the one connection using it.
+ */
+async function resolveReceiptDocumentSetId(cfg: MoloniCfg, token: string): Promise<number> {
+  if (cfg.receiptDocumentSetId) return cfg.receiptDocumentSetId;
+  if (!cfg.receiptDocumentSetName) return cfg.documentSetId;
+
+  const res = await fetch(
+    `${cfg.baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
+    { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ company_id: cfg.companyId }) },
+  );
+  const data = await safeJson(res);
+  const list = Array.isArray(data) ? data : [];
+  const wanted = cfg.receiptDocumentSetName.toLowerCase();
+  const match = list.find((d: any) => String(d.name ?? d.document_set_name ?? "").toLowerCase() === wanted);
+  if (!match) {
+    const names = list.map((d: any) => `"${d.name ?? d.document_set_name}"`).join(", ");
+    throw new Error(`Moloni: receipt série "${cfg.receiptDocumentSetName}" not found. Available: ${names || "(none)"}`);
+  }
+  return Number((match as any).document_set_id ?? (match as any).id);
+}
+
 async function redateMoloniDraft(
   cfg: MoloniCfg,
   token: string,
@@ -1974,10 +2017,12 @@ export class MoloniDestination implements DestinationAdapter {
       return { status: "error", message: `Documento ${invoiceId} não traz customer_id — não emito Recibo` };
     }
 
+    const receiptSetId = await resolveReceiptDocumentSetId(cfg, token);
+
     const inserted = await moloniCall<{ document_id?: number }>(
       cfg, token, MOLONI_RECEIPT_PATHS.insert,
       {
-        document_set_id: cfg.documentSetId,
+        document_set_id: receiptSetId,
         date,
         customer_id: customerId,
         net_value: value,

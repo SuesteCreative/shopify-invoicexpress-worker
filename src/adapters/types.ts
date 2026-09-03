@@ -286,6 +286,14 @@ export interface DestinationAdapter {
       collected: number;
       /** Date of the payment. Defaults to today at the destination. */
       date?: string | null;
+      /**
+       * How the money reached the merchant, as the SOURCE states it
+       * ("Airbnb: HM…", "Booking.com: 5670891596"). A receipt has to say how the
+       * money came in, and for an OTA stay the channel is the honest answer —
+       * the host never touches the guest's card, and "Airbnb" on the document is
+       * what ties it to the payout line in the bank.
+       */
+      channelReference?: string | null;
       notes?: string | null;
       dryRun?: boolean;
     },

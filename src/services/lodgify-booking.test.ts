@@ -179,3 +179,40 @@ describe("paymentMethodNameFor", () => {
       .toBe("Airbnb");
   });
 });
+
+/**
+ * Which payment method a RECIBO carries.
+ *
+ * Pedro, 03/09/2026: it comes from Lodgify — money that arrived through Airbnb
+ * is receipted as Airbnb, through Booking.com as Booking. The channel reference
+ * the source already stamps is where that lives, and `channelReference` is what
+ * builds it, so the two are pinned together here: if the prefix ever changes
+ * shape, the Recibo silently stops naming the channel.
+ */
+describe("channelReference feeds the receipt's payment method", () => {
+  const method = (item: any) =>
+    paymentMethodNameFor({ channel_reference: channelReference(item) } as any, undefined);
+
+  it("names Airbnb for an Airbnb booking", () => {
+    expect(method({ source: "AirbnbIntegration", source_text: '{"confirmationCode":"HM8Q9PJPQ2"}' })).toBe("Airbnb");
+  });
+
+  it("names Booking.com for a Booking.com booking", () => {
+    // The merchant's own method is called "Booking"; resolvePaymentMethodId
+    // matches either side containing the other, so this resolves there.
+    expect(method({ source: "BookingCom", source_text: "5670891596|6375058873" })).toBe("Booking.com");
+  });
+
+  it("has nothing to say for a direct booking", () => {
+    // No channel collected the money, so the connection must name the method.
+    expect(method({ source: "Manual", source_text: "Lodgify" })).toBeNull();
+  });
+
+  it("lets the connection override the channel", () => {
+    // Origos: its Moloni has no channel methods at all, so it names one once.
+    expect(paymentMethodNameFor(
+      { channel_reference: "Airbnb: HM8Q9PJPQ2" } as any,
+      { moloni_payment_method: "Transferência Bancária" },
+    )).toBe("Transferência Bancária");
+  });
+});

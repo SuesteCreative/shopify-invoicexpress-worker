@@ -53,7 +53,7 @@ import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./
 import { saleReference, partialSaleReference } from "./services/document-references";
 import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour } from "./services/connection-context";
 import { buildAdapterCtx } from "./services/adapter-ctx";
-import { toPreloadedFromItem, firstStr, ymd } from "./services/lodgify-booking";
+import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
 import {
   connectionCapabilities, backfillConnection, reemitConnection,
@@ -1249,6 +1249,10 @@ app.post("/admin/lodgify/settle-receipts", async (c) => {
     try {
       const outcome = await adapter.settleDocument(String(row.invoice_id), ctx, {
         collected,
+        // "Airbnb: HM8Q9PJPQ2" / "Booking.com: 5670891596 ! 6375058873" — the
+        // destination takes the channel from it and resolves the merchant's own
+        // payment method by name.
+        channelReference: channelReference(item),
         notes: `Reserva LOD-${bookingId}`,
         dryRun,
       });

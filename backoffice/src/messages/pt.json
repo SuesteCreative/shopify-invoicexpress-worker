@@ -995,6 +995,14 @@
                 "label": "Reservas pagas em parte",
                 "help": "O que fazer com um sinal: nada (off), um documento por pagamento (instalment_invoices), ou uma Fatura pelo total mais Recibos a cada pagamento (invoice_plus_receipts)."
             },
+            "moloniReceiptDocumentSet": {
+                "label": "Série dos recibos",
+                "help": "Série onde entram os Recibos, para contas que separam recibos de faturas (ex.: faturas em AVENCARB, recibos em RAVENCARB). Vazio = a mesma série das faturas."
+            },
+            "moloniReceiptSeriesMap": {
+                "label": "Séries de recibos por série de fatura",
+                "help": "Mapa JSON série da fatura → série do recibo, para contas que encaminham vendas para várias séries. Ex.: {\"VLFR\": \"VLR\", \"RVFR\": \"R\"}. Se estiver preenchido, uma série sem correspondência dá erro em vez de emitir o recibo no sítio errado."
+            },
             "vendusRegisterId": {
                 "label": "Caixa",
                 "help": "Id da caixa Vendus."

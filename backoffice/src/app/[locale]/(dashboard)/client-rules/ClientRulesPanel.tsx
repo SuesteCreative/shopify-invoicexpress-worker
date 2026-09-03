@@ -100,6 +100,8 @@ const CONNECTION_FIELDS: Record<string, FieldDef[]> = {
     { key: "moloni_payment_method", kind: "text", i18n: "moloniPaymentMethod" },
     { key: "moloni_partial_invoicing", kind: "bool", i18n: "moloniPartialInvoicing" },
     { key: "moloni_partial_mode", kind: "select", i18n: "moloniPartialMode", options: ["off", "instalment_invoices", "invoice_plus_receipts"] },
+    { key: "moloni_receipt_document_set_name", kind: "text", i18n: "moloniReceiptDocumentSet" },
+    { key: "moloni_receipt_series_map", kind: "text", i18n: "moloniReceiptSeriesMap" },
   ],
   vendus: [
     { key: "vendus_register_id", kind: "number", i18n: "vendusRegisterId" },

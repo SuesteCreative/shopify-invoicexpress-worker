@@ -97,6 +97,20 @@ export type MoloniCfg = {
   // Payment terms stamped on the document ("Pronto Pagamento", "30 Dias", …).
   // Unset = none sent, which Moloni renders as due on the issue date.
   maturityDateId: number;
+  // Where a RECIBO is filed, for an account that keeps receipts apart from
+  // invoices. Unset = the invoice série, right for an account whose série covers
+  // every document type (Origos: "2026", 17 AT codes) and wrong for one that
+  // pairs each invoice série with its own (Overbuilding: AVENCARB invoices,
+  // RAVENCARB receipts).
+  //
+  // A MAP, not one name, because tag routing sends each sale to a série of its
+  // own: Overbuilding routes five properties to VLFR and three to RVFR from a
+  // single connection, so the receipt série has to follow the série the document
+  // was actually issued in. Keyed by invoice série name, lowercased.
+  receiptSeriesMap?: Record<string, string>;
+  // The one-pairing shorthand, for an account with a single invoice série.
+  receiptDocumentSetName?: string;
+  receiptDocumentSetId?: number;
 };
 
 // Endpoint family per document type. Every operation on a document MUST use the
@@ -216,11 +230,29 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
 
   const defaultTaxId = Number(c.moloni_default_tax_id ?? 0);
   const documentType = String(c.moloni_document_type ?? "invoice").toLowerCase();
+  const receiptDocumentSetName = String(c.moloni_receipt_document_set_name ?? "").trim() || undefined;
+  const receiptDocumentSetId = Number(c.moloni_receipt_document_set_id ?? 0) || undefined;
+  // Accepts the map as an object or as the JSON string the console stores.
+  let receiptSeriesMap: Record<string, string> | undefined;
+  try {
+    const rawMap = c.moloni_receipt_series_map;
+    const parsed = typeof rawMap === "string" ? JSON.parse(rawMap) : rawMap;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const entries = Object.entries(parsed as Record<string, unknown>)
+        .filter(([k, v]) => String(k).trim() && String(v ?? "").trim())
+        .map(([k, v]) => [String(k).trim().toLowerCase(), String(v).trim()] as [string, string]);
+      if (entries.length > 0) receiptSeriesMap = Object.fromEntries(entries);
+    }
+  } catch {
+    // A malformed map reads as absent here and is named at settle time, where
+    // there is a document to name it against.
+  }
   const categoryId = Number(c.moloni_category_id ?? 0);
   const maturityDateId = Number(c.moloni_maturity_date_id ?? 0);
   return {
     baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId,
     companyName, documentSetName, defaultTaxId, documentType, categoryId, maturityDateId,
+    receiptSeriesMap, receiptDocumentSetName, receiptDocumentSetId,
   };
 }
 
@@ -1349,6 +1381,63 @@ async function insertMoloniDoc(
  * matches the draft we measured stops the run for that row instead of certifying
  * a document we have stopped recognising.
  */
+/**
+ * Which série a Recibo is filed under, for the invoice it settles.
+ *
+ * An account whose série covers every document type (Origos: "2026") settles
+ * inside the invoice série. An account that pairs each invoice série with a
+ * receipt série does not: Overbuilding's receipts sit in RAVENCARB and
+ * RAVENCAABLIS while its invoices sit in AVENCARB and AVENCAABLIS.
+ *
+ * `invoiceSeriesName` is the série the DOCUMENT was issued in, read off the
+ * document itself and not off the connection. Tag routing makes them differ:
+ * Overbuilding routes five properties to VLFR and three to RVFR from one
+ * connection, so a receipt série chosen from the connection would be wrong for
+ * whichever half did not match.
+ *
+ * Never guesses a pairing. Only a human knows that VLFR's receipts belong in
+ * VLR, and a fiscal document filed in the wrong book is not a mistake worth
+ * automating — a configured map with no entry for this série is an error, said
+ * out loud, rather than a Recibo somewhere plausible.
+ */
+async function resolveReceiptDocumentSetId(
+  cfg: MoloniCfg,
+  token: string,
+  invoiceSeriesName?: string | null,
+): Promise<number> {
+  if (cfg.receiptSeriesMap) {
+    const mapped = cfg.receiptSeriesMap[String(invoiceSeriesName ?? "").trim().toLowerCase()];
+    if (!mapped) {
+      throw new Error(
+        `Moloni: não há série de recibos configurada para a série "${invoiceSeriesName ?? "?"}" `
+        + `(moloni_receipt_series_map cobre: ${Object.keys(cfg.receiptSeriesMap).join(", ")})`,
+      );
+    }
+    return await documentSetIdByName(cfg, token, mapped);
+  }
+  if (cfg.receiptDocumentSetId) return cfg.receiptDocumentSetId;
+  if (!cfg.receiptDocumentSetName) return cfg.documentSetId;
+  return await documentSetIdByName(cfg, token, cfg.receiptDocumentSetName);
+}
+
+/** Série name to id, for the receipt path. Throws with the account's own list. */
+async function documentSetIdByName(cfg: MoloniCfg, token: string, name: string): Promise<number> {
+
+  const res = await fetch(
+    `${cfg.baseUrl}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
+    { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ company_id: cfg.companyId }) },
+  );
+  const data = await safeJson(res);
+  const list = Array.isArray(data) ? data : [];
+  const wanted = name.trim().toLowerCase();
+  const match = list.find((d: any) => String(d.name ?? d.document_set_name ?? "").toLowerCase() === wanted);
+  if (!match) {
+    const names = list.map((d: any) => `"${d.name ?? d.document_set_name}"`).join(", ");
+    throw new Error(`Moloni: receipt série "${name}" not found. Available: ${names || "(none)"}`);
+  }
+  return Number((match as any).document_set_id ?? (match as any).id);
+}
+
 async function redateMoloniDraft(
   cfg: MoloniCfg,
   token: string,
@@ -1974,10 +2063,17 @@ export class MoloniDestination implements DestinationAdapter {
       return { status: "error", message: `Documento ${invoiceId} não traz customer_id — não emito Recibo` };
     }
 
+    // The série the DOCUMENT carries, not the connection's: tag routing may have
+    // sent it elsewhere, and the receipt belongs beside its invoice.
+    const receiptSetId = await resolveReceiptDocumentSetId(
+      cfg, token,
+      typeof doc.document_set_name === "string" ? doc.document_set_name : null,
+    );
+
     const inserted = await moloniCall<{ document_id?: number }>(
       cfg, token, MOLONI_RECEIPT_PATHS.insert,
       {
-        document_set_id: cfg.documentSetId,
+        document_set_id: receiptSetId,
         date,
         customer_id: customerId,
         net_value: value,

@@ -11,6 +11,10 @@ import { loadProductMappings } from "./services/product-mappings";
 import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pipeline";
 import { httpStatusOf } from "./services/platform-error";
 import {
+  GATEWAY_ERROR_HEADER, LODGIFY_DIRECT_BASE, assertSafePathSegment, describeLodgifyEgress,
+  isGatewayFailure, lodgifyFetch, resolveLodgifyGateway, type LodgifyGateway,
+} from "./services/lodgify-api";
+import {
   firstNum,
   bookingCollectedAmount,
   isBookingFullyCollected,
@@ -757,6 +761,77 @@ app.post("/admin/lodgify/replay", async (c) => {
   }
 });
 
+/**
+ * Delete every Lodgify webhook that points at this Worker.
+ *
+ * Shared by re-registration and by connection teardown so both leave through
+ * the allowlisted relay and both agree on what "ours" means (target_url carries
+ * our host). Lodgify accepts DELETE on /webhooks/v1/unsubscribe/{id} for some
+ * accounts and POST for others, hence the two-method attempt.
+ */
+async function unsubscribeOurLodgifyWebhooks(
+  apiKey: string,
+  gateway: LodgifyGateway,
+  workerHost: string,
+): Promise<{ deleted: Record<string, number>; liveList: any[] }> {
+  const listRes = await lodgifyFetch("/webhooks/v1/list", { apiKey, gateway });
+  const liveList: any[] = listRes.ok ? ((await listRes.json().catch(() => [])) as any[]) : [];
+  const ours = liveList.filter((w: any) => (w.target_url ?? w.url ?? "").includes(workerHost));
+
+  const deleted: Record<string, number> = {};
+  for (const w of ours) {
+    const wId = w.id ?? w.webhook_id;
+    let status = 0;
+    for (const method of ["DELETE", "POST"] as const) {
+      const dr = await lodgifyFetch(
+        `/webhooks/v1/unsubscribe/${assertSafePathSegment(wId, "webhook id")}`,
+        { apiKey, gateway, method },
+      ).catch(() => null);
+      status = dr?.status ?? 0;
+      if (status >= 200 && status < 300) break;
+    }
+    deleted[wId] = status;
+  }
+  return { deleted, liveList };
+}
+
+// Admin: drop this connection's Lodgify webhooks and forget the stored secrets.
+//
+// Exists so the backoffice never has to call Lodgify itself: Cloudflare Pages
+// has no fixed egress IP either, and an onboarding or teardown request leaving
+// from a rotating address is the same fingerprint that got us blocked.
+app.post("/admin/lodgify/unregister-webhooks", async (c) => {
+  const unauth = await requireAdminAuth(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ userId: string }>().catch(() => ({} as { userId?: string }));
+  if (!body.userId) return c.json({ error: "Missing userId" }, 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT source_config_json FROM connections WHERE user_id = ? AND source_kind = 'lodgify' LIMIT 1`
+  ).bind(body.userId).first();
+  if (!conn) return c.json({ error: "No Lodgify connection" }, 404);
+
+  let cfg: Record<string, any> = {};
+  try { cfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /**/ }
+  const apiKey = cfg.api_key;
+  if (!apiKey) return c.json({ ok: true, skipped: "no api_key stored" });
+
+  const workerBase = (c.env as any).WORKER_URL ?? "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev";
+  const { deleted } = await unsubscribeOurLodgifyWebhooks(
+    apiKey, resolveLodgifyGateway(c.env), new URL(workerBase).hostname,
+  );
+
+  // Forget the secrets we can no longer verify against. The api_key stays: the
+  // caller may be re-registering, and losing it would silently disable the poll.
+  for (const k of ["webhook_secret", "webhook_id", "webhook_secret_change", "webhook_id_change",
+    "webhook_secret_declined", "webhook_id_declined"]) delete cfg[k];
+  await c.env.DB.prepare(
+    `UPDATE connections SET source_config_json = ? WHERE user_id = ? AND source_kind = 'lodgify'`
+  ).bind(JSON.stringify(cfg), body.userId).run();
+
+  return c.json({ ok: true, deleted });
+});
+
 // Admin: re-register Lodgify webhooks and store secrets in DB
 app.post("/admin/lodgify/reregister-webhooks", async (c) => {
   const unauth = await requireAdminAuth(c);
@@ -774,7 +849,7 @@ app.post("/admin/lodgify/reregister-webhooks", async (c) => {
   const apiKey = cfg.api_key;
   if (!apiKey) return c.json({ error: "No api_key in source_config" }, 400);
 
-  const LODGIFY = "https://api.lodgify.com";
+  const gateway = resolveLodgifyGateway(c.env);
   const workerBase = (c.env as any).WORKER_URL ?? "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev";
   const baseUrl = `${workerBase}/webhooks/lodgify/${body.userId}`;
 
@@ -786,28 +861,11 @@ app.post("/admin/lodgify/reregister-webhooks", async (c) => {
 
   const results: Record<string, any> = {};
 
-  // Fetch live webhook list from Lodgify to find all IDs pointing to our Worker
-  const workerHost = new URL(workerBase).hostname;
-  const listRes = await fetch(`${LODGIFY}/webhooks/v1/list`, { headers: { "X-ApiKey": apiKey } });
-  const liveList: any[] = listRes.ok ? ((await listRes.json().catch(() => [])) as any[]) : [];
-  const ourWebhooks = liveList.filter((w: any) => (w.target_url ?? w.url ?? "").includes(workerHost));
-
-  // Delete all existing webhooks pointing to our Worker (by live ID)
-  const deleteResults: Record<string, number> = {};
-  for (const w of ourWebhooks) {
-    const wId = w.id ?? w.webhook_id;
-    // Try DELETE then POST fallback
-    let status = 0;
-    for (const method of ["DELETE", "POST"] as const) {
-      const dr = await fetch(`${LODGIFY}/webhooks/v1/unsubscribe/${wId}`, {
-        method, headers: { "X-ApiKey": apiKey },
-      }).catch(() => null);
-      status = dr?.status ?? 0;
-      if (status >= 200 && status < 300) break;
-    }
-    deleteResults[wId] = status;
-  }
-  results["_deleted"] = deleteResults;
+  // Drop every webhook already pointing at our Worker, then re-subscribe below.
+  const { deleted, liveList } = await unsubscribeOurLodgifyWebhooks(
+    apiKey, gateway, new URL(workerBase).hostname,
+  );
+  results["_deleted"] = deleted;
   results["_live_list"] = liveList.map((w: any) => ({ id: w.id, event: w.event ?? w.type, url: w.target_url ?? w.url }));
 
   // Small pause after deletes
@@ -815,9 +873,10 @@ app.post("/admin/lodgify/reregister-webhooks", async (c) => {
 
   for (const { event, url, secretKey, idKey } of toRegister) {
     // Register new
-    const res = await fetch(`${LODGIFY}/webhooks/v1/subscribe`, {
+    const res = await lodgifyFetch("/webhooks/v1/subscribe", {
+      apiKey, gateway,
       method: "POST",
-      headers: { "X-ApiKey": apiKey, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target_url: url, event }),
     });
     const rawText = await res.text().catch(() => "");
@@ -999,89 +1058,6 @@ app.post("/admin/lodgify/poll", async (c) => {
   }
 })
 
-// Admin: hand the external Lodgify feeder the list of connections to fetch for.
-//
-// Lodgify blocks this Worker's egress (an unregistered integrator serving several
-// end users from one IP), so the booking list is fetched elsewhere and posted
-// back to /admin/lodgify/poll. That fetcher needs each connection's API key, and
-// the alternative — copying keys into a second system's environment — puts them
-// somewhere that silently goes stale the moment a merchant re-saves the wizard,
-// and makes onboarding a merchant a deploy. D1 stays the single source of truth.
-//
-// This is the ONLY route that returns an api_key: never log the response body.
-// It does not widen the trust boundary (the admin key it already requires can
-// issue, delete and credit documents for every tenant) — it widens what one leak
-// yields, which is why it is a separate route and not folded into another.
-app.get("/admin/lodgify/feed-manifest", async (c) => {
-  const unauth = await requireAdmin(c);
-  if (unauth) return unauth;
-  try {
-    const rows = await c.env.DB.prepare(
-      `SELECT user_id, source_config_json, destination_kind, invoice_cutoff
-         FROM connections WHERE source_kind = 'lodgify' AND status = 'active'`
-    ).all();
-
-    const tenants: any[] = [];
-    for (const conn of (rows?.results ?? []) as any[]) {
-      let sourceCfg: Record<string, any> = {};
-      try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
-      const connLabel = `lodgify → ${conn.destination_kind ?? "moloni"}`;
-      if (!sourceCfg.api_key) {
-        // A keyless connection is invisible to the feeder; make sure it is not
-        // invisible to us as well. Same incident the poll raises for this.
-        await reportIncident(c.env, {
-          user_id: conn.user_id,
-          severity: "critical",
-          kind: "auth_failure_source",
-          summary: "Ligação Lodgify sem chave de API — nenhuma reserva pode ser facturada.",
-          connection_label: connLabel,
-          bucket: "daily",
-        });
-        continue;
-      }
-      tenants.push({
-        user_id: conn.user_id,
-        api_key: sourceCfg.api_key,
-        connection_label: connLabel,
-        invoice_cutoff: conn.invoice_cutoff ?? null,
-        // The feeder refuses to bill for a connection with no cutoff: a NULL
-        // cutoff means "invoice everything", which on a first run bills a new
-        // merchant's entire history, unattended, dated today.
-        has_cutoff: !!conn.invoice_cutoff,
-      });
-    }
-    return c.json({ tenants });
-  } catch (e) {
-    return errorResponse(c, e, "Lodgify feed manifest failed");
-  }
-})
-
-// Admin: let the external feeder report that it could not reach Lodgify.
-//
-// Without this the only alerting path runs inside the Worker's own fetch — which
-// we are about to stop doing. Same incident, same wording, same daily bucket, so
-// a block discovered by the feeder reads exactly like one discovered here.
-app.post("/admin/lodgify/feed-error", async (c) => {
-  const unauth = await requireAdmin(c);
-  if (unauth) return unauth;
-  let body: { user_id?: string; error?: string } = {};
-  try { body = await c.req.json(); } catch { /* */ }
-  if (!body.user_id || !body.error) return c.json({ error: "Missing user_id or error" }, 400);
-
-  const conn: any = await c.env.DB.prepare(
-    `SELECT destination_kind FROM connections WHERE user_id = ? AND source_kind = 'lodgify' LIMIT 1`
-  ).bind(body.user_id).first();
-  try {
-    await reportLodgifyFetchFailure(c.env, {
-      userId: body.user_id,
-      connLabel: `lodgify → ${conn?.destination_kind ?? "moloni"}`,
-      message: String(body.error).slice(0, 1000),
-    });
-    return c.json({ reported: true });
-  } catch (e) {
-    return errorResponse(c, e, "Lodgify feed error report failed");
-  }
-})
 
 // Admin: take back Lodgify documents that were issued before the booking was
 // paid for — the cleanup for reservations billed under the old settlement rule
@@ -1174,9 +1150,8 @@ app.post("/admin/lodgify/unbill-premature", async (c) => {
 //
 // Lodgify 429s the Worker's egress while the same API key returns 200 from a
 // normal network, so the difference cannot be reproduced locally — it has to be
-// measured here. Tries header variants and reports status + Cloudflare ray +
-// Retry-After so the cause (bot score, per-IP limit, WAF rule) is evidence
-// rather than guesswork. Read-only: fetches one item, invoices nothing.
+// measured here. Probes the same paths BOTH ways, direct and through the relay,
+// and reports status + Cloudflare ray + Retry-After. Read-only.
 app.post("/admin/lodgify/diag", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
@@ -1193,34 +1168,62 @@ app.post("/admin/lodgify/diag", async (c) => {
   const apiKey = sourceCfg.api_key;
   if (!apiKey) return c.json({ error: "No api_key" }, 400);
 
-  const variants: Array<{ name: string; headers: Record<string, string> }> = [
-    { name: "current (no UA)", headers: { "X-ApiKey": apiKey, "Accept": "application/json" } },
-    { name: "with User-Agent", headers: { "X-ApiKey": apiKey, "Accept": "application/json", "User-Agent": "Rioko-Kapta/1.0 (+https://rioko.online)" } },
-    { name: "browser-like", headers: { "X-ApiKey": apiKey, "Accept": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36", "Accept-Language": "en-US,en;q=0.9" } },
-    { name: "v2 endpoint", headers: { "X-ApiKey": apiKey, "Accept": "application/json", "User-Agent": "Rioko-Kapta/1.0 (+https://rioko.online)" } },
-  ];
-
   const out: any[] = [];
-  for (const v of variants) {
-    const url = v.name === "v2 endpoint"
-      ? `${LODGIFY_API}/v2/reservations/bookings?page=1&size=1`
-      : `${LODGIFY_API}/v1/reservation?offset=0&limit=1&trash=False`;
-    try {
-      const res = await fetch(url, { headers: v.headers });
-      const text = await res.text();
-      out.push({
-        variant: v.name,
-        status: res.status,
-        cf_ray: res.headers.get("cf-ray"),
-        server: res.headers.get("server"),
-        retry_after: res.headers.get("retry-after"),
-        cf_mitigated: res.headers.get("cf-mitigated"),
-        body: text.slice(0, 600),
-      });
-    } catch (e: any) {
-      out.push({ variant: v.name, error: String(e?.message ?? e) });
+
+  // Two probes over the same paths: DIRECT (today's rotating Cloudflare egress)
+  // and through the RELAY (the fixed IPv4 Lodgify allowlists). That pair is the
+  // go/no-go for the cutover: direct 429 + relay 200 proves the allowlist works,
+  // and nothing else does — the difference cannot be reproduced locally, which
+  // is why this route exists. Read-only: one item per path, invoices nothing.
+  //
+  // The header-variant sweep this replaced sent a spoofed Chrome User-Agent.
+  // Removed deliberately: it was written to characterise the block, which is now
+  // understood, and a browser UA in a burst against an API is an evasion
+  // signature. Sending it FROM the address we asked Lodgify to trust is the
+  // fastest way to lose the allowlist. All traffic now carries one honest,
+  // identifiable UA (LODGIFY_USER_AGENT) — being recognisable is the point.
+  const probes: Array<{ name: string; gateway: LodgifyGateway }> = [
+    { name: "direct (no fixed IP)", gateway: { base: LODGIFY_DIRECT_BASE, key: null, relayed: false } },
+  ];
+  try {
+    // Ask for the relay explicitly, whatever the deployed mode says: before the
+    // cutover the mode is still "direct", and this route is how we test.
+    const relay = resolveLodgifyGateway({
+      LODGIFY_EGRESS_MODE: "gateway",
+      LODGIFY_GATEWAY_URL: c.env.LODGIFY_GATEWAY_URL,
+      LODGIFY_GATEWAY_KEY: c.env.LODGIFY_GATEWAY_KEY,
+    });
+    probes.push({ name: `relay ${relay.base}`, gateway: relay });
+  } catch (e: any) {
+    out.push({ probe: "relay", error: String(e?.message ?? e) });
+  }
+
+  const paths = [
+    "/v1/reservation?offset=0&limit=1&trash=False",
+    "/v2/reservations/bookings?page=1&size=1",
+  ];
+  for (const p of probes) {
+    for (const path of paths) {
+      try {
+        const res = await lodgifyFetch(path, { apiKey, gateway: p.gateway });
+        const text = await res.text();
+        out.push({
+          probe: p.name,
+          path: path.split("?")[0],
+          status: res.status,
+          // Set only by our own relay, so a 502 here is our box, not Lodgify.
+          gateway_error: res.headers.get(GATEWAY_ERROR_HEADER),
+          cf_ray: res.headers.get("cf-ray"),
+          server: res.headers.get("server"),
+          retry_after: res.headers.get("retry-after"),
+          cf_mitigated: res.headers.get("cf-mitigated"),
+          body: text.slice(0, 600),
+        });
+      } catch (e: any) {
+        out.push({ probe: p.name, path: path.split("?")[0], error: String(e?.message ?? e) });
+      }
+      await delay(500);
     }
-    await delay(500);
   }
   return c.json({ ranAt: new Date().toISOString(), results: out });
 })
@@ -2710,8 +2713,6 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
 // `lodgify/created` webhook-info key so a booking is invoiced at most once
 // regardless of which path sees it first.
 
-const LODGIFY_API = "https://api.lodgify.com";
-
 // First non-empty trimmed string among vals, or null. Used to pull the guest
 // comment (where the NIF is typed) out of whichever field Lodgify carries it in.
 // Normalize a v1 `/v1/reservation` item to the v2-shaped fields the poll, the
@@ -2745,16 +2746,15 @@ function normalizeLodgifyV1Item(v1: any): any {
 // `trash=False` drops trashed bookings. Retries 429 with Retry-After backoff and
 // paces pages; on exhaustion returns what it has rather than throwing (a
 // background sync must never crash the whole poll over a transient limit).
-async function listLodgifyBookings(apiKey: string): Promise<any[]> {
+async function listLodgifyBookings(apiKey: string, gateway: LodgifyGateway): Promise<any[]> {
   const out: any[] = [];
   const limit = 50;
-  const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
   for (let page = 0; page < 40; page++) {
-    const url = `${LODGIFY_API}/v1/reservation?offset=${page * limit}&limit=${limit}&trash=False`;
+    const path = `/v1/reservation?offset=${page * limit}&limit=${limit}&trash=False`;
     let items: any[] | null = null;
     let lastFailure = "";
     for (let attempt = 0; attempt < 4; attempt++) {
-      const res = await fetch(url, { headers });
+      const res = await lodgifyFetch(path, { apiKey, gateway });
       if (res.ok) {
         const raw = await res.text();
         let data: any = null;
@@ -2772,15 +2772,29 @@ async function listLodgifyBookings(apiKey: string): Promise<any[]> {
         break;
       }
       lastFailure = `${res.status} ${res.statusText}`;
+      // The RELAY failed, not Lodgify. Not a rate limit, will not heal by
+      // backing off, and must not be read as an IP block — the remedy is our
+      // box, not Lodgify. Name it so the incident says which.
+      if (isGatewayFailure(res)) {
+        throw new Error(
+          `LODGIFY_RELAY_DOWN: ${describeLodgifyEgress(gateway)} → ${res.status} `
+          + `(${res.headers.get(GATEWAY_ERROR_HEADER)})`,
+        );
+      }
       if (res.status === 429) {
         // Lodgify returns 429 for BOTH a transient rate limit and a permanent IP
         // block ("flagged as an unregistered API user requesting data for
-        // multiple Lodgify end users" → lodgify.com/partners). Retrying the
-        // latter is pointless and it needs a completely different response from
-        // us — partner registration, not backoff — so separate them here.
+        // multiple Lodgify end users"). Retrying the latter is pointless and it
+        // needs a completely different response from us, so separate them here.
+        // Which response depends on the egress: from a rotating Cloudflare
+        // address the remedy is the relay; from the ALLOWLISTED relay IP it
+        // means the allowlist itself was revoked — stop polling and talk to
+        // Lodgify. `relayed` is carried into the message for exactly that.
         const blockBody = await res.text().catch(() => "");
         if (/unregistered API user|lodgify\.com\/partners|has been blocked/i.test(blockBody)) {
-          throw new Error(`LODGIFY_IP_BLOCKED: ${blockBody.slice(0, 300)}`);
+          throw new Error(
+            `LODGIFY_IP_BLOCKED via ${describeLodgifyEgress(gateway)}: ${blockBody.slice(0, 300)}`,
+          );
         }
         const ra = Number(res.headers.get("retry-after"));
         await delay(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1));
@@ -3134,7 +3148,7 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       bookings = opts.bookings.map(normalizeLodgifyV1Item);
       console.log(`[LodgifyPoll] user ${conn.user_id}: using ${bookings.length} caller-supplied booking(s)`);
     } else try {
-      bookings = await listLodgifyBookings(apiKey);
+      bookings = await listLodgifyBookings(apiKey, resolveLodgifyGateway(env));
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       console.error(`[LodgifyPoll] user ${conn.user_id}: list failed: ${msg}`);
@@ -3336,11 +3350,11 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
 /**
  * Report a failure to obtain the booking list from Lodgify.
  *
- * Shared by the two things that can discover it: this Worker's own fetch, and
- * the external feeder that fetches the list from a network Lodgify hasn't
- * blocked (see POST /admin/lodgify/feed-error). Same kind, same severity, same
- * daily bucket and the same Portuguese copy either way — a merchant should not
- * be able to tell which side of the wire noticed.
+ * One path now: this Worker's own fetch, through the egress relay. The external
+ * feeder that used to share this (and the two admin routes that served it, one
+ * of which handed out every merchant's plaintext API key) is gone — a second,
+ * unallowlisted IP pulling several end users' bookings is the exact behaviour
+ * Lodgify's block text names, so it could not survive the relay.
  */
 async function reportLodgifyFetchFailure(
   env: Env,

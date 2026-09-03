@@ -67,6 +67,19 @@ export interface Env {
   DOC_VERIFY_LIMIT?: string;              // max documents examined per run; default "500"
   DOC_VERIFY_BUDGET_MS?: string;          // wall-clock budget; default 8 min, same as the recon sweep
 
+  // Lodgify egress. Lodgify blocks this Worker's egress and can only allowlist
+  // by IP address (support, in writing, 2026-08-18), so every Lodgify call has
+  // to leave through a fixed-IP relay. See `src/services/lodgify-api.ts`.
+  //
+  // MODE and URL live in `wrangler.jsonc` vars ON PURPOSE: they are not secrets,
+  // they are reviewable in git, and they survive a bare `wrangler deploy` — which
+  // has silently dropped this Worker's secrets before. Absent MODE means
+  // "gateway", i.e. fail closed: a lost variable must never restore direct,
+  // unallowlisted egress. Only KEY is a `wrangler secret`.
+  LODGIFY_EGRESS_MODE?: string;           // "gateway" (default) | "direct"
+  LODGIFY_GATEWAY_URL?: string;           // relay origin, e.g. https://rioko-lodgify.fly.dev
+  LODGIFY_GATEWAY_KEY?: string;           // shared secret — `wrangler secret put`, never a var
+
   // Which commit is actually running. Stamped by `npm run deploy` at deploy
   // time (`wrangler deploy --var`), never committed — a value checked into the
   // repo is a value that goes stale and lies. Absent means the worker was

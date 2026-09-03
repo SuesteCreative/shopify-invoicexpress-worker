@@ -37,6 +37,14 @@
     "RECON_SWEEP_DRAIN_DAYS": "90",
     "RECON_SWEEP_SHOPS": "",
     "NORMALIZE_IN_WORKER": "1",
+    // Lodgify egress. "direct" is today's behaviour (blocked since 2026-08-02,
+    // but no new failure mode); flip to "gateway" only once the relay answers
+    // and POST /admin/lodgify/diag shows direct 429 + relay 200. Rollback is
+    // this value. A MISSING value means "gateway", i.e. fail closed — see
+    // src/services/lodgify-api.ts. LODGIFY_GATEWAY_URL joins it here at cutover
+    // (a hostname, not a secret, and it must survive a bare `wrangler deploy`);
+    // LODGIFY_GATEWAY_KEY is a `wrangler secret` and must NEVER appear here.
+    "LODGIFY_EGRESS_MODE": "direct",
     "STRIPE_HEAL_ENABLED": "1",
     "STRIPE_HEAL_DAYS": "30",
     "STRIPE_HEAL_USERS": "",

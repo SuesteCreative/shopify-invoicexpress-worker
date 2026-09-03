@@ -5,6 +5,7 @@ import { loadProductMappings } from "./product-mappings";
 import { loadProductOverrides } from "./product-overrides";
 import { loadTagRoutingRules, type TagRoutingRule } from "./tag-routing";
 import { makeViesChecker } from "../ix/vies";
+import { resolveLodgifyGateway } from "./lodgify-api";
 
 /**
  * Everything the adapters need to be handed, fetched in one place.
@@ -62,6 +63,11 @@ export async function buildAdapterCtx(
       productMappings,
       productOverrides,
       viesChecker,
+      // Lodgify only. Resolving it here means every caller that reaches for an
+      // adapter — webhook, poll, take-back, admin button — gets the same egress
+      // decision, and a misconfigured relay throws HERE rather than each call
+      // site quietly falling back to a direct, unallowlisted request.
+      lodgifyGateway: source === "lodgify" ? resolveLodgifyGateway(env) : undefined,
     },
     tagRoutingRules: tagRoutingRules ?? [],
   };

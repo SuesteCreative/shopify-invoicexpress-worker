@@ -3,18 +3,21 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
 import { RIOKO_CONFIG } from "@/lib/config";
+import { callWorkerJson } from "@/lib/worker";
 
 export const runtime = "edge";
 
 const WORKER_BASE = RIOKO_CONFIG.workerUrl.replace(/\/$/, "");
-const LODGIFY_API = "https://api.lodgify.com";
 
 /**
  * Lodgify source connection management.
  *
- * Stores the Lodgify API key and auto-registers a webhook on Lodgify's side
- * (POST /v2/webhooks). The returned signing secret is stored in
- * `connections.source_config_json` so the worker can verify inbound payloads.
+ * Stores the Lodgify API key and asks the WORKER to register the webhooks on
+ * Lodgify's side. This route makes no Lodgify calls of its own: Lodgify
+ * allowlists us by IP address and Cloudflare Pages has no fixed egress IP, so
+ * anything that leaves from here is unallowlisted. The signing secrets are
+ * stored by the Worker in `connections.source_config_json` so it can verify
+ * inbound payloads.
  *
  * Webhook URL registered on Lodgify:
  *     POST https://<worker-host>/webhooks/lodgify/<user_id>
@@ -117,55 +120,25 @@ export async function POST(request: NextRequest) {
         if (status === "active" && apiKey) {
             const webhookUrl = `${WORKER_BASE}/webhooks/lodgify/${authResult.targetUserId}`;
 
-            // Attempt webhook registration best-effort — never block the response on this
-            let webhookSecret: string | null = null;
-            let webhookId = "";
-            let needsManualWebhook = false;
-
-            try {
-                const ac = new AbortController();
-                const tId = setTimeout(() => ac.abort(), 8_000);
-
-                if (previousCfg.webhook_id) {
-                    await fetch(`${LODGIFY_API}/v2/webhooks/${previousCfg.webhook_id}`, {
-                        method: "DELETE",
-                        headers: { "X-ApiKey": apiKey },
-                        signal: ac.signal,
-                    }).catch(() => null);
-                }
-
-                const regRes = await fetch(`${LODGIFY_API}/webhooks/v1/subscribe`, {
-                    method: "POST",
-                    headers: {
-                        "X-ApiKey": apiKey,
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    },
-                    body: JSON.stringify({ target_url: webhookUrl, event: "booking_new_status_booked" }),
-                    signal: ac.signal,
-                });
-                clearTimeout(tId);
-
-                if (regRes.ok) {
-                    const regData: any = await regRes.json().catch(() => ({}));
-                    console.log("[Lodgify] webhook reg:", JSON.stringify(regData));
-                    webhookSecret = regData.secret ?? regData.signing_secret ?? regData.key ?? null;
-                    webhookId = String(regData.id ?? regData.webhook_id ?? "");
-                } else {
-                    console.warn("[Lodgify] webhook reg failed:", regRes.status, await regRes.text().catch(() => ""));
-                    needsManualWebhook = true;
-                }
-            } catch (e: any) {
-                console.warn("[Lodgify] webhook reg exception:", e?.message ?? e);
-                needsManualWebhook = true;
-            }
-
-            if (!webhookSecret) needsManualWebhook = true;
-
-            const sourceCfg: Record<string, any> = { api_key: apiKey };
-            if (webhookSecret) {
-                sourceCfg.webhook_secret = webhookSecret;
-                sourceCfg.webhook_id = webhookId;
+            // Save the key FIRST, then let the WORKER register the webhooks.
+            //
+            // This route used to call Lodgify directly. It must not: Cloudflare
+            // Pages has no fixed egress IP either, and Lodgify blocked us for
+            // exactly that — requesting several end users' data from a
+            // constantly changing set of addresses. Support confirmed in writing
+            // (2026-08-18) that they can only allowlist by IP, so every Lodgify
+            // call has to leave through the one relay they trust.
+            //
+            // The Worker's /admin/lodgify/reregister-webhooks does the same job
+            // through that relay, registers all THREE events instead of one, and
+            // stores the signing secrets itself. Which flips the ordering: the
+            // connection row has to exist before the Worker can find it.
+            const sourceCfg: Record<string, any> = { ...previousCfg, api_key: apiKey };
+            // A resubmitted key invalidates the secrets minted against the old
+            // one; keeping them would fail inbound verification silently.
+            if (body.api_key && body.api_key !== previousCfg.api_key) {
+                for (const k of ["webhook_secret", "webhook_id", "webhook_secret_change",
+                    "webhook_id_change", "webhook_secret_declined", "webhook_id_declined"]) delete sourceCfg[k];
             }
 
             const id = crypto.randomUUID();
@@ -180,6 +153,27 @@ export async function POST(request: NextRequest) {
                    status = excluded.status,
                    updated_at = excluded.updated_at`
             ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceCfg), now, now).run();
+
+            // Best-effort, exactly as before: a registration failure must not
+            // lose the key the merchant just typed.
+            let needsManualWebhook = true;
+            try {
+                const reg = await callWorkerJson<{ ok?: boolean; results?: Record<string, any> }>(
+                    "/admin/lodgify/reregister-webhooks",
+                    { method: "POST", body: JSON.stringify({ userId: authResult.targetUserId }) },
+                );
+                // Lodgify returns no signing secret on some accounts, per event.
+                // Manual setup is needed unless at least one event came back
+                // with one — that is what `needs_manual_webhook` has always meant.
+                const results = ((reg.data as any)?.results ?? {}) as Record<string, any>;
+                needsManualWebhook = !reg.ok || !Object.values(results).some(r => r?.ok && r?.hasSecret);
+                if (!reg.ok) {
+                    console.warn("[Lodgify] reregister via worker failed:", reg.status,
+                        JSON.stringify(reg.data).slice(0, 300));
+                }
+            } catch (e: any) {
+                console.warn("[Lodgify] reregister via worker exception:", e?.message ?? e);
+            }
 
             return NextResponse.json({ ok: true, webhook_url: webhookUrl, needs_manual_webhook: needsManualWebhook });
         }
@@ -215,14 +209,15 @@ export async function DELETE(request: NextRequest) {
     ).bind(authResult.targetUserId, destinationKind).first();
 
     if (row?.source_config_json) {
+        // Through the Worker, for the same reason onboarding is: Pages has no
+        // fixed egress IP, and Lodgify only allowlists by IP. The Worker route
+        // drops ALL webhooks pointing at us, not just the one id we happened to
+        // store, so a re-registered connection does not leave orphans behind.
         try {
-            const cfg = JSON.parse(row.source_config_json);
-            if (cfg.webhook_id && cfg.api_key) {
-                await fetch(`${LODGIFY_API}/webhooks/v1/unsubscribe/${cfg.webhook_id}`, {
-                    method: "DELETE",
-                    headers: { "X-ApiKey": cfg.api_key, "Accept": "application/json" },
-                });
-            }
+            await callWorkerJson("/admin/lodgify/unregister-webhooks", {
+                method: "POST",
+                body: JSON.stringify({ userId: authResult.targetUserId }),
+            });
         } catch {
             // Best-effort; proceed with DB delete regardless
         }

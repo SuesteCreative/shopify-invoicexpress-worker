@@ -250,8 +250,13 @@ export class AppStorage {
         data.shopify_domain,
         data.user_id ?? this.userId,
         data.topic,
-        JSON.stringify(data.payload),
-        JSON.stringify(data.response),
+        // The webhook log is where a destination's refusal is quoted verbatim,
+        // and InvoiceXpress carries its credential in the query string of every
+        // request — so this column held 221 of the 238 rows that had a
+        // merchant's API key in plain text. Redact here, like every other place
+        // where text becomes a record.
+        JSON.stringify(redactDeep(data.payload)),
+        JSON.stringify(redactDeep(data.response)),
         data.status
       ).run();
     } catch (e) {

@@ -208,11 +208,22 @@ describe("channelReference feeds the receipt's payment method", () => {
     expect(method({ source: "Manual", source_text: "Lodgify" })).toBeNull();
   });
 
-  it("lets the connection override the channel", () => {
-    // Origos: its Moloni has no channel methods at all, so it names one once.
+  it("lets a connection name a method for everything else", () => {
+    // `paymentMethodNameFor` keeps its own precedence — config first — because
+    // the fatura-recibo path has always used it that way.
     expect(paymentMethodNameFor(
       { channel_reference: "Airbnb: HM8Q9PJPQ2" } as any,
       { moloni_payment_method: "Transferência Bancária" },
     )).toBe("Transferência Bancária");
+  });
+
+  it("still names the channel when the connection configures nothing", () => {
+    // Which is what the RECIBO path reads: it asks for the channel name with no
+    // config, resolves it against the merchant's own methods, and only falls
+    // back to the configured one when that account has no such method — or when
+    // the booking is direct and there is no channel at all.
+    expect(paymentMethodNameFor({ channel_reference: "Booking.com: 5670891596" } as any, undefined))
+      .toBe("Booking.com");
+    expect(paymentMethodNameFor({ channel_reference: null } as any, undefined)).toBeNull();
   });
 });

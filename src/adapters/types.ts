@@ -1,5 +1,6 @@
 import type { Normalized } from "../api/normalize-shopify";
 import type { IRequestConfig } from "../storage";
+import type { LodgifyGateway } from "../services/lodgify-api";
 
 export type SourceKind = "shopify" | "stripe" | "eupago" | "lodgify";
 export type DestinationKind = "invoicexpress" | "moloni" | "vendus";
@@ -33,6 +34,12 @@ export interface AdapterCtx {
   // pipeline run when `config.b2b_reverse_charge === 1` so IxBuilder can
   // decide whether to apply M16/M40 exemptions on EU cross-border orders.
   viesChecker?: (countryCode: string, vatNumber: string) => Promise<boolean | null>;
+  // Where Lodgify calls leave from. Resolved once per run by buildAdapterCtx
+  // (Lodgify connections only) because Lodgify allowlists us by IP address and
+  // the Worker has no fixed egress: a call that does not go through the relay
+  // leaves from an unallowlisted Cloudflare address and re-earns the block.
+  // Absent on every other source; the Lodgify adapter refuses to fetch without it.
+  lodgifyGateway?: LodgifyGateway;
 }
 
 export interface WebhookVerification {

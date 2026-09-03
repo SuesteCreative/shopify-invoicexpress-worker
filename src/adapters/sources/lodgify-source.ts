@@ -2,6 +2,26 @@ import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized, Order } from "../../api/normalize-shopify";
 import { bookingCollectedAmount, isOtaStayCollected, otaPolicyFrom } from "../../services/lodgify-amounts";
 import { channelReference } from "../../services/lodgify-booking";
+import { assertSafeBookingId, lodgifyFetch, type LodgifyGateway } from "../../services/lodgify-api";
+
+/**
+ * The egress this run must use, or a hard failure.
+ *
+ * Not optional-with-a-fallback on purpose: Lodgify allowlists us by IP address,
+ * so a call that skips the relay leaves from an unallowlisted Cloudflare
+ * address and re-earns the block for every merchant. buildAdapterCtx sets this
+ * for every Lodgify connection; its absence means a new call path was wired
+ * without one, and that is a bug to fix rather than a request to send anyway.
+ */
+function requireLodgifyGateway(ctx: AdapterCtx): LodgifyGateway {
+  if (!ctx.lodgifyGateway) {
+    throw new Error(
+      "Lodgify egress not resolved on AdapterCtx. Build it with buildAdapterCtx() "
+      + "so the call leaves through the allowlisted relay.",
+    );
+  }
+  return ctx.lodgifyGateway;
+}
 
 /**
  * LodgifySource — Lodgify PMS webhook integration.
@@ -13,7 +33,8 @@ import { channelReference } from "../../services/lodgify-booking";
  *   Body (thin envelope — no booking data):
  *     { "event": "booking_new_booked", "data": { "bookingId": 12345 } }
  *
- * Full booking fetched via GET https://api.lodgify.com/v2/reservations/{id}
+ * Full booking fetched via GET /v2/reservations/{id} (through the egress relay,
+ * see services/lodgify-api.ts — never the API host directly)
  * using the stored api_key (X-ApiKey header).
  *
  * Only "Booked" status bookings produce invoices. Others return null → pipeline skips.
@@ -118,8 +139,8 @@ export class LodgifySource implements SourceAdapter {
       };
     } else {
       // Thin envelope (data.bookingId only) — fetch from v2 API.
-      const res = await fetch(`https://api.lodgify.com/v2/reservations/${bookingId}`, {
-        headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
+      const res = await lodgifyFetch(`/v2/reservations/${assertSafeBookingId(bookingId)}`, {
+        apiKey, gateway: requireLodgifyGateway(ctx),
       });
       if (!res.ok) {
         throw new Error(`Lodgify GET /v2/reservations/${bookingId} → ${res.status} ${res.statusText}`);
@@ -205,7 +226,7 @@ export class LodgifySource implements SourceAdapter {
     // (`_enriched`): with Lodgify blocking this Worker's egress, the call would
     // burn a guaranteed-429 request per document and return nothing we don't
     // already have.
-    const enriched = booking._enriched ? null : await fetchGuestDetails(bookingId, apiKey);
+    const enriched = booking._enriched ? null : await fetchGuestDetails(bookingId, apiKey, requireLodgifyGateway(ctx));
 
     const guestName = enriched?.fullName || booking.guest?.name || "Consumidor Final";
     const guestEmail = String(enriched?.email ?? booking.guest?.email ?? "");
@@ -467,10 +488,14 @@ type GuestDetails = {
 // The v1 reservation endpoint carries the full guest record (postal address,
 // split name, notes) that v2's booking object omits. Best-effort enrichment —
 // any failure returns null and the caller falls back to the v2/webhook guest.
-async function fetchGuestDetails(bookingId: string, apiKey: string): Promise<GuestDetails | null> {
+async function fetchGuestDetails(
+  bookingId: string,
+  apiKey: string,
+  gateway: LodgifyGateway,
+): Promise<GuestDetails | null> {
   try {
-    const res = await fetch(`https://api.lodgify.com/v1/reservation/booking/${bookingId}`, {
-      headers: { "X-ApiKey": apiKey, "Accept": "application/json" },
+    const res = await lodgifyFetch(`/v1/reservation/booking/${assertSafeBookingId(bookingId)}`, {
+      apiKey, gateway,
     });
     if (!res.ok) return null;
     const data: any = await res.json();

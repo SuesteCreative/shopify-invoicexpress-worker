@@ -10,6 +10,10 @@ import { mapWithConcurrency } from "../services/concurrency";
 import { saleReference, cancelReference } from "../services/document-references";
 import { isBookingFullyCollected } from "../services/lodgify-amounts";
 import { resolveConnectionContext } from "../services/connection-context";
+import {
+  GATEWAY_ERROR_HEADER, describeLodgifyEgress, isGatewayFailure, lodgifyFetch,
+  resolveLodgifyGateway,
+} from "../services/lodgify-api";
 
 // The left side of a reconciliation row, normalized across sources (Shopify
 // orders, Lodgify bookings, …). Each source fetcher maps its native records
@@ -278,14 +282,15 @@ async function liveFetchLodgifyBookings(env: Env, ctx: ReconContext, _fromYmd: s
     if (cached) return JSON.parse(cached) as any[];
   } catch { /* treat as miss */ }
 
+  const gateway = resolveLodgifyGateway(env);
   const items: any[] = [];
   const limit = 50;
-  const headers = { "X-ApiKey": apiKey, "Accept": "application/json" };
   for (let page = 0; page < 40; page++) {
-    const url = `https://api.lodgify.com/v1/reservation?offset=${page * limit}&limit=${limit}&trash=False`;
+    const path = `/v1/reservation?offset=${page * limit}&limit=${limit}&trash=False`;
     let pageItems: any[] | null = null;
+    let lastFailure = "";
     for (let attempt = 0; attempt < 4; attempt++) {
-      const res = await fetch(url, { headers });
+      const res = await lodgifyFetch(path, { apiKey, gateway });
       if (res.ok) {
         const data: any = await res.json().catch(() => null);
         pageItems = Array.isArray(data?.items) ? data.items
@@ -293,15 +298,38 @@ async function liveFetchLodgifyBookings(env: Env, ctx: ReconContext, _fromYmd: s
           : [];
         break;
       }
+      // The RELAY failed, not Lodgify. A dead box or a rejected secret will not
+      // heal inside the retry window, and spending the budget on it buries the
+      // real cause under what looks like a rate limit.
+      if (isGatewayFailure(res)) {
+        lastFailure = `relay ${res.status} (${res.headers.get(GATEWAY_ERROR_HEADER)})`;
+        console.error(`[Recon] Lodgify live page ${page} — ${lastFailure}`);
+        break;
+      }
       if (res.status === 429) {
+        lastFailure = "429 rate limited";
         const ra = Number(res.headers.get("retry-after"));
         await sleep(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 6000) : 700 * (attempt + 1));
         continue;
       }
-      console.error(`[Recon] Lodgify v1 live page ${page} → ${res.status} ${res.statusText}`);
+      lastFailure = `${res.status} ${res.statusText}`;
+      console.error(`[Recon] Lodgify v1 live page ${page} → ${lastFailure}`);
       break;
     }
-    if (pageItems == null) break;
+    if (pageItems == null) {
+      // Page 0 failing means we know NOTHING about this account, and returning
+      // the accumulated list would be `[]` — which conciliação renders as "no
+      // bookings", a clean page that hides every unbilled stay. That phantom is
+      // exactly what an added relay hop makes more likely, so fail loudly here.
+      // Later pages keep the old best-effort truncation: a partial list is
+      // still evidence, and the caller's window filter handles it.
+      if (page === 0) {
+        throw new Error(
+          `Lodgify live list failed on page 0 via ${describeLodgifyEgress(gateway)}: ${lastFailure}`,
+        );
+      }
+      break;
+    }
     // Alias v1 payment/currency fields to the v2 shape fetchLodgifyReconOrders
     // reads (amount_due drives the paid/pending split).
     for (const it of pageItems) {

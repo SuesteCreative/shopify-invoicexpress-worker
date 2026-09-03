@@ -114,3 +114,36 @@ describe("blockerFor — OTA opt-in", () => {
       .toMatch(/liquidação parcial/);
   });
 });
+
+/**
+ * `invoice_plus_receipts` — the mode Origos runs.
+ *
+ * A part-paid stay is invoiced in FULL as a Fatura (which states a debt, not a
+ * payment) and each payment is recorded against it with a Recibo. So the
+ * instalment blocker, which is right for every other connection, has to lift
+ * for this one — and must NOT lift for anything else it guards.
+ */
+describe("blockerFor — invoice_plus_receipts", () => {
+  const half = () => booked({ total_amount: 669, amount_paid: 334.5, amount_due: 334.5 });
+
+  it("blocks a part-paid booking by default", () => {
+    expect(blockerFor(half())).toMatch(/liquidação parcial/);
+    expect(blockerFor(half(), undefined, "instalment_invoices")).toMatch(/liquidação parcial/);
+  });
+
+  it("allows a part-paid booking on the mode", () => {
+    expect(blockerFor(half(), undefined, "invoice_plus_receipts")).toBeNull();
+  });
+
+  it("still refuses what the mode has nothing to do with", () => {
+    const mode = "invoice_plus_receipts" as const;
+    // Nothing received at all is not a part payment: there is no debt the guest
+    // has committed to paying that Lodgify can evidence.
+    expect(blockerFor(booked({ amount_paid: 0, amount_due: 0 }), undefined, mode))
+      .toMatch(/sem pagamento registado/);
+    expect(blockerFor(booked({ status: "Declined", amount_paid: 334.5 }), undefined, mode)).toMatch(/reserva/i);
+    expect(blockerFor(booked({ status: "Open", total_amount: 669, amount_paid: 334.5 }), undefined, mode))
+      .toMatch(/não confirmada/);
+    expect(blockerFor(booked({ total_amount: 0, amount_paid: 0 }), undefined, mode)).toMatch(/sem valor/);
+  });
+});

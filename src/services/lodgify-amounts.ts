@@ -260,3 +260,36 @@ export function awaitingPaymentMarkSqlPredicate(graceDays = 3): string {
        AND COALESCE(NULLIF(b.departure, ''), NULLIF(b.arrival, '')) <= date('now', '-${days} days')
      )`;
 }
+
+// ── How a part-paid booking is billed ────────────────────────────────────────
+
+/**
+ * What a connection does with a booking that has been paid in part.
+ *
+ * `off` is every connection that never asked: a deposit is held, nothing is
+ * issued, and the booking becomes billable when the money reaches the total.
+ *
+ * `instalment_invoices` bills each newly-paid amount as its own document
+ * (`Order #N-<seq>`), so a 50/50 booking produces two Faturas/Recibos, each for
+ * money already received. This is what Overbuilding runs.
+ *
+ * `invoice_plus_receipts` issues ONE Fatura for the whole stay — a Fatura states
+ * a debt, not a payment, so issuing it while half the money is outstanding is
+ * correct — and records each payment against it with a Recibo. The distinction
+ * matters: a Fatura/Recibo asserts the money came in, which is why this mode
+ * must not use one.
+ */
+export type PartialMode = "off" | "instalment_invoices" | "invoice_plus_receipts";
+
+/**
+ * Read the mode off a connection's destination config.
+ *
+ * `moloni_partial_invoicing` (the original boolean) keeps meaning what it always
+ * meant, so no connection changes behaviour by being read through here.
+ */
+export function partialModeFrom(destinationConfig: Record<string, any> | undefined | null): PartialMode {
+  const explicit = String(destinationConfig?.moloni_partial_mode ?? "").toLowerCase();
+  if (explicit === "invoice_plus_receipts" || explicit === "instalment_invoices") return explicit;
+  if (explicit === "off") return "off";
+  return destinationConfig?.moloni_partial_invoicing ? "instalment_invoices" : "off";
+}

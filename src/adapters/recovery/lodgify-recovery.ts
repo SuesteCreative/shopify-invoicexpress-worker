@@ -5,6 +5,7 @@ import { toPreloadedFromItem } from "../../services/lodgify-booking";
 import {
   bookingCollectedAmount, collectedSqlPredicate,
   isOtaStayCollected, otaStayCollectedSqlPredicate, otaPolicyFrom, type OtaPolicy,
+  partialModeFrom, type PartialMode,
 } from "../../services/lodgify-amounts";
 
 /**
@@ -28,7 +29,7 @@ const CANCELLED_STATUSES = new Set(["declined", "cancelled", "canceled"]);
  * grounds that whoever preloaded the data already applied it. So the rule is
  * applied here, from the same helpers the poll uses.
  */
-export function blockerFor(item: any, policy?: OtaPolicy): string | null {
+export function blockerFor(item: any, policy?: OtaPolicy, mode: PartialMode = "off"): string | null {
   const status = String(item?.status ?? "").toLowerCase();
   if (CANCELLED_STATUSES.has(status)) return `reserva ${item?.status}`;
   // Only a confirmed booking is a sale. This used to reject cancellations and
@@ -49,8 +50,15 @@ export function blockerFor(item: any, policy?: OtaPolicy): string | null {
       if (isOtaStayCollected(item, policy)) return null;
       return "sem pagamento registado no Lodgify — o merchant ainda não a marcou como paga";
     case "instalment":
-      // Deliberate: a part-paid booking is billed in instalments, and that
-      // ledger (lodgify_partial_invoices) belongs to the poll. Issuing one
+      // A merchant on `invoice_plus_receipts` bills the whole stay as a Fatura
+      // and records each payment against it with a Recibo. A Fatura states a
+      // debt, not a payment, so issuing one while half the money is outstanding
+      // bills nothing that has not been earned — which is precisely why the mode
+      // must not use a Fatura/Recibo. The Recibos are a separate, later pass:
+      // Moloni can only associate one to a CLOSED document.
+      if (mode === "invoice_plus_receipts") return null;
+      // Otherwise deliberate: a part-paid booking is billed in instalments, and
+      // that ledger (lodgify_partial_invoices) belongs to the poll. Issuing one
       // document for the whole total here would bill money nobody has received.
       return `liquidação parcial (${settlement.collected.toFixed(2)} €) — facturada em prestações pelo poll`;
     case "paid_in_full":
@@ -61,7 +69,7 @@ export function blockerFor(item: any, policy?: OtaPolicy): string | null {
   }
 }
 
-function toRecord(row: any, item: any, policy?: OtaPolicy): SourceRecordRef {
+function toRecord(row: any, item: any, policy?: OtaPolicy, mode: PartialMode = "off"): SourceRecordRef {
   const bookingId = String(row?.id ?? item?.id ?? "");
   const settlement = bookingCollectedAmount(item);
   // An opted-in OTA stay has no recorded payment by definition, so report the
@@ -70,20 +78,29 @@ function toRecord(row: any, item: any, policy?: OtaPolicy): SourceRecordRef {
   const otaTotal = settlement.collected <= 0 && isOtaStayCollected(item, policy)
     ? Number(item?.total_amount ?? item?.total ?? 0)
     : 0;
+  // On `invoice_plus_receipts` the document is for the WHOLE stay, not for what
+  // has come in. Reporting the deposit here would preview "seria facturada
+  // (334,50 €)" for a 669 € Fatura, and — worse — the finalize guard compares
+  // the document total against this number and would refuse to close it.
+  const wholeStay = mode === "invoice_plus_receipts" && settlement.basis === "instalment"
+    ? Number(item?.total_amount ?? item?.total ?? 0)
+    : 0;
   return {
     externalId: bookingId,
     // Lodgify has no order numbers; the document reference derives a numeric
     // from the booking id, which is not something an operator ever types.
     orderNumber: null,
     label: `LOD-${bookingId}`,
-    paidTotal: settlement.collected > 0 ? settlement.collected : (otaTotal > 0 ? otaTotal : null),
+    paidTotal: wholeStay > 0 ? wholeStay
+      : settlement.collected > 0 ? settlement.collected
+      : (otaTotal > 0 ? otaTotal : null),
     paidAt: row?.updated_at ?? row?.created_at ?? null,
     replayBody: {
       event: "booking_new_status_booked",
       data: { bookingId: Number(bookingId) || bookingId },
       _preloaded_booking: toPreloadedFromItem(item),
     },
-    blocker: blockerFor(item, policy),
+    blocker: blockerFor(item, policy, mode),
   };
 }
 
@@ -112,7 +129,7 @@ export class LodgifyRecovery implements SourceRecovery {
         `Reserva ${bookingId} não está no espelho local. Corra /admin/lodgify/poll para sincronizar antes de a re-emitir.`,
       );
     }
-    return toRecord(parsed.row, parsed.item, otaPolicyFrom(ctx.destinationConfig));
+    return toRecord(parsed.row, parsed.item, otaPolicyFrom(ctx.destinationConfig), partialModeFrom(ctx.destinationConfig));
   }
 
   async listCandidates(
@@ -129,6 +146,7 @@ export class LodgifyRecovery implements SourceRecovery {
     // would never even reach `blockerFor`, and the backfill would report an
     // empty window for exactly the bookings the policy exists to bill.
     const policy = otaPolicyFrom(ctx.destinationConfig);
+    const mode = partialModeFrom(ctx.destinationConfig);
     const otaSql = otaStayCollectedSqlPredicate(policy);
     const billable = otaSql ? `(${collectedSqlPredicate()} OR ${otaSql})` : collectedSqlPredicate();
 
@@ -146,7 +164,7 @@ export class LodgifyRecovery implements SourceRecovery {
     const out: SourceRecordRef[] = [];
     for (const row of (rows.results ?? []) as any[]) {
       const parsed = parseRow(row);
-      if (parsed) out.push(toRecord(parsed.row, parsed.item, policy));
+      if (parsed) out.push(toRecord(parsed.row, parsed.item, policy, mode));
     }
     return out;
   }
@@ -154,6 +172,7 @@ export class LodgifyRecovery implements SourceRecovery {
   async describe(externalIds: string[], ctx: ConnectionContext, env: Env): Promise<Map<string, SourceDescription>> {
     const map = new Map<string, SourceDescription>();
     if (externalIds.length === 0) return map;
+    const mode = partialModeFrom(ctx.destinationConfig);
 
     for (let i = 0; i < externalIds.length; i += 50) {
       const chunk = externalIds.slice(i, i + 50);
@@ -166,9 +185,15 @@ export class LodgifyRecovery implements SourceRecovery {
         const parsed = parseRow(row);
         if (!parsed) continue;
         const settlement = bookingCollectedAmount(parsed.item);
+        // Same reason as in `toRecord`: on this mode the document is for the
+        // whole stay, and the finalize guard reads this number to decide whether
+        // the draft may be certified.
+        const wholeStay = mode === "invoice_plus_receipts" && settlement.basis === "instalment"
+          ? Number(parsed.item?.total_amount ?? parsed.item?.total ?? 0)
+          : 0;
         map.set(String(row.id), {
           orderNumber: null,
-          paidTotal: settlement.collected > 0 ? settlement.collected : null,
+          paidTotal: wholeStay > 0 ? wholeStay : (settlement.collected > 0 ? settlement.collected : null),
           paidAt: row.updated_at ?? row.created_at ?? null,
         });
       }

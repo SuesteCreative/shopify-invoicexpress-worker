@@ -9,10 +9,11 @@ import type {
   FinalizeDateStrategy,
   FinalizeOutcome,
   NormalizedRefund,
+  SettleOutcome,
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
-import { reconcileTotalOrThrow } from "../reconcile";
+import { reconcileTotalOrThrow, receiptDelta } from "../reconcile";
 import { redactSecrets } from "../../security";
 import { refundReference, isRefundReference, documentReference } from "../../services/document-references";
 import { platformError } from "../../services/platform-error";
@@ -121,6 +122,16 @@ const MOLONI_PATHS = {
 } as const;
 
 type MoloniDocKind = keyof typeof MOLONI_PATHS;
+
+// A Recibo is not a sale document and deliberately does NOT live in
+// MOLONI_PATHS: that table is what tag routing may choose a `document_type`
+// from, and a routing rule that pointed a sale at /receipts/ would issue a
+// settlement for a stay nobody had invoiced.
+const MOLONI_RECEIPT_PATHS = {
+  insert: "/receipts/insert/",
+  getOne: "/receipts/getOne/",
+  getAll: "/receipts/getAll/",
+} as const;
 
 /** Unknown/absent type falls back to plain invoice, as it always has. */
 function docKind(cfg: Pick<MoloniCfg, "documentType">): MoloniDocKind {
@@ -1421,6 +1432,7 @@ export class MoloniDestination implements DestinationAdapter {
     finalizeWithDate: true,
     emailDocument: true,
     readDocument: true,
+    settleDocument: true,
   } as const;
 
   async findByReference(reference: string, ctx: AdapterCtx): Promise<{ id: string } | null> {
@@ -1866,6 +1878,132 @@ export class MoloniDestination implements DestinationAdapter {
     }
 
     return { status: "error", message: lastError || "Moloni recusou o fecho sem indicar uma data aceitável" };
+  }
+
+  /**
+   * Record money received against a Fatura that is already closed, as a Recibo.
+   *
+   * This exists because a stay can be invoiced in full and paid in halves. The
+   * Fatura states the debt on the day the booking is confirmed; each payment is
+   * then recorded against it, which is what the merchant does by hand today and
+   * what `reconciled_value` on the document reflects. A Fatura/Recibo cannot be
+   * used for this: it asserts the money came in, and half of it had not.
+   *
+   * Idempotent by construction: the amount receipted is the difference between
+   * what the source says has been collected and what Moloni has ALREADY
+   * reconciled against this document — never a figure the caller tracked
+   * separately. Two runs in a row therefore settle once, and the second reports
+   * `skipped`. It is also why the read-back at the end is not optional: if
+   * Moloni accepted the Recibo without reconciling it, the next run would
+   * happily issue a second one.
+   */
+  async settleDocument(
+    invoiceId: string,
+    ctx: AdapterCtx,
+    opts: { collected: number; date?: string | null; notes?: string | null; dryRun?: boolean },
+  ): Promise<SettleOutcome> {
+    const cfg = await getMoloniCfg(ctx);
+    const token = await getAccessToken(cfg);
+
+    const found = await fetchMoloniDocument(cfg, token, invoiceId);
+    if (!found) return { status: "error", message: `Documento ${invoiceId} não encontrado no Moloni` };
+    const doc = found.doc;
+
+    // A Recibo is associated to a document, and Moloni only associates closed
+    // ones — a draft has no number to point at. So this runs AFTER the finalize
+    // pass, never as part of issuing.
+    if (Number(doc.status ?? 0) !== 1) {
+      return {
+        status: "skipped",
+        message: `Documento ${invoiceId} não está fechado (status=${doc.status ?? "?"}) — um Recibo só se associa a um documento certificado`,
+      };
+    }
+
+    const total = moloniDocTotal(doc);
+    if (total == null) {
+      return { status: "error", message: `Não consigo ler o total do documento ${invoiceId} — não emito Recibo` };
+    }
+    const settled = Number(doc.reconciled_value ?? 0);
+    const value = receiptDelta({ collected: opts.collected, invoiceTotal: total, alreadySettled: settled });
+    if (value <= 0) {
+      return {
+        status: "skipped",
+        message: `Nada a liquidar em ${invoiceId}: recebido ${opts.collected.toFixed(2)}€, `
+          + `já liquidado ${settled.toFixed(2)}€ de ${total.toFixed(2)}€`,
+      };
+    }
+
+    const date = typeof opts.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(opts.date)
+      ? opts.date.slice(0, 10)
+      : todayYmd();
+
+    if (opts.dryRun) {
+      return {
+        status: "dry_run",
+        value,
+        message: `Emitiria Recibo de ${value.toFixed(2)}€ a ${formatPtYmd(date)} sobre ${invoiceId} `
+          + `(liquidado ${settled.toFixed(2)}€ de ${total.toFixed(2)}€)`,
+      };
+    }
+
+    // A Recibo without a payment method is not a record of anything, and the
+    // merchant's own account decides which names exist ("Transferência
+    // Bancária", "Multibanco", …) — so say what is missing rather than guessing
+    // one and stamping the wrong means of payment on a fiscal document.
+    const methodName = paymentMethodNameFor({ channel_reference: null }, ctx.destinationConfig);
+    if (!methodName) {
+      return {
+        status: "error",
+        message: "Falta `moloni_payment_method` na ligação — um Recibo tem de dizer como o dinheiro entrou",
+      };
+    }
+    const paymentMethodId = await resolvePaymentMethodId(cfg, token, methodName);
+
+    const customerId = Number(doc.customer_id ?? 0);
+    if (!customerId) {
+      return { status: "error", message: `Documento ${invoiceId} não traz customer_id — não emito Recibo` };
+    }
+
+    const inserted = await moloniCall<{ document_id?: number }>(
+      cfg, token, MOLONI_RECEIPT_PATHS.insert,
+      {
+        document_set_id: cfg.documentSetId,
+        date,
+        customer_id: customerId,
+        net_value: value,
+        status: 1,
+        ...(opts.notes ? { notes: String(opts.notes).slice(0, 200) } : {}),
+        payments: [{ payment_method_id: paymentMethodId, date, value }],
+        associated_documents: [{ associated_id: Number(invoiceId), value }],
+      },
+      "create",
+    );
+    const receiptId = inserted?.document_id != null ? String(inserted.document_id) : "";
+    if (!receiptId) {
+      return { status: "error", message: `O Moloni aceitou o Recibo mas não devolveu document_id (${invoiceId})` };
+    }
+
+    // Did it actually settle? Moloni answering "valid" is not the same as the
+    // invoice being reconciled, and an unreconciled invoice invites the next run
+    // to issue a second Recibo for the same money.
+    const after = await fetchMoloniDocument(cfg, token, invoiceId);
+    const settledAfter = Number(after?.doc?.reconciled_value ?? 0);
+    if (settledAfter < settled + value - 0.011) {
+      return {
+        status: "error",
+        message: `Recibo ${receiptId} criado, mas o documento ${invoiceId} continua liquidado em `
+          + `${settledAfter.toFixed(2)}€ (esperava ${(settled + value).toFixed(2)}€) — verificar à mão antes de repetir`,
+      };
+    }
+
+    return {
+      status: "settled",
+      receiptId,
+      value,
+      settledTotal: settledAfter,
+      message: `Recibo ${receiptId} de ${value.toFixed(2)}€ — documento liquidado em `
+        + `${settledAfter.toFixed(2)}€ de ${total.toFixed(2)}€`,
+    };
   }
 
   async issueCredit(

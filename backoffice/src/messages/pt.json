@@ -991,6 +991,10 @@
                 "label": "Faturação parcial",
                 "help": "Permite faturar uma reserva em vários documentos."
             },
+            "moloniPartialMode": {
+                "label": "Reservas pagas em parte",
+                "help": "O que fazer com um sinal: nada (off), um documento por pagamento (instalment_invoices), ou uma Fatura pelo total mais Recibos a cada pagamento (invoice_plus_receipts)."
+            },
             "vendusRegisterId": {
                 "label": "Caixa",
                 "help": "Id da caixa Vendus."

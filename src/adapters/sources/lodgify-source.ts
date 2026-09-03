@@ -353,6 +353,24 @@ export class LodgifySource implements SourceAdapter {
     if (booking.room_type_id != null) {
       noteAttrs.push({ name: "room_type_id", value: String(booking.room_type_id) });
     }
+    // How much of this stay has been paid for, in the same vocabulary the
+    // settlement rules use. This is how a merchant on `invoice_plus_receipts`
+    // gets a FATURA for a part-paid stay while everything else keeps their
+    // configured type: a tag routing rule on `settlement:instalment` sets the
+    // document type, which is machinery that already exists and already
+    // persists its decision to processed_orders.routed_json — so the later
+    // finalize addresses the same document family the create used.
+    //
+    // A Fatura/Recibo would be wrong here: it asserts the money came in, and
+    // half of it has not.
+    const settlementBasis = bookingCollectedAmount({
+      total_amount: Number(booking.total ?? 0),
+      amount_paid: totalTransactions ?? booking.amount_paid ?? booking.total_paid,
+      amount_due: balanceDue ?? booking.amount_due ?? booking.balance_due,
+    }).basis;
+    if (!partial) {
+      noteAttrs.push({ name: "settlement", value: settlementBasis });
+    }
     // Also expose the guest comment as a "nif" attribute. extractPtNif's keyword
     // branch strips ALL non-digits and takes the last 9, so this catches NIFs
     // glued to text (e.g. "NIF123456789") that the order.note word-boundary scan

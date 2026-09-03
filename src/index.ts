@@ -23,6 +23,7 @@ import {
   awaitingPaymentMarkSqlPredicate,
   otaPolicyFrom,
   otaStayCollectedSqlPredicate,
+  partialModeFrom,
 } from "./services/lodgify-amounts";
 import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent, lookupLastEmissionError } from "./services/document-log";
 import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
@@ -50,7 +51,8 @@ import {
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { saleReference, partialSaleReference } from "./services/document-references";
-import { resolveConnectionContext } from "./services/connection-context";
+import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour } from "./services/connection-context";
+import { buildAdapterCtx } from "./services/adapter-ctx";
 import { toPreloadedFromItem, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
 import {
@@ -1159,6 +1161,119 @@ app.post("/admin/lodgify/unbill-premature", async (c) => {
     premature: report.length,
     documents_deleted: dryRun ? null : deleted,
     documents_finalized_left: dryRun ? null : finalized,
+    rows: report,
+  });
+})
+
+// Admin: record the money received against Lodgify invoices that are already
+// closed, as Moloni Recibos.
+//
+// The other half of `invoice_plus_receipts`: a part-paid stay is invoiced in
+// full as a Fatura (a Fatura states a debt, so issuing it is honest while half
+// the money is outstanding), and each payment is recorded against it here. It
+// cannot be part of issuing, because Moloni only associates a Recibo to a CLOSED
+// document — so this runs after the finalize pass, and again whenever the next
+// payment lands.
+//
+// Idempotent: the adapter settles the difference between what Lodgify says has
+// been collected and what Moloni has already reconciled against the document,
+// so running it twice settles once. `dry_run` defaults to TRUE — it issues
+// fiscal documents in a merchant's account.
+app.post("/admin/lodgify/settle-receipts", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { user_id?: string; dry_run?: boolean; booking_ids?: string[] } = {};
+  try { body = await c.req.json(); } catch { /* empty body = defaults */ }
+  if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
+  const dryRun = body.dry_run !== false;
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT user_id, source_config_json, destination_kind, destination_config_json
+       FROM connections WHERE user_id = ? AND source_kind = 'lodgify' AND status = 'active' LIMIT 1`
+  ).bind(body.user_id).first();
+  if (!conn) return c.json({ error: "No active Lodgify connection" }, 404);
+
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+  let destinationConfig: Record<string, any> | undefined;
+  try { destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined; } catch { destinationConfig = undefined; }
+
+  // Gated on the connection having asked for this. Without the gate, a run
+  // against any Lodgify merchant would start receipting documents their own
+  // process settles by hand.
+  const mode = partialModeFrom(destinationConfig);
+  if (mode !== "invoice_plus_receipts") {
+    return c.json({
+      error: `A ligação não está em invoice_plus_receipts (está em "${mode}") — nada a liquidar aqui`,
+    }, 400);
+  }
+
+  const destination: DestinationKind = (conn.destination_kind as DestinationKind) ?? "moloni";
+  const adapter = getDestinationAdapter(destination);
+  if (!adapter.settleDocument) {
+    return c.json({ error: `${destination} não sabe registar pagamentos sobre um documento fechado` }, 400);
+  }
+
+  const legacy: any = (await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(body.user_id).first())
+    ?? synthLegacyConfig(body.user_id);
+  const { ctx } = await buildAdapterCtx(c.env, {
+    config: projectConnectionBehaviour(legacy, destinationConfig),
+    source: "lodgify", destination, sourceConfig: sourceCfg, destinationConfig,
+  });
+
+  // Every booking we have issued a document for, with the mirror row beside it:
+  // the document says what is owed, the mirror says what came in.
+  const wanted = new Set((body.booking_ids ?? []).map((b) => String(b)));
+  const rows = ((await c.env.DB.prepare(
+    `SELECT p.id AS booking_id, p.invoice_id, b.raw_json, b.guest_name
+       FROM processed_orders p
+       LEFT JOIN lodgify_bookings b ON b.user_id = p.user_id AND b.id = p.id
+      WHERE p.user_id = ? AND p.source_kind = 'lodgify' AND p.invoice_id IS NOT NULL`
+  ).bind(body.user_id).all())?.results ?? []) as any[];
+
+  const report: any[] = [];
+  let settled = 0, skipped = 0, errors = 0;
+  for (const row of rows) {
+    const bookingId = String(row.booking_id);
+    if (wanted.size > 0 && !wanted.has(bookingId)) continue;
+    let item: any = null;
+    try { item = row.raw_json ? JSON.parse(row.raw_json) : null; } catch { item = null; }
+    if (!item) {
+      // No mirror row means no statement of what came in. Guessing "fully paid"
+      // here would receipt money nobody received.
+      report.push({ booking_id: bookingId, invoice_id: row.invoice_id, status: "skipped", message: "sem reserva no espelho — não sei quanto entrou" });
+      skipped++;
+      continue;
+    }
+    const { collected } = bookingCollectedAmount(item);
+    try {
+      const outcome = await adapter.settleDocument(String(row.invoice_id), ctx, {
+        collected,
+        notes: `Reserva LOD-${bookingId}`,
+        dryRun,
+      });
+      report.push({
+        booking_id: bookingId, invoice_id: row.invoice_id, guest: row.guest_name,
+        collected, status: outcome.status, message: outcome.message,
+        ...("receiptId" in outcome ? { receipt_id: outcome.receiptId, value: outcome.value } : {}),
+        ...(outcome.status === "dry_run" ? { value: outcome.value } : {}),
+      });
+      if (outcome.status === "settled") settled++;
+      else if (outcome.status === "error") errors++;
+      else skipped++;
+    } catch (e: any) {
+      report.push({ booking_id: bookingId, invoice_id: row.invoice_id, status: "error", message: String(e?.message ?? e) });
+      errors++;
+    }
+  }
+
+  return c.json({
+    ranAt: new Date().toISOString(),
+    dry_run: dryRun,
+    documents_scanned: report.length,
+    settled: dryRun ? null : settled,
+    skipped,
+    errors,
     rows: report,
   });
 })
@@ -3198,7 +3313,12 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
     // Progressive (instalment) invoicing — opt-in per connection. When on, a
     // booking is invoiced for each newly-paid amount (e.g. 50% deposit, then
     // 50% balance) under distinct references, instead of once at 100% paid.
-    const partialEnabled = !!(destinationConfig?.moloni_partial_invoicing) && destination === "moloni";
+    // Read through `partialModeFrom` rather than the raw boolean so the poll and
+    // the admin paths cannot disagree about which mode a connection is on — and
+    // so a connection moved to `invoice_plus_receipts` stops instalment-billing
+    // even if the old boolean is still sitting in its config.
+    const partialMode = partialModeFrom(destinationConfig);
+    const partialEnabled = partialMode === "instalment_invoices" && destination === "moloni";
     // Opt-in per connection: bill an OTA stay once it has happened, for hosts
     // whose channel money never reaches Lodgify and who therefore have nothing
     // to mark as paid. Deliberately not applied to the progressive path — that
@@ -3314,8 +3434,16 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       // that has already happened: the channel collected the money and it never
       // passes through Lodgify, so there is no payment for the merchant to
       // record. Off everywhere it is not configured.
-      if (!isBookingFullyCollected(item, otaPolicy)) {
-        console.log(`[LodgifyPoll] booking ${bookingId} held (${bookingCollectedAmount(item).basis})`);
+      // `invoice_plus_receipts` is the exception, and only for a stay with money
+      // already recorded against it: the whole stay is invoiced as a Fatura (a
+      // debt, not a payment) and each payment is then receipted against it by
+      // /admin/lodgify/settle-receipts. Holding it here would leave the merchant
+      // with a deposit in the bank and nothing issued for the stay.
+      const pollSettlement = bookingCollectedAmount(item);
+      const receiptsModeBillable = partialMode === "invoice_plus_receipts"
+        && pollSettlement.basis === "instalment";
+      if (!receiptsModeBillable && !isBookingFullyCollected(item, otaPolicy)) {
+        console.log(`[LodgifyPoll] booking ${bookingId} held (${pollSettlement.basis})`);
         result.skipped++; continue;
       }
 

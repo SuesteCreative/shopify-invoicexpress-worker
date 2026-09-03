@@ -35,20 +35,41 @@ const say = (m) => console.log(`[deploy] ${m}`);
 const warn = (m) => console.warn(`[deploy] ⚠  ${m}`);
 
 // ── what we are about to ship ────────────────────────────────────────────────
+// Two ways to know, because this script now has two callers.
+//
+// Workers Builds checks out DETACHED, so `git rev-parse --abbrev-ref HEAD`
+// there answers "HEAD" — and the not-main guard below would then refuse every
+// single production build. That is how "just set the deploy command to
+// `npm run deploy`" turns into a worker that silently never ships again. When
+// the platform tells us where we are, believe the platform.
 let sha, branch, dirty;
-try {
-  sha = sh("git rev-parse HEAD");
-  branch = sh("git rev-parse --abbrev-ref HEAD");
-  // Only source that ships matters. backoffice/, scripts/ and docs ride along
-  // in the repo but are not in the worker bundle, so they do not make a deploy
-  // irreproducible and must not block one.
-  dirty = sh("git status --porcelain -- src wrangler.jsonc package.json").length > 0;
-} catch {
-  console.error("[deploy] not a git checkout — refusing to deploy something I cannot name");
-  process.exit(1);
+const onWorkersCI = process.env.WORKERS_CI === "1";
+
+if (onWorkersCI) {
+  sha = process.env.WORKERS_CI_COMMIT_SHA ?? "";
+  branch = process.env.WORKERS_CI_BRANCH ?? "";
+  // A CI build is a clean checkout of exactly one commit: there is nothing
+  // uncommitted to warn about, and there may be no git dir to ask.
+  dirty = false;
+  if (!sha || !branch) {
+    console.error("[deploy] WORKERS_CI is set but WORKERS_CI_COMMIT_SHA/BRANCH are not — refusing to ship something I cannot name");
+    process.exit(1);
+  }
+} else {
+  try {
+    sha = sh("git rev-parse HEAD");
+    branch = sh("git rev-parse --abbrev-ref HEAD");
+    // Only source that ships matters. backoffice/, scripts/ and docs ride along
+    // in the repo but are not in the worker bundle, so they do not make a deploy
+    // irreproducible and must not block one.
+    dirty = sh("git status --porcelain -- src wrangler.jsonc package.json").length > 0;
+  } catch {
+    console.error("[deploy] not a git checkout — refusing to deploy something I cannot name");
+    process.exit(1);
+  }
 }
 
-say(`${branch} @ ${sha.slice(0, 7)}${dirty ? " (ÁRVORE SUJA)" : ""}`);
+say(`${branch} @ ${sha.slice(0, 7)}${dirty ? " (ÁRVORE SUJA)" : ""}${onWorkersCI ? " [Workers Builds]" : ""}`);
 
 const objections = [];
 if (dirty) objections.push("the worker source has uncommitted changes — this deploy is not reproducible from its commit");
@@ -124,7 +145,10 @@ if (existsSync(envFile)) {
         // Cloudflare can serve the previous version for a few seconds; a
         // mismatch that persists means the deploy did not take.
         warn(`/admin/version diz ${v.commit_short ?? "unknown"}, esperava ${sha.slice(0, 7)} — reconfirmar daqui a instantes`);
-        process.exitCode = 1;
+        // Never fail a CI build over this: Cloudflare can serve the previous
+        // version for a few seconds, and a red build would be read as "the
+        // deploy failed" when the deploy is fine.
+        if (!onWorkersCI) process.exitCode = 1;
       }
     } catch (e) {
       warn(`não consegui ler /admin/version: ${e?.message ?? e}`);

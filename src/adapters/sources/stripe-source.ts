@@ -2,6 +2,7 @@ import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { saleReference } from "../../services/document-references";
 import { parseMetadataMap, applyMetadataMap, applyMetadataVatRate } from "./metadata-map";
+import { pickInvoicePaymentIntent } from "../../services/stripe";
 
 /**
  * Verifies a Stripe webhook signature per
@@ -310,10 +311,12 @@ export function stripeStableId(event: any): string {
   // and no charge, because no money moved through Stripe. It keeps its own id,
   // which is right: that invoice is the only record of the sale.
   if (type.startsWith("invoice.")) {
-    const pi = obj.payment_intent
-      // Stripe API versions from 2025 moved the link into `payments`.
-      ?? obj.payments?.data?.[0]?.payment?.payment_intent;
-    if (pi) return String(typeof pi === "object" ? pi.id : pi);
+    // One rule, one place. This used to read `payments.data[0]` directly, which
+    // is right only while the paid entry happens to be listed first: an invoice
+    // settled outside Stripe also carries the PaymentIntent Stripe abandoned,
+    // and picking that one files the sale under a payment that never happened.
+    const pi = pickInvoicePaymentIntent(obj);
+    if (pi) return pi;
   }
 
   return String(obj.id ?? "");

@@ -52,6 +52,7 @@ import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-rev
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { saleReference, partialSaleReference } from "./services/document-references";
 import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour } from "./services/connection-context";
+import { stampInvoicePaymentIntent } from "./services/stripe";
 import { buildAdapterCtx } from "./services/adapter-ctx";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
@@ -2726,6 +2727,15 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       const legacy: any = legacyRow ?? synthLegacyConfig(userId);
       projectConnectionBehaviour(legacy, destinationConfig);
       applyConnectionEmailPref(legacy, destinationConfig);
+
+      // An invoice event has to carry the PaymentIntent that paid it BEFORE
+      // anything keys on it, or a card-paid invoice and its own
+      // `payment_intent.succeeded` become two sales and the merchant gets two
+      // documents for one payment. The link is not in the payload on any
+      // current API version — see stampInvoicePaymentIntent. A failure here
+      // throws, so the queue retries: a delayed document is recoverable, a
+      // duplicate certified one is a credit note.
+      await stampInvoicePaymentIntent(body, sourceConfig?.restricted_key, sourceConfig?.stripe_account_id);
 
       await runAdapterPipeline({
         env,

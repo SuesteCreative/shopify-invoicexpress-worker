@@ -334,3 +334,83 @@ export function forcedDocTypeForSettlement(
   if (partialModeFrom(destinationConfig) !== "invoice_plus_receipts") return null;
   return orderSettlementBasis(order) === "instalment" ? "invoice" : null;
 }
+
+// ── The extras split ─────────────────────────────────────────────────────────
+
+/**
+ * Lodgify's own breakdown of a booking total, from the v2 booking.
+ *
+ * `fees` is the cleaning fee, `addons` the extras a guest picked. Both are
+ * invoiced at their own VAT rate for a merchant who asked for the split, because
+ * in Portugal accommodation is 6% (Lista I, verba 2.17 CIVA) and a cleaning fee
+ * billed as its own service is not.
+ *
+ * `promotions` is negative and belongs to the STAY — a discount on the room, not
+ * on the cleaning — which is why it appears in the sum check below and not in
+ * the extras.
+ */
+export interface BookingSubtotals {
+  stay: number | null;
+  fees: number;
+  addons: number;
+  promotions: number;
+  taxes: number;
+  vat: number;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Read a `subtotals` object off a v2 booking payload. Null when there is none. */
+export function parseBookingSubtotals(raw: unknown): BookingSubtotals | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const num = (v: unknown): number => firstNum(v) ?? 0;
+  const fees = num(o.fees);
+  const addons = num(o.addons);
+  // A breakdown with nothing outside the stay is not worth acting on: the single
+  // line it produces is the one we already make.
+  if (round2(fees + addons) <= 0.01) return null;
+  return {
+    stay: firstNum(o.stay),
+    fees: round2(fees),
+    addons: round2(addons),
+    promotions: round2(num(o.promotions)),
+    taxes: round2(num(o.taxes)),
+    vat: round2(num(o.vat)),
+  };
+}
+
+/**
+ * Split the total being billed into stay and extras, or null to keep one line.
+ *
+ * Refuses unless the breakdown ADDS UP to that total. A breakdown we cannot
+ * reconcile is one we do not understand, and guessing would put a wrong tax base
+ * on a fiscal document.
+ *
+ * The sum has to include `promotions`, which is negative: Roland Behrendt's stay
+ * reads stay 1267,00 + promotions -63,35 + fees 115,00 = 1318,65. Checking only
+ * stay + fees against the total would have refused to split precisely the
+ * bookings that carry a discount.
+ */
+export function splitStayAndExtras(
+  grossTotal: number,
+  subtotals: BookingSubtotals | null,
+  extrasRate: number,
+): { stayGross: number; extrasGross: number } | null {
+  if (!(extrasRate > 0) || !subtotals) return null;
+  if (!Number.isFinite(grossTotal) || grossTotal <= 0) return null;
+
+  const extrasGross = round2(subtotals.fees + subtotals.addons);
+  // The discount lands on the accommodation, so the stay line is simply what is
+  // left of the total — never `subtotals.stay`, which is the price before it.
+  const stayGross = round2(grossTotal - extrasGross);
+  if (extrasGross <= 0.01 || stayGross <= 0.01) return null;
+
+  if (subtotals.stay != null) {
+    const parts = round2(subtotals.stay + subtotals.promotions + extrasGross + subtotals.taxes + subtotals.vat);
+    if (Math.abs(parts - round2(grossTotal)) > 0.02) return null;
+  }
+  return { stayGross, extrasGross };
+}

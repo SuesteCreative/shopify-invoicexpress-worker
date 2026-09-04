@@ -577,11 +577,21 @@ export function stripeToNormalized(event: any): Normalized | null {
           // has to come off here, or the summed lines overshoot `amount_paid` and
           // the reconcile guard aborts with no invoice at all. Derive the per-line
           // rate from the DISCOUNTED net so mixed-rate invoices still map correctly.
-          const taxAmounts = Array.isArray(l.tax_amounts) ? l.tax_amounts : [];
+          //
+          // Two shapes, because Stripe moved these fields. Up to 2024 a line
+          // carried `tax_amounts[{ amount, inclusive }]`; from the 2025 versions
+          // (measured on 2026-04-22.dahlia) it carries `taxes[{ amount,
+          // tax_behavior }]`. Reading only the old one silently invoiced every
+          // line at 0% on a current account.
+          const taxAmounts = Array.isArray(l.tax_amounts) ? l.tax_amounts
+            : Array.isArray(l.taxes) ? l.taxes
+            : [];
           const lineTax = sumStripeAmounts(taxAmounts);
           // Inclusive tax sits inside `amount`; exclusive tax sits outside it. Only
           // the inclusive part is subtracted to reach a VAT-exclusive net.
-          const inclusiveTax = sumStripeAmounts(taxAmounts.filter((t: any) => t?.inclusive));
+          const inclusiveTax = sumStripeAmounts(
+            taxAmounts.filter((t: any) => t?.inclusive === true || t?.tax_behavior === "inclusive"),
+          );
           const lineNet = round2((l.amount ?? 0) / 100 - sumStripeAmounts(l.discount_amounts) - inclusiveTax);
           const lineRate = lineTax > 0 && lineNet > 0 ? Math.round((lineTax / lineNet) * 10000) / 100 : 0;
           const qty = l.quantity || 1;
@@ -597,7 +607,13 @@ export function stripeToNormalized(event: any): Normalized | null {
             discount: { name: "", percent: 0 },
             title: l.description ?? "Item",
             variant_title: null,
-            sku: l.price?.id ?? "",
+            // The price behind the line. Same move as the tax fields: `price` up to
+            // 2024, `pricing.price_details.price` from 2025. This is not
+            // cosmetic — the Moloni and Vendus adapters read "no SKU and no
+            // product id" as a SHIPPING line, so an empty sku here billed
+            // "Teste assinatura 1€" to the merchant's customer as "Portes de
+            // envio — Teste assinatura 1€" (SenteMente, 04/09/2026).
+            sku: l.price?.id ?? l.pricing?.price_details?.price ?? "",
             fulfilled: true,
             fulfilled_quantity: l.quantity ?? 1,
             fulfillment_status: "fulfilled",

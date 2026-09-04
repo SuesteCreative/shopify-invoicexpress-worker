@@ -1210,10 +1210,24 @@
         "manageTagRouting": "Manage routing"
     },
     "tagRouting": {
-        "title": "Tag-Based Series Routing → InvoiceXpress",
-        "subtitle": "Match Shopify order tags or Stripe metadata key:value pairs to a specific invoice series and document type. First matching rule wins.",
-        "titleMoloni": "Tag-Based Routing → Moloni",
-        "subtitleMoloni": "Match Lodgify booking attributes (property_id, source, room_type_id) to a Moloni document set or document type. First matching rule wins.",
+        "titleRouting": "Tag-Based Routing: {source} → {destination}",
+        "subtitleRouting": "Match {signals} to a {target}. First matching rule wins.",
+        "signals": {
+            "shopify": "Shopify order tags",
+            "stripe": "Stripe metadata key:value pairs, and the stripe: hints (origin, payment method, amount) when the connection has them enabled",
+            "lodgify": "Lodgify booking attributes (property_id, source, room_type_id)",
+            "eupago": "EuPago payment metadata"
+        },
+        "target": {
+            "invoicexpress": "InvoiceXpress series and document type",
+            "moloni": "Moloni document set and document type"
+        },
+        "tagPlaceholder": {
+            "shopify": "e.g. wholesale",
+            "stripe": "e.g. stripe:amount:13.00",
+            "lodgify": "e.g. property_id:686585",
+            "eupago": "e.g. channel:mbway"
+        },
         "back": "Back to {source}",
         "colTag": "Tag name",
         "colType": "Invoice type",
@@ -1228,7 +1242,6 @@
         "finalizeClose": "Finalize",
         "finalizeDraft": "Leave as draft",
         "seriesDefault": "Default",
-        "tagPlaceholder": "e.g. property_id:686585",
         "seriesPlaceholder": "e.g. RVFR",
         "addRule": "Add rule",
         "save": "Save",

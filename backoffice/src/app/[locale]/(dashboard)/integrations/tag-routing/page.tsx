@@ -169,8 +169,14 @@ export default function TagRoutingPage() {
                 <Link href={backHref} className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
                     <ArrowLeft className="w-3 h-3" /> {t("back", { source: backConnectionLabel })}
                 </Link>
-                <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{isMoloni ? t("titleMoloni") : t("title")}</h1>
-                <p className="text-fg-60 font-medium max-w-2xl">{isMoloni ? t("subtitleMoloni") : t("subtitle")}</p>
+                {/* Both halves of the pair, named. The copy used to be chosen by
+                    destination alone, so every Moloni page said "Match Lodgify
+                    booking attributes" — including the Stripe one, where the
+                    rules are written against Stripe metadata and amounts. A
+                    header that names the wrong source is how a rule ends up
+                    saved under a source_kind the worker never reads. */}
+                <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{t("titleRouting", { source: srcLabel, destination: destLabel })}</h1>
+                <p className="text-fg-60 font-medium max-w-2xl">{t("subtitleRouting", { signals: t(`signals.${sourceKind}`), target: t(`target.${destinationKind}`) })}</p>
             </div>
 
             {error && (
@@ -235,7 +241,7 @@ export default function TagRoutingPage() {
                                     type="text"
                                     value={draft.tag_name}
                                     onChange={(e) => setDraft({ ...draft, tag_name: e.target.value })}
-                                    placeholder={t("tagPlaceholder")}
+                                    placeholder={t(`tagPlaceholder.${sourceKind}`)}
                                     className="w-full bg-surface-2 border border-hairline rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-accent"
                                 />
                             </div>

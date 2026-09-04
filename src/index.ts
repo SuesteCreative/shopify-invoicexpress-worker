@@ -12,7 +12,7 @@ import { runAdapterPipeline, classifyPipelineError } from "./handlers/generic-pi
 import { httpStatusOf } from "./services/platform-error";
 import {
   GATEWAY_ERROR_HEADER, LODGIFY_DIRECT_BASE, assertSafePathSegment, describeLodgifyEgress,
-  isGatewayFailure, lodgifyFetch, probeLodgifyRelay, resolveLodgifyGateway,
+  assertSafeBookingId, isGatewayFailure, lodgifyFetch, probeLodgifyRelay, resolveLodgifyGateway,
   type LodgifyGateway,
 } from "./services/lodgify-api";
 import {
@@ -1247,6 +1247,75 @@ app.post("/admin/lodgify/settle-receipts", async (c) => {
   } catch (e) {
     return errorResponse(c, e, "Settle receipts failed");
   }
+})
+
+// Admin: what Lodgify actually knows about ONE booking's money.
+//
+// The mirror stores the v1 LIST item, which reports a single `total_amount` and
+// a payment pair that reads 0/0 for the whole life of an OTA booking. That is
+// the input to every settlement decision we make, and it is not enough to
+// answer the question a merchant asks: did the channel pay all of this, or part
+// of it? The detail endpoints may carry a breakdown the list omits — the v2
+// booking is where `subtotals` lives — and nobody has ever looked.
+//
+// Read-only, one booking at a time, through the relay like all Lodgify traffic.
+// Returns the payment-shaped fields plus the full key list of each payload, so
+// a field we do not know about yet shows up as a name rather than staying
+// invisible. Guest contact details are not returned: this answers a question
+// about money.
+app.post("/admin/lodgify/booking-detail", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  let body: { user_id?: string; booking_id?: string } = {};
+  try { body = await c.req.json(); } catch { /* */ }
+  if (!body.user_id || !body.booking_id) return c.json({ error: "Missing user_id / booking_id" }, 400);
+
+  const conn: any = await c.env.DB.prepare(
+    `SELECT source_config_json FROM connections WHERE user_id = ? AND source_kind = 'lodgify' LIMIT 1`
+  ).bind(body.user_id).first();
+  if (!conn) return c.json({ error: "No Lodgify connection" }, 404);
+  let sourceCfg: Record<string, any> = {};
+  try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
+  const apiKey = sourceCfg.api_key;
+  if (!apiKey) return c.json({ error: "No api_key" }, 400);
+
+  const bookingId = assertSafeBookingId(body.booking_id);
+  const gateway = resolveLodgifyGateway(c.env);
+
+  // Field names that could carry money, across both API versions. Matched on the
+  // name so a payload we have not seen before still surfaces its own vocabulary.
+  const MONEY = /(amount|paid|due|balance|total|subtotal|price|deposit|payment|prepaid|payout|quote|fee)/i;
+  const pick = (obj: any): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    if (!obj || typeof obj !== "object") return out;
+    for (const [k, v] of Object.entries(obj)) {
+      if (!MONEY.test(k)) continue;
+      if (v === null || typeof v !== "object") out[k] = v;
+      else out[k] = JSON.parse(JSON.stringify(v));
+    }
+    return out;
+  };
+
+  const out: any[] = [];
+  for (const path of [`/v1/reservation/booking/${bookingId}`, `/v2/reservations/bookings/${bookingId}`]) {
+    try {
+      const res = await lodgifyFetch(path, { apiKey, gateway });
+      const text = await res.text();
+      let data: any = null;
+      try { data = JSON.parse(text); } catch { /* non-JSON body */ }
+      out.push({
+        path,
+        status: res.status,
+        keys: data && typeof data === "object" ? Object.keys(data).sort() : null,
+        money: pick(data),
+        body_preview: data ? undefined : text.slice(0, 200),
+      });
+    } catch (e: any) {
+      out.push({ path, error: String(e?.message ?? e) });
+    }
+  }
+
+  return c.json({ ranAt: new Date().toISOString(), booking_id: bookingId, results: out });
 })
 
 // Admin: diagnose Lodgify reachability FROM the Worker.

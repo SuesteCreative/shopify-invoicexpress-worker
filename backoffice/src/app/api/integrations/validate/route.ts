@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
 
 export const runtime = "edge";
@@ -15,11 +15,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const isSuperAdmin = await isAdmin(userId);
-        if (isSuperAdmin) {
-            const impId = await getImpersonationId(request);
-            if (impId) targetUserId = impId;
-        }
+        targetUserId = await resolveAccountUser(request, userId);
 
         const body = await request.json() as { type: "shopify" | "ix" };
         const { env } = getRequestContext();

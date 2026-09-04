@@ -1,7 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getStripeEnvOptional, getDB } from "@/lib/stripe";
-import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
 
@@ -10,17 +10,14 @@ export async function POST(req: NextRequest) {
         const { userId } = await auth();
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        // If admin is impersonating, checkout creates subscription FOR the impersonated user
-        let targetUserId = userId;
+        // Checkout subscribes the ACCOUNT: the impersonated user for an admin, the
+        // inviting account for an extra user (0039), otherwise the caller.
+        const targetUserId = await resolveAccountUser(req, userId);
         let targetEmail: string | null = null;
-        if (await isAdmin(userId)) {
-            const imp = await getImpersonationId(req);
-            if (imp) {
-                targetUserId = imp;
-                const db0 = getDB();
-                const u: any = await db0.prepare("SELECT email FROM users WHERE id = ?").bind(imp).first();
-                targetEmail = u?.email || null;
-            }
+        if (targetUserId !== userId) {
+            const db0 = getDB();
+            const u: any = await db0.prepare("SELECT email FROM users WHERE id = ?").bind(targetUserId).first();
+            targetEmail = u?.email || null;
         }
 
         if (!targetEmail) {

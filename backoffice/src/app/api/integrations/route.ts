@@ -1,7 +1,8 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin, getImpersonationId, getRole } from "@/lib/admin";
+import { getRole, isAdmin } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
 
@@ -14,16 +15,8 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Admin Impersonation Logic
-        const isSuperAdmin = await isAdmin(userId);
-        let impersonationId: string | null = null;
-        if (isSuperAdmin) {
-            impersonationId = await getImpersonationId(request);
-            if (impersonationId) {
-                targetUserId = impersonationId;
-                console.log(`[Superadmin] Impersonating ${targetUserId}`);
-            }
-        }
+        // Admin impersonation, then extra-user membership (migration 0039).
+        targetUserId = await resolveAccountUser(request, userId);
 
         const { env } = getRequestContext();
         const db = (env as any).DB;
@@ -45,6 +38,9 @@ export async function GET(request: NextRequest) {
             .first();
 
         const viewerRole = await getRole(userId);
+        // True only for a real admin viewing someone else — a member working in
+        // the account that invited them is not impersonating.
+        const isImpersonating = targetUserId !== userId && (await isAdmin(userId));
 
         return NextResponse.json({
             ...(integration || {}),
@@ -53,7 +49,7 @@ export async function GET(request: NextRequest) {
             _user_role: userRecord?.role || "user",
             _registration_completed: !!userRecord?.registration_completed,
             _viewer_role: viewerRole,
-            _is_impersonating: !!impersonationId
+            _is_impersonating: isImpersonating
         });
     } catch (error: any) {
         console.error("D1 Error:", error);
@@ -70,15 +66,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Admin Impersonation Logic
-        const isSuperAdmin = await isAdmin(userId);
-        if (isSuperAdmin) {
-            const impersonationId = await getImpersonationId(request);
-            if (impersonationId) {
-                targetUserId = impersonationId;
-                console.log(`[Superadmin] Saving for impersonated ${targetUserId}`);
-            }
-        }
+        // Admin impersonation, then extra-user membership (migration 0039).
+        targetUserId = await resolveAccountUser(request, userId);
 
         const body: any = await request.json();
         const { env } = getRequestContext();

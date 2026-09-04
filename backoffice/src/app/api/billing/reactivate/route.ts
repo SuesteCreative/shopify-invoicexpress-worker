@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getDB } from "@/lib/stripe";
-import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
 
@@ -11,11 +11,7 @@ export async function POST(req: NextRequest) {
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         // Admins acting on an impersonated account manage that user's billing.
-        let targetUserId = userId;
-        if (await isAdmin(userId)) {
-            const imp = await getImpersonationId(req);
-            if (imp) targetUserId = imp;
-        }
+        let targetUserId = await resolveAccountUser(req, userId);
 
         const db = getDB();
         const sub: any = await db.prepare(

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { Activity, ShieldCheck, Settings2, BookOpen, Zap, ScrollText, Receipt, Wrench } from "lucide-react";
+import { Activity, ShieldCheck, Settings2, BookOpen, Zap, ScrollText, Receipt, Wrench, Users } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -150,6 +150,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         tooltip={t("tooltipNeedRegister")}
                     />
                     <LinkItem href="/faturacao" icon={Receipt} label={t("faturacao")} />
+                    <LinkItem href="/users" icon={Users} label={t("users")} />
                     <LinkItem href="/help" icon={BookOpen} label={t("help")} />
                 </div>
             </div>

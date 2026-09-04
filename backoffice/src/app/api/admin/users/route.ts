@@ -23,7 +23,41 @@ export async function GET(request: NextRequest) {
         const { env } = getRequestContext();
         const db = (env as any).DB;
 
-        const results = await db.prepare(`
+        // The membership join needs migration 0039; before it is applied the
+        // same list is served without the "member of" columns.
+        const USERS_SQL = `
+      SELECT
+        u.id, u.email, u.name, u.role, u.last_login, u.created_at,
+        u.nif, u.company_name, u.admin_label, u.fiscal_address, u.phone, u.website, u.registration_completed,
+        u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
+        i.shopify_domain, i.shopify_authorized, i.shopify_error,
+        i.ix_authorized, i.ix_error,
+        CASE WHEN i.shopify_token IS NOT NULL AND i.ix_api_key IS NOT NULL THEN 1 ELSE 0 END as is_connected,
+        conn.active_connections,
+        s.status as sub_status, s.plan as sub_plan, s.trial_end as sub_trial_end,
+        s.current_period_end as sub_period_end, s.early_bird as sub_early_bird,
+        s.stripe_subscription_id as sub_stripe_id,
+        m.role as member_role, m.account_id as member_of_id,
+        mo_label.label as member_of_label
+      FROM users u
+      LEFT JOIN integrations i ON u.id = i.user_id
+      LEFT JOIN subscriptions s ON u.id = s.user_id
+      LEFT JOIN (
+        SELECT user_id, GROUP_CONCAT(source_kind || ':' || destination_kind) as active_connections
+        FROM connections
+        WHERE status = 'active'
+        GROUP BY user_id
+      ) conn ON u.id = conn.user_id
+      -- Extra users (migration 0039) are not accounts of their own: show whose
+      -- account they belong to instead of a lone row with no subscription.
+      LEFT JOIN account_members m ON m.member_user_id = u.id AND m.status = 'active'
+      LEFT JOIN (
+        SELECT id, COALESCE(NULLIF(company_name, ''), NULLIF(admin_label, ''), NULLIF(name, ''), email, id) AS label
+        FROM users
+      ) mo_label ON mo_label.id = m.account_id
+      ORDER BY u.created_at DESC
+`;
+        const USERS_SQL_NO_MEMBERS = `
       SELECT
         u.id, u.email, u.name, u.role, u.last_login, u.created_at,
         u.nif, u.company_name, u.admin_label, u.fiscal_address, u.phone, u.website, u.registration_completed,
@@ -45,7 +79,9 @@ export async function GET(request: NextRequest) {
         GROUP BY user_id
       ) conn ON u.id = conn.user_id
       ORDER BY u.created_at DESC
-    `).all();
+`;
+        const results = await db.prepare(USERS_SQL).all()
+            .catch(() => db.prepare(USERS_SQL_NO_MEMBERS).all());
 
         let users = results.results as any[];
 

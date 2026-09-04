@@ -1,6 +1,8 @@
 import { RIOKO_CONFIG } from "./config";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { isAdmin } from "./admin";
+import { resolveAccountUser } from "./account";
+import { accountLabel } from "./labels";
 
 function getEnv(): { workerUrl: string; adminApiKey: string } {
     const ctx = (() => { try { return getRequestContext(); } catch { return null; } })();
@@ -54,15 +56,20 @@ export async function resolveSelfShop(request: Request, fallbackUserId: string):
 export async function resolveViewerId(request: Request, fallbackUserId: string): Promise<string> {
     const cookieHeader = request.headers.get("cookie") ?? "";
     const m = cookieHeader.match(/rioko_impersonate_id=([^;]+)/);
-    if (!m) return fallbackUserId;
-    if (!(await isAdmin(fallbackUserId))) return fallbackUserId;
-    return m[1];
+    if (m && (await isAdmin(fallbackUserId))) return m[1];
+    // An invited extra user reads and acts inside the account that invited them,
+    // never on an account of their own (migration 0039). Writes by a read-only
+    // member throw here rather than resolving an account.
+    return resolveAccountUser(request, fallbackUserId);
 }
 
 export type ConnectionSummary = {
     source: string;        // "shopify" | "lodgify" | "stripe" | …
     destination: string;   // "invoicexpress" | "moloni" | "vendus"
     identifier: string;    // shop domain for Shopify, else the user id
+    /** What a human should read: the client's own name, the admin's store label,
+     *  and only then the technical identifier. Never show a raw `user_…` id. */
+    label: string;
 };
 
 /** Resolve which integration a user reconciles: the active `connections` row
@@ -81,10 +88,15 @@ export async function resolveConnectionForUser(userId: string): Promise<Connecti
     const domRow: any = await db.prepare("SELECT shopify_domain FROM integrations WHERE user_id = ?").bind(userId).first();
     const domain: string | null = domRow?.shopify_domain ?? null;
 
+    const userRow: any = await db.prepare(
+        "SELECT id, name, company_name, admin_label, email FROM users WHERE id = ?"
+    ).bind(userId).first();
+    const label = accountLabel(userRow) || domain || userId;
+
     if (conn) {
         const identifier = conn.source_kind === "shopify" && domain ? domain : userId;
-        return { source: conn.source_kind, destination: conn.destination_kind, identifier };
+        return { source: conn.source_kind, destination: conn.destination_kind, identifier, label };
     }
-    if (domain) return { source: "shopify", destination: "invoicexpress", identifier: domain };
+    if (domain) return { source: "shopify", destination: "invoicexpress", identifier: domain, label };
     return null;
 }

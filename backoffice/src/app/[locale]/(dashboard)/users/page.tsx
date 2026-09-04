@@ -2,9 +2,9 @@
 
 export const runtime = "edge";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Users, UserPlus, Loader2, Trash2, ShieldCheck, Eye, Mail, Crown, AlertCircle } from "lucide-react";
+import { Users, UserPlus, Loader2, Trash2, ShieldCheck, Eye, Mail, Crown, AlertCircle, Lock, UserRound } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -19,9 +19,6 @@ interface Member {
     member_user_id: string | null;
     role: "admin" | "viewer" | string;
     status: "pending" | "active" | string;
-    seat_invoice_id: string | null;
-    seat_amount_cents: number | null;
-    seat_reused_from: string | null;
     created_at: string;
     accepted_at: string | null;
 }
@@ -33,9 +30,9 @@ interface MembersResponse {
     members: Member[];
     seat_price: { amount_cents: number; currency: string } | null;
     seats: { paid: number; occupied: number; free: number };
-    next_invite_free: boolean;
     can_invite: boolean;
-    invite_block_reason: string | null;
+    can_unlock: boolean;
+    unlock_block_reason: string | null;
 }
 
 function formatMoney(cents: number, currency: string) {
@@ -54,12 +51,12 @@ export default function UsersPage() {
     const [email, setEmail] = useState("");
     const [role, setRole] = useState<"admin" | "viewer">("viewer");
     const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+    const emailRef = useRef<HTMLInputElement>(null);
 
     const load = async () => {
         try {
             const r = await fetch("/api/account/members");
-            const d = (await r.json()) as MembersResponse;
-            setData(d);
+            setData((await r.json()) as MembersResponse);
         } catch (e) {
             console.error(e);
         } finally {
@@ -74,11 +71,37 @@ export default function UsersPage() {
             case "invalid_email": return t("invalidEmail");
             case "already_member": return t("alreadyMember");
             case "already_owner": return t("alreadyOwner");
+            case "no_free_seat": return t("noFreeSeat");
             case "subscription_required": return t("needSubscription");
             case "payment_failed": return t("paymentFailed", { detail: detail || "" });
             case "read_only_member":
             case "read_only": return t("readOnlyNotice");
             default: return t("genericError");
+        }
+    };
+
+    const priceLabel = data?.seat_price
+        ? formatMoney(data.seat_price.amount_cents, data.seat_price.currency)
+        : "1,50 €";
+
+    const handleUnlock = async () => {
+        if (!confirm(t("unlockConfirm", { amount: priceLabel }))) return;
+        setActing("unlock");
+        setNotice(null);
+        try {
+            const r = await fetch("/api/account/seats", { method: "POST" });
+            const d: any = await r.json();
+            if (d.ok) {
+                setNotice({ kind: "ok", text: t("unlocked") });
+                await load();
+                emailRef.current?.focus();
+            } else {
+                setNotice({ kind: "error", text: errorText(d.error, d.detail) });
+            }
+        } catch (e: any) {
+            setNotice({ kind: "error", text: e?.message || t("genericError") });
+        } finally {
+            setActing(null);
         }
     };
 
@@ -146,13 +169,8 @@ export default function UsersPage() {
     }
 
     const canManage = data?.access === "owner" || data?.access === "admin";
-    // Reusing a seat the account already bought costs nothing; only a brand new
-    // seat is billed.
-    const seatLabel = data?.next_invite_free
-        ? t("inviteFree")
-        : data?.seat_price
-            ? t("invitePrice", { amount: formatMoney(data.seat_price.amount_cents, data.seat_price.currency) })
-            : t("invitePriceFallback");
+    const freeSeats = data?.seats?.free ?? 0;
+    const roleTag = (r: string) => (r === "admin" ? t("roleAdmin") : t("roleViewer"));
 
     return (
         <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -182,83 +200,61 @@ export default function UsersPage() {
                 </div>
             )}
 
-            {/* Owner */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8">
-                <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("ownerTitle")}</span>
-                <div className="mt-4 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-[rgba(2,141,196,0.15)] ring-1 ring-[rgba(2,141,196,0.30)] flex items-center justify-center">
-                        <Crown className="w-5 h-5 text-accent" />
-                    </div>
-                    <div className="min-w-0">
-                        <p className="text-lg font-medium truncate">{data?.owner.label}</p>
-                        {data?.owner.email && <p className="text-[12px] text-fg-40 truncate">{data.owner.email}</p>}
-                    </div>
-                    <span className="ml-auto px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
-                        {t("ownerBadge")}
-                    </span>
-                </div>
-            </motion.div>
-
-            {/* Invite */}
-            {canManage && (
+            {/* Invite form — only with an empty seat to put someone in */}
+            {canManage && freeSeats > 0 && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8 space-y-5">
                     <div className="flex items-center gap-2">
                         <UserPlus className="w-4 h-4 text-accent" />
                         <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("inviteTitle")}</span>
                     </div>
 
-                    {data?.can_invite === false ? (
-                        <p className="text-[12px] text-soon">{t("needSubscription")}</p>
-                    ) : (
-                        <>
-                            <div className="flex flex-col lg:flex-row gap-3">
-                                <div className="flex-1 relative">
-                                    <Mail className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2" />
-                                    <input
-                                        type="email"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        placeholder={t("emailPlaceholder")}
-                                        className="w-full bg-surface-2/50 border border-hairline rounded-2xl pl-11 pr-5 py-3 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40"
-                                    />
-                                </div>
-                                <div className="flex gap-2">
-                                    {(["viewer", "admin"] as const).map((r) => (
-                                        <button
-                                            key={r}
-                                            type="button"
-                                            onClick={() => setRole(r)}
-                                            className={cn(
-                                                "px-4 py-3 rounded-2xl border font-mono text-[10px] uppercase tracking-[0.18em] transition-all flex items-center gap-2",
-                                                role === r
-                                                    ? "bg-accent/15 border-accent/30 text-accent"
-                                                    : "bg-white/5 border-hairline text-fg-60 hover:text-fg"
-                                            )}
-                                        >
-                                            {r === "admin" ? <ShieldCheck className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                            {r === "admin" ? t("roleAdmin") : t("roleViewer")}
-                                        </button>
-                                    ))}
-                                </div>
+                    <div className="flex flex-col lg:flex-row gap-3">
+                        <div className="flex-1 relative">
+                            <Mail className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2" />
+                            <input
+                                ref={emailRef}
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder={t("emailPlaceholder")}
+                                className="w-full bg-surface-2/50 border border-hairline rounded-2xl pl-11 pr-5 py-3 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40"
+                            />
+                        </div>
+                        <div className="flex gap-2">
+                            {(["viewer", "admin"] as const).map((r) => (
                                 <button
-                                    onClick={handleInvite}
-                                    disabled={!!acting || !email.trim()}
-                                    className="px-6 py-3 rounded-2xl bg-accent/15 border border-accent/30 text-accent font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    key={r}
+                                    type="button"
+                                    onClick={() => setRole(r)}
+                                    className={cn(
+                                        "px-4 py-3 rounded-2xl border font-mono text-[10px] uppercase tracking-[0.18em] transition-all flex items-center gap-2",
+                                        role === r
+                                            ? "bg-accent/15 border-accent/30 text-accent"
+                                            : "bg-white/5 border-hairline text-fg-60 hover:text-fg"
+                                    )}
                                 >
-                                    {acting === "invite" ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                                    {t("inviteButton")}
+                                    {r === "admin" ? <ShieldCheck className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                    {roleTag(r)}
                                 </button>
-                            </div>
-                            <div className="space-y-1">
-                                <p className="text-[11px] text-fg-40">{role === "admin" ? t("roleAdminHint") : t("roleViewerHint")}</p>
-                                <p className={cn("text-[11px]", data?.next_invite_free ? "text-accent-hot" : "text-soon")}>{seatLabel}</p>
-                            </div>
-                        </>
-                    )}
+                            ))}
+                        </div>
+                        <button
+                            onClick={handleInvite}
+                            disabled={!!acting || !email.trim()}
+                            className="px-6 py-3 rounded-2xl bg-accent/15 border border-accent/30 text-accent font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            {acting === "invite" ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                            {t("inviteButton")}
+                        </button>
+                    </div>
+                    <div className="space-y-1">
+                        <p className="text-[11px] text-fg-40">{role === "admin" ? t("roleAdminHint") : t("roleViewerHint")}</p>
+                        <p className="text-[11px] text-accent-hot">{t("inviteFree", { free: freeSeats })}</p>
+                    </div>
                 </motion.div>
             )}
 
-            {/* Members */}
+            {/* Seats: the owner, then every seat the account owns, then the locked one */}
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8">
                 <div className="flex flex-wrap items-center gap-2 mb-5">
                     <Users className="w-4 h-4 text-fg-40" />
@@ -270,65 +266,117 @@ export default function UsersPage() {
                     </span>
                 </div>
 
-                {(data?.members.length ?? 0) === 0 ? (
-                    <p className="text-[12px] text-fg-40">{t("empty")}</p>
-                ) : (
-                    <div className="space-y-3">
-                        {data!.members.map((m) => (
-                            <div key={m.id} className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-hairline bg-surface-2/30">
-                                <div className="min-w-0 flex-1">
-                                    <p className="text-sm font-medium truncate">{m.email}</p>
-                                    <p className="text-[11px] text-fg-40 font-mono">
-                                        {t("invitedOn", { date: formatDate(m.created_at) })}
-                                        {m.seat_amount_cents != null && <> · {t("seatCharged")}</>}
-                                        {m.seat_amount_cents == null && m.seat_reused_from && <> · {t("seatReused")}</>}
-                                    </p>
-                                </div>
-
-                                <span className={cn(
-                                    "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit",
-                                    m.status === "active"
-                                        ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
-                                        : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
-                                )}>
-                                    {m.status === "active" ? t("statusActive") : t("statusPending")}
-                                </span>
-
-                                {canManage ? (
-                                    <div className="flex items-center gap-2">
-                                        {(["viewer", "admin"] as const).map((r) => (
-                                            <button
-                                                key={r}
-                                                onClick={() => m.role !== r && handleRole(m, r)}
-                                                disabled={acting === m.id}
-                                                className={cn(
-                                                    "px-3 py-2 rounded-xl border font-mono text-[10px] uppercase tracking-[0.18em] transition-all disabled:opacity-40",
-                                                    m.role === r
-                                                        ? "bg-accent/15 border-accent/30 text-accent"
-                                                        : "bg-white/5 border-hairline text-fg-60 hover:text-fg"
-                                                )}
-                                            >
-                                                {r === "admin" ? t("roleAdmin") : t("roleViewer")}
-                                            </button>
-                                        ))}
-                                        <button
-                                            onClick={() => handleRemove(m)}
-                                            disabled={acting === m.id}
-                                            title={t("remove")}
-                                            className="p-2 rounded-xl bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] text-destructive hover:bg-[rgba(244,63,94,0.18)] transition-all disabled:opacity-40"
-                                        >
-                                            {acting === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-40">
-                                        {m.role === "admin" ? t("roleAdmin") : t("roleViewer")}
-                                    </span>
-                                )}
-                            </div>
-                        ))}
+                <div className="space-y-3">
+                    {/* Seat 1: the owner, included */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-hairline bg-surface-2/30">
+                        <div className="w-9 h-9 shrink-0 rounded-xl bg-[rgba(2,141,196,0.15)] ring-1 ring-[rgba(2,141,196,0.30)] grid place-items-center">
+                            <Crown className="w-4 h-4 text-accent" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{data?.owner.label}</p>
+                            {data?.owner.email && <p className="text-[11px] text-fg-40 truncate">{data.owner.email}</p>}
+                        </div>
+                        <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
+                            {t("ownerBadge")}
+                        </span>
                     </div>
-                )}
+
+                    {/* Occupied seats */}
+                    {(data?.members ?? []).map((m) => (
+                        <div key={m.id} className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-hairline bg-surface-2/30">
+                            <div className="w-9 h-9 shrink-0 rounded-xl bg-surface-2 border border-hairline grid place-items-center">
+                                <UserRound className="w-4 h-4 text-fg-60" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium truncate">{m.email}</p>
+                                <p className="text-[11px] text-fg-40 font-mono">{t("invitedOn", { date: formatDate(m.created_at) })}</p>
+                            </div>
+
+                            <span className={cn(
+                                "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit",
+                                m.status === "active"
+                                    ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
+                                    : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                            )}>
+                                {m.status === "active" ? t("statusActive") : t("statusPending")}
+                            </span>
+
+                            {canManage ? (
+                                <div className="flex items-center gap-2">
+                                    {(["viewer", "admin"] as const).map((r) => (
+                                        <button
+                                            key={r}
+                                            onClick={() => m.role !== r && handleRole(m, r)}
+                                            disabled={acting === m.id}
+                                            className={cn(
+                                                "px-3 py-2 rounded-xl border font-mono text-[10px] uppercase tracking-[0.18em] transition-all disabled:opacity-40",
+                                                m.role === r
+                                                    ? "bg-accent/15 border-accent/30 text-accent"
+                                                    : "bg-white/5 border-hairline text-fg-60 hover:text-fg"
+                                            )}
+                                        >
+                                            {roleTag(r)}
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => handleRemove(m)}
+                                        disabled={acting === m.id}
+                                        title={t("remove")}
+                                        className="p-2 rounded-xl bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] text-destructive hover:bg-[rgba(244,63,94,0.18)] transition-all disabled:opacity-40"
+                                    >
+                                        {acting === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                    </button>
+                                </div>
+                            ) : (
+                                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-40">{roleTag(m.role)}</span>
+                            )}
+                        </div>
+                    ))}
+
+                    {/* Seats already paid for, waiting for someone */}
+                    {Array.from({ length: freeSeats }).map((_, i) => (
+                        <div key={`free-${i}`} className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.05)]">
+                            <div className="w-9 h-9 shrink-0 rounded-xl bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.20)] grid place-items-center">
+                                <UserPlus className="w-4 h-4 text-accent-hot" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-accent-hot">{t("seatFree")}</p>
+                                <p className="text-[11px] text-fg-40">{t("seatFreeHint")}</p>
+                            </div>
+                            {canManage && (
+                                <button
+                                    onClick={() => emailRef.current?.focus()}
+                                    className="px-4 py-2 rounded-xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.28)] text-accent-hot font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(94,234,212,0.20)] transition-all"
+                                >
+                                    {t("inviteButton")}
+                                </button>
+                            )}
+                        </div>
+                    ))}
+
+                    {/* The next seat, locked behind its price */}
+                    {canManage && (
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-hairline bg-surface-2/20 opacity-70">
+                            <div className="w-9 h-9 shrink-0 rounded-xl bg-surface-2 border border-hairline grid place-items-center">
+                                <Lock className="w-4 h-4 text-fg-40" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-fg-40 line-through decoration-fg-40/60">{t("seatLocked")}</p>
+                                <p className="text-[11px] text-fg-40">
+                                    {data?.can_unlock ? t("seatLockedHint", { amount: priceLabel }) : t("needSubscription")}
+                                </p>
+                            </div>
+                            <button
+                                onClick={handleUnlock}
+                                disabled={!!acting || !data?.can_unlock}
+                                className="px-5 py-2.5 rounded-xl bg-[rgba(245,158,11,0.15)] border border-[rgba(245,158,11,0.30)] text-soon font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(245,158,11,0.25)] transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                {acting === "unlock" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                                {t("unlockButton", { amount: priceLabel })}
+                            </button>
+                        </div>
+                    )}
+                </div>
             </motion.div>
         </div>
     );

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getAccountContext, getAccountDB, getSeatPool, findReusableSeat } from "@/lib/account";
+import { getAccountContext, getAccountDB, getSeatPool } from "@/lib/account";
 import { accountLabel } from "@/lib/labels";
-import { resolveSeatPrice, chargeSeat } from "@/lib/seats";
+import { resolveSeatPrice } from "@/lib/seats";
 
 export const runtime = "edge";
 
@@ -89,10 +89,11 @@ export async function GET(req: NextRequest) {
             members,
             seat_price,
             seats,
-            // A free seat is one the account already paid for and nobody is using.
-            next_invite_free: seats.free > 0 || eligibility.exempt,
-            can_invite: eligibility.ok,
-            invite_block_reason: eligibility.ok ? null : eligibility.reason,
+            // Inviting needs an empty seat the account owns; unlocking one needs
+            // a live subscription (or an exempt platform admin).
+            can_invite: seats.free > 0,
+            can_unlock: eligibility.ok,
+            unlock_block_reason: eligibility.ok ? null : eligibility.reason,
         });
     } catch (e: any) {
         console.error("[account/members] GET", e);
@@ -100,8 +101,8 @@ export async function GET(req: NextRequest) {
     }
 }
 
-/** POST /api/account/members — invite someone. The seat is charged here, when the
- *  invite is sent: no charge, no invite. */
+/** POST /api/account/members — invite someone into a seat the account already
+ *  owns. Never charges: the money step is POST /api/account/seats. */
 export async function POST(req: NextRequest) {
     try {
         const guard = await requireManager(req);
@@ -129,46 +130,20 @@ export async function POST(req: NextRequest) {
             .first();
         if (existing) return NextResponse.json({ error: "already_member" }, { status: 409 });
 
-        // A seat freed by a removal is reused for free: only a new seat is billed.
+        // Inviting never charges: it fills a seat the account already unlocked.
+        // Buying one is POST /api/account/seats.
         const pool = await getSeatPool(ctx.accountId);
-        const reusedSeat = pool.free > 0 ? await findReusableSeat(ctx.accountId) : null;
-        const needsPurchase = pool.free === 0;
-
-        const eligibility = await seatEligibility(ctx.accountId);
-        // Buying a seat needs a live subscription; filling a seat already paid for
-        // does not (an account that lapses keeps the room it bought).
-        if (needsPurchase && !eligibility.ok) {
-            return NextResponse.json({ error: eligibility.reason }, { status: 402 });
+        if (pool.free === 0) {
+            return NextResponse.json({ error: "no_free_seat", seats: pool }, { status: 409 });
         }
 
-        // Reserve the seat first, so a charge can never be collected without a row
-        // to point at. A failed charge deletes the row again.
+        // Taking the seat: the row itself is what marks it occupied.
         const memberId = crypto.randomUUID();
         await db
-            .prepare(`INSERT INTO account_members (id, account_id, email, role, status, invited_by, seat_reused_from)
-                      VALUES (?, ?, ?, ?, 'pending', ?, ?)`)
-            .bind(memberId, ctx.accountId, email, role, ctx.authUserId, reusedSeat)
+            .prepare(`INSERT INTO account_members (id, account_id, email, role, status, invited_by)
+                      VALUES (?, ?, ?, ?, 'pending', ?)`)
+            .bind(memberId, ctx.accountId, email, role, ctx.authUserId)
             .run();
-
-        let seat: { invoice_id: string; amount_cents: number } | null = null;
-        if (needsPurchase && !eligibility.exempt && eligibility.customerId) {
-            try {
-                const charged = await chargeSeat({
-                    customerId: eligibility.customerId,
-                    accountId: ctx.accountId,
-                    memberEmail: email,
-                    memberRowId: memberId,
-                });
-                seat = { invoice_id: charged.invoice_id, amount_cents: charged.amount_cents };
-            } catch (e: any) {
-                await db.prepare("DELETE FROM account_members WHERE id = ?").bind(memberId).run();
-                return NextResponse.json({ error: "payment_failed", detail: e?.message ?? String(e) }, { status: 402 });
-            }
-            await db
-                .prepare("UPDATE account_members SET seat_invoice_id = ?, seat_amount_cents = ?, seat_paid_at = CURRENT_TIMESTAMP WHERE id = ?")
-                .bind(seat.invoice_id, seat.amount_cents, memberId)
-                .run();
-        }
 
         // Someone who already has a Rioko login joins immediately; everyone else
         // gets a Clerk invitation email carrying the membership in its metadata.
@@ -220,9 +195,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             ok: true,
             member: { id: memberId, email, role, status: joinedNow ? "active" : "pending" },
-            seat_charged: !!seat,
-            seat_reused: !needsPurchase,
-            seat_invoice_id: seat?.invoice_id ?? null,
+            seats: await getSeatPool(ctx.accountId),
             invitation_id: invitationId,
             joined_now: joinedNow,
         });

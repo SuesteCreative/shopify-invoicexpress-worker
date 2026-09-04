@@ -1284,7 +1284,7 @@ app.post("/admin/lodgify/booking-detail", async (c) => {
 
   // Field names that could carry money, across both API versions. Matched on the
   // name so a payload we have not seen before still surfaces its own vocabulary.
-  const MONEY = /(amount|paid|due|balance|total|subtotal|price|deposit|payment|prepaid|payout|quote|fee)/i;
+  const MONEY = /(amount|paid|due|balance|total|subtotal|price|deposit|payment|transaction|prepaid|payout|quote|fee)/i;
   const pick = (obj: any): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     if (!obj || typeof obj !== "object") return out;

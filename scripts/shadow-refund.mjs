@@ -26,10 +26,10 @@ const wq = (sql) => {
   return JSON.parse(raw.slice(raw.indexOf("["), raw.lastIndexOf("]") + 1))[0].results;
 };
 
-const CFG = ["user_id","shopify_domain","shopify_token","shopify_api_version","ix_account_name","ix_api_key","ix_environment","ix_document_type","ix_exemption_reason","ix_b2b_exemption_reason","ix_stamp_exemption_note","force_tax_rate","force_shipping_tax_rate","vat_included","oss_enabled","b2b_reverse_charge","auto_finalize","pos_mode","ix_retention_enabled","ix_retention","is_paused"];
+const CFG = ["user_id","shopify_domain","shopify_token","shopify_api_version","ix_account_name","ix_api_key","ix_environment","ix_document_type","ix_exemption_reason","ix_b2b_exemption_reason","ix_stamp_exemption_note","force_tax_rate","force_shipping_tax_rate","vat_included","oss_enabled","b2b_reverse_charge","auto_finalize","pos_mode","ix_retention_enabled","ix_retention","is_paused","ix_derive_exemption","ix_adapter_safety_nets","ix_require_series"];
 function loadConfig(dom) {
   const r = wq(`SELECT ${CFG.join(", ")} FROM integrations WHERE shopify_domain='${dom}'`)[0];
-  for (const k of ["ix_stamp_exemption_note","force_tax_rate","force_shipping_tax_rate","vat_included","oss_enabled","b2b_reverse_charge","auto_finalize","pos_mode","ix_retention_enabled","ix_retention","is_paused"]) r[k] = r[k] == null ? null : Number(r[k]);
+  for (const k of ["ix_stamp_exemption_note","force_tax_rate","force_shipping_tax_rate","vat_included","oss_enabled","b2b_reverse_charge","auto_finalize","pos_mode","ix_retention_enabled","ix_retention","is_paused","ix_derive_exemption","ix_adapter_safety_nets","ix_require_series"]) r[k] = r[k] == null ? null : Number(r[k]);
   return r;
 }
 function loadShops() {

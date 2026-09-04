@@ -1,6 +1,7 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { saleReference } from "../../services/document-references";
+import { parseMetadataMap, applyMetadataMap, applyMetadataVatRate } from "./metadata-map";
 
 /**
  * Verifies a Stripe webhook signature per
@@ -157,7 +158,11 @@ async function fetchStripeCustomer(customerId: string, restrictedKey: string): P
  */
 async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string): Promise<any | null> {
   try {
-    const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge`;
+    // `latest_charge.balance_transaction` comes along for the ride: it is the
+    // only place Stripe states what the payment became in the account's own
+    // currency, and at which rate. A foreign-currency sale cannot be invoiced
+    // without it (see convertToSettlementCurrency).
+    const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge.balance_transaction`;
     const res = await fetch(url, {
       headers: {
         "Authorization": `Bearer ${restrictedKey}`,
@@ -175,6 +180,71 @@ async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string)
     console.warn(`[Stripe] latest_charge expand network error for ${paymentIntentId}: ${e?.message ?? e}`);
     return null;
   }
+}
+
+/**
+ * The document the VAT actually lives on, for a payment that reached us as a
+ * PaymentIntent or a charge.
+ *
+ * One card payment fires `checkout.session.completed`, `payment_intent.succeeded`
+ * and `charge.succeeded`, all three dedup onto the same PaymentIntent, and only
+ * the session carries Stripe Tax's numbers — the other two shapes have no VAT
+ * breakdown at all and map to a 0% line. So whichever webhook Stripe delivered
+ * first decided whether a VAT-charged sale was invoiced with VAT on it.
+ *
+ * It is not only a race. Every recovery path — backfill, heal, re-emit by
+ * `pi_` — synthesizes a PaymentIntent event, so re-issuing a Checkout sale
+ * produced a structurally different document from the one it replaced.
+ *
+ * Returns a synthetic event of the richer shape, ready for `stripeToNormalized`.
+ * Failures are swallowed: the caller keeps what it had.
+ */
+async function fetchRicherTaxSource(
+  paymentIntentId: string,
+  invoiceId: string | null,
+  restrictedKey: string,
+  /** Set to `failed: true` when Stripe could not be asked. "No session behind
+   *  this payment" and "the lookup errored" look identical in the return value,
+   *  and routing hints have to tell them apart: the first says the payment was
+   *  created straight through the API, the second says nothing at all. */
+  status?: { failed: boolean },
+): Promise<any | null> {
+  const get = async (url: string): Promise<any | null> => {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "Authorization": `Bearer ${restrictedKey}`,
+          "Stripe-Version": "2024-12-18.acacia",
+        },
+      });
+      if (!res.ok) {
+        console.warn(`[Stripe] tax-source lookup failed (${res.status}): ${url.split("?")[0]}`);
+        if (status) status.failed = true;
+        return null;
+      }
+      return await res.json();
+    } catch (e: any) {
+      console.warn(`[Stripe] tax-source lookup network error: ${e?.message ?? e}`);
+      if (status) status.failed = true;
+      return null;
+    }
+  };
+
+  // A subscription or invoiced payment: the invoice has the lines and their
+  // per-line tax, which is richer than anything the session would give us.
+  if (invoiceId) {
+    const inv = await get(`https://api.stripe.com/v1/invoices/${encodeURIComponent(invoiceId)}`);
+    if (inv?.id) return { type: "invoice.paid", data: { object: inv } };
+  }
+
+  if (!paymentIntentId) return null;
+  const list = await get(
+    `https://api.stripe.com/v1/checkout/sessions?payment_intent=${encodeURIComponent(paymentIntentId)}&limit=1`,
+  );
+  const session = Array.isArray(list?.data) ? list.data[0] : null;
+  if (session?.id) return { type: "checkout.session.completed", data: { object: session } };
+
+  return null;
 }
 
 /**
@@ -230,6 +300,22 @@ export function stripeStableId(event: any): string {
   if ((type === "charge.succeeded" || type === "charge.refunded" || type === "checkout.session.completed") && obj.payment_intent) {
     return String(obj.payment_intent);
   }
+
+  // A Stripe invoice paid by card is the same sale as the PaymentIntent that
+  // paid it, and both events describe it. Without this they would be two
+  // different sales — `in_…` and `pi_…` — and the merchant would get two
+  // documents for one payment.
+  //
+  // An invoice the merchant marked as paid OUTSIDE Stripe has no PaymentIntent
+  // and no charge, because no money moved through Stripe. It keeps its own id,
+  // which is right: that invoice is the only record of the sale.
+  if (type.startsWith("invoice.")) {
+    const pi = obj.payment_intent
+      // Stripe API versions from 2025 moved the link into `payments`.
+      ?? obj.payments?.data?.[0]?.payment?.payment_intent;
+    if (pi) return String(typeof pi === "object" ? pi.id : pi);
+  }
+
   return String(obj.id ?? "");
 }
 
@@ -266,9 +352,20 @@ export function stripeToNormalized(event: any): Normalized | null {
     // When Stripe collected no tax, leave the line untaxed so the downstream
     // default VAT rate / exemption applies.
     const sessionTax = (session.total_details?.amount_tax ?? 0) / 100;
-    const sessionNet = session.amount_subtotal != null ? session.amount_subtotal / 100 : amount - sessionTax;
+    // Net is `amount_total - amount_tax`, NEVER `amount_subtotal`: Stripe strikes
+    // the subtotal BEFORE discounts and outside shipping, so on any session
+    // carrying a promo code it overstates the net and understates the derived
+    // rate - and the reconcile guard then aborts the sale with no invoice at all
+    // (subtotal 100, coupon -20, VAT 23% -> paid 98.40 vs expected 118.40).
+    // The subtraction holds for inclusive tax too: Stripe reports the tax
+    // contained in the total in this same field.
+    const sessionNet = round2(amount - sessionTax);
     const sessionRate = sessionTax > 0 && sessionNet > 0 ? Math.round((sessionTax / sessionNet) * 10000) / 100 : 0;
-    const sessionUnit = sessionRate > 0 ? sessionNet : amount;
+    // Re-derive the unit from the ROUNDED rate instead of shipping sessionNet
+    // straight through: the destination recomputes gross as net * (1 + rate/100)
+    // and a rate rounded to 2dp drifts past the guard's 1 cent tolerance on
+    // bigger sales. Dividing the paid total back out keeps the two in agreement.
+    const sessionUnit = sessionRate > 0 ? round2(amount / (1 + sessionRate / 100)) : amount;
     const details = session.customer_details ?? {};
     const billingName = details.name ?? session.shipping_details?.name ?? "";
     const billingEmail = details.email ?? session.customer_email ?? "";
@@ -474,10 +571,18 @@ export function stripeToNormalized(event: any): Normalized | null {
         billing_address: addrFromStripe(inv.customer_address, inv.customer_name, inv.customer_phone),
         shipping_address: addrFromStripe(inv.customer_shipping?.address, inv.customer_shipping?.name, inv.customer_shipping?.phone),
         items: lines.map((l, idx) => {
-          // Stripe invoice lines carry the net `amount` + `tax_amounts[]`; derive
-          // the per-line rate so mixed-rate invoices map correctly. No tax → 0.
-          const lineNet = (l.amount ?? 0) / 100;
-          const lineTax = Array.isArray(l.tax_amounts) ? l.tax_amounts.reduce((s: number, t: any) => s + (t?.amount ?? 0), 0) / 100 : 0;
+          // Stripe invoice lines carry `amount` + `tax_amounts[]` + `discount_amounts[]`,
+          // and `amount` is struck BEFORE any discount. A coupon - line-level, or
+          // an invoice/subscription-level one Stripe allocates down onto the lines -
+          // has to come off here, or the summed lines overshoot `amount_paid` and
+          // the reconcile guard aborts with no invoice at all. Derive the per-line
+          // rate from the DISCOUNTED net so mixed-rate invoices still map correctly.
+          const taxAmounts = Array.isArray(l.tax_amounts) ? l.tax_amounts : [];
+          const lineTax = sumStripeAmounts(taxAmounts);
+          // Inclusive tax sits inside `amount`; exclusive tax sits outside it. Only
+          // the inclusive part is subtracted to reach a VAT-exclusive net.
+          const inclusiveTax = sumStripeAmounts(taxAmounts.filter((t: any) => t?.inclusive));
+          const lineNet = round2((l.amount ?? 0) / 100 - sumStripeAmounts(l.discount_amounts) - inclusiveTax);
           const lineRate = lineTax > 0 && lineNet > 0 ? Math.round((lineTax / lineNet) * 10000) / 100 : 0;
           const qty = l.quantity || 1;
           return {
@@ -588,6 +693,232 @@ export function stripeToNormalized(event: any): Normalized | null {
     }] : [],
     debits: [],
   };
+}
+
+/**
+ * Sum a Stripe monetary array (`discount_amounts[]`, `tax_amounts[]`) into
+ * major currency units. Both shapes are `[{ amount: <cents>, ... }]`.
+ */
+function sumStripeAmounts(entries: any): number {
+  if (!Array.isArray(entries)) return 0;
+  return entries.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0) / 100;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Restate a foreign-currency sale in the currency the account settles in.
+ *
+ * InvoiceXpress issues in the account's own currency — for a Portuguese account
+ * that is the euro, and by law it has to be. It will happily print a second
+ * currency beside it, but the document's value is the euro one, so 100 AUD has
+ * to become 58,20 € before it is sent. Passing the foreign number through would
+ * issue a 100 € invoice for a sale of about 58 €.
+ *
+ * The rate is not fetched from an FX feed: it is read off the payment's own
+ * `balance_transaction`, which is what Stripe actually settled at. Using
+ * anything else guarantees a document that disagrees with the merchant's bank
+ * statement. `amount` and not `net`, because `net` is after Stripe's fee and
+ * the merchant sold the gross.
+ *
+ * Returns true when it converted. Leaves the order untouched otherwise.
+ */
+function convertToSettlementCurrency(normalized: Normalized, charge: any): boolean {
+  const bt = charge?.balance_transaction;
+  if (!bt || typeof bt !== "object") return false;
+
+  const settledCode = String(bt.currency ?? "").toUpperCase();
+  const paidCode = String(charge.currency ?? "").toUpperCase();
+  if (!settledCode || !paidCode || settledCode === paidCode) return false;
+
+  const settledTotal = round2(Number(bt.amount) / 100);
+  const paidTotal = round2(Number(charge.amount) / 100);
+  if (!(settledTotal > 0) || !(paidTotal > 0)) return false;
+
+  const order = normalized.order;
+  const items: any[] = Array.isArray(order.items) ? order.items : [];
+  if (items.length === 0) return false;
+
+  const factor = settledTotal / paidTotal;
+  for (const item of items) {
+    item.unit_price = round2(Number(item.unit_price ?? 0) * factor);
+    item.unit_price_calculated = item.unit_price;
+    item.subtotal_calculated = item.unit_price;
+    if (typeof item.discount_allocation_amount === "number") {
+      item.discount_allocation_amount = round2(item.discount_allocation_amount * factor);
+    }
+    if (item.tax && typeof item.tax.unit_amount === "number") {
+      item.tax.unit_amount = round2(item.tax.unit_amount * factor);
+    }
+  }
+
+  // Converting line by line and rounding each one leaves the sum a cent or two
+  // away from the settled total, and the reconcile guard rejects the document
+  // over exactly that. Put the residual on the biggest line, where it distorts
+  // the unit price least.
+  const grossOf = (it: any) =>
+    Number(it.unit_price) * Number(it.quantity ?? 1) * (1 + Number(it.tax?.value ?? 0) / 100);
+  const sum = round2(items.reduce((acc, it) => acc + grossOf(it), 0));
+  const residual = round2(settledTotal - sum);
+  if (residual !== 0) {
+    let biggest = items[0];
+    for (const it of items) if (grossOf(it) > grossOf(biggest)) biggest = it;
+    const qty = Number(biggest.quantity ?? 1) || 1;
+    const withTax = 1 + Number(biggest.tax?.value ?? 0) / 100;
+    biggest.unit_price = round2(biggest.unit_price + residual / qty / withTax);
+    biggest.unit_price_calculated = biggest.unit_price;
+    biggest.subtotal_calculated = biggest.unit_price;
+  }
+
+  order.total = settledTotal;
+  order.total_calculated = settledTotal;
+  order.currency = settledCode;
+  order.shop_currency = settledCode;
+  // Six decimals so the foreign figure the document prints lands back on the
+  // amount the buyer actually paid: IX derives it as total * rate, and two
+  // decimals of rate are worth several cents on a large sale.
+  order.paid_in_foreign_currency = {
+    code: paidCode,
+    amount: paidTotal,
+    rate: Math.round((paidTotal / settledTotal) * 1e6) / 1e6,
+  };
+  console.log(`[Stripe] ${charge.id}: ${paidTotal} ${paidCode} settled as ${settledTotal} ${settledCode} (rate ${order.paid_in_foreign_currency.rate})`);
+  return true;
+}
+
+/** Does this mapping already know what VAT was charged? */
+function carriesTax(normalized: Normalized): boolean {
+  return (normalized.order.items ?? []).some((it: any) => Number(it?.tax?.value ?? 0) > 0);
+}
+
+/**
+ * Where a Stripe payment came from, expressed as tag-routing candidates.
+ *
+ * A Stripe account collects money from several places at once — a booking
+ * plugin creating PaymentIntents through the API, Payment Links and Checkout,
+ * invoices the merchant marks as paid outside Stripe — and each stream may have
+ * to be filed in its own series. `matchTagRouting` only ever saw order tags and
+ * metadata, so a stream whose software writes no metadata was unroutable.
+ *
+ * Everything here is namespaced `stripe:` so a hint can never collide with a
+ * tag or metadata key the merchant wrote themselves, and every value is
+ * lowercased so a rule does not depend on Stripe's capitalisation.
+ *
+ * Only signals that are the SAME for every event describing one payment belong
+ * here. A card payment fires session, PaymentIntent and charge events that all
+ * dedup onto the PaymentIntent, so a hint that differs between the shapes would
+ * make routing a race — which is why `origin` is resolved by looking the sale up
+ * rather than read off whichever event arrived (see resolveStripeOrigin).
+ */
+export function buildStripeRoutingHints(
+  objects: any[],
+  origin: string | null,
+  /** The paid total, for a merchant whose streams are told apart by price. Taken
+   *  from the mapped order rather than off a Stripe object so it is the one
+   *  number every shape of the payment agrees on. */
+  money?: { total: number; currency: string },
+): string[] {
+  const hints = new Set<string>();
+  // A hint with no value is a hint about nothing: an absent field must not
+  // produce a bare `stripe:description` that every payment without one matches.
+  const add = (name: string, value: unknown) => {
+    const v = String(value ?? "").trim().toLowerCase().slice(0, 120);
+    if (v) hints.add(`stripe:${name}:${v}`);
+  };
+  const flag = (name: string) => hints.add(`stripe:${name}`);
+
+  if (origin) add("origin", origin);
+
+  for (const obj of objects) {
+    if (!obj || typeof obj !== "object") continue;
+
+    // How the money arrived. `payment_method_details.type` is the charge's, and
+    // `payment_method_types` the intent's — the same word either way ("card",
+    // "multibanco", "sepa_debit").
+    add("payment_method", obj.payment_method_details?.type);
+    if (Array.isArray(obj.payment_method_types)) {
+      for (const t of obj.payment_method_types) add("payment_method", t);
+    }
+
+    // What the payment calls itself. Software that creates payments through the
+    // API almost always writes a fixed description even when it writes no
+    // metadata, which makes this the fallback discriminator between streams.
+    add("description", obj.description);
+    add("statement", obj.statement_descriptor ?? obj.statement_descriptor_suffix);
+
+    // A Connect application id — set when a platform or app created the charge.
+    if (typeof obj.application === "string") add("application", obj.application);
+    add("mode", obj.mode);
+    add("billing_reason", obj.billing_reason);
+
+    // Money collected outside Stripe and recorded on a Stripe invoice. The
+    // merchant's "marked as paid" stream, with no charge behind it at all.
+    if (obj.paid_out_of_band === true) flag("paid_out_of_band");
+  }
+
+  // The price itself. Software selling a fixed catalogue — a booking plugin with
+  // three services, a class with one ticket price — charges the same few amounts
+  // over and over, and when it writes no metadata that is the only thing telling
+  // its payments apart from the money the merchant collects by hand.
+  //
+  // Both forms are offered: `stripe:amount:45.00` reads better in a rule, and
+  // `stripe:amount:eur:45.00` is the one to write on an account that takes more
+  // than one currency, where 45.00 GBP and 45.00 EUR are different products.
+  //
+  // Matched exactly, so a discounted or part-paid booking will NOT match and
+  // falls to the connection's own series — the safe direction to fail in.
+  if (money && Number.isFinite(money.total) && money.total > 0) {
+    const amount = money.total.toFixed(2);
+    add("amount", amount);
+    if (money.currency) add("amount", `${money.currency}:${amount}`);
+  }
+
+  return [...hints];
+}
+
+/**
+ * Which Stripe surface created this sale: `checkout`, `invoice` or `api`.
+ *
+ * Stable across the three events one card payment fires, because it is answered
+ * from the sale itself: an event that IS a session or an invoice answers itself,
+ * and a PaymentIntent or charge is resolved by asking Stripe what sits behind
+ * it. Returns null when the question could not be answered — no restricted key,
+ * or a lookup that errored — because "nothing sits behind this PaymentIntent"
+ * and "Stripe did not reply" mean opposite things, and only the first one is
+ * `api`.
+ */
+function stripeOriginOf(
+  eventType: string,
+  richerEvent: any | null,
+  lookupFailed: boolean,
+  lookupRan: boolean,
+): "checkout" | "invoice" | "api" | null {
+  if (eventType === "checkout.session.completed") return "checkout";
+  if (eventType.startsWith("invoice.")) return "invoice";
+  if (richerEvent?.type === "checkout.session.completed") return "checkout";
+  if (richerEvent?.type === "invoice.paid") return "invoice";
+  if (lookupRan && !lookupFailed) return "api";
+  return null;
+}
+
+/**
+ * Union of two note_attribute lists, keyed on name+value so re-reading the same
+ * metadata from a second Stripe object does not duplicate every entry — a
+ * doubled `country:AU` would still route correctly, but a doubled NIF field is
+ * the kind of thing the extractor should never have to reason about.
+ */
+function mergeNoteAttributes(base: any, extra: any): any[] {
+  const out: any[] = Array.isArray(base) ? [...base] : [];
+  const seen = new Set(out.map(a => `${a?.name} ${a?.value}`));
+  for (const attr of Array.isArray(extra) ? extra : []) {
+    const key = `${attr?.name} ${attr?.value}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(attr);
+  }
+  return out;
 }
 
 function emptyAddress() {
@@ -711,6 +1042,113 @@ export class StripeSource implements SourceAdapter {
       const paidAt = new Date(Number(charge.created) * 1000).toISOString();
       normalized.order.created_at = paidAt;
       if (normalized.order.meta) normalized.order.meta.processed_at = paidAt;
+    }
+
+    // The VAT the event does not carry. A PaymentIntent and a charge both map
+    // to a single untaxed line, because neither shape has a tax breakdown —
+    // Stripe Tax's numbers live on the Checkout Session or the Stripe Invoice
+    // behind the payment. Look that up rather than invoice a VAT-charged sale
+    // at 0%.
+    //
+    // Grafts the MONEY only, and only when it agrees with what was paid: the
+    // buyer's identity, the document date and the dedup reference all stay as
+    // the event decided them, so this cannot move a document to a different
+    // customer or a different day. A disagreement means the two objects are not
+    // the same sale, and the safe answer is to keep what we had.
+    const wantsHints = ctx.config?.stripe_routing_hints === 1;
+    const wantsTax = ctx.config?.stripe_tax_from_source === 1 && !carriesTax(normalized);
+    const piId = isPI ? String(obj?.id ?? "") : String(obj?.payment_intent ?? "");
+    const invoiceId = obj?.invoice ? String(obj.invoice) : (charge?.invoice ? String(charge.invoice) : null);
+
+    // One lookup, two readers. The tax graft and the routing hints both need the
+    // richer object behind a PaymentIntent, and asking Stripe twice for the same
+    // session would double the calls on every payment for no new information.
+    const lookupStatus = { failed: false };
+    const lookupRan = restrictedKey != null && restrictedKey !== "" && (isPI || isCharge) && (wantsTax || wantsHints);
+    const richerEvent = lookupRan
+      ? await fetchRicherTaxSource(piId, invoiceId, restrictedKey!, lookupStatus)
+      : null;
+
+    if (wantsTax && restrictedKey && (isPI || isCharge)) {
+      const richer = richerEvent ? stripeToNormalized(richerEvent) : null;
+      if (richer && carriesTax(richer)) {
+        const paid = Number(normalized.order.total);
+        const found = Number(richer.order.total);
+        if (Number.isFinite(paid) && Number.isFinite(found) && Math.abs(paid - found) <= 0.01) {
+          normalized.order.items = richer.order.items;
+          // The session also collected what the payment shapes never see: the
+          // buyer's tax ids and any custom field they typed a NIF into.
+          normalized.order.note_attributes = mergeNoteAttributes(
+            normalized.order.note_attributes,
+            richer.order.note_attributes,
+          );
+          console.log(`[Stripe] ${piId || invoiceId}: VAT read from ${richerEvent!.type}`);
+        } else {
+          console.warn(`[Stripe] ${piId || invoiceId}: ignoring ${richerEvent!.type} — it totals ${found} and the payment was ${paid}`);
+        }
+      }
+    }
+
+    // Routing hints: which stream of the merchant's business this payment came
+    // from, for a Stripe account that collects money in more than one way and
+    // files each one in its own series. Written to `meta.routing_hints` and NOT
+    // to `note_attributes`, which is scanned for a NIF — a synthetic entry there
+    // is a fiscal identity waiting to be misread.
+    if (wantsHints) {
+      const richerObj = richerEvent?.data?.object ?? null;
+      const origin = stripeOriginOf(String(event?.type ?? ""), richerEvent, lookupStatus.failed, lookupRan);
+      // Before the foreign-currency restatement below, deliberately: a rule is
+      // written against the price the buyer was charged, not against its euro
+      // equivalent at that day's rate.
+      const hints = buildStripeRoutingHints([obj, charge, richerObj], origin, {
+        total: Number(normalized.order.total),
+        currency: String(normalized.order.currency ?? ""),
+      });
+      if (hints.length && normalized.order.meta) {
+        normalized.order.meta.routing_hints = hints;
+      }
+
+      // The metadata the winning event did not carry. Checkout copies session
+      // metadata onto the PaymentIntent only when the merchant's software asked
+      // it to, so a rule written against a booking plugin's metadata key matched
+      // or missed depending on which of the three webhooks Stripe delivered
+      // first. Reading it off the session makes the same rule match every time.
+      if (richerObj) {
+        const richer = stripeToNormalized(richerEvent);
+        if (richer) {
+          normalized.order.note_attributes = mergeNoteAttributes(
+            normalized.order.note_attributes,
+            richer.order.note_attributes,
+          );
+        }
+      }
+    }
+
+    // What the merchant's own checkout knows and Stripe never asks for. Runs
+    // before the currency conversion (it can set the VAT rate, and the
+    // conversion restates whatever the lines end up holding) and after every
+    // Stripe-sourced tier, because it only fills what is still blank.
+    const metadataMap = parseMetadataMap(ctx.config?.stripe_metadata_map);
+    if (metadataMap) {
+      const filled = applyMetadataMap(normalized, metadataMap);
+      const rate = applyMetadataVatRate(normalized, metadataMap);
+      if (filled.length > 0 || rate !== null) {
+        console.log(`[Stripe] metadata filled ${filled.join(", ") || "nothing"}${rate !== null ? `, VAT ${rate}%` : ""}`);
+      }
+    }
+
+    // Foreign currency, last of all: the lines have to be final before they are
+    // restated, or the conversion runs on numbers the tax lookup above is about
+    // to replace. A Checkout Session event never carries the charge, so fetch it
+    // here for the currencies that need one.
+    if (ctx.config?.ix_multicurrency === 1 && restrictedKey
+      && String(normalized.order.currency ?? "EUR").toUpperCase() !== "EUR") {
+      let fxCharge = charge;
+      if (!fxCharge) {
+        const piId = String(obj?.payment_intent ?? obj?.id ?? "");
+        if (piId.startsWith("pi_")) fxCharge = await fetchLatestCharge(piId, restrictedKey);
+      }
+      if (fxCharge) convertToSettlementCurrency(normalized, fxCharge);
     }
 
     // Last identity tier: the Customer record. Multibanco / Link / off-session

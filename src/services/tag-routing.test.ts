@@ -156,3 +156,83 @@ describe("applyTagRoute", () => {
     expect(out.config.auto_finalize).toBe(0);
   });
 });
+
+/**
+ * Routing a sale to its destination country's document series.
+ *
+ * A merchant selling worldwide files each country into its own InvoiceXpress
+ * series (FR-PT, FR-AU, …, FR-ROW for everything else). Until now the only
+ * signals were Shopify tags and Stripe metadata, so the routing worked exactly
+ * as well as the merchant's own metadata — a sale that arrived without a
+ * `country` key fell into the default series with nothing to say it had.
+ *
+ * Opt-in, because it starts matching rule names nobody wrote for this purpose.
+ */
+describe("matchTagRouting by buyer country", () => {
+  const auRule = rule({ tag_name: "country:AU", series_name: "FR-AU" });
+
+  it("matches the billing country when the connection asked for it", () => {
+    const match = matchTagRouting(
+      order({ billing_address: { country_code: "au" } }),
+      [auRule],
+      { byCountry: true },
+    );
+    expect(match?.series_name).toBe("FR-AU");
+  });
+
+  it("also answers to the country_code spelling", () => {
+    const match = matchTagRouting(
+      order({ billing_address: { country_code: "AU" } }),
+      [rule({ tag_name: "country_code:AU", series_name: "FR-AU" })],
+      { byCountry: true },
+    );
+    expect(match?.series_name).toBe("FR-AU");
+  });
+
+  it("falls back to the shipping country when the payment collected no billing address", () => {
+    const match = matchTagRouting(
+      order({ billing_address: {}, shipping_address: { country_code: "AU" } }),
+      [auRule],
+      { byCountry: true },
+    );
+    expect(match?.series_name).toBe("FR-AU");
+  });
+
+  it("prefers the billing country — it is who the invoice is addressed to", () => {
+    const match = matchTagRouting(
+      order({
+        billing_address: { country_code: "PT" },
+        shipping_address: { country_code: "AU" },
+      }),
+      [auRule, rule({ tag_name: "country:PT", series_name: "FR-PT" })],
+      { byCountry: true },
+    );
+    expect(match?.series_name).toBe("FR-PT");
+  });
+
+  it("matches nothing when the connection did not opt in", () => {
+    const match = matchTagRouting(order({ billing_address: { country_code: "AU" } }), [auRule]);
+    expect(match).toBeNull();
+  });
+
+  it("leaves the sale on the connection's own series when no rule names its country", () => {
+    const match = matchTagRouting(
+      order({ billing_address: { country_code: "JP" } }),
+      [auRule],
+      { byCountry: true },
+    );
+    expect(match).toBeNull();
+  });
+
+  it("does not fight metadata: the merchant's own country key is the same string", () => {
+    const match = matchTagRouting(
+      order({
+        billing_address: { country_code: "AU" },
+        note_attributes: [{ name: "country", value: "AU" }],
+      }),
+      [auRule],
+      { byCountry: true },
+    );
+    expect(match?.series_name).toBe("FR-AU");
+  });
+});

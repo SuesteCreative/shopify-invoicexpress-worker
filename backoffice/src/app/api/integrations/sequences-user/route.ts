@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { listIxSequences } from "@/lib/ix-sequences";
 
 export const runtime = "edge";
 
@@ -25,27 +26,9 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const integration: any = await db
-        .prepare("SELECT ix_account_name, ix_api_key, ix_environment FROM integrations WHERE user_id = ?")
-        .bind(targetUserId)
-        .first();
-
-    if (!integration?.ix_account_name || !integration?.ix_api_key) {
-        return NextResponse.json([]);
-    }
-
-    const { ix_account_name: account, ix_api_key: apiKey, ix_environment: environment } = integration;
-    const isTest = environment !== "production";
-    const suffix = isTest ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-
-    try {
-        const res = await fetch(`https://${account}${suffix}/sequences.json?api_key=${apiKey}`, {
-            headers: { "Accept": "application/json" },
-        });
-        if (!res.ok) return NextResponse.json([]);
-        const data: any = await res.json();
-        return NextResponse.json(data.sequences ?? []);
-    } catch {
-        return NextResponse.json([]);
-    }
+    // Shared with the rule form, which has to refuse a series the account does
+    // not have. `null` there means "could not tell"; this endpoint has always
+    // answered with an empty list either way, and keeps doing so.
+    const sequences = await listIxSequences(db, targetUserId);
+    return NextResponse.json(sequences ?? []);
 }

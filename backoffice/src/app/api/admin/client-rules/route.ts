@@ -28,6 +28,10 @@ const INTEGRATION_FISCAL_COLUMNS = [
   "force_tax_rate", "force_shipping_tax_rate", "oss_enabled", "b2b_reverse_charge",
   "ix_retention_enabled", "ix_retention", "custom_invoice_note",
   "pos_mode", "client_sync", "is_paused",
+  // Stripe→IX fiscal rework (migration 0037), all default 0.
+  "ix_derive_exemption", "ix_adapter_safety_nets", "stripe_tax_from_source",
+  "tag_route_by_country", "ix_require_series", "stripe_metadata_map",
+  "ix_multicurrency", "stripe_routing_hints",
 ] as const;
 
 /**
@@ -43,6 +47,10 @@ const DANGEROUS_FIELDS = new Set([
   "ix_exemption_reason", "ix_b2b_exemption_reason",
   "oss_enabled", "b2b_reverse_charge", "vat_included",
   "exemption_reason", "default_vat_rate", "moloni_default_tax_id",
+  // These three decide what a document declares, not merely how it is produced:
+  // which legal exemption is named, what VAT the lines carry, and in which
+  // currency the amounts are read.
+  "ix_derive_exemption", "stripe_tax_from_source", "ix_multicurrency",
 ]);
 
 /** Legacy boolean toggles, kept working exactly as before. */

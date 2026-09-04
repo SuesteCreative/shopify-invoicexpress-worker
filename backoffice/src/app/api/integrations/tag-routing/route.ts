@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { listIxSequences, findSequenceByName, sequenceIdForDocType } from "@/lib/ix-sequences";
 
 export const runtime = "edge";
 
@@ -141,6 +142,39 @@ export async function POST(request: NextRequest) {
     const { env } = getRequestContext();
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+
+    // A series name InvoiceXpress does not know is caught here, at the one
+    // moment someone is looking at it, rather than at 3am on a sale. Until now
+    // an unknown name silently fell back to the account's default series — with
+    // one series per destination country, that files a sale under the wrong
+    // country and nothing says so.
+    //
+    // Only a definitive negative blocks: an account with no stored credentials,
+    // or an InvoiceXpress that did not answer, returns null and the rule is
+    // saved. Refusing a legitimate rule because a lookup was flaky would be the
+    // worse failure.
+    if (seriesName && destinationKind === "invoicexpress") {
+        const sequences = await listIxSequences(db, authResult.targetUserId);
+        if (sequences !== null) {
+            const match = findSequenceByName(sequences, seriesName);
+            if (!match) {
+                const known = sequences.map(s => s.serie).filter(Boolean).join(", ");
+                return NextResponse.json({
+                    error: `A série "${seriesName}" não existe na conta InvoiceXpress.`
+                        + (known ? ` Séries disponíveis: ${known}.` : " A conta não tem séries criadas."),
+                }, { status: 400 });
+            }
+            // The series exists, but not for the document type this rule issues.
+            // IX refuses that combination outright ("A série não corresponde ao
+            // tipo de documento"), so the sale would never be invoiced.
+            const forType = documentType ?? "invoice";
+            if (sequenceIdForDocType(match, forType) === null) {
+                return NextResponse.json({
+                    error: `A série "${seriesName}" não tem numeração para ${forType} na conta InvoiceXpress.`,
+                }, { status: 400 });
+            }
+        }
+    }
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();

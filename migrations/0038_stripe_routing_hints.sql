@@ -1,0 +1,24 @@
+-- Routing signals for Stripe payments that carry no merchant metadata.
+--
+-- A single Stripe account can collect money from several systems at once: a
+-- booking plugin creating PaymentIntents through the API, Payment Links and
+-- Checkout, and invoices the merchant marks as paid outside Stripe. Each stream
+-- may have to be filed in its own document series — but `matchTagRouting` only
+-- ever saw order tags and metadata, so a stream whose software writes no
+-- metadata was unroutable, and one whose metadata sits on the Checkout Session
+-- matched or missed depending on which of the three webhooks Stripe delivered
+-- first.
+--
+-- With this on, the source builds `stripe:` namespaced hints from the payment
+-- itself (which surface created it, how it was paid, what it calls itself) and
+-- consolidates the metadata of every object behind the payment, so a rule
+-- matches the same way whichever event arrived. Namespaced so a hint can never
+-- collide with a tag or metadata key the merchant wrote. Costs one Stripe read
+-- per PaymentIntent/charge event — the same read `stripe_tax_from_source`
+-- already makes, and they share it.
+--
+-- Apply by hand:
+--   npx wrangler d1 execute rioko-db --remote --file migrations/0038_stripe_routing_hints.sql
+-- NEVER `d1 migrations apply` on this database: its ledger is stuck at 0017 and
+-- it would replay 0018+ onto columns that already exist.
+ALTER TABLE integrations ADD COLUMN stripe_routing_hints INTEGER DEFAULT 0;

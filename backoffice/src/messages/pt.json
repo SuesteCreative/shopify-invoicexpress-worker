@@ -947,6 +947,34 @@
                 "label": "Forçar taxa de IVA dos portes (%)",
                 "help": "O mesmo, para as linhas de portes."
             },
+            "ixDeriveExemption": {
+                "label": "Indicar a isenção venda a venda",
+                "help": "Decide a razão legal de cada documento a 0% pelo país e pelo NIF do comprador — exportação fora da UE, transmissão intracomunitária, ou a razão da própria loja — em vez de carimbar o mesmo código em todos. Desligado por defeito."
+            },
+            "ixAdapterSafetyNets": {
+                "label": "Repetir e reler cada documento",
+                "help": "Cria os documentos pelo caminho protegido: repete quando o InvoiceXpress encrava, recupera de um registo de cliente partido, envia as taxas de IVA explicitamente, e relê o documento para confirmar os valores guardados. Desligado por defeito."
+            },
+            "stripeTaxFromSource": {
+                "label": "Ler o IVA do checkout do Stripe",
+                "help": "Procura a sessão de checkout ou a fatura Stripe por trás do pagamento em vez de confiar no evento que chegou primeiro — os eventos de pagamento e de cobrança não trazem a decomposição do IVA. Desligado por defeito."
+            },
+            "stripeRoutingHints": {
+                "label": "Pistas de encaminhamento do Stripe",
+                "help": "Permite que uma regra case com a forma como o pagamento chegou ao Stripe (stripe:origin:checkout, stripe:origin:api, stripe:origin:invoice, stripe:payment_method:multibanco, stripe:description:…) e com o valor cobrado (stripe:amount:45.00, stripe:amount:eur:45.00), para o dinheiro cobrado por sistemas diferentes poder ir para séries diferentes mesmo quando esses sistemas não escrevem metadata. Uma regra chamada 'stripe:origin:api + stripe:amount:45.00' exige as duas condições. Também lê a metadata da Checkout Session por trás do pagamento, para a regra casar seja qual for o webhook que chegar primeiro. Desligado por defeito."
+            },
+            "tagRouteByCountry": {
+                "label": "Escolher a série pelo país do comprador",
+                "help": "Faz com que uma regra chamada country:AU case com a morada do comprador, para a escolha da série não depender de o país vir na metadata. Desligado por defeito."
+            },
+            "ixRequireSeries": {
+                "label": "Falhar quando a série não existe",
+                "help": "Uma série configurada que o InvoiceXpress não conhece passa a travar a venda em vez de cair na série por defeito. Desligado por defeito."
+            },
+            "ixMulticurrency": {
+                "label": "Faturar vendas em moeda estrangeira",
+                "help": "Trata as vendas pagas em moeda que não o euro. Desligado por defeito."
+            },
             "vatIncludedConnection": {
                 "label": "Preços com IVA incluído",
                 "help": "Aqui isto É o interruptor da inclusão de IVA: diz ao destino para descontar o IVA do valor quando a origem não enviou decomposição de impostos."

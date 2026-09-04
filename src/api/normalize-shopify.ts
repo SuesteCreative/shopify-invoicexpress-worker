@@ -29,6 +29,18 @@ export interface Order {
   currency: string
   shop_currency: string
   exchange_rate: number
+  /**
+   * Set when the buyer paid in a currency the destination cannot issue a
+   * document in. `total` and every `unit_price` are then ALREADY converted into
+   * `currency` — that is the fiscal value — and this records what actually left
+   * the buyer's account, so the document can show both figures.
+   *
+   * `rate` is foreign units per 1 unit of `currency`: the direction
+   * InvoiceXpress multiplies by. Measured against the IX sandbox on 2026-09-04,
+   * a document with `total: 58.20` and `rate: "1.7182"` reads back as
+   * `multicurrency: { currency: "AUD", total: "99.99924" }`.
+   */
+  paid_in_foreign_currency?: { code: string; amount: number; rate: number }
   financial_status: string
   fulfillment_status: any
   customer: Customer
@@ -51,6 +63,13 @@ export interface Order {
 export interface Meta {
   device_id: string | null
   token: string
+  /**
+   * Extra strings a source offers to tag routing, beyond the tags and metadata
+   * the merchant wrote. Namespaced by the source that built them
+   * (`stripe:origin:checkout`), never scanned for a NIF, and only present when
+   * the connection asked for them.
+   */
+  routing_hints?: string[]
   source_name: string
   browser_ip: string
   payment_gateway_names: string[]

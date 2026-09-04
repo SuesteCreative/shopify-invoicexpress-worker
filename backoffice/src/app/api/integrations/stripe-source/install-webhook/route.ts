@@ -23,6 +23,12 @@ const ENABLED_EVENTS = [
     // in the payload, removing the need for a Customer API expand when the
     // buyer used Stripe Checkout.
     "checkout.session.completed",
+    // Stripe invoices, including the ones a merchant marks as paid OUTSIDE
+    // Stripe ("pay out of band" — a transfer, cash, a booking settled at the
+    // counter). Nothing else fires for those: no PaymentIntent, no charge. Card-
+    // paid invoices dedup against their PaymentIntent (see stripeStableId), so
+    // adding this cannot double-invoice a sale that already had an event.
+    "invoice.paid",
 ];
 
 async function resolveTargetUser(request: NextRequest) {
@@ -64,7 +70,38 @@ export async function POST(request: NextRequest) {
 
     const cfg = row.source_config_json ? JSON.parse(row.source_config_json) : {};
     if (cfg.webhook_endpoint_id && cfg.webhook_secret) {
-        return NextResponse.json({ ok: true, already_installed: true, webhook_endpoint_id: cfg.webhook_endpoint_id });
+        // Already installed — bring its event list up to date instead of
+        // reporting success and changing nothing. An endpoint installed before
+        // an event was added to ENABLED_EVENTS never receives that event, and
+        // nothing anywhere says so: the merchant's invoices simply do not
+        // happen. Re-running the install is how an operator fixes that, so it
+        // has to actually do something.
+        const sync = new URLSearchParams();
+        ENABLED_EVENTS.forEach((evt, i) => sync.set(`enabled_events[${i}]`, evt));
+        const syncResp = await fetch(
+            `https://api.stripe.com/v1/webhook_endpoints/${encodeURIComponent(cfg.webhook_endpoint_id)}`,
+            {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${restrictedKey}`,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Stripe-Version": "2024-12-18.acacia",
+                },
+                body: sync.toString(),
+            },
+        ).catch(() => null);
+
+        // A failed sync is reported, never fatal: the endpoint may have been
+        // deleted in Stripe, and the operator needs to be told that rather than
+        // handed a 500.
+        return NextResponse.json({
+            ok: true,
+            already_installed: true,
+            webhook_endpoint_id: cfg.webhook_endpoint_id,
+            enabled_events: ENABLED_EVENTS,
+            events_synced: !!syncResp?.ok,
+            ...(syncResp?.ok ? {} : { sync_error: `Stripe returned ${syncResp?.status ?? "no response"} updating the endpoint's events` }),
+        });
     }
 
     const workerUrl = (process.env.WORKER_URL || RIOKO_CONFIG.workerUrl).replace(/\/$/, "");

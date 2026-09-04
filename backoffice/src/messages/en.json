@@ -947,6 +947,34 @@
                 "label": "Force shipping VAT rate (%)",
                 "help": "Same, for shipping lines."
             },
+            "ixDeriveExemption": {
+                "label": "Name the exemption per sale",
+                "help": "Decides each 0% document's legal reason from the buyer's country and VAT number — export outside the EU, intra-Community supply, or the shop's own reason — instead of stamping one code on all of them. Off by default."
+            },
+            "ixAdapterSafetyNets": {
+                "label": "Retry and re-read every document",
+                "help": "Creates documents through the guarded path: retries a stalled InvoiceXpress, recovers from a broken client record, sends VAT rates explicitly, and reads the document back to confirm the amounts stored. Off by default."
+            },
+            "stripeTaxFromSource": {
+                "label": "Read VAT from the Stripe checkout",
+                "help": "Looks up the checkout session or Stripe invoice behind a payment instead of trusting the event that arrived first — the payment and charge events carry no VAT breakdown. Off by default."
+            },
+            "stripeRoutingHints": {
+                "label": "Routing hints from Stripe",
+                "help": "Lets a routing rule match how a payment reached Stripe (stripe:origin:checkout, stripe:origin:api, stripe:origin:invoice, stripe:payment_method:multibanco, stripe:description:…) and what it cost (stripe:amount:45.00, stripe:amount:eur:45.00), so money collected through different systems can be filed in different series even when they write no metadata. Name a rule 'stripe:origin:api + stripe:amount:45.00' to require both. Also reads the metadata off the Checkout Session behind a payment, so a rule matches whichever webhook arrives first. Off by default."
+            },
+            "tagRouteByCountry": {
+                "label": "Route series by buyer country",
+                "help": "Lets a routing rule named country:AU match the buyer's address, so series routing does not depend on the country being sent in metadata. Off by default."
+            },
+            "ixRequireSeries": {
+                "label": "Fail when the series is missing",
+                "help": "A configured series InvoiceXpress does not know stops the sale instead of falling back to the default series. Off by default."
+            },
+            "ixMulticurrency": {
+                "label": "Invoice foreign currency sales",
+                "help": "Handles sales paid in a currency other than the euro. Off by default."
+            },
             "vatIncludedConnection": {
                 "label": "Prices include VAT",
                 "help": "Here this IS the tax-inclusion switch: it tells the destination to net the amount down when the source sent no tax breakdown."

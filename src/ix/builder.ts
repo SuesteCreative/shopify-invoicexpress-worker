@@ -567,7 +567,18 @@ export class IxBuilder {
     return arr.some((tag: any) => String(tag ?? "").toUpperCase().includes("REVERSE_CHARGE"));
   }
 
-  createInvoiceFromNormalizedOrder(normalized: Normalized) {
+  /**
+   * `opts.fiscal` replaces the shop-wide exemption code with one decided per
+   * sale (see src/ix/fiscal-classification.ts). It is applied ONLY to a
+   * document that already has a 0%-VAT line — the caller does not get to stamp
+   * an exemption on a taxed document — and it does not touch the amounts, so a
+   * buyer who paid VAT is still invoiced for what they paid. Absent, everything
+   * below behaves exactly as it did before the override existed.
+   */
+  createInvoiceFromNormalizedOrder(
+    normalized: Normalized,
+    opts?: { fiscal?: { exemptionCode: string | null; mention: string } },
+  ) {
     // Address line 2 carries something clearly intended as a Portuguese tax id
     // that does not validate. We still produce the document — withholding it
     // entirely left paid orders uninvoiced and the merchant chasing them — but
@@ -615,18 +626,30 @@ export class IxBuilder {
     // "IVA - autoliquidação" mention. Falls back to the merchant-configured
     // generic exemption reason if neither flag matches.
     const baseReason = this.config.ix_exemption_reason ?? undefined;
+    // A per-sale classification, when the caller made one, outranks both: it
+    // looked at where the buyer is and whether their VAT number is real, which
+    // is more than either of these knows. `shopifyReverseCharge` still wins
+    // over it, because that one is Shopify stating the sale IS reverse-charge.
+    const classifiedReason = opts?.fiscal ? (opts.fiscal.exemptionCode ?? undefined) : undefined;
     const rcReason = shopifyReverseCharge
       ? (this.config.ix_b2b_exemption_reason ?? "M16")
-      : baseReason;
+      : (classifiedReason ?? baseReason);
     const noteRaw = (normalized.order?.note ?? "").trim();
     const rcMention = shopifyReverseCharge ? "IVA - autoliquidação (Art. 196.º Directiva IVA UE)" : "";
     // When the shop opts in, stamp the exemption code's bilingual legal mention.
     // Only on the generic-exemption path (exempt, non reverse-charge); rcReason
     // equals baseReason there, so the mention matches the code actually sent.
     // Placed first so the 200-char cap never truncates the mandatory fiscal text.
+    // A classified document always states its reason, without waiting for
+    // `ix_stamp_exemption_note`: naming the article is what makes an exempt
+    // invoice legible to a customs officer or a foreign buyer's accountant, and
+    // a shop that asked for per-sale classification is by definition selling
+    // into places that need it. The opt-in flag still governs the shop-wide
+    // path, where the mention is a convenience rather than the point.
     const exemptionMention =
-      this.config.ix_stamp_exemption_note === 1 && requestTaxExemptionReason && !shopifyReverseCharge
-        ? buildExemptionMention(rcReason)
+      requestTaxExemptionReason && !shopifyReverseCharge
+        ? (opts?.fiscal?.mention
+          || (this.config.ix_stamp_exemption_note === 1 ? buildExemptionMention(rcReason) : ""))
         : "";
     // The merchant's own standing note (VAT scheme wording, licence number, a
     // fixed legal reference) goes last of the configured texts: the mandatory

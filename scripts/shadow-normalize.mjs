@@ -43,10 +43,14 @@ const CFG_COLS = [
   "force_tax_rate", "force_shipping_tax_rate", "vat_included", "oss_enabled",
   "b2b_reverse_charge", "auto_finalize", "pos_mode",
   "ix_retention_enabled", "ix_retention", "is_paused",
+  // Migration 0037. Inert on the Shopify path today, and carried anyway: the
+  // point of a shadow run is that the config it builds with is the config
+  // production builds with, and a column missing here is a silent difference.
+  "ix_derive_exemption", "ix_adapter_safety_nets", "ix_require_series",
 ];
 function loadConfig(dom) {
   const r = wq(`SELECT ${CFG_COLS.join(", ")} FROM integrations WHERE shopify_domain='${dom}'`)[0];
-  for (const k of ["ix_stamp_exemption_note", "force_tax_rate", "force_shipping_tax_rate", "vat_included", "oss_enabled", "b2b_reverse_charge", "auto_finalize", "pos_mode", "ix_retention_enabled", "ix_retention", "is_paused"]) {
+  for (const k of ["ix_stamp_exemption_note", "force_tax_rate", "force_shipping_tax_rate", "vat_included", "oss_enabled", "b2b_reverse_charge", "auto_finalize", "pos_mode", "ix_retention_enabled", "ix_retention", "is_paused", "ix_derive_exemption", "ix_adapter_safety_nets", "ix_require_series"]) {
     r[k] = r[k] == null ? null : Number(r[k]);
   }
   return r;

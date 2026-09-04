@@ -2104,20 +2104,6 @@ export class MoloniDestination implements DestinationAdapter {
     }
     const settled = Number(doc.reconciled_value ?? 0);
 
-    // More settled than the source says came in: a payment corrected downwards,
-    // a refund, or a receipt issued by hand. Never unwound automatically — that
-    // takes a human — but never silent either, which is what "Nada a liquidar"
-    // made it.
-    if (settled > opts.collected + 0.01) {
-      return {
-        status: "blocked",
-        reason: "over_settled",
-        message: `Documento ${invoiceId} está liquidado em ${settled.toFixed(2)}€ mas o Lodgify só regista `
-          + `${opts.collected.toFixed(2)}€ recebidos — verificar à mão`,
-        doc: snapshot,
-      };
-    }
-
     // Only a FATURA is settled by a Recibo, and only while something is still
     // outstanding. `fetchMoloniDocumentStrict` walks the families to find an id,
     // so this can land on a Fatura-Recibo — a document that already asserts the
@@ -2142,6 +2128,27 @@ export class MoloniDestination implements DestinationAdapter {
 
     const value = receiptDelta({ collected: opts.collected, invoiceTotal: total, alreadySettled: settled });
     if (value <= 0) {
+      // More settled than came in — but ONLY where "came in" means something.
+      //
+      // An OTA stay records `amount_paid = 0` for its whole life: the channel
+      // collected the money and it never passes through Lodgify. Comparing a
+      // fully-reconciled Fatura-Recibo against that zero reads as "settled
+      // 854,00 € against 0,00 € received", which is not an over-settlement, it
+      // is the OTA signature. A dry run on Origos blocked all eight of its
+      // correct documents this way before this ran for real.
+      //
+      // With money actually recorded, the comparison means what it says: a
+      // payment corrected downwards, a refund, or a receipt issued by hand.
+      // Never unwound automatically — that takes a human — but never silent.
+      if (opts.collected > 0.01 && settled > opts.collected + 0.01) {
+        return {
+          status: "blocked",
+          reason: "over_settled",
+          message: `Documento ${invoiceId} está liquidado em ${settled.toFixed(2)}€ mas o Lodgify regista `
+            + `${opts.collected.toFixed(2)}€ recebidos — verificar à mão`,
+          doc: snapshot,
+        };
+      }
       return {
         status: "skipped",
         reason: "nothing_due",

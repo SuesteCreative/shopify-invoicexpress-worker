@@ -2675,16 +2675,20 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
         "SELECT * FROM integrations WHERE user_id = ?"
       ).bind(userId).first();
 
-      const legacy: any = legacyRow ?? {
-        user_id: userId,
-        shopify_domain: null,
-        b2b_reverse_charge: 0,
-        ix_send_email: 0,
-        auto_finalize: 0,
-      };
-      if (destinationConfig && typeof destinationConfig.auto_finalize === "boolean") {
-        legacy.auto_finalize = destinationConfig.auto_finalize ? 1 : 0;
-      }
+      // The connection's own settings, projected through the ONE function that
+      // knows how to read them. This used to be hand-rolled here and copied
+      // `auto_finalize` alone, which meant every other switch a merchant set on
+      // their connection — the whole of migrations 0037 and 0038 — was written
+      // to the database, shown as on in the console, and never reached a live
+      // webhook. Measured on SenteMente 04/09/2026: a 13,00 € booking with
+      // `stripe_routing_hints` on was invoiced into the default document set,
+      // because the flag never arrived and the hints its rule matches on were
+      // therefore never built.
+      //
+      // synthLegacyConfig for the fallback, for the same reason: it defines
+      // every flag the pipeline reads, and the inline object here defined four.
+      const legacy: any = legacyRow ?? synthLegacyConfig(userId);
+      projectConnectionBehaviour(legacy, destinationConfig);
       applyConnectionEmailPref(legacy, destinationConfig);
 
       await runAdapterPipeline({

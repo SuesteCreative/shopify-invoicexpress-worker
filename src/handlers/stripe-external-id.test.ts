@@ -35,10 +35,27 @@ describe("externalIdFromEvent", () => {
   });
 
   it("reads the payment intent off the 2025 invoice shape", () => {
+    // The real shape, measured against api 2026-05-27 on 04/09/2026. `status`
+    // and `payment.type` are what tell the paying entry from the abandoned one,
+    // so a payload without them is not a payload Stripe sends.
     const event = {
       id: "evt_7",
       type: "invoice.paid",
-      data: { object: { id: "in_7", payments: { data: [{ payment: { payment_intent: "pi_7" } }] } } },
+      data: {
+        object: {
+          id: "in_7",
+          payments: {
+            object: "list",
+            data: [{
+              id: "inpay_7",
+              amount_paid: 7900,
+              status: "paid",
+              is_default: true,
+              payment: { payment_intent: "pi_7", type: "payment_intent" },
+            }],
+          },
+        },
+      },
     };
     expect(externalIdFromEvent(event)).toBe("pi_7");
   });

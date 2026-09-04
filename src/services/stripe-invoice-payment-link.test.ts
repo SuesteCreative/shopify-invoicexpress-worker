@@ -85,4 +85,24 @@ describe("the id a stamped invoice event is keyed by", () => {
     const event = { type: "invoice.paid", data: { object: { id: "in_1" } } };
     expect(stripeStableId(event)).toBe("in_1");
   });
+
+  it("is not fooled by an abandoned PaymentIntent listed first", () => {
+    // Stripe does not promise an order for `payments.data`. Reading entry zero
+    // would key money collected by hand onto a payment that was canceled.
+    const event = {
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_1UBvtOIvYVkiIIWUGJgrHHtK",
+          payments: {
+            data: [
+              { status: "open", amount_paid: null, payment: { payment_intent: "pi_abandoned", type: "payment_intent" } },
+              { status: "paid", amount_paid: 100, payment: { payment_record: "pr_1", type: "payment_record" } },
+            ],
+          },
+        },
+      },
+    };
+    expect(stripeStableId(event)).toBe("in_1UBvtOIvYVkiIIWUGJgrHHtK");
+  });
 });

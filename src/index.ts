@@ -55,6 +55,7 @@ import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour
 import { buildAdapterCtx } from "./services/adapter-ctx";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
+import { settleLodgifyReceipts } from "./handlers/lodgify-settlement";
 import {
   connectionCapabilities, backfillConnection, reemitConnection,
   deleteConnectionDraft, creditConnectionDocument, finalizeConnectionDrafts,
@@ -1182,7 +1183,7 @@ app.post("/admin/lodgify/unbill-premature", async (c) => {
 app.post("/admin/lodgify/settle-receipts", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  let body: { user_id?: string; dry_run?: boolean; booking_ids?: string[] } = {};
+  let body: { user_id?: string; dry_run?: boolean; booking_ids?: string[]; limit?: number; force?: boolean } = {};
   try { body = await c.req.json(); } catch { /* empty body = defaults */ }
   if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
   const dryRun = body.dry_run !== false;
@@ -1209,77 +1210,43 @@ app.post("/admin/lodgify/settle-receipts", async (c) => {
   }
 
   const destination: DestinationKind = (conn.destination_kind as DestinationKind) ?? "moloni";
-  const adapter = getDestinationAdapter(destination);
-  if (!adapter.settleDocument) {
+  if (!getDestinationAdapter(destination).settleDocument) {
     return c.json({ error: `${destination} não sabe registar pagamentos sobre um documento fechado` }, 400);
   }
-
   const legacy: any = (await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(body.user_id).first())
     ?? synthLegacyConfig(body.user_id);
-  const { ctx } = await buildAdapterCtx(c.env, {
-    config: projectConnectionBehaviour(legacy, destinationConfig),
-    source: "lodgify", destination, sourceConfig: sourceCfg, destinationConfig,
-  });
 
-  // Every booking we have issued a document for, with the mirror row beside it:
-  // the document says what is owed, the mirror says what came in.
-  const wanted = new Set((body.booking_ids ?? []).map((b) => String(b)));
-  const rows = ((await c.env.DB.prepare(
-    `SELECT p.id AS booking_id, p.invoice_id, b.raw_json, b.guest_name
-       FROM processed_orders p
-       LEFT JOIN lodgify_bookings b ON b.user_id = p.user_id AND b.id = p.id
-      WHERE p.user_id = ? AND p.source_kind = 'lodgify' AND p.invoice_id IS NOT NULL`
-  ).bind(body.user_id).all())?.results ?? []) as any[];
-
-  const report: any[] = [];
-  let settled = 0, skipped = 0, errors = 0;
-  for (const row of rows) {
-    const bookingId = String(row.booking_id);
-    if (wanted.size > 0 && !wanted.has(bookingId)) continue;
-    let item: any = null;
-    try { item = row.raw_json ? JSON.parse(row.raw_json) : null; } catch { item = null; }
-    if (!item) {
-      // No mirror row means no statement of what came in. Guessing "fully paid"
-      // here would receipt money nobody received.
-      report.push({ booking_id: bookingId, invoice_id: row.invoice_id, status: "skipped", message: "sem reserva no espelho — não sei quanto entrou" });
-      skipped++;
-      continue;
-    }
-    const { collected } = bookingCollectedAmount(item);
-    try {
-      const outcome = await adapter.settleDocument(String(row.invoice_id), ctx, {
-        collected,
-        // "Airbnb: HM8Q9PJPQ2" / "Booking.com: 5670891596 ! 6375058873" — the
-        // destination takes the channel from it and resolves the merchant's own
-        // payment method by name.
-        channelReference: channelReference(item),
-        notes: `Reserva LOD-${bookingId}`,
-        dryRun,
-      });
-      report.push({
-        booking_id: bookingId, invoice_id: row.invoice_id, guest: row.guest_name,
-        collected, status: outcome.status, message: outcome.message,
-        ...("receiptId" in outcome ? { receipt_id: outcome.receiptId, value: outcome.value } : {}),
-        ...(outcome.status === "dry_run" ? { value: outcome.value } : {}),
-      });
-      if (outcome.status === "settled") settled++;
-      else if (outcome.status === "error") errors++;
-      else skipped++;
-    } catch (e: any) {
-      report.push({ booking_id: bookingId, invoice_id: row.invoice_id, status: "error", message: String(e?.message ?? e) });
-      errors++;
-    }
+  try {
+    // The same function the poll runs, with `mirrorSourced` so the freshness
+    // guard applies: an operator running this after a week of dead polls would
+    // otherwise settle on week-old numbers, and "still Booked" is least
+    // trustworthy exactly then.
+    const result = await settleLodgifyReceipts(c.env, {
+      userId: body.user_id,
+      destination,
+      config: projectConnectionBehaviour(legacy, destinationConfig),
+      sourceCfg,
+      destinationConfig,
+      connLabel: `lodgify → ${destination}`,
+      bookingIds: body.booking_ids,
+      force: body.force === true,
+      dryRun,
+      limit: body.limit,
+      actor: "admin:settle-receipts",
+    });
+    return c.json({
+      ranAt: new Date().toISOString(),
+      dry_run: dryRun,
+      documents_scanned: result.scanned,
+      settled: dryRun ? null : result.settled,
+      skipped: result.skipped,
+      blocked: result.blocked,
+      errors: result.errors,
+      rows: result.rows,
+    });
+  } catch (e) {
+    return errorResponse(c, e, "Settle receipts failed");
   }
-
-  return c.json({
-    ranAt: new Date().toISOString(),
-    dry_run: dryRun,
-    documents_scanned: report.length,
-    settled: dryRun ? null : settled,
-    skipped,
-    errors,
-    rows: report,
-  });
 })
 
 // Admin: diagnose Lodgify reachability FROM the Worker.
@@ -3138,6 +3105,11 @@ interface LodgifyPollResult {
   connections: number; scanned: number; invoiced: number; skipped: number; failed: number; synced: number;
   /** Documents taken back because their booking was cancelled after we billed it. */
   reversed: number;
+  /** Payments recorded against already-certified documents (Moloni Recibos). */
+  settled: number;
+  /** Documents a guard refused and parked for a human. Silence here is the point. */
+  settleBlocked: number;
+  settleErrors: number;
   /**
    * Dry-run only: the bookings this run WOULD have billed, in the order it would
    * have billed them. Exists so a caller outside the Worker (the Lodgify feeder,
@@ -3198,7 +3170,10 @@ export interface LodgifyPollOptions {
 }
 
 async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Promise<LodgifyPollResult> {
-  const result: LodgifyPollResult = { connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0, reversed: 0 };
+  const result: LodgifyPollResult = {
+    connections: 0, scanned: 0, invoiced: 0, skipped: 0, failed: 0, synced: 0, reversed: 0,
+    settled: 0, settleBlocked: 0, settleErrors: 0,
+  };
   const dryRun = !!opts.dryRun;
   if (dryRun) result.wouldInvoice = [];
 
@@ -3506,6 +3481,47 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
         console.error(`[LodgifyPoll] user ${conn.user_id}: pipeline failed for booking ${bookingId}: ${e?.message ?? e}`);
         await appStorage.markWebhookAsProcessed(bookingId, storageTopic, "failed");
         result.failed++;
+      }
+    }
+
+    // Record the money on documents that are already certified.
+    //
+    // Here, and not on a cron of its own, because this pass needs exactly what
+    // the loop above just fetched: how much Lodgify says has come in, and
+    // whether the stay is still Booked. Reading that back from the mirror would
+    // work on a good day and settle a cancelled booking on a bad one — and if
+    // the Lodgify list failed, this connection already `continue`d long before
+    // here, so there is no version of this that runs on stale numbers.
+    //
+    // After the billing loop, wrapped, and capped: a settlement failure must
+    // never cost an invoice, and whatever is deferred is picked up in 30 minutes.
+    if (!dryRun && destination === "moloni" && partialMode === "invoice_plus_receipts"
+        && env.LODGIFY_SETTLE_AUTO === "1") {
+      try {
+        const settle = await settleLodgifyReceipts(env, {
+          userId: conn.user_id,
+          destination,
+          config: projectConnectionBehaviour(legacy, destinationConfig),
+          sourceCfg,
+          destinationConfig,
+          connLabel,
+          items: bookings,
+          dryRun: false,
+          limit: Number.isFinite(Number(env.LODGIFY_SETTLE_MAX_DOCS))
+            && String(env.LODGIFY_SETTLE_MAX_DOCS ?? "").trim() !== ""
+            ? Number(env.LODGIFY_SETTLE_MAX_DOCS)
+            : undefined,
+          actor: "cron:lodgify-poll",
+        });
+        result.settled += settle.settled;
+        result.settleBlocked += settle.blocked;
+        result.settleErrors += settle.errors;
+        if (settle.settled > 0 || settle.errors > 0 || settle.blocked > 0) {
+          console.log(`[LodgifyPoll] user ${conn.user_id}: settled ${settle.settled}, blocked ${settle.blocked}, errors ${settle.errors}`);
+        }
+      } catch (e: any) {
+        result.settleErrors++;
+        console.error(`[LodgifyPoll] user ${conn.user_id}: settlement pass failed: ${String(e?.message ?? e)}`);
       }
     }
 

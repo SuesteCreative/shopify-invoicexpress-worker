@@ -124,6 +124,22 @@ export interface ConnectionRow {
   updated_at: string;
 }
 
+/** One row of `lodgify_settlements` — a cache of Moloni's answer, never a ledger. */
+export interface SettlementState {
+  bookingId: string;
+  invoiceId: string;
+  docStatus: number | null;
+  docTotal: number | null;
+  lastCollected: number | null;
+  lastSettled: number | null;
+  lastReceiptId: string | null;
+  needsHuman: boolean;
+  attempts: number;
+  lastCheckedAt: string | null;
+  nextCheckAt: string | null;
+  lastMessage: string | null;
+}
+
 export class AppStorage {
   private db: D1Database;
   private kv: KVNamespace;
@@ -1112,6 +1128,147 @@ export class AppStorage {
       ).bind(userId, String(bookingId)).run();
     } catch (e) {
       console.warn("[Rioko] Failed to delete partial invoices:", e);
+    }
+  }
+
+  // ── Settlement state (Lodgify → Moloni Recibos) ────────────────────────────
+
+  /**
+   * What we last knew about each invoice we may have to receipt.
+   *
+   * One read per connection per pass, keyed `<booking>:<invoice>`. Never the
+   * source of an amount — only of the answer to "is this worth asking Moloni
+   * about again?".
+   */
+  async listSettlementState(userId: string): Promise<Map<string, SettlementState>> {
+    const out = new Map<string, SettlementState>();
+    try {
+      const res = await this.db.prepare(
+        `SELECT booking_id, invoice_id, doc_status, doc_total, last_collected, last_settled,
+                last_receipt_id, needs_human, attempts, last_checked_at, next_check_at, last_message
+           FROM lodgify_settlements WHERE user_id = ?`
+      ).bind(userId).all();
+      for (const r of ((res?.results ?? []) as any[])) {
+        out.set(`${r.booking_id}:${r.invoice_id}`, {
+          bookingId: String(r.booking_id),
+          invoiceId: String(r.invoice_id),
+          docStatus: r.doc_status == null ? null : Number(r.doc_status),
+          docTotal: r.doc_total == null ? null : Number(r.doc_total),
+          lastCollected: r.last_collected == null ? null : Number(r.last_collected),
+          lastSettled: r.last_settled == null ? null : Number(r.last_settled),
+          lastReceiptId: r.last_receipt_id ?? null,
+          needsHuman: Number(r.needs_human ?? 0) === 1,
+          attempts: Number(r.attempts ?? 0),
+          lastCheckedAt: r.last_checked_at ?? null,
+          nextCheckAt: r.next_check_at ?? null,
+          lastMessage: r.last_message ?? null,
+        });
+      }
+    } catch (e) {
+      // FAIL CLOSED, for the same reason `claimSettlement` does. An empty map is
+      // not "no state" — it is "every document looks new", including one parked
+      // with `needs_human` because a Recibo was accepted and did not reconcile.
+      // Re-asking about that one issues a second Recibo for the same money, and
+      // repeats it every thirty minutes. The commonest cause is the plainest:
+      // migration 0036 not applied to this database yet.
+      console.error("[Rioko] listSettlementState failed:", e);
+      throw e;
+    }
+    return out;
+  }
+
+  /** True when the row landed. A caller storing a `needs_human` latch must check. */
+  async upsertSettlementState(userId: string, row: SettlementState): Promise<boolean> {
+    try {
+      await this.db.prepare(
+        `INSERT INTO lodgify_settlements
+           (user_id, booking_id, invoice_id, doc_status, doc_total, last_collected, last_settled,
+            last_receipt_id, needs_human, attempts, last_checked_at, next_check_at, last_message)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, booking_id, invoice_id) DO UPDATE SET
+           doc_status = excluded.doc_status,
+           doc_total = excluded.doc_total,
+           last_collected = excluded.last_collected,
+           last_settled = excluded.last_settled,
+           last_receipt_id = COALESCE(excluded.last_receipt_id, lodgify_settlements.last_receipt_id),
+           needs_human = excluded.needs_human,
+           attempts = excluded.attempts,
+           last_checked_at = excluded.last_checked_at,
+           next_check_at = excluded.next_check_at,
+           last_message = excluded.last_message`
+      ).bind(
+        userId, row.bookingId, row.invoiceId,
+        row.docStatus, row.docTotal, row.lastCollected, row.lastSettled,
+        row.lastReceiptId, row.needsHuman ? 1 : 0, row.attempts,
+        row.lastCheckedAt, row.nextCheckAt, row.lastMessage,
+      ).run();
+      return true;
+    } catch (e) {
+      console.error("[Rioko] upsertSettlementState failed:", e);
+      return false;
+    }
+  }
+
+  /**
+   * Take the settlement lock for one document. FAIL-CLOSED, unlike `claimOrder`.
+   *
+   * `claimOrder` fails open on a D1 error, which is right when the alternative
+   * is an order that never gets invoiced. Here the alternative is a second
+   * certified Recibo against the same invoice, which only a human can undo — so
+   * an unreachable claim table means "do not settle", every time.
+   *
+   * Keyed in `order_claims` under its own scope so it can never collide with the
+   * invoicing claims, which share a bucket per shop domain.
+   */
+  async claimSettlement(
+    userId: string,
+    invoiceId: string,
+    // Ten minutes, not the two a first draft had: one `settleDocument` makes up
+    // to six sequential Moloni calls and `moloniCall` has neither timeout nor
+    // retry, so a single hung request outlives a short window. Losing the lock
+    // costs a second certified Recibo; holding it too long only defers the work
+    // to the next tick.
+    staleAfterMs = 10 * 60_000,
+  ): Promise<string | null> {
+    const scope = `settle:${userId}`;
+    const now = new Date();
+    const token = now.toISOString();
+    try {
+      const res = await this.db
+        .prepare("INSERT OR IGNORE INTO order_claims (shopify_domain, order_id, claimed_at) VALUES (?, ?, ?)")
+        .bind(scope, String(invoiceId), token)
+        .run();
+      if ((res.meta?.changes ?? 0) > 0) return token;
+
+      const cutoff = new Date(now.getTime() - staleAfterMs).toISOString();
+      const steal = await this.db
+        .prepare("UPDATE order_claims SET claimed_at = ? WHERE shopify_domain = ? AND order_id = ? AND claimed_at < ?")
+        .bind(token, scope, String(invoiceId), cutoff)
+        .run();
+      return (steal.meta?.changes ?? 0) > 0 ? token : null;
+    } catch (e) {
+      console.error("[Rioko] claimSettlement failed — refusing to settle:", e);
+      return null;
+    }
+  }
+
+  /**
+   * Release a settlement lock, and ONLY if it is still ours.
+   *
+   * `claimed_at` doubles as the ownership token. An unconditional DELETE would
+   * let a slow run, whose claim another run has already taken over, delete that
+   * other run's lock on its way out — handing a third run the same document
+   * while the second is mid-insert.
+   */
+  async releaseSettlementClaim(userId: string, invoiceId: string, token: string): Promise<void> {
+    try {
+      await this.db
+        .prepare("DELETE FROM order_claims WHERE shopify_domain = ? AND order_id = ? AND claimed_at = ?")
+        .bind(`settle:${userId}`, String(invoiceId), token)
+        .run();
+    } catch (e) {
+      // A claim left behind expires on its own after staleAfterMs.
+      console.warn("[Rioko] releaseSettlementClaim failed:", e);
     }
   }
 

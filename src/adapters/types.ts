@@ -193,12 +193,33 @@ export interface CreditFullResult {
  */
 export type FinalizeDateStrategy = "closest_available" | "series_or_today" | "today";
 
-/** The result of recording money against a closed document. */
+/**
+ * What the destination holds for the document a settlement looked at. Returned
+ * on every arm so an automatic caller can write its gate row without a second
+ * round trip.
+ */
+export interface SettleDocSnapshot {
+  status: number | null;
+  total: number | null;
+  reconciled: number | null;
+  /** The document id resolved nowhere. */
+  missing?: boolean;
+}
+
+/**
+ * The result of recording money against a closed document.
+ *
+ * `skipped` carries a `reason` and `error` a `code` because an unattended caller
+ * has to tell "still a draft, ask again later" from "fully settled, stop asking"
+ * from "a guard refused this, a human must look" — three outcomes that read
+ * identically as a bare status.
+ */
 export type SettleOutcome =
-  | { status: "settled"; receiptId: string; value: number; settledTotal: number; message: string }
-  | { status: "skipped"; message: string }
-  | { status: "error"; message: string }
-  | { status: "dry_run"; value: number; message: string };
+  | { status: "settled"; receiptId: string; value: number; settledTotal: number; message: string; doc?: SettleDocSnapshot }
+  | { status: "skipped"; reason?: "not_closed" | "nothing_due"; message: string; doc?: SettleDocSnapshot }
+  | { status: "blocked"; reason: string; message: string; doc?: SettleDocSnapshot }
+  | { status: "error"; code?: "config" | "not_found" | "not_reconciled" | "insert_unknown" | "verify_failed" | "platform"; message: string; doc?: SettleDocSnapshot }
+  | { status: "dry_run"; value: number; message: string; doc?: SettleDocSnapshot };
 
 export type FinalizeOutcome =
   | { status: "finalized"; date: string; originalDate: string; message: string }
@@ -294,6 +315,14 @@ export interface DestinationAdapter {
        * what ties it to the payout line in the bank.
        */
       channelReference?: string | null;
+      /**
+       * The reference(s) this sale's document may carry. When the destination
+       * holds a document under a different one, the id it was handed points at
+       * someone else's document and it refuses — the fault class behind the
+       * August "Order #0" collision, caught for free from a field the lookup
+       * already returns.
+       */
+      expectedReferences?: string[];
       notes?: string | null;
       dryRun?: boolean;
     },

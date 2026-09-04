@@ -53,6 +53,9 @@ export async function POST(req: Request) {
         const { id, email_addresses, first_name, last_name, username } = evt.data;
         const email = email_addresses?.[0]?.email_address || null;
         const name = `${first_name || ""} ${last_name || ""}`.trim() || username || "User";
+        // An invited extra user carries the membership in the invitation's public
+        // metadata, which Clerk copies onto the user it creates.
+        const invitedAccountId = (evt.data as any)?.public_metadata?.rioko_account_id as string | undefined;
 
         console.log(`[Clerk Webhook] Syncing user: ${email} (${id})`);
 
@@ -65,11 +68,39 @@ export async function POST(req: Request) {
                 last_login = CURRENT_TIMESTAMP
         `).bind(id, email, name, email, name).run();
 
+        // Extra user joining an existing account (migration 0039): bind the
+        // pending seat to the Clerk id that just signed up. Matching falls back to
+        // the invited address, so someone who signs up on their own instead of
+        // through the invitation link still lands in the right account.
+        let joinedAccount: string | null = null;
+        try {
+            const pending: any = invitedAccountId
+                ? await db.prepare(
+                    "SELECT id, account_id FROM account_members WHERE account_id = ? AND status = 'pending' AND (member_user_id IS NULL OR member_user_id = ?) AND email = ? LIMIT 1"
+                ).bind(invitedAccountId, id, (email || "").toLowerCase()).first()
+                : await db.prepare(
+                    "SELECT id, account_id FROM account_members WHERE status = 'pending' AND member_user_id IS NULL AND email = ? ORDER BY created_at ASC LIMIT 1"
+                ).bind((email || "").toLowerCase()).first();
+
+            if (pending) {
+                await db.prepare(
+                    "UPDATE account_members SET member_user_id = ?, status = 'active', accepted_at = CURRENT_TIMESTAMP WHERE id = ?"
+                ).bind(id, pending.id).run();
+                joinedAccount = pending.account_id;
+                console.log(`[Clerk Webhook] ${email} joined account ${pending.account_id}`);
+            }
+        } catch (e: any) {
+            // Migration not applied yet — plain sign-ups keep working.
+            console.warn("[Clerk Webhook] membership bind skipped:", e?.message ?? e);
+        }
+
         // On user.created: seed a trialing subscription row so the user has free
         // access until the cutoff. early_bird itself is seeded 0 — it is ON by
         // default only for Shopify→InvoiceXpress (decided at checkout by source),
         // and enabled manually by an admin for any other integration.
-        if (eventType === "user.created") {
+        // A member bills through the account that invited them, so they get no
+        // subscription row of their own.
+        if (eventType === "user.created" && !joinedAccount && !invitedAccountId) {
             const trialEnd = process.env.EARLY_BIRD_TRIAL_END
                 || (env as any).EARLY_BIRD_TRIAL_END
                 || "2026-08-01T00:00:00Z";

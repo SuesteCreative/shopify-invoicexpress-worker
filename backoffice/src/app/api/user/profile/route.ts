@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = 'edge';
 
@@ -11,9 +11,7 @@ export const runtime = 'edge';
 // the same row — otherwise the admin overwrites their own profile and the
 // client sees the empty form again on every login.
 async function resolveTargetUser(request: NextRequest, userId: string) {
-    if (!(await isAdmin(userId))) return userId;
-    const impersonationId = await getImpersonationId(request);
-    return impersonationId || userId;
+    return resolveAccountUser(request, userId);
 }
 
 export async function GET(request: NextRequest) {

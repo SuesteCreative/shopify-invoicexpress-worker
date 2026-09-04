@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/stripe";
-import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
 
@@ -10,11 +10,7 @@ export async function GET(req: NextRequest) {
         const { userId } = await auth();
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        let targetUserId = userId;
-        if (await isAdmin(userId)) {
-            const imp = await getImpersonationId(req);
-            if (imp) targetUserId = imp;
-        }
+        let targetUserId = await resolveAccountUser(req, userId);
 
         const db = getDB();
         const rows: any = await db.prepare(`

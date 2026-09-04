@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin, getImpersonationId } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
 
@@ -16,11 +16,7 @@ export async function POST(request: NextRequest) {
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         let targetUserId = userId;
-        const isSuperAdmin = await isAdmin(userId);
-        if (isSuperAdmin) {
-            const impersonationId = await getImpersonationId(request);
-            if (impersonationId) targetUserId = impersonationId;
-        }
+        targetUserId = await resolveAccountUser(request, userId);
 
         const body: any = await request.json().catch(() => ({}));
         const paused = !!body.paused;

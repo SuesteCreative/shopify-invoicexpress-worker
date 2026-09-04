@@ -35,13 +35,43 @@ const isCrawlerFile = createRouteMatcher([
     "/robots.txt",
 ]);
 
+/** A read-only extra user (migration 0039) may call any GET and no write. The
+ *  authoritative check lives in resolveAccountUser(); this one only turns it into
+ *  a clean 403 before the route runs, and skips itself if D1 is unreachable from
+ *  the middleware runtime. */
+async function isReadOnlyWrite(req: Request, userId: string | null | undefined): Promise<boolean> {
+    if (!userId) return false;
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method.toUpperCase())) return false;
+    try {
+        const { getRequestContext } = await import("@cloudflare/next-on-pages");
+        const db = (getRequestContext().env as any)?.DB;
+        if (!db) return false;
+        const row: any = await db
+            .prepare("SELECT role FROM account_members WHERE member_user_id = ? AND status = 'active' LIMIT 1")
+            .bind(userId)
+            .first();
+        return row?.role === "viewer";
+    } catch {
+        return false;
+    }
+}
+
 export default clerkMiddleware(async (auth, req) => {
     const { pathname } = req.nextUrl;
 
     if (isCrawlerFile(req)) return;
 
     if (pathname.startsWith("/api")) {
-        if (!isPublicRoute(req)) await auth.protect();
+        if (!isPublicRoute(req)) {
+            await auth.protect();
+            const { userId } = await auth();
+            if (await isReadOnlyWrite(req, userId)) {
+                return new Response(JSON.stringify({ error: "read_only_member" }), {
+                    status: 403,
+                    headers: { "content-type": "application/json" },
+                });
+            }
+        }
         return;
     }
 

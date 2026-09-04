@@ -265,6 +265,14 @@ export default function SuperadminPage() {
                             <h2 className="text-xl font-bold">{user.name}</h2>
                             <RoleBadge role={targetRole} t={t} />
                             <SubBadge state={user.sub_state} t={t} />
+                            {/* An invited extra user is not an account of its own:
+                                say whose account they work in, so the missing
+                                subscription does not read as a broken shop. */}
+                            {user.member_of_label && (
+                                <span className="px-2 py-0.5 rounded-md bg-[rgba(2,141,196,0.12)] text-accent text-[10px] font-black uppercase tracking-widest border border-[rgba(2,141,196,0.28)]">
+                                    {user.member_role === "admin" ? "admin" : "read-only"} · {user.member_of_label}
+                                </span>
+                            )}
                             {isSelf && (
                                 <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black uppercase tracking-widest border border-hairline">{t("yourAccount")}</span>
                             )}

@@ -1,7 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getDB, getStripe, isSubscriptionBlocked, subscriptionUIState, SubscriptionRow } from "@/lib/stripe";
-import { isAdmin, getImpersonationId, getRole } from "@/lib/admin";
+import { isAdmin, getRole } from "@/lib/admin";
+import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
 
@@ -10,12 +11,10 @@ export async function GET(req: NextRequest) {
         const { userId } = await auth();
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        let targetUserId = userId;
         const viewerIsAdmin = await isAdmin(userId);
-        if (viewerIsAdmin) {
-            const imp = await getImpersonationId(req);
-            if (imp) targetUserId = imp;
-        }
+        // Admin impersonation first, then an extra user's own account (0039):
+        // a member sees the billing of the account that invited them.
+        const targetUserId = await resolveAccountUser(req, userId);
 
         const targetRole = await getRole(targetUserId);
         const targetIsAdmin = targetRole === "superadmin" || targetRole === "hiperadmin";

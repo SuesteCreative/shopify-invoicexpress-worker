@@ -23,7 +23,10 @@ const daysAgoISO = (n: number) => {
     return d.toISOString().slice(0, 10);
 };
 
-export function ReconciliationView({ identifier, source, destination }: { identifier: string; source: string; destination: string }) {
+export function ReconciliationView({ identifier, label, source, destination }: { identifier: string; label?: string; source: string; destination: string }) {
+    // Show who the account IS, not the Clerk id it happens to have. `identifier`
+    // stays the technical key (shop domain / user id) used by the export file.
+    const accountName = label?.trim() || identifier;
     const srcLabel = sourceLabel(source);
     const dstLabel = destLabel(destination);
     const noun = recordNoun(source);
@@ -120,7 +123,7 @@ export function ReconciliationView({ identifier, source, destination }: { identi
                     </div>
                     <div>
                         <h1 className="text-3xl md:text-4xl font-medium tracking-tight">Conciliação {srcLabel} ↔ {dstLabel}</h1>
-                        <p className="text-fg-60 text-sm">{identifier}</p>
+                        <p className="text-fg-60 text-sm">{accountName}</p>
                     </div>
                 </div>
             </header>
@@ -161,7 +164,7 @@ export function ReconciliationView({ identifier, source, destination }: { identi
                     onClick={async () => {
                         if (!data) return;
                         setExporting(true);
-                        try { await exportReconciliationToExcel(filtered, identifier, from, to, source, destination); }
+                        try { await exportReconciliationToExcel(filtered, accountName, from, to, source, destination); }
                         catch (e: any) { setError(String(e)); }
                         finally { setExporting(false); }
                     }}

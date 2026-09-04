@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { resolveConnectionForUser } from "@/lib/worker";
 import { isAdmin } from "@/lib/admin";
+import { findMembershipFor } from "@/lib/account";
 import { ReconciliationView } from "@/components/reconciliation/ReconciliationView";
 
 export const runtime = "edge";
@@ -17,7 +18,12 @@ export default async function ConciliacaoPage() {
     // could otherwise forge it and read another company's reconciliation.
     const cookieStore = await cookies();
     const impersonationId = cookieStore.get("rioko_impersonate_id")?.value;
-    const viewerId = impersonationId && (await isAdmin(userId)) ? impersonationId : userId;
+    let viewerId = impersonationId && (await isAdmin(userId)) ? impersonationId : userId;
+    // An invited extra user reconciles the account that invited them (0039).
+    if (viewerId === userId) {
+        const membership = await findMembershipFor(userId);
+        if (membership) viewerId = membership.account_id;
+    }
 
     const conn = await resolveConnectionForUser(viewerId);
     const t = await getTranslations("conciliacao");
@@ -33,5 +39,5 @@ export default async function ConciliacaoPage() {
         );
     }
 
-    return <ReconciliationView identifier={conn.identifier} source={conn.source} destination={conn.destination} />;
+    return <ReconciliationView identifier={conn.identifier} label={conn.label} source={conn.source} destination={conn.destination} />;
 }

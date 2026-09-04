@@ -13,6 +13,8 @@ import {
   partialModeFrom,
   orderSettlementBasis,
   forcedDocTypeForSettlement,
+  parseBookingSubtotals,
+  splitStayAndExtras,
 } from "./lodgify-amounts";
 
 /**
@@ -453,5 +455,63 @@ describe("orderSettlementBasis", () => {
 
   it("is not confused by other attributes", () => {
     expect(orderSettlementBasis({ note_attributes: [{ name: "nif", value: "instalment" }] })).toBeNull();
+  });
+});
+
+/**
+ * Splitting the cleaning fee onto its own VAT rate.
+ *
+ * Every fixture here is a real Origos booking, read from the v2 API on
+ * 04/09/2026 — the day it turned out that six of its ten documents had gone out
+ * with the fee inside the 6% accommodation line, because the breakdown only
+ * exists on an endpoint nothing in the worker was calling.
+ */
+describe("splitStayAndExtras", () => {
+  const subtotals = (over: Record<string, unknown> = {}) =>
+    parseBookingSubtotals({ stay: 554, promotions: 0, fees: 115, taxes: 0, addons: 0, vat: 0, ...over });
+
+  it("splits a booking whose parts add up (Isabel Fernandes, 669,00)", () => {
+    expect(splitStayAndExtras(669, subtotals(), 23)).toEqual({ stayGross: 554, extrasGross: 115 });
+  });
+
+  it("puts the discount on the stay, not on the cleaning (Roland Behrendt, 1.318,65)", () => {
+    // stay 1267,00 + promotions -63,35 + fees 115,00 = 1318,65. Checking only
+    // stay + fees against the total would refuse to split exactly the bookings
+    // that carry a discount.
+    const s = parseBookingSubtotals({ stay: 1267, promotions: -63.35, fees: 115, taxes: 0, addons: 0, vat: 0 });
+    expect(splitStayAndExtras(1318.65, s, 23)).toEqual({ stayGross: 1203.65, extrasGross: 115 });
+  });
+
+  it("splits a Booking.com stay (Pedro Sequeira, 449,96)", () => {
+    const s = parseBookingSubtotals({ stay: 354.96, promotions: 0, fees: 95, taxes: 0, addons: 0, vat: 0 });
+    expect(splitStayAndExtras(449.96, s, 23)).toEqual({ stayGross: 354.96, extrasGross: 95 });
+  });
+
+  it("keeps one line when the stay carries no fee (Lesly Belliot, 2.000,00)", () => {
+    // Four of Origos's five Airbnb stays are like this: the channel folds the
+    // cleaning into the nightly price and there is nothing to separate.
+    expect(parseBookingSubtotals({ stay: 2000, promotions: 0, fees: 0, addons: 0, taxes: 0, vat: 0 })).toBeNull();
+    expect(splitStayAndExtras(2000, null, 23)).toBeNull();
+  });
+
+  it("refuses to split a breakdown that does not add up", () => {
+    // Not understanding the numbers is a reason to issue one honest line, not to
+    // guess a tax base on a fiscal document.
+    expect(splitStayAndExtras(900, subtotals(), 23)).toBeNull();
+  });
+
+  it("does nothing for a connection with no rate for extras", () => {
+    expect(splitStayAndExtras(669, subtotals(), 0)).toBeNull();
+  });
+
+  it("adds up add-ons alongside the cleaning fee", () => {
+    const s = parseBookingSubtotals({ stay: 500, promotions: 0, fees: 100, addons: 69, taxes: 0, vat: 0 });
+    expect(splitStayAndExtras(669, s, 23)).toEqual({ stayGross: 500, extrasGross: 169 });
+  });
+
+  it("never leaves a stay line of nothing", () => {
+    // A booking that is all cleaning fee would otherwise produce a 0,00 € line.
+    const s = parseBookingSubtotals({ stay: 0, promotions: 0, fees: 115, addons: 0, taxes: 0, vat: 0 });
+    expect(splitStayAndExtras(115, s, 23)).toBeNull();
   });
 });

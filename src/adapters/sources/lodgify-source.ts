@@ -1,6 +1,8 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized, Order } from "../../api/normalize-shopify";
-import { bookingCollectedAmount, isOtaStayCollected, otaPolicyFrom } from "../../services/lodgify-amounts";
+import {
+  parseBookingSubtotals,
+  splitStayAndExtras, bookingCollectedAmount, isOtaStayCollected, otaPolicyFrom } from "../../services/lodgify-amounts";
 import { channelReference } from "../../services/lodgify-booking";
 import { assertSafeBookingId, lodgifyFetch, type LodgifyGateway } from "../../services/lodgify-api";
 
@@ -320,17 +322,30 @@ export class LodgifySource implements SourceAdapter {
     // whoever built the payload fetched it. No breakdown ⇒ one line at the
     // accommodation rate, which is the behaviour every other connection keeps.
     const extrasRate = Number(ctx.destinationConfig?.lodgify_extras_vat_rate ?? 0);
-    const subtotals = (booking as any).subtotals;
-    const extrasGross = extrasRate > 0 && subtotals && !partial && !isDeclined
-      ? Math.round((Number(subtotals.fees ?? 0) + Number(subtotals.addons ?? 0)) * 100) / 100
-      : 0;
-    // Split only when the arithmetic closes on the total we are billing. A
-    // breakdown that does not add up is a breakdown we do not understand, and
-    // guessing would put a wrong tax base on a fiscal document.
-    const stayGross = Math.round((grossTotal - extrasGross) * 100) / 100;
-    const splitExtras = extrasGross > 0.01 && stayGross > 0.01;
+    const wantsSplit = extrasRate > 0 && !partial && !isDeclined;
+    // The breakdown lives on the v2 booking and NOWHERE else. The v1 list the
+    // poll reads reports one `total_amount`, and the v1 detail the enricher
+    // reads reports the same — so without this call the split could never fire,
+    // and for months it did not: six of Origos's ten documents went out with the
+    // cleaning fee inside the 6% accommodation line (95,00 € on Booking.com,
+    // 115,00 € on its own site), which only showed up when someone finally read
+    // a v2 payload.
+    //
+    // One extra call, only for a connection that configured a rate for extras,
+    // and only for a booking about to be billed. Best-effort: no breakdown means
+    // one line at the accommodation rate, which is what every other connection
+    // gets.
+    const subtotals = wantsSplit
+      ? parseBookingSubtotals(
+          (booking as any).subtotals
+          ?? await fetchBookingSubtotals(bookingId, apiKey, requireLodgifyGateway(ctx)),
+        )
+      : null;
+    const split = splitStayAndExtras(grossTotal, subtotals, extrasRate);
+    const extrasGross = split?.extrasGross ?? 0;
+    const stayGross = split?.stayGross ?? grossTotal;
 
-    const lineItems = splitExtras
+    const lineItems = split
       ? [
           makeLine(1, lineTitle, stayGross, taxRate),
           // Its own SKU, and therefore its own Moloni product: the destination
@@ -502,6 +517,32 @@ type GuestDetails = {
   countryCode: string | null;
   note: string | null;
 };
+
+/**
+ * The v2 booking's `subtotals`, or null.
+ *
+ * The one thing v2 has that v1 does not: how the total divides between the stay,
+ * the cleaning fee and the add-ons. Best-effort by design — a booking still
+ * invoices without it, as one line at the accommodation rate.
+ */
+async function fetchBookingSubtotals(
+  bookingId: string,
+  apiKey: string,
+  gateway: LodgifyGateway,
+): Promise<unknown> {
+  try {
+    const res = await lodgifyFetch(`/v2/reservations/bookings/${assertSafeBookingId(bookingId)}`, {
+      apiKey, gateway,
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    return data?.subtotals ?? null;
+  } catch {
+    // Never blocks an invoice: the split is an improvement on one line, not a
+    // precondition for issuing it.
+    return null;
+  }
+}
 
 // The v1 reservation endpoint carries the full guest record (postal address,
 // split name, notes) that v2's booking object omits. Best-effort enrichment —

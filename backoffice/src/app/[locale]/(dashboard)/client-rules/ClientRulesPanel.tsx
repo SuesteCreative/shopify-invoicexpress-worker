@@ -60,6 +60,22 @@ interface FieldDef {
  * prevent.
  */
 
+/**
+ * The migration-0037 switches, all default off. Listed once and rendered in
+ * both scopes: a Stripe→IX client keeps its IX credentials on the legacy row
+ * but has no `shopify_domain`, so the console hides the legacy section for it
+ * and the connection blob is the only place it can be configured from.
+ */
+const STRIPE_IX_FISCAL_FIELDS: FieldDef[] = [
+  { key: "ix_derive_exemption", kind: "bool", i18n: "ixDeriveExemption", dangerous: true },
+  { key: "ix_adapter_safety_nets", kind: "bool", i18n: "ixAdapterSafetyNets" },
+  { key: "stripe_tax_from_source", kind: "bool", i18n: "stripeTaxFromSource", dangerous: true },
+  { key: "tag_route_by_country", kind: "bool", i18n: "tagRouteByCountry" },
+  { key: "ix_require_series", kind: "bool", i18n: "ixRequireSeries" },
+  { key: "stripe_routing_hints", kind: "bool", i18n: "stripeRoutingHints" },
+  { key: "ix_multicurrency", kind: "bool", i18n: "ixMulticurrency", dangerous: true },
+];
+
 const LEGACY_FIELDS: FieldDef[] = [
   { key: "custom_invoice_note", kind: "text", i18n: "customInvoiceNote", maxLength: 200 },
   { key: "ix_sequence_name", kind: "text", i18n: "ixSequenceName" },
@@ -80,6 +96,7 @@ const LEGACY_FIELDS: FieldDef[] = [
   { key: "b2b_reverse_charge", kind: "bool", i18n: "b2bReverseCharge", dangerous: true },
   { key: "force_tax_rate", kind: "number", i18n: "forceTaxRate", dangerous: true },
   { key: "force_shipping_tax_rate", kind: "number", i18n: "forceShippingTaxRate", dangerous: true },
+  ...STRIPE_IX_FISCAL_FIELDS,
 ];
 
 const CONNECTION_FIELDS: Record<string, FieldDef[]> = {
@@ -91,6 +108,10 @@ const CONNECTION_FIELDS: Record<string, FieldDef[]> = {
     { key: "exemption_reason", kind: "text", i18n: "exemptionReason", dangerous: true },
     { key: "default_vat_rate", kind: "number", i18n: "defaultVatRate", dangerous: true },
   ],
+  // Scoped to the destination that produces the documents these switches
+  // change, rather than to `common`, so a Moloni or Vendus connection is not
+  // offered settings that mean nothing to it.
+  invoicexpress: STRIPE_IX_FISCAL_FIELDS,
   moloni: [
     { key: "moloni_document_set_name", kind: "text", i18n: "moloniDocumentSet" },
     { key: "moloni_document_type", kind: "select", i18n: "moloniDocumentType", options: ["invoice", "invoice_receipt", "simplified_invoice"] },

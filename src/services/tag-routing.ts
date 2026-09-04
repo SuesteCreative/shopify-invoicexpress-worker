@@ -88,14 +88,35 @@ export async function loadTagRoutingRules(
 // Stripe/EuPago: metadata is normalised into note_attributes [{name, value}].
 //   We match "${name}:${value}" (exact metadata pair) and just "${name}" (key-only).
 //
+// A rule name joined by ` + ` requires every part (see ruleMatches).
+//
 // First rule in created_at ASC order wins.
 export function matchTagRouting(
   order: Normalized["order"],
   rules: TagRoutingRule[],
+  opts?: { byCountry?: boolean },
 ): TagRoutingRule | null {
   if (rules.length === 0) return null;
 
   const candidates = new Set<string>();
+
+  // The buyer's own country, for merchants who file each destination into its
+  // own document series. Opt-in (`tag_route_by_country`) because it invents
+  // matchable strings the merchant did not write: a rule someone named
+  // `country:AU` for an unrelated reason would start matching sales to
+  // Australia. Billing first — it is who the invoice is addressed to — with
+  // shipping as the fallback for a payment that collected only a delivery
+  // address. Metadata still wins by being the same string: a merchant sending
+  // `country=AU` produces the identical candidate.
+  if (opts?.byCountry) {
+    const cc = String(
+      order.billing_address?.country_code || order.shipping_address?.country_code || "",
+    ).trim().toUpperCase();
+    if (cc) {
+      candidates.add(`country:${cc}`);
+      candidates.add(`country_code:${cc}`);
+    }
+  }
 
   // Shopify order tags. The normalize API returns an array, but the raw
   // Shopify payload is comma-separated — handle both to be safe.
@@ -108,6 +129,18 @@ export function matchTagRouting(
       } else if (s) {
         candidates.add(s);
       }
+    }
+  }
+
+  // Hints the source built from the payment itself (`stripe:origin:checkout`,
+  // `stripe:payment_method:multibanco`, `stripe:description:…`). They exist only
+  // when the connection asked for them, which is why there is no flag here, and
+  // they are namespaced so they cannot collide with a tag the merchant wrote.
+  const hints = (order as any)?.meta?.routing_hints;
+  if (Array.isArray(hints)) {
+    for (const hint of hints) {
+      const s = String(hint ?? "").trim();
+      if (s) candidates.add(s);
     }
   }
 
@@ -124,9 +157,32 @@ export function matchTagRouting(
   }
 
   for (const rule of rules) {
-    if (candidates.has(rule.tag_name.trim())) return rule;
+    if (ruleMatches(rule.tag_name, candidates)) return rule;
   }
   return null;
+}
+
+/**
+ * Does this rule's name match what the sale carries?
+ *
+ * A plain name is an exact match against one candidate. A name joined by ` + `
+ * requires ALL of its parts, which is what makes a price-based rule safe: a
+ * booking plugin's three fixed prices are only that plugin's prices among
+ * payments the plugin created, and `stripe:origin:api + stripe:amount:45.00`
+ * says exactly that. Without it, a hand-written invoice that happened to total
+ * the same 45.00 € would be filed in the plugin's series.
+ *
+ * The separator is spaced on purpose. A bare `+` appears inside real values —
+ * `phone:+351912345678` is a metadata pair a merchant might route on — and
+ * splitting on it would break rules that work today.
+ */
+function ruleMatches(tagName: string, candidates: Set<string>): boolean {
+  const name = String(tagName ?? "").trim();
+  if (!name) return false;
+  if (!name.includes(" + ")) return candidates.has(name);
+
+  const parts = name.split(" + ").map(p => p.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every(p => candidates.has(p));
 }
 
 /**

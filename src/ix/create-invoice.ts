@@ -200,14 +200,37 @@ export async function createIxInvoiceWithFallback(
   ixHeaders: IxHeaders,
   data: any,
   docType: "invoice" | "invoice_receipt",
-  opts?: { forceTaxRate?: number | null; forceShippingTaxRate?: number | null },
+  opts?: {
+    forceTaxRate?: number | null;
+    forceShippingTaxRate?: number | null;
+    /**
+     * Send EVERY positive line rate as an explicit account tax, not just the
+     * shop's forced ones.
+     *
+     * The Isento fallback that `force_tax_rate` was hardened against is not
+     * about forcing at all — it is about the buyer's country. IX resolves a
+     * bare numeric rate against its own PT-region tax table, and for a non-PT
+     * client with no match it answers "Isento". A shop selling under OSS sends
+     * exactly that: a French buyer at 20%, a German at 19%, none of them
+     * forced. The document then stores at 0% with the money intact, which is
+     * the Zoo de Lagos shape. Opt-in per connection, because it costs one
+     * `/v2/taxes` fetch (isolate-cached upstream) and because it needs the
+     * merchant to have created those rates in their IX account first.
+     */
+    allRatesExplicit?: boolean;
+  },
 ): Promise<IxCreateOutcome> {
   const query = { resolvers: "on_tax_fallback_search_tax_by_value" as const };
 
   // 0. Force every positive forced rate (product + shipping) to be sent as an
   //    explicit account tax so IX applies it to foreign clients too (instead of
   //    falling back to Isento).
-  const forcedRates = [opts?.forceTaxRate, opts?.forceShippingTaxRate]
+  const lineRates = opts?.allRatesExplicit
+    ? (Array.isArray(data?.items) ? data.items : [])
+      .map((it: any) => it?.tax)
+      .filter((t: any): t is number => typeof t === "number" && t > 0)
+    : [];
+  const forcedRates = [opts?.forceTaxRate, opts?.forceShippingTaxRate, ...lineRates]
     .filter((r): r is number => typeof r === "number" && r > 0);
   if (forcedRates.length > 0) {
     await resolveExplicitForcedTax(ixHeaders, data, forcedRates);

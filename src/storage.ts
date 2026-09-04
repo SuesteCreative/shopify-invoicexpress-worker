@@ -52,6 +52,43 @@ export interface IRequestConfig {
   // default; enabled per shop that needs the exemption spelled out for carriers
   // /customs (e.g. UPS on US exports). Derived from ix_exemption_reason.
   ix_stamp_exemption_note: number | null;
+  // ── Stripe→IX fiscal rework (migration 0037). Every one defaults to 0, and
+  // with 0 the code path is byte-for-byte what it was before the rework. They
+  // exist so one global merchant can be invoiced correctly without disturbing
+  // the connections that invoice correctly today.
+  //
+  // 1 = derive the exemption code and legal mention from the buyer's country
+  // and VIES (non-EU → M05, confirmed EU B2B → ix_b2b_exemption_reason + the
+  // article 196 mention) instead of stamping the shop-wide code on every 0%
+  // document. Also the only thing that makes reverse charge visible on the
+  // adapter pipeline. Never rewrites money.
+  ix_derive_exemption: number | null;
+  // 1 = create IX documents through createIxInvoiceWithFallback (transient
+  // retry, DOC010 client fallback, explicit account taxes, and the read-back
+  // that catches IX storing a foreign OSS rate as "Isento") instead of posting
+  // straight at the API.
+  ix_adapter_safety_nets: number | null;
+  // 1 = resolve VAT from the Checkout Session / Stripe Invoice behind a payment
+  // rather than trusting whichever webhook shape arrived first. PaymentIntent
+  // and charge events carry no tax breakdown, and they dedup against the richer
+  // shapes.
+  stripe_tax_from_source: number | null;
+  // 1 = the buyer's country counts as a tag-routing signal (`country:AU`), so
+  // series routing does not depend on the merchant sending it in metadata.
+  tag_route_by_country: number | null;
+  // 1 = a configured series InvoiceXpress does not know is an error, not a
+  // silent fallback to the account's default series.
+  ix_require_series: number | null;
+  // 1 = Stripe payments carry `stripe:` routing hints (which surface created the
+  // sale, how it was paid, what it calls itself), so a merchant collecting money
+  // through several systems can file each stream in its own series even when the
+  // system writes no metadata. Also consolidates the metadata of every object
+  // behind one payment, so a rule matches whichever webhook arrives first.
+  stripe_routing_hints: number | null;
+  // JSON map from Stripe metadata keys to invoice fields. NULL = off.
+  stripe_metadata_map: string | null;
+  // 1 = foreign-currency handling for IX documents (see migration 0037).
+  ix_multicurrency: number | null;
   /**
    * A standing note the merchant wants on every document (VAT scheme wording, a
    * licence number, a fixed legal reference). Appended to `observations` AFTER

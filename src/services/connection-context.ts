@@ -92,8 +92,33 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
     auto_finalize: 0,
     b2b_reverse_charge: 0,
     ix_send_email: 0,
+    // Migration 0037. Spelled out rather than left undefined for the reason in
+    // the comment above: an absent flag reads as "off" in one call site and
+    // "unset, inherit" in another, and these decide a document's tax regime.
+    ix_derive_exemption: 0,
+    ix_adapter_safety_nets: 0,
+    stripe_tax_from_source: 0,
+    tag_route_by_country: 0,
+    ix_require_series: 0,
+    stripe_routing_hints: 0,
+    stripe_metadata_map: null,
+    ix_multicurrency: 0,
   } as unknown as IRequestConfig;
 }
+
+/**
+ * The migration-0037 switches, in the one place that knows how to read them off
+ * a connection blob. Booleans there, SQLite 0/1 on the legacy row.
+ */
+const CONNECTION_FISCAL_FLAGS = [
+  "ix_derive_exemption",
+  "ix_adapter_safety_nets",
+  "stripe_tax_from_source",
+  "tag_route_by_country",
+  "ix_require_series",
+  "ix_multicurrency",
+  "stripe_routing_hints",
+] as const;
 
 /**
  * Overlay the connection's own behaviour settings onto the legacy config the
@@ -127,6 +152,18 @@ export function projectConnectionBehaviour(
   // silently absent from every document it issued.
   if (typeof destinationConfig.custom_invoice_note === "string") {
     c.custom_invoice_note = destinationConfig.custom_invoice_note;
+  }
+  // Same reason, for the 0037 switches: a Stripe→IX connection has a legacy row
+  // (its IX credentials live there) but no `shopify_domain`, and the fiscal
+  // console hides the legacy section for exactly those clients. Without this
+  // projection the switches would be settable only by hand-written SQL.
+  for (const flag of CONNECTION_FISCAL_FLAGS) {
+    if (typeof destinationConfig[flag] === "boolean") {
+      c[flag] = destinationConfig[flag] ? 1 : 0;
+    }
+  }
+  if (typeof destinationConfig.stripe_metadata_map === "string") {
+    c.stripe_metadata_map = destinationConfig.stripe_metadata_map;
   }
   return config;
 }

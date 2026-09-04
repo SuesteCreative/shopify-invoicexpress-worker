@@ -13,6 +13,8 @@ import type {
 } from "../types";
 import { parseIxDate } from "../../ix/date";
 import { resolveExemptionCode } from "../../ix/exemption";
+import { classifyExemption, type FiscalClassification } from "../../ix/fiscal-classification";
+import { createIxInvoiceWithFallback } from "../../ix/create-invoice";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
@@ -23,14 +25,68 @@ import { sendIxDocumentEmail, describeIxEmailOutcome } from "../../services/ix-d
 import { refundReference } from "../../services/document-references";
 import { platformError } from "../../services/platform-error";
 
-// Sequences cache: accountName → [{id, serie}]. Survives within a Worker isolate,
-// flushed on cold start. The sequences list changes rarely so this is safe.
-const sequencesCache = new Map<string, Array<{ id: number; serie: string }>>();
+/**
+ * One row of InvoiceXpress's `sequences.json`. The shape that matters is the
+ * one nobody read: a "series" is not a single sequence, it is a FAMILY, and it
+ * carries a separate numeric id per document type.
+ */
+export interface IxSequenceRow {
+  id: number;
+  serie: string;
+  current_invoice_sequence_id?: number;
+  current_invoice_receipt_sequence_id?: number;
+  current_simplified_invoice_sequence_id?: number;
+  current_credit_note_sequence_id?: number;
+  current_debit_note_sequence_id?: number;
+  current_receipt_sequence_id?: number;
+}
 
-// Resolve the IX numeric sequence_id for a named series (e.g. "RVFR").
-// Falls back to null (IX uses its default series) if the name isn't found or
-// the sequences API call fails.
-async function resolveSequenceId(ctx: AdapterCtx, seriesName: string): Promise<number | null> {
+// Sequences cache: accountName → rows. Survives within a Worker isolate,
+// flushed on cold start. The sequences list changes rarely so this is safe.
+const sequencesCache = new Map<string, IxSequenceRow[]>();
+
+/**
+ * The id to send for THIS document type.
+ *
+ * Measured against the IX sandbox on 2026-09-04. A series named
+ * INVOICEXPRESSDEMO answers with `id: 47734` and, inside it,
+ * `current_invoice_sequence_id: 47734`, `current_invoice_receipt_sequence_id:
+ * 47736`, `current_credit_note_sequence_id: 47739`. The top-level `id` is the
+ * INVOICE id — so sending it on an invoice-receipt is rejected outright:
+ *
+ *   POST /v2/documents type=invoice_receipt sequence_id=47734
+ *     → HTTP 400 "A série não corresponde ao tipo de documento"
+ *   POST /v2/documents type=invoice_receipt sequence_id=47736
+ *     → HTTP 200
+ *
+ * Which means any connection issuing invoice-receipts into a named series has
+ * been failing the create entirely, leaving the sale unbilled — and a merchant
+ * filing one series per destination country would have hit it on every sale.
+ * Falls back to the top-level id when a type-specific one is absent, which is
+ * the previous behaviour and correct for plain invoices.
+ */
+export function pickSequenceId(row: IxSequenceRow, docType: string): number | null {
+  const byType: Record<string, number | undefined> = {
+    invoice: row.current_invoice_sequence_id,
+    invoice_receipt: row.current_invoice_receipt_sequence_id,
+    simplified_invoice: row.current_simplified_invoice_sequence_id,
+    credit_note: row.current_credit_note_sequence_id,
+    debit_note: row.current_debit_note_sequence_id,
+    receipt: row.current_receipt_sequence_id,
+  };
+  const specific = byType[docType];
+  if (typeof specific === "number" && specific > 0) return specific;
+  return typeof row.id === "number" && row.id > 0 ? row.id : null;
+}
+
+// Resolve the IX numeric sequence_id for a named series (e.g. "RVFR"), for the
+// document type being issued. Falls back to null (IX uses its default series)
+// if the name isn't found or the sequences API call fails.
+async function resolveSequenceId(
+  ctx: AdapterCtx,
+  seriesName: string,
+  docType: string = "invoice",
+): Promise<number | null> {
   const account = ctx.config.ix_account_name;
   const apiKey = ctx.config.ix_api_key;
   if (!account || !apiKey) return null;
@@ -44,7 +100,7 @@ async function resolveSequenceId(ctx: AdapterCtx, seriesName: string): Promise<n
       const suffix = isTest ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
       const res = await fetch(`https://${account}${suffix}/sequences.json?api_key=${encodeURIComponent(apiKey)}`);
       if (!res.ok) return null;
-      const data = await res.json() as { sequences?: Array<{ id: number; serie: string }> };
+      const data = await res.json() as { sequences?: IxSequenceRow[] };
       sequences = data.sequences ?? [];
       // Only cache a non-empty result. An empty list on first fetch (transient
       // network hiccup) must not freeze future lookups for the isolate lifetime.
@@ -55,8 +111,8 @@ async function resolveSequenceId(ctx: AdapterCtx, seriesName: string): Promise<n
   }
 
   const target = seriesName.trim().toUpperCase();
-  const match = sequences.find(s => s.serie.trim().toUpperCase() === target);
-  return match?.id ?? null;
+  const match = sequences.find(s => String(s.serie ?? "").trim().toUpperCase() === target);
+  return match ? pickSequenceId(match, docType) : null;
 }
 
 /**
@@ -419,7 +475,34 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   async createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult> {
     const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
     const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides);
-    const { invoice, nifHold } = builder.createInvoiceFromNormalizedOrder(normalized);
+
+    // Per-sale fiscal classification. Off by default: with the flag at 0 this
+    // whole block is skipped and the build is what it always was, stamping the
+    // shop-wide exemption code. On, the document names the regime the sale was
+    // actually made under — an export, an intra-Community supply, or the shop's
+    // own reason — which is the difference between a globally-selling merchant
+    // being compliant and merely being invoiced. Note this reads the VIES
+    // checker directly rather than through `viesChecker` above: reverse charge
+    // was never evaluated on this path at all, so the checker was built and
+    // then never used.
+    let fiscal: FiscalClassification | null = null;
+    if (ctx.config.ix_derive_exemption === 1) {
+      fiscal = await classifyExemption({
+        buyerCountryCode: normalized.order.billing_address?.country_code
+          ?? normalized.order.shipping_address?.country_code,
+        euVatCandidates: builder.extractEuVatCandidates(normalized),
+        config: ctx.config,
+        viesChecker: ctx.viesChecker,
+      });
+    }
+
+    const { invoice, nifHold, requestTaxExemptionReason } =
+      builder.createInvoiceFromNormalizedOrder(normalized, fiscal ? { fiscal } : undefined);
+
+    // The hold only means anything on a document that ended up exempt. A sale
+    // where the buyer paid VAT needs no exemption confirmed, so an unverifiable
+    // VAT number on it is not a reason to withhold a correct invoice.
+    const fiscalHold = fiscal && requestTaxExemptionReason ? fiscal.hold : null;
 
     // IxBuilder reconciles internally on the raw_order path. For non-raw
     // sources (Stripe, EuPago) raw_order is absent, so we reconcile here
@@ -442,15 +525,64 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     // global ix_sequence_name). IX v2 accepts this field even though it is not
     // captured in the generated TypeScript types.
     if (ctx.config.ix_sequence_name) {
-      const sequenceId = await resolveSequenceId(ctx, ctx.config.ix_sequence_name);
-      if (sequenceId) (invoice as any).sequence_id = sequenceId;
+      const sequenceId = await resolveSequenceId(ctx, ctx.config.ix_sequence_name, ixDocType(ctx));
+      if (sequenceId) {
+        (invoice as any).sequence_id = sequenceId;
+      } else if (ctx.config.ix_require_series === 1) {
+        // A merchant filing each destination country into its own series has
+        // one series per country, and a name that does not resolve silently
+        // files the sale under whichever series IX defaults to. That is a sale
+        // in the wrong country's numbering, discovered — if ever — by an
+        // accountant months later. Failing here leaves the order visibly
+        // unbilled instead, which is a problem someone can see and fix.
+        throw platformError(
+          `A série "${ctx.config.ix_sequence_name}" não existe na conta InvoiceXpress `
+          + `(ou a lista de séries não respondeu). A encomenda não foi facturada para não ir para a série errada.`,
+        );
+      }
     }
 
-    const res = await IxApi.v2.documents.post({
-      headers: ixHeadersFromCtx(ctx),
-      body: { data: invoice, type: ixDocType(ctx) },
-      query: { resolvers: "on_tax_fallback_search_tax_by_value" },
-    });
+    // The second currency. InvoiceXpress issues in the account's own currency —
+    // for a Portuguese account the euro, by law — but it will print a second
+    // figure beside it, which is what a buyer who paid 100 AUD needs to see on
+    // a document totalling 58,20 €. Measured against the sandbox on 2026-09-04:
+    // `currency_code` + `rate` (a decimal AS A STRING) on the create body come
+    // back as `multicurrency: { rate, currency, total }`, with
+    // `total = document total × rate`.
+    //
+    // The rate is the payment's own settlement rate, not an FX feed's, so the
+    // foreign figure lands on the amount the buyer actually paid.
+    //
+    // NOTE: ix-proxy.kapta.app currently drops both fields — its request schema
+    // does not list them (`sequence_id` is listed, which is why that one gets
+    // through). Sending them is harmless until the proxy passes them on, and
+    // the document is fiscally complete either way: the euro value is the value.
+    const fx = normalized.order.paid_in_foreign_currency;
+    if (ctx.config.ix_multicurrency === 1 && fx?.code && fx.rate > 0) {
+      (invoice as any).currency_code = fx.code;
+      (invoice as any).rate = String(fx.rate);
+    }
+
+    // Two ways to post the same document. The plain one is what this path has
+    // always done; the other is the one the legacy Shopify path uses, and it
+    // carries everything that path learned the hard way: transient retry
+    // against a proxy measured timing out under load, the DOC010 fallback for
+    // an IX client record that cannot be resolved, explicit account taxes so a
+    // foreign rate is not resolved to "Isento", and — the reason it matters
+    // here — reading the document back to confirm IX stored the money we sent.
+    // Without that read-back, a sale stored at 0% VAT looks exactly like a sale
+    // that worked.
+    const res = ctx.config.ix_adapter_safety_nets === 1
+      ? (await createIxInvoiceWithFallback(ixHeadersFromCtx(ctx), invoice, ixDocType(ctx), {
+        forceTaxRate: ctx.config.force_tax_rate,
+        forceShippingTaxRate: ctx.config.force_shipping_tax_rate,
+        allRatesExplicit: true,
+      })).res
+      : await IxApi.v2.documents.post({
+        headers: ixHeadersFromCtx(ctx),
+        body: { data: invoice, type: ixDocType(ctx) },
+        query: { resolvers: "on_tax_fallback_search_tax_by_value" },
+      });
 
     const id = res.data?.data?.id;
     if (!id) {
@@ -461,7 +593,14 @@ export class InvoiceXpressDestination implements DestinationAdapter {
         status,
       );
     }
-    return { invoiceId: String(id), holdReason: nifHold ? nifHoldReason(nifHold) : null };
+    return {
+      invoiceId: String(id),
+      // Either reason holds the document; both stated when both apply, because
+      // an operator fixing one needs to know the other is also there.
+      holdReason: [nifHold ? nifHoldReason(nifHold) : null, fiscalHold]
+        .filter(Boolean).join(" | ") || null,
+      exemptionCode: invoice.tax_exemption_reason ?? null,
+    };
   }
 
   async finalize(invoiceId: string, ctx: AdapterCtx): Promise<void> {
@@ -507,13 +646,54 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       typeof i.tax === "number" ? i.tax === 0 : i.tax.value === 0
     );
 
+    // A credit note undoes a specific document, so it must be issued under the
+    // regime THAT document was issued under — not under whatever the shop is
+    // configured with today. Crediting a March export (M05) with today's M10
+    // declares a different exemption than the sale it reverses. Its siblings
+    // (creditFullDocument, refunds-create) already read the code off the
+    // document; this path read the config directly.
+    //
+    // Behind the same flag as the rest of the classification work, and
+    // best-effort: an unreadable document falls back to the configured code,
+    // which is exactly what this line did before.
+    let creditExemption: string | null | undefined = ctx.config.ix_exemption_reason;
+    if (requireTaxExemption && ctx.config.ix_derive_exemption === 1) {
+      try {
+        const original = await this.getDocument(invoiceId, ctx);
+        creditExemption = resolveExemptionCode(original?.exemption_code, ctx.config.ix_exemption_reason);
+      } catch (e: any) {
+        console.warn(`[IX] credit note ${invoiceId}: could not read the original's exemption code (${e?.message ?? e}) — using the configured one`);
+      }
+    }
+
     const creditNote: IxCreditNote = {
       ...invoice,
       items,
       reference: refundReference(refund.refundId),
-      tax_exemption_reason: requireTaxExemption ? ctx.config.ix_exemption_reason ?? undefined : undefined,
+      tax_exemption_reason: requireTaxExemption ? creditExemption ?? undefined : undefined,
       owner_invoice_id: Number(invoiceId),
     };
+    // The builder does not set a sequence_id today — createDraft adds it after
+    // the build — but this spreads a whole invoice payload, so the delete is
+    // there to keep a future build path from leaking the INVOICE id onto a
+    // credit note, which IX refuses outright ("A série não corresponde ao tipo
+    // de documento", measured against the sandbox 2026-09-04). Then put back
+    // the credit-note id of the same series, only for a
+    // connection that runs on named series deliberately — otherwise a merchant
+    // whose credit notes have always been numbered in the account default would
+    // silently start a different sequence.
+    delete (creditNote as any).sequence_id;
+    if (ctx.config.ix_sequence_name && ctx.config.ix_require_series === 1) {
+      const creditSequenceId = await resolveSequenceId(ctx, ctx.config.ix_sequence_name, "credit_note");
+      if (creditSequenceId) {
+        (creditNote as any).sequence_id = creditSequenceId;
+      } else {
+        throw platformError(
+          `A série "${ctx.config.ix_sequence_name}" não tem sequência de nota de crédito na conta InvoiceXpress. `
+          + `A nota de crédito não foi emitida para não sair numa série diferente da fatura que anula.`,
+        );
+      }
+    }
 
     const { data, error, response } = await IxApi.v2.creditNotes.post({
       headers: ixHeadersFromCtx(ctx),

@@ -394,7 +394,9 @@ async function runPipelineCore(
       // draft-vs-finalize when the order carries a tag matching a
       // merchant-configured rule. applyTagRoute owns the per-destination key
       // mapping — see src/services/tag-routing.ts.
-      const tagMatch = matchTagRouting(normalized.order, tagRoutingRules);
+      const tagMatch = matchTagRouting(normalized.order, tagRoutingRules, {
+        byCountry: ctx.config.tag_route_by_country === 1,
+      });
       if (tagMatch) {
         routedDecision = normalizeRule(tagMatch);
 
@@ -520,7 +522,7 @@ async function runPipelineCore(
         return;
       }
 
-      const { invoiceId, holdReason } = await destAdapter.createDraft(normalized, ctx);
+      const { invoiceId, holdReason, exemptionCode } = await destAdapter.createDraft(normalized, ctx);
       await appStorage.saveProcessedInvoice(externalId, invoiceId, {
         sourceKind: source,
         destinationKind: destination,
@@ -539,9 +541,13 @@ async function runPipelineCore(
       //
       // But deferring the read means the intent is gone by the time anyone
       // checks, so it is written down here instead: one local D1 insert, no
-      // network. The exemption code is absent on this path deliberately — the
-      // destination derives it per line from the product mapping, so there is no
-      // single value we can be held to.
+      // network. The exemption code is whatever the destination says it stamped
+      // at document level: InvoiceXpress puts exactly one on the document, and
+      // recording it is what lets the sweep catch the M99 class of drift — a
+      // document created under a named legal reason that IX later reads back
+      // with none. A destination that derives the reason per line (Moloni) has
+      // no single value to be held to and reports none, which reads here as the
+      // null this field carried for every document until now.
       await logDocumentEvent(env, {
         externalId,
         event: "built",
@@ -557,7 +563,7 @@ async function runPipelineCore(
           intent: {
             total: Number.isFinite(Number(normalized.order?.total)) ? Number(normalized.order?.total) : null,
             reference: documentReference(normalized.order),
-            exemptionCode: null,
+            exemptionCode: exemptionCode ?? null,
           },
           holdReason: holdReason ?? null,
         },
@@ -644,7 +650,29 @@ async function runPipelineCore(
       // this is body.id (numeric). For Stripe charges this is the
       // payment_intent so the refund maps back to the same row.
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
-      if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for ${logTopic} ${externalId}`);
+      if (!invoice?.invoice_id) {
+        // Payment confirmed for a sale nothing ever created a document for.
+        //
+        // On a source whose events ARE the sale, that is not a missing step to
+        // wait for — it is the whole sale arriving at once. A Stripe invoice the
+        // merchant marks as paid outside Stripe (a transfer, cash, a booking
+        // settled at the counter) fires `invoice.paid` and nothing else: there
+        // is no PaymentIntent and no charge, so no create event will ever come,
+        // and the money went uninvoiced with only a log line to show for it.
+        //
+        // Shopify still throws. There `paid` genuinely follows a `created` we
+        // must have missed, the retry is what heals it, and creating here would
+        // race the delivery that is already on its way.
+        if (sourceAdapter.capabilities.emitsSeparatePaidEvent) {
+          throw new Error(`[Pipeline] Invoice not found for ${logTopic} ${externalId}`);
+        }
+        console.log(`[Pipeline] ${externalId}: paid with no document — issuing it now`);
+        await runPipelineCore(
+          { ...input, topic: "created" },
+          sourceAdapter, destAdapter, externalId, appStorage, ctx, logTopic, connectionLabel, tagRoutingRules,
+        );
+        return;
+      }
 
       // Held for a human — leave the draft alone (see the `created` case).
       if (invoice.hold_reason) {

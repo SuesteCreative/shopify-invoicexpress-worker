@@ -19,6 +19,19 @@ export const FISCAL_CONFIG_KEYS = [
   "exemption_reason",
   "default_vat_rate",
   "custom_invoice_note",
+  // Stripe→InvoiceXpress fiscal rework (migration 0037). Readable and editable
+  // on the connection blob as well as the legacy row, because a Stripe→IX
+  // client has no `shopify_domain` and the console hides the legacy section for
+  // exactly those clients — without these names here, the switches would be
+  // reachable only by hand-written SQL.
+  "ix_derive_exemption",
+  "ix_adapter_safety_nets",
+  "stripe_tax_from_source",
+  "tag_route_by_country",
+  "ix_require_series",
+  "stripe_metadata_map",
+  "ix_multicurrency",
+  "stripe_routing_hints",
   // Moloni
   "moloni_company_id",
   "moloni_company_name",

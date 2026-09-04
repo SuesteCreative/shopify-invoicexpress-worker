@@ -94,8 +94,17 @@ export interface DestinationInvoiceCreateResult {
   /** Set when the document must stay a draft for a human to review — today
    *  only "the buyer typed something into the address line that was meant to
    *  be a NIF and doesn't validate". Persisted on processed_orders.hold_reason;
-   *  blocks finalize and the customer email until a re-emit clears it. */
+   *  blocks finalize and the customer email until a re-emit clears it. Now also
+   *  carries "the buyer's intra-Community VAT number could not be confirmed",
+   *  which decides a tax regime and so must not be certified unchecked. */
   holdReason?: string | null;
+  /** The exemption code the document was created with, when the destination
+   *  stamps one at document level (IX does; Moloni derives it per line). Fed to
+   *  the `built` document-log event so the nightly verify sweep has an intent to
+   *  compare the stored document against — without it, the whole class of
+   *  exemption drift the sweep exists to catch is invisible for anything the
+   *  adapter pipeline creates. */
+  exemptionCode?: string | null;
 }
 
 export interface DestinationCreditResult {

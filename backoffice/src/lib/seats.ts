@@ -1,3 +1,4 @@
+import type Stripe from "stripe";
 import { getStripe, getStripeEnvOptional } from "./stripe";
 
 /**
@@ -61,6 +62,34 @@ export interface SeatChargeResult {
  * refused — the caller must then NOT hand out the seat. A finalized-but-unpaid
  * invoice is voided so a failed invite leaves nothing collectable behind.
  */
+
+/** The card Stripe should charge for a one-off seat invoice: the customer's own
+ *  default, then the default on any live subscription, then whatever card is
+ *  attached to the customer. Returns null when the account has no card at all. */
+async function resolveCustomerPaymentMethod(stripe: Stripe, customerId: string): Promise<string | null> {
+    try {
+        const customer: any = await stripe.customers.retrieve(customerId);
+        const fromCustomer = customer?.invoice_settings?.default_payment_method;
+        if (fromCustomer) return typeof fromCustomer === "string" ? fromCustomer : fromCustomer.id;
+    } catch { /* fall through */ }
+
+    try {
+        const subs = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 10 });
+        for (const sub of subs.data) {
+            if (!["active", "trialing", "past_due"].includes(sub.status)) continue;
+            const pm = (sub as any).default_payment_method;
+            if (pm) return typeof pm === "string" ? pm : pm.id;
+        }
+    } catch { /* fall through */ }
+
+    try {
+        const pms = await stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 1 });
+        if (pms.data[0]) return pms.data[0].id;
+    } catch { /* fall through */ }
+
+    return null;
+}
+
 export async function chargeSeat(params: {
     customerId: string;
     accountId: string;
@@ -78,6 +107,13 @@ export async function chargeSeat(params: {
         member_id: params.memberRowId,
     };
 
+    // Which card to charge. A merchant who subscribed through Checkout often has
+    // the card on the SUBSCRIPTION and nothing set as the customer default, and
+    // an invoice with no default payment method cannot be paid ("There is no
+    // `default_payment_method` set on this Customer or Invoice"). Look in every
+    // place the card can be before giving up.
+    const paymentMethodId = await resolveCustomerPaymentMethod(stripe, params.customerId);
+
     // The invoice is created FIRST and the line is bound to it explicitly.
     // Creating the item as a pending one and hoping the next invoice sweeps it up
     // does not work: `invoices.create` excludes pending items by default, which
@@ -88,6 +124,7 @@ export async function chargeSeat(params: {
         collection_method: "charge_automatically",
         auto_advance: false,
         description: `Utilizador extra Rioko${params.memberEmail ? ` — ${params.memberEmail}` : ""}`,
+        ...(paymentMethodId ? { default_payment_method: paymentMethodId } : {}),
         metadata,
     });
     const invoiceId = draft.id as string;
@@ -116,7 +153,7 @@ export async function chargeSeat(params: {
     }
 
     try {
-        const paid = await stripe.invoices.pay(invoiceId);
+        const paid = await stripe.invoices.pay(invoiceId, paymentMethodId ? { payment_method: paymentMethodId } : undefined);
         if (paid.status !== "paid") throw new Error(`Invoice ${paid.id} is ${paid.status}`);
         return { invoice_id: invoiceId, amount_cents: paid.amount_paid ?? 0, status: "paid" };
     } catch (e: any) {

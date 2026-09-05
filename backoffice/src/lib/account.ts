@@ -136,22 +136,31 @@ export async function isReadOnlyMember(authUserId: string): Promise<boolean> {
     return membership?.role === "viewer";
 }
 
+/** Every account may invite one extra user at no charge. Seats beyond that are
+ *  unlocked one at a time, €1.50 + IVA each. The owner is not a seat. */
+export const INCLUDED_SEATS = 1;
+
 export interface SeatPool {
-    /** Seats the account owns. Never decreases: removing someone frees the seat,
-     *  it does not refund it. */
+    /** Seats the account has unlocked with money. Never decreases: removing
+     *  someone frees the seat, it does not refund it. */
     paid: number;
+    /** Free seats that come with the account (currently 1). */
+    included: number;
+    /** Seats the account can fill in total: included + paid. */
+    capacity: number;
     /** Seats in use right now — pending invites included, since an invite takes
-     *  the seat the moment it is sent. The owner is not a seat. */
+     *  the seat the moment it is sent. */
     occupied: number;
-    /** Seats the account owns with nobody in them: invite into one for free. */
+    /** Seats sitting empty: invite into one at no charge. */
     free: number;
 }
 
-/** What the account owns versus what it is using. Buying a seat is its own
- *  action (POST /api/account/seats); inviting only fills one. */
+/** What the account can fill versus what it is using. Unlocking buys capacity
+ *  (POST /api/account/seats); inviting only fills it. */
 export async function getSeatPool(accountId: string): Promise<SeatPool> {
     const db = getAccountDB();
-    if (!db) return { paid: 0, occupied: 0, free: 0 };
+    const empty = { paid: 0, included: INCLUDED_SEATS, capacity: INCLUDED_SEATS, occupied: 0, free: INCLUDED_SEATS };
+    if (!db) return empty;
     try {
         const owned: any = await db
             .prepare("SELECT COUNT(*) AS n FROM account_seats WHERE account_id = ?")
@@ -163,8 +172,9 @@ export async function getSeatPool(accountId: string): Promise<SeatPool> {
             .first();
         const paid = Number(owned?.n ?? 0);
         const occupied = Number(used?.n ?? 0);
-        return { paid, occupied, free: Math.max(0, paid - occupied) };
+        const capacity = paid + INCLUDED_SEATS;
+        return { paid, included: INCLUDED_SEATS, capacity, occupied, free: Math.max(0, capacity - occupied) };
     } catch {
-        return { paid: 0, occupied: 0, free: 0 };
+        return empty;
     }
 }

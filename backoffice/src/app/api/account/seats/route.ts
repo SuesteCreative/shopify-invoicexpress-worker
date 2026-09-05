@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAccountContext, getAccountDB, getSeatPool } from "@/lib/account";
-import { chargeSeat, resolveSeatPrice } from "@/lib/seats";
+import { createSeatCheckout, grantSeatFromSession } from "@/lib/seats";
+import { getStripe } from "@/lib/stripe";
 
 export const runtime = "edge";
 
 /**
- * Unlock one seat: the payment step, on its own.
+ * Unlock one seat — the payment step, on its own.
  *
- * The Users page shows a locked slot with the price on it; this is the button
- * behind it. It charges the card already on file (no checkout redirect) and
- * records the seat. Inviting someone is then free and only fills a seat the
- * account owns — see /api/account/members.
+ * Returns a Stripe Checkout URL rather than charging the card on file: the
+ * merchant sees the price, the VAT and the card before paying, and gets a
+ * receipt. The seat itself is granted when the payment lands (webhook, or the
+ * confirm call below when the browser returns).
  */
 export async function POST(req: NextRequest) {
     try {
@@ -21,54 +22,62 @@ export async function POST(req: NextRequest) {
         const db = getAccountDB();
         if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-        const user: any = await db.prepare("SELECT role FROM users WHERE id = ?").bind(ctx.accountId).first();
-        const exempt = user?.role === "superadmin" || user?.role === "hiperadmin";
-
-        const sub: any = await db
-            .prepare("SELECT status, stripe_customer_id, stripe_subscription_id FROM subscriptions WHERE user_id = ?")
+        const account: any = await db
+            .prepare(`SELECT u.email AS email, s.stripe_customer_id AS customer_id
+                      FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id
+                      WHERE u.id = ?`)
             .bind(ctx.accountId)
             .first();
-        const live = !!sub?.stripe_subscription_id && ["active", "trialing"].includes(String(sub?.status));
-        if (!exempt && (!live || !sub?.stripe_customer_id)) {
-            return NextResponse.json({ error: "subscription_required" }, { status: 402 });
-        }
 
-        const seatId = crypto.randomUUID();
-        let invoiceId: string | null = null;
-        let amountCents: number | null = null;
+        const origin = new URL(req.url).origin;
+        const locale = /\/(pt|en)(\/|$)/.exec(req.headers.get("referer") ?? "")?.[1] ?? "pt";
 
-        if (!exempt) {
-            try {
-                const charged = await chargeSeat({
-                    customerId: String(sub.stripe_customer_id),
-                    accountId: ctx.accountId,
-                    memberEmail: "",
-                    memberRowId: seatId,
-                });
-                invoiceId = charged.invoice_id;
-                amountCents = charged.amount_cents;
-            } catch (e: any) {
-                return NextResponse.json({ error: "payment_failed", detail: e?.message ?? String(e) }, { status: 402 });
-            }
-        } else {
-            try {
-                amountCents = (await resolveSeatPrice()).unit_amount;
-            } catch { /* price is only a label here */ }
-        }
-
-        await db
-            .prepare(`INSERT INTO account_seats (id, account_id, stripe_invoice_id, amount_cents, purchased_by)
-                      VALUES (?, ?, ?, ?, ?)`)
-            .bind(seatId, ctx.accountId, invoiceId, exempt ? 0 : amountCents, ctx.authUserId)
-            .run();
-
-        return NextResponse.json({
-            ok: true,
-            seat: { id: seatId, invoice_id: invoiceId, amount_cents: exempt ? 0 : amountCents },
-            seats: await getSeatPool(ctx.accountId),
+        const checkout = await createSeatCheckout({
+            accountId: ctx.accountId,
+            customerId: account?.customer_id ?? null,
+            email: account?.email ?? null,
+            origin,
+            locale,
         });
+
+        return NextResponse.json({ ok: true, url: checkout.url, session_id: checkout.session_id });
     } catch (e: any) {
         console.error("[account/seats] POST", e);
+        return NextResponse.json({ error: "checkout_failed", detail: e?.message ?? String(e) }, { status: 500 });
+    }
+}
+
+/**
+ * The browser coming back from Checkout: confirm the session was paid and grant
+ * the seat. Idempotent with the webhook — both key the seat on the session id,
+ * so whichever arrives first wins and the second is a no-op.
+ */
+export async function PUT(req: NextRequest) {
+    try {
+        const ctx = await getAccountContext(req);
+        if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (ctx.access === "viewer") return NextResponse.json({ error: "read_only" }, { status: 403 });
+
+        const db = getAccountDB();
+        if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+
+        const body = (await req.json().catch(() => ({}))) as { session_id?: string };
+        const sessionId = (body.session_id ?? "").trim();
+        if (!sessionId.startsWith("cs_")) return NextResponse.json({ error: "invalid_session" }, { status: 400 });
+
+        const session = await getStripe().checkout.sessions.retrieve(sessionId);
+
+        // The session must belong to THIS account: a session id is guessable
+        // enough that it must never grant a seat somewhere else.
+        const owner = (session.metadata?.user_id as string) || session.client_reference_id;
+        if (owner !== ctx.accountId) return NextResponse.json({ error: "not_your_session" }, { status: 403 });
+        if (session.metadata?.kind !== "extra_user_seat") return NextResponse.json({ error: "not_a_seat" }, { status: 400 });
+        if (session.payment_status !== "paid") return NextResponse.json({ error: "not_paid", status: session.payment_status }, { status: 402 });
+
+        const { granted } = await grantSeatFromSession(db, session as any);
+        return NextResponse.json({ ok: true, granted, seats: await getSeatPool(ctx.accountId) });
+    } catch (e: any) {
+        console.error("[account/seats] PUT", e);
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }

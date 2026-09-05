@@ -3,6 +3,7 @@
 export const runtime = "edge";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Users, UserPlus, Loader2, Trash2, ShieldCheck, Eye, Mail, Crown, AlertCircle, Lock, UserRound } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -52,6 +53,7 @@ export default function UsersPage() {
     const [role, setRole] = useState<"admin" | "viewer">("viewer");
     const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
     const emailRef = useRef<HTMLInputElement>(null);
+    const searchParams = useSearchParams();
 
     const load = async () => {
         try {
@@ -66,6 +68,42 @@ export default function UsersPage() {
 
     useEffect(() => { load(); }, []);
 
+    // Back from Checkout: confirm the payment and show the seat straight away,
+    // instead of waiting for the webhook to arrive.
+    useEffect(() => {
+        const outcome = searchParams.get("seat");
+        if (!outcome) return;
+        const sessionId = searchParams.get("session_id");
+        const clean = () => window.history.replaceState({}, "", window.location.pathname);
+
+        if (outcome === "cancel") {
+            setNotice({ kind: "error", text: t("unlockCancelled") });
+            clean();
+            return;
+        }
+        if (outcome === "success" && sessionId) {
+            (async () => {
+                try {
+                    const r = await fetch("/api/account/seats", {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ session_id: sessionId }),
+                    });
+                    const d: any = await r.json();
+                    setNotice(d.ok
+                        ? { kind: "ok", text: t("unlocked") }
+                        : { kind: "error", text: errorText(d.error, d.detail) });
+                } catch {
+                    setNotice({ kind: "error", text: t("genericError") });
+                } finally {
+                    clean();
+                    await load();
+                }
+            })();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
+
     const errorText = (code: string, detail?: string) => {
         switch (code) {
             case "invalid_email": return t("invalidEmail");
@@ -75,6 +113,8 @@ export default function UsersPage() {
             case "subscription_required": return t("needSubscription");
             case "payment_failed": return t("paymentFailed", { detail: detail || "" });
             case "invitation_failed": return t("inviteFailed", { detail: detail || "" });
+            case "checkout_failed": return t("checkoutFailed", { detail: detail || "" });
+            case "not_paid": return t("unlockNotPaid");
             case "read_only_member":
             case "read_only": return t("readOnlyNotice");
             default: return t("genericError");
@@ -86,19 +126,14 @@ export default function UsersPage() {
         : "1,50 €";
 
     const handleUnlock = async () => {
-        if (!confirm(t("unlockConfirm", { amount: priceLabel }))) return;
         setActing("unlock");
         setNotice(null);
         try {
             const r = await fetch("/api/account/seats", { method: "POST" });
             const d: any = await r.json();
-            if (d.ok) {
-                setNotice({ kind: "ok", text: t("unlocked") });
-                await load();
-                emailRef.current?.focus();
-            } else {
-                setNotice({ kind: "error", text: errorText(d.error, d.detail) });
-            }
+            // Stripe Checkout does the asking, the price and the receipt.
+            if (d.ok && d.url) { window.location.href = d.url; return; }
+            setNotice({ kind: "error", text: errorText(d.error, d.detail) });
         } catch (e: any) {
             setNotice({ kind: "error", text: e?.message || t("genericError") });
         } finally {

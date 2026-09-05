@@ -78,8 +78,23 @@ export async function chargeSeat(params: {
         member_id: params.memberRowId,
     };
 
+    // The invoice is created FIRST and the line is bound to it explicitly.
+    // Creating the item as a pending one and hoping the next invoice sweeps it up
+    // does not work: `invoices.create` excludes pending items by default, which
+    // finalized €0 invoices and handed out free seats while the €1.50 items sat
+    // waiting to ambush the merchant's next subscription invoice.
+    const draft = await stripe.invoices.create({
+        customer: params.customerId,
+        collection_method: "charge_automatically",
+        auto_advance: false,
+        description: `Utilizador extra Rioko${params.memberEmail ? ` — ${params.memberEmail}` : ""}`,
+        metadata,
+    });
+    const invoiceId = draft.id as string;
+
     await stripe.invoiceItems.create({
         customer: params.customerId,
+        invoice: invoiceId,
         ...(price.recurring
             ? { amount: price.unit_amount, currency: price.currency, description: "Utilizador extra Rioko" }
             : { price: price.id }),
@@ -87,25 +102,25 @@ export async function chargeSeat(params: {
         metadata,
     } as any);
 
-    const draft = await stripe.invoices.create({
-        customer: params.customerId,
-        collection_method: "charge_automatically",
-        auto_advance: false,
-        description: `Utilizador extra Rioko — ${params.memberEmail}`,
-        metadata,
-    });
+    const finalized = await stripe.invoices.finalizeInvoice(invoiceId);
 
-    const finalized = await stripe.invoices.finalizeInvoice(draft.id as string);
+    // A seat that costs nothing means the line never landed on the invoice.
+    // Refuse it rather than granting the seat for free.
+    if ((finalized.total ?? 0) <= 0) {
+        try { await stripe.invoices.voidInvoice(invoiceId); } catch { /* leave it for support */ }
+        throw new Error("the seat invoice came out empty (no billable line)");
+    }
+
     if (finalized.status === "paid") {
-        return { invoice_id: finalized.id as string, amount_cents: finalized.amount_paid ?? 0, status: "paid" };
+        return { invoice_id: invoiceId, amount_cents: finalized.amount_paid ?? finalized.total ?? 0, status: "paid" };
     }
 
     try {
-        const paid = await stripe.invoices.pay(finalized.id as string);
+        const paid = await stripe.invoices.pay(invoiceId);
         if (paid.status !== "paid") throw new Error(`Invoice ${paid.id} is ${paid.status}`);
-        return { invoice_id: paid.id as string, amount_cents: paid.amount_paid ?? 0, status: "paid" };
+        return { invoice_id: invoiceId, amount_cents: paid.amount_paid ?? 0, status: "paid" };
     } catch (e: any) {
-        try { await stripe.invoices.voidInvoice(finalized.id as string); } catch { /* leave it for support */ }
+        try { await stripe.invoices.voidInvoice(invoiceId); } catch { /* leave it for support */ }
         throw new Error(e?.message || "Card was declined");
     }
 }

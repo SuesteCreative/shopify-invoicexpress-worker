@@ -137,54 +137,34 @@ export async function isReadOnlyMember(authUserId: string): Promise<boolean> {
 }
 
 export interface SeatPool {
-    /** Seats the account has ever paid for. Never decreases: removing someone
-     *  frees the seat, it does not refund it. */
+    /** Seats the account owns. Never decreases: removing someone frees the seat,
+     *  it does not refund it. */
     paid: number;
-    /** Seats in use right now — pending invites included, since a seat is taken
-     *  when the invite is SENT. The owner is not a seat. */
+    /** Seats in use right now — pending invites included, since an invite takes
+     *  the seat the moment it is sent. The owner is not a seat. */
     occupied: number;
-    /** Paid seats sitting empty, reusable for a new person at no charge. */
+    /** Seats the account owns with nobody in them: invite into one for free. */
     free: number;
 }
 
-/** What the account owns versus what it is using. A new invite is charged only
- *  when `free` is 0. */
+/** What the account owns versus what it is using. Buying a seat is its own
+ *  action (POST /api/account/seats); inviting only fills one. */
 export async function getSeatPool(accountId: string): Promise<SeatPool> {
     const db = getAccountDB();
     if (!db) return { paid: 0, occupied: 0, free: 0 };
     try {
-        const row: any = await db
-            .prepare(`SELECT
-                        SUM(CASE WHEN seat_invoice_id IS NOT NULL THEN 1 ELSE 0 END) AS paid,
-                        SUM(CASE WHEN status IN ('pending','active') THEN 1 ELSE 0 END) AS occupied
-                      FROM account_members WHERE account_id = ?`)
+        const owned: any = await db
+            .prepare("SELECT COUNT(*) AS n FROM account_seats WHERE account_id = ?")
             .bind(accountId)
             .first();
-        const paid = Number(row?.paid ?? 0);
-        const occupied = Number(row?.occupied ?? 0);
+        const used: any = await db
+            .prepare("SELECT COUNT(*) AS n FROM account_members WHERE account_id = ? AND status IN ('pending','active')")
+            .bind(accountId)
+            .first();
+        const paid = Number(owned?.n ?? 0);
+        const occupied = Number(used?.n ?? 0);
         return { paid, occupied, free: Math.max(0, paid - occupied) };
     } catch {
         return { paid: 0, occupied: 0, free: 0 };
-    }
-}
-
-/** The paid seat a new member should take over: the longest-idle purchase whose
- *  holder is gone. Bookkeeping only — the count in getSeatPool() decides whether
- *  anything is charged. */
-export async function findReusableSeat(accountId: string): Promise<string | null> {
-    const db = getAccountDB();
-    if (!db) return null;
-    try {
-        const row: any = await db
-            .prepare(`SELECT id FROM account_members
-                      WHERE account_id = ? AND status = 'revoked' AND seat_invoice_id IS NOT NULL
-                        AND id NOT IN (SELECT seat_reused_from FROM account_members
-                                       WHERE account_id = ? AND seat_reused_from IS NOT NULL AND status <> 'revoked')
-                      ORDER BY revoked_at ASC LIMIT 1`)
-            .bind(accountId, accountId)
-            .first();
-        return row?.id ?? null;
-    } catch {
-        return null;
     }
 }

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
+import { grantSeatFromSession } from "@/lib/seats";
 
 export const runtime = "edge";
 
@@ -131,6 +132,19 @@ export async function POST(req: NextRequest) {
         switch (event.type) {
             case "checkout.session.completed": {
                 const session = event.data.object as Stripe.Checkout.Session;
+
+                // A one-off seat purchase, not a subscription: grant the seat and
+                // stop. Keyed on the session id, so the browser confirming on its
+                // way back and this webhook cannot both hand out a seat.
+                if (session.metadata?.kind === "extra_user_seat") {
+                    const { granted, accountId } = await grantSeatFromSession(db, session as any);
+                    console.log(`[Stripe webhook] seat for ${accountId}: ${granted ? "granted" : "already granted"}`);
+                    await db.prepare(
+                        "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"
+                    ).bind(event.id, accountId, event.type, session.id, JSON.stringify({ kind: "extra_user_seat" })).run();
+                    break;
+                }
+
                 const userId = session.client_reference_id || (session.metadata?.user_id as string);
                 if (!userId) {
                     console.error("[Stripe webhook] checkout.session.completed without user_id");

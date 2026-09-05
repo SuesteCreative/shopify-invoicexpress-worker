@@ -51,113 +51,84 @@ export async function resolveSeatPrice(): Promise<SeatPrice> {
     };
 }
 
-export interface SeatChargeResult {
-    invoice_id: string;
-    amount_cents: number;
-    status: string;
+export interface SeatCheckout {
+    url: string;
+    session_id: string;
 }
 
 /**
- * Bill one seat. Throws with a merchant-readable message when the card is
- * refused — the caller must then NOT hand out the seat. A finalized-but-unpaid
- * invoice is voided so a failed invite leaves nothing collectable behind.
+ * A Checkout session for one seat.
+ *
+ * Deliberately NOT a silent charge against the card on file: unlocking a seat is
+ * a purchase the merchant makes on purpose, so they see the price, the VAT and
+ * the card they are using, and Stripe hands them a receipt. The seat is granted
+ * when the session is paid — by the webhook, and by the confirm call the browser
+ * makes when it comes back, whichever lands first.
  */
-
-/** The card Stripe should charge for a one-off seat invoice: the customer's own
- *  default, then the default on any live subscription, then whatever card is
- *  attached to the customer. Returns null when the account has no card at all. */
-async function resolveCustomerPaymentMethod(stripe: Stripe, customerId: string): Promise<string | null> {
-    try {
-        const customer: any = await stripe.customers.retrieve(customerId);
-        const fromCustomer = customer?.invoice_settings?.default_payment_method;
-        if (fromCustomer) return typeof fromCustomer === "string" ? fromCustomer : fromCustomer.id;
-    } catch { /* fall through */ }
-
-    try {
-        const subs = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 10 });
-        for (const sub of subs.data) {
-            if (!["active", "trialing", "past_due"].includes(sub.status)) continue;
-            const pm = (sub as any).default_payment_method;
-            if (pm) return typeof pm === "string" ? pm : pm.id;
-        }
-    } catch { /* fall through */ }
-
-    try {
-        const pms = await stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 1 });
-        if (pms.data[0]) return pms.data[0].id;
-    } catch { /* fall through */ }
-
-    return null;
-}
-
-export async function chargeSeat(params: {
-    customerId: string;
+export async function createSeatCheckout(params: {
     accountId: string;
-    memberEmail: string;
-    memberRowId: string;
-}): Promise<SeatChargeResult> {
+    customerId: string | null;
+    email: string | null;
+    origin: string;
+    locale: string;
+}): Promise<SeatCheckout> {
     const stripe = getStripe();
     const price = await resolveSeatPrice();
     const taxRateId = getStripeEnvOptional("STRIPE_TAX_RATE_ID");
-    const metadata = {
-        app: "rioko",
-        kind: "extra_user_seat",
-        user_id: params.accountId,
-        member_email: params.memberEmail,
-        member_id: params.memberRowId,
-    };
+    const returnTo = `${params.origin}/${params.locale}/users`;
 
-    // Which card to charge. A merchant who subscribed through Checkout often has
-    // the card on the SUBSCRIPTION and nothing set as the customer default, and
-    // an invoice with no default payment method cannot be paid ("There is no
-    // `default_payment_method` set on this Customer or Invoice"). Look in every
-    // place the card can be before giving up.
-    const paymentMethodId = await resolveCustomerPaymentMethod(stripe, params.customerId);
-
-    // The invoice is created FIRST and the line is bound to it explicitly.
-    // Creating the item as a pending one and hoping the next invoice sweeps it up
-    // does not work: `invoices.create` excludes pending items by default, which
-    // finalized €0 invoices and handed out free seats while the €1.50 items sat
-    // waiting to ambush the merchant's next subscription invoice.
-    const draft = await stripe.invoices.create({
-        customer: params.customerId,
-        collection_method: "charge_automatically",
-        auto_advance: false,
-        description: `Utilizador extra Rioko${params.memberEmail ? ` — ${params.memberEmail}` : ""}`,
-        ...(paymentMethodId ? { default_payment_method: paymentMethodId } : {}),
-        metadata,
+    const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        line_items: [{
+            price: price.id,
+            quantity: 1,
+            ...(taxRateId ? { tax_rates: [taxRateId] } : {}),
+        }],
+        ...(params.customerId
+            ? { customer: params.customerId }
+            : { customer_email: params.email ?? undefined, customer_creation: "always" as const }),
+        // Fixed 23% PT VAT, exactly as the subscription checkout does.
+        ...(taxRateId ? {} : { automatic_tax: { enabled: true } }),
+        client_reference_id: params.accountId,
+        metadata: {
+            app: "rioko",
+            kind: "extra_user_seat",
+            user_id: params.accountId,
+        },
+        payment_intent_data: {
+            description: "Rioko — utilizador extra",
+            metadata: {
+                app: "rioko",
+                kind: "extra_user_seat",
+                user_id: params.accountId,
+            },
+        },
+        success_url: `${returnTo}?seat=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${returnTo}?seat=cancel`,
     });
-    const invoiceId = draft.id as string;
 
-    await stripe.invoiceItems.create({
-        customer: params.customerId,
-        invoice: invoiceId,
-        ...(price.recurring
-            ? { amount: price.unit_amount, currency: price.currency, description: "Utilizador extra Rioko" }
-            : { price: price.id }),
-        ...(taxRateId ? { tax_rates: [taxRateId] } : {}),
-        metadata,
-    } as any);
+    if (!session.url) throw new Error("Stripe returned a checkout session with no URL");
+    return { url: session.url, session_id: session.id };
+}
 
-    const finalized = await stripe.invoices.finalizeInvoice(invoiceId);
+/** Record a seat for a paid Checkout session. Keyed on the session id, so the
+ *  webhook and the browser coming back cannot grant two seats for one payment. */
+export async function grantSeatFromSession(
+    db: D1Database,
+    session: { id: string; metadata?: Record<string, string> | null; amount_total?: number | null; payment_intent?: unknown; client_reference_id?: string | null },
+): Promise<{ granted: boolean; accountId: string | null }> {
+    const accountId = (session.metadata?.user_id as string) || session.client_reference_id || null;
+    if (!accountId) return { granted: false, accountId: null };
 
-    // A seat that costs nothing means the line never landed on the invoice.
-    // Refuse it rather than granting the seat for free.
-    if ((finalized.total ?? 0) <= 0) {
-        try { await stripe.invoices.voidInvoice(invoiceId); } catch { /* leave it for support */ }
-        throw new Error("the seat invoice came out empty (no billable line)");
-    }
+    const paymentIntentId = typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : (session.payment_intent as { id?: string } | null)?.id ?? null;
 
-    if (finalized.status === "paid") {
-        return { invoice_id: invoiceId, amount_cents: finalized.amount_paid ?? finalized.total ?? 0, status: "paid" };
-    }
+    const res = await db
+        .prepare(`INSERT OR IGNORE INTO account_seats (id, account_id, stripe_invoice_id, amount_cents, purchased_by)
+                  VALUES (?, ?, ?, ?, ?)`)
+        .bind(`cs-${session.id}`, accountId, paymentIntentId, session.amount_total ?? null, accountId)
+        .run();
 
-    try {
-        const paid = await stripe.invoices.pay(invoiceId, paymentMethodId ? { payment_method: paymentMethodId } : undefined);
-        if (paid.status !== "paid") throw new Error(`Invoice ${paid.id} is ${paid.status}`);
-        return { invoice_id: invoiceId, amount_cents: paid.amount_paid ?? 0, status: "paid" };
-    } catch (e: any) {
-        try { await stripe.invoices.voidInvoice(invoiceId); } catch { /* leave it for support */ }
-        throw new Error(e?.message || "Card was declined");
-    }
+    return { granted: (res.meta?.changes ?? 0) > 0, accountId };
 }

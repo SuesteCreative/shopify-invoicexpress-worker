@@ -29,7 +29,7 @@ interface MembersResponse {
     owner: { id: string; email: string | null; label: string };
     members: Member[];
     seat_price: { amount_cents: number; currency: string } | null;
-    seats: { paid: number; occupied: number; free: number };
+    seats: { paid: number; included: number; capacity: number; occupied: number; free: number };
     can_invite: boolean;
     can_unlock: boolean;
     unlock_block_reason: string | null;
@@ -175,7 +175,11 @@ export default function UsersPage() {
     }
 
     const canManage = data?.access === "owner" || data?.access === "admin";
-    const freeSeats = data?.seats?.free ?? 0;
+    const seats = data?.seats ?? { paid: 0, included: 1, capacity: 1, occupied: 0, free: 1 };
+    const freeSeats = seats.free;
+    // The included seat is filled first, so the empty slots on screen are the
+    // included one (when still open) and then any the account has unlocked.
+    const includedOpen = Math.max(0, Math.min(seats.included - seats.occupied, freeSeats));
     const roleTag = (r: string) => (r === "admin" ? t("roleAdmin") : t("roleViewer"));
 
     return (
@@ -266,9 +270,7 @@ export default function UsersPage() {
                     <Users className="w-4 h-4 text-fg-40" />
                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("membersTitle")}</span>
                     <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.18em] text-fg-40">
-                        {(data?.seats?.paid ?? 0) === 0
-                            ? t("seatsNone")
-                            : t("seatsLine", { paid: data!.seats.paid, free: data!.seats.free })}
+                        {t("seatsLine", { used: seats.occupied, capacity: seats.capacity, paid: seats.paid })}
                     </span>
                 </div>
 
@@ -339,26 +341,32 @@ export default function UsersPage() {
                         </div>
                     ))}
 
-                    {/* Seats already paid for, waiting for someone */}
-                    {Array.from({ length: freeSeats }).map((_, i) => (
-                        <div key={`free-${i}`} className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.05)]">
-                            <div className="w-9 h-9 shrink-0 rounded-xl bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.20)] grid place-items-center">
-                                <UserPlus className="w-4 h-4 text-accent-hot" />
+                    {/* Open slots: the free one that comes with the account, then any unlocked */}
+                    {Array.from({ length: freeSeats }).map((_, i) => {
+                        const isIncluded = i < includedOpen;
+                        return (
+                            <div key={`free-${i}`} className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.05)]">
+                                <div className="w-9 h-9 shrink-0 rounded-xl bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.20)] grid place-items-center">
+                                    <UserPlus className="w-4 h-4 text-accent-hot" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium text-accent-hot">{t("seatFree")}</p>
+                                    <p className="text-[11px] text-fg-40">{isIncluded ? t("seatIncludedHint") : t("seatFreeHint")}</p>
+                                </div>
+                                <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
+                                    {isIncluded ? t("badgeIncluded") : t("badgePaid")}
+                                </span>
+                                {canManage && (
+                                    <button
+                                        onClick={() => emailRef.current?.focus()}
+                                        className="px-4 py-2 rounded-xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.28)] text-accent-hot font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(94,234,212,0.20)] transition-all"
+                                    >
+                                        {t("inviteButton")}
+                                    </button>
+                                )}
                             </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-accent-hot">{t("seatFree")}</p>
-                                <p className="text-[11px] text-fg-40">{t("seatFreeHint")}</p>
-                            </div>
-                            {canManage && (
-                                <button
-                                    onClick={() => emailRef.current?.focus()}
-                                    className="px-4 py-2 rounded-xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.28)] text-accent-hot font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(94,234,212,0.20)] transition-all"
-                                >
-                                    {t("inviteButton")}
-                                </button>
-                            )}
-                        </div>
-                    ))}
+                        );
+                    })}
 
                     {/* The next seat, locked behind its price */}
                     {canManage && (

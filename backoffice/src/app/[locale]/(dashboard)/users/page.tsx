@@ -74,6 +74,7 @@ export default function UsersPage() {
             case "no_free_seat": return t("noFreeSeat");
             case "subscription_required": return t("needSubscription");
             case "payment_failed": return t("paymentFailed", { detail: detail || "" });
+            case "invitation_failed": return t("inviteFailed", { detail: detail || "" });
             case "read_only_member":
             case "read_only": return t("readOnlyNotice");
             default: return t("genericError");
@@ -119,7 +120,12 @@ export default function UsersPage() {
             const d: any = await r.json();
             if (d.ok) {
                 setEmail("");
-                setNotice({ kind: "ok", text: d.joined_now ? t("joinedNow", { email: address }) : t("inviteSent", { email: address }) });
+                setNotice({
+                    kind: "ok",
+                    text: d.joined_now
+                        ? t(d.notified ? "joinedNotified" : "joinedNow", { email: address })
+                        : t("inviteSent", { email: address }),
+                });
                 await load();
             } else {
                 setNotice({ kind: "error", text: errorText(d.error, d.detail) });

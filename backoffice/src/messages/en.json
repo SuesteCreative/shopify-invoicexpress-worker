@@ -2442,6 +2442,8 @@
         "sendEmailNeedsFinalize": "No effect while Auto-finalize is off: documents stay as drafts, and a draft is never sent to the customer."
     },
     "users": {
+        "inviteFailed": "The invite was not sent ({detail}). The seat is still free.",
+        "joinedNotified": "{email} already had a Rioko login: access is active and they were emailed.",
         "seatFree": "Free seat",
         "seatFreeHint": "Already paid for. Invite someone into it.",
         "seatLocked": "Extra user",

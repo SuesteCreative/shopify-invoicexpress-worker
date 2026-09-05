@@ -2442,6 +2442,8 @@
         "sendEmailNeedsFinalize": "Sem efeito enquanto o Auto Finalizar estiver desligado: os documentos ficam em rascunho e um rascunho nunca é enviado ao cliente."
     },
     "users": {
+        "inviteFailed": "O convite não foi enviado ({detail}). O lugar continua livre.",
+        "joinedNotified": "{email} já tinha conta Rioko: o acesso ficou ativo e foi avisado por email.",
         "seatFree": "Lugar livre",
         "seatFreeHint": "Já está pago. Convide alguém para o ocupar.",
         "seatLocked": "Utilizador extra",

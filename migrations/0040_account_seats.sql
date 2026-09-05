@@ -22,8 +22,11 @@ CREATE TABLE IF NOT EXISTS account_seats (
 CREATE INDEX IF NOT EXISTS idx_account_seats_account ON account_seats(account_id);
 
 -- Seats bought under 0039 (charged on the invite) become rows here, so the pool
--- has one source of truth. No-op on a database where nobody was invited yet.
+-- has one source of truth. Only seats that actually collected money: the first
+-- version built the invoice before Stripe would attach the line, so some rows
+-- carry an invoice id for a €0 invoice. Those bought nothing and grant nothing;
+-- the members already sitting in them keep working until they are removed.
 INSERT INTO account_seats (id, account_id, stripe_invoice_id, amount_cents, purchased_by, created_at)
 SELECT 'legacy-' || id, account_id, seat_invoice_id, seat_amount_cents, invited_by, created_at
 FROM account_members
-WHERE seat_invoice_id IS NOT NULL;
+WHERE seat_invoice_id IS NOT NULL AND COALESCE(seat_amount_cents, 0) > 0;

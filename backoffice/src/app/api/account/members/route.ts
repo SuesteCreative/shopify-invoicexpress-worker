@@ -3,6 +3,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { getAccountContext, getAccountDB, getSeatPool } from "@/lib/account";
 import { accountLabel } from "@/lib/labels";
 import { resolveSeatPrice } from "@/lib/seats";
+import { callWorkerJson } from "@/lib/worker";
 
 export const runtime = "edge";
 
@@ -186,9 +187,43 @@ export async function POST(req: NextRequest) {
                 invitationId = invitation.id;
                 await db.prepare("UPDATE account_members SET clerk_invitation_id = ? WHERE id = ?").bind(invitationId, memberId).run();
             } catch (e: any) {
-                // The seat is paid and the row exists: the person can still sign up
-                // by themselves and the Clerk webhook matches them by email.
-                console.warn("[account/members] invitation failed:", e?.message ?? e);
+                // No email means no way in, so the seat goes back rather than
+                // leaving a member who was never told and can never arrive.
+                console.error("[account/members] invitation failed:", e?.message ?? e);
+                await db.prepare("DELETE FROM account_members WHERE id = ?").bind(memberId).run();
+                return NextResponse.json(
+                    { error: "invitation_failed", detail: e?.errors?.[0]?.message ?? e?.message ?? String(e) },
+                    { status: 502 },
+                );
+            }
+        }
+
+        // Clerk emails the invitation, but says nothing to someone who already had
+        // a login and was let in on the spot. Tell them, best effort.
+        let notified = false;
+        if (joinedNow) {
+            try {
+                const ownerRow: any = await db
+                    .prepare("SELECT name, company_name, admin_label, email FROM users WHERE id = ?")
+                    .bind(ctx.accountId)
+                    .first();
+                const account = accountLabel(ownerRow, "Rioko");
+                const origin = new URL(req.url).origin;
+                const res = await callWorkerJson("/admin/notify", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        recipients: [email],
+                        subject: `Tem acesso à conta ${account} no Rioko`,
+                        html: `<p>Olá,</p><p>A conta <strong>${account}</strong> deu-lhe acesso ao Rioko`
+                            + `${role === "admin" ? " como administrador" : " em modo de leitura"}.</p>`
+                            + `<p>Entre em <a href="${origin}">${origin.replace(/^https?:\/\//, "")}</a> com este email `
+                            + `(${email}) e a conta aparece automaticamente.</p>`,
+                        from_name: "Rioko",
+                    }),
+                });
+                notified = res.ok;
+            } catch (e: any) {
+                console.warn("[account/members] join notice failed:", e?.message ?? e);
             }
         }
 
@@ -197,7 +232,9 @@ export async function POST(req: NextRequest) {
             member: { id: memberId, email, role, status: joinedNow ? "active" : "pending" },
             seats: await getSeatPool(ctx.accountId),
             invitation_id: invitationId,
+            invitation_sent: !!invitationId,
             joined_now: joinedNow,
+            notified,
         });
     } catch (e: any) {
         console.error("[account/members] POST", e);

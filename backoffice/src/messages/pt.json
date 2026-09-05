@@ -2442,6 +2442,7 @@
         "sendEmailNeedsFinalize": "Sem efeito enquanto o Auto Finalizar estiver desligado: os documentos ficam em rascunho e um rascunho nunca é enviado ao cliente."
     },
     "users": {
+        "inviteEmailFailed": "O convite não pôde ser enviado por email. O lugar continua livre, tente novamente.",
         "unlockCancelled": "Pagamento cancelado. O lugar não foi desbloqueado.",
         "unlockNotPaid": "O pagamento ainda não foi confirmado pela Stripe. Atualize a página dentro de momentos.",
         "checkoutFailed": "Não foi possível abrir o pagamento ({detail}).",

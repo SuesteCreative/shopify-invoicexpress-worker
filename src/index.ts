@@ -2335,7 +2335,8 @@ app.post("/admin/account-invite-email", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{
-    to: string; account: string; role?: "admin" | "viewer"; has_login?: boolean; dashboard_url?: string;
+    to: string; account: string; role?: "admin" | "viewer"; has_login?: boolean;
+    dashboard_url?: string; invite_url?: string;
   }>();
   if (!body.to || !body.account) return c.json({ error: "Missing to/account" }, 400);
 
@@ -2345,6 +2346,7 @@ app.post("/admin/account-invite-email", async (c) => {
     email: body.to,
     role: body.role === "admin" ? "admin" : "viewer",
     hasLogin: !!body.has_login,
+    inviteUrl: body.invite_url,
     dashboardUrl: body.dashboard_url,
   });
 

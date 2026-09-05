@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
         // gets a Clerk invitation email carrying the membership in its metadata.
         const clerk = await clerkClient();
         let invitationId: string | null = null;
+        let inviteUrl: string | null = null;
         let joinedNow = false;
 
         let existingClerkId: string | null = null;
@@ -183,8 +184,13 @@ export async function POST(req: NextRequest) {
                     redirectUrl: `${origin}/${locale}/sign-up`,
                     publicMetadata: { rioko_account_id: ctx.accountId, rioko_role: role },
                     ignoreExisting: true,
+                    // We mail it ourselves. Clerk's mailer is a delivery path we
+                    // cannot see into, and it dropped invitations silently — the
+                    // invitation existed, the inbox stayed empty.
+                    notify: false,
                 });
                 invitationId = invitation.id;
+                inviteUrl = invitation.url ?? null;
                 await db.prepare("UPDATE account_members SET clerk_invitation_id = ? WHERE id = ?").bind(invitationId, memberId).run();
             } catch (e: any) {
                 // No email means no way in, so the seat goes back rather than
@@ -198,30 +204,39 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        // Clerk emails the invitation, but says nothing to someone who already had
-        // a login and was let in on the spot. Tell them, in the same branded
-        // shell every other Rioko email uses (rendered by the worker).
+        // One email, ours, in the Rioko shell: the sign-up link for someone new,
+        // the "you have access" notice for someone who already had a login.
         let notified = false;
-        if (joinedNow) {
-            try {
-                const ownerRow: any = await db
-                    .prepare("SELECT name, company_name, admin_label, email FROM users WHERE id = ?")
-                    .bind(ctx.accountId)
-                    .first();
-                const res = await callWorkerJson("/admin/account-invite-email", {
-                    method: "POST",
-                    body: JSON.stringify({
-                        to: email,
-                        account: accountLabel(ownerRow, "Rioko"),
-                        role,
-                        has_login: true,
-                        dashboard_url: new URL(req.url).origin,
-                    }),
-                });
-                notified = res.ok;
-            } catch (e: any) {
-                console.warn("[account/members] join notice failed:", e?.message ?? e);
+        try {
+            const ownerRow: any = await db
+                .prepare("SELECT name, company_name, admin_label, email FROM users WHERE id = ?")
+                .bind(ctx.accountId)
+                .first();
+            const res = await callWorkerJson("/admin/account-invite-email", {
+                method: "POST",
+                body: JSON.stringify({
+                    to: email,
+                    account: accountLabel(ownerRow, "Rioko"),
+                    role,
+                    has_login: joinedNow,
+                    invite_url: inviteUrl,
+                    dashboard_url: new URL(req.url).origin,
+                }),
+            });
+            notified = res.ok;
+            if (!res.ok) console.error("[account/members] invite email failed:", JSON.stringify(res.data));
+        } catch (e: any) {
+            console.error("[account/members] invite email failed:", e?.message ?? e);
+        }
+
+        // Someone who cannot log in yet and never got the link has no way in, and
+        // the seat would sit occupied by a ghost. Undo it and say so.
+        if (!joinedNow && !notified) {
+            if (invitationId) {
+                try { await clerk.invitations.revokeInvitation(invitationId); } catch { /* leave it to expire */ }
             }
+            await db.prepare("DELETE FROM account_members WHERE id = ?").bind(memberId).run();
+            return NextResponse.json({ error: "invite_email_failed" }, { status: 502 });
         }
 
         return NextResponse.json({

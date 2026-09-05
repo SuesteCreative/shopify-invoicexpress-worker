@@ -2442,6 +2442,7 @@
         "sendEmailNeedsFinalize": "No effect while Auto-finalize is off: documents stay as drafts, and a draft is never sent to the customer."
     },
     "users": {
+        "inviteEmailFailed": "The invite email could not be sent. The seat is still free, please try again.",
         "unlockCancelled": "Payment cancelled. The seat was not unlocked.",
         "unlockNotPaid": "Stripe has not confirmed the payment yet. Refresh in a moment.",
         "checkoutFailed": "The payment page could not be opened ({detail}).",

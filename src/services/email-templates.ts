@@ -153,9 +153,13 @@ function shell(opts: {
   dashboardUrl: string;
   merchantName?: string;
   connectionLabel?: string;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  occurrences: number;
+  /** Incident meta. Absent for emails that are not about a recurring problem
+   *  (an account invite, say) — the meta row is then not rendered at all. */
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  occurrences?: number;
+  /** Footer note. Defaults to the automatic-notification wording. */
+  footerNote?: string;
 }): string {
   const accent = severityColor(opts.severity);
   const severityChip = opts.severity ? `
@@ -163,7 +167,7 @@ function shell(opts: {
       ${severityLabelPT(opts.severity)}
     </span>` : "";
 
-  const occurChip = opts.occurrences > 1 ? `
+  const occurChip = (opts.occurrences ?? 0) > 1 ? `
     <span style="display:inline-block;background:rgba(251,191,36,0.18);color:#fbbf24;border:1px solid rgba(251,191,36,0.35);font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;margin-left:6px;vertical-align:middle">
       ${opts.occurrences}× ocorrências
     </span>` : "";
@@ -252,7 +256,8 @@ function shell(opts: {
             </td>
           </tr>
 
-          <!-- meta row -->
+          <!-- meta row (incidents only) -->
+          ${opts.firstSeenAt && opts.lastSeenAt ? `
           <tr>
             <td class="card-bg" bgcolor="${BRAND.cardBg}" style="background-color:${BRAND.cardBg};padding:0 32px 24px">
               <hr style="border:none;border-top:1px solid ${BRAND.border};margin:0 0 16px">
@@ -267,7 +272,7 @@ function shell(opts: {
                 </tr>
               </table>
             </td>
-          </tr>
+          </tr>` : ""}
 
           <!-- footer -->
           <tr>
@@ -279,7 +284,7 @@ function shell(opts: {
                 <a href="${escapeHtml(opts.dashboardUrl)}" class="force-blue" style="color:${BRAND.blue};text-decoration:none;font-weight:500"><font color="${BRAND.blue}">Abrir painel</font></a>
               </p>
               <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${BRAND.muted}">
-                <font color="${BRAND.muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${BRAND.muted};text-decoration:underline"><font color="${BRAND.muted}">Kapta</font></a> · Notificação automática · Não responda a este email</font>
+                <font color="${BRAND.muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${BRAND.muted};text-decoration:underline"><font color="${BRAND.muted}">Kapta</font></a> · ${escapeHtml(opts.footerNote ?? "Notificação automática · Não responda a este email")}</font>
               </p>
             </td>
           </tr>
@@ -1282,4 +1287,55 @@ export function tplWeeklyUnprocessed(input: {
 </body></html>`;
 
   return { subject, html };
+}
+
+
+// ──────────────────────────────────────────────────────────────────────────
+// Account access (extra users)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface AccountInviteInput {
+  /** Human name of the account they were invited into. */
+  accountLabel: string;
+  /** Address invited. */
+  email: string;
+  role: "admin" | "viewer";
+  /** True when they already had a Rioko login, so access is already active and
+   *  Clerk sent them no sign-up mail. */
+  hasLogin: boolean;
+  dashboardUrl?: string;
+  helpUrl?: string;
+}
+
+/** "You were invited to manage account X" — same brand shell as every other
+ *  Rioko email, without the incident meta row. */
+export function renderAccountInviteEmail(input: AccountInviteInput): RenderedTemplate {
+  const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
+  const account = escapeHtml(input.accountLabel);
+  const permission = input.role === "admin"
+    ? "administrador — pode configurar integrações, emitir e gerir a faturação"
+    : "só leitura — vê tudo, não altera nada";
+
+  const bodyHtml = [
+    paragraph(`Foi convidado para gerir a conta <strong>${account}</strong> no Rioko.`),
+    calloutBox("As suas permissões", escapeHtml(permission)),
+    input.hasLogin
+      ? paragraph(`Como já tem login Rioko com <strong>${escapeHtml(input.email)}</strong>, o acesso já está ativo: entre e a conta aparece na sua área.`)
+      : paragraph(`Para entrar, crie a sua conta com <strong>${escapeHtml(input.email)}</strong>. O acesso a ${account} fica ligado automaticamente.`),
+    ctaButton(input.hasLogin ? "Abrir o Rioko" : "Criar a minha conta", dashboardUrl),
+    paragraph(`<span style="font-size:13px;color:${BRAND.muted}">Se não estava à espera deste convite, ignore este email.</span>`),
+  ].join("");
+
+  return {
+    subject: `Foi convidado para gerir a conta ${input.accountLabel} no Rioko`,
+    html: shell({
+      title: "Convite para gerir uma conta",
+      preheader: `${input.accountLabel} deu-lhe acesso ao Rioko`,
+      bodyHtml,
+      merchantName: input.accountLabel,
+      helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
+      dashboardUrl,
+      footerNote: "Convite de acesso · Não responda a este email",
+    }),
+  };
 }

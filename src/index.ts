@@ -2328,6 +2328,30 @@ app.post("/admin/notify", async (c) => {
 })
 
 // Admin: render + send a quota email (warning|reached) for QA / preview.
+// Admin: the branded "you were invited to manage account X" email. Kept here so
+// the backoffice does not hand-roll HTML — every Rioko email comes out of the
+// same shell.
+app.post("/admin/account-invite-email", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    to: string; account: string; role?: "admin" | "viewer"; has_login?: boolean; dashboard_url?: string;
+  }>();
+  if (!body.to || !body.account) return c.json({ error: "Missing to/account" }, 400);
+
+  const { renderAccountInviteEmail } = await import("./services/email-templates");
+  const { subject, html } = renderAccountInviteEmail({
+    accountLabel: body.account,
+    email: body.to,
+    role: body.role === "admin" ? "admin" : "viewer",
+    hasLogin: !!body.has_login,
+    dashboardUrl: body.dashboard_url,
+  });
+
+  const res = await sendEmailDirect(c.env, { to: [body.to], subject, html, fromName: "Rioko" });
+  return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
+})
+
 app.post("/admin/test-quota-email", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;

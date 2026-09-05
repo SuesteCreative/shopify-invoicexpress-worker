@@ -199,7 +199,8 @@ export async function POST(req: NextRequest) {
         }
 
         // Clerk emails the invitation, but says nothing to someone who already had
-        // a login and was let in on the spot. Tell them, best effort.
+        // a login and was let in on the spot. Tell them, in the same branded
+        // shell every other Rioko email uses (rendered by the worker).
         let notified = false;
         if (joinedNow) {
             try {
@@ -207,20 +208,14 @@ export async function POST(req: NextRequest) {
                     .prepare("SELECT name, company_name, admin_label, email FROM users WHERE id = ?")
                     .bind(ctx.accountId)
                     .first();
-                const account = accountLabel(ownerRow, "Rioko");
-                const origin = new URL(req.url).origin;
-                const res = await callWorkerJson("/admin/notify", {
+                const res = await callWorkerJson("/admin/account-invite-email", {
                     method: "POST",
                     body: JSON.stringify({
-                        recipients: [email],
-                        subject: `Foi convidado para gerir a conta ${account} no Rioko`,
-                        html: `<p>Olá,</p>`
-                            + `<p>Foi convidado para gerir a conta <strong>${account}</strong> no Rioko, `
-                            + `${role === "admin" ? "com permissões de administrador" : "em modo de leitura"}.</p>`
-                            + `<p>Como já tem login Rioko com este email (${email}), o acesso já está ativo: `
-                            + `entre em <a href="${origin}">${origin.replace(/^https?:\/\//, "")}</a> e a conta aparece na sua área.</p>`
-                            + `<p>Se não estava à espera deste convite, ignore este email ou avise-nos.</p>`,
-                        from_name: "Rioko",
+                        to: email,
+                        account: accountLabel(ownerRow, "Rioko"),
+                        role,
+                        has_login: true,
+                        dashboard_url: new URL(req.url).origin,
                     }),
                 });
                 notified = res.ok;

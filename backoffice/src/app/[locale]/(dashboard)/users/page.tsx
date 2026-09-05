@@ -405,12 +405,12 @@ export default function UsersPage() {
 
                     {/* The next seat, locked behind its price */}
                     {canManage && (
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-hairline bg-surface-2/20 opacity-70">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-hairline bg-surface-2/20">
                             <div className="w-9 h-9 shrink-0 rounded-xl bg-surface-2 border border-hairline grid place-items-center">
-                                <Lock className="w-4 h-4 text-fg-40" />
+                                <Lock className="w-4 h-4 text-fg-60" />
                             </div>
                             <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-fg-40 line-through decoration-fg-40/60">{t("seatLocked")}</p>
+                                <p className="text-sm font-medium text-fg">{t("seatLocked")}</p>
                                 <p className="text-[11px] text-fg-40">
                                     {data?.can_unlock ? t("seatLockedHint", { amount: priceLabel }) : t("needSubscription")}
                                 </p>

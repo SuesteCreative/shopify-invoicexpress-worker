@@ -113,6 +113,7 @@ export default function UsersPage() {
             case "subscription_required": return t("needSubscription");
             case "payment_failed": return t("paymentFailed", { detail: detail || "" });
             case "invitation_failed": return t("inviteFailed", { detail: detail || "" });
+            case "invite_email_failed": return t("inviteEmailFailed");
             case "checkout_failed": return t("checkoutFailed", { detail: detail || "" });
             case "not_paid": return t("unlockNotPaid");
             case "read_only_member":

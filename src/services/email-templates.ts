@@ -1303,6 +1303,10 @@ export interface AccountInviteInput {
   /** True when they already had a Rioko login, so access is already active and
    *  Clerk sent them no sign-up mail. */
   hasLogin: boolean;
+  /** Clerk's invitation link, for someone who still has to create an account.
+   *  We deliver it ourselves: Clerk's own mailer is a second delivery path we
+   *  cannot see into, and it silently dropped invites. */
+  inviteUrl?: string;
   dashboardUrl?: string;
   helpUrl?: string;
 }
@@ -1322,7 +1326,13 @@ export function renderAccountInviteEmail(input: AccountInviteInput): RenderedTem
     input.hasLogin
       ? paragraph(`Como já tem login Rioko com <strong>${escapeHtml(input.email)}</strong>, o acesso já está ativo: entre e a conta aparece na sua área.`)
       : paragraph(`Para entrar, crie a sua conta com <strong>${escapeHtml(input.email)}</strong>. O acesso a ${account} fica ligado automaticamente.`),
-    ctaButton(input.hasLogin ? "Abrir o Rioko" : "Criar a minha conta", dashboardUrl),
+    ctaButton(
+      input.hasLogin ? "Abrir o Rioko" : "Criar a minha conta",
+      input.hasLogin ? dashboardUrl : (input.inviteUrl ?? dashboardUrl),
+    ),
+    input.hasLogin || !input.inviteUrl ? "" : paragraph(
+      `<span style="font-size:12px;color:${BRAND.muted}">Este link é pessoal e válido por 30 dias.</span>`,
+    ),
     paragraph(`<span style="font-size:13px;color:${BRAND.muted}">Se não estava à espera deste convite, ignore este email.</span>`),
   ].join("");
 

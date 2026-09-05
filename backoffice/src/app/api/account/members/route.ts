@@ -213,11 +213,13 @@ export async function POST(req: NextRequest) {
                     method: "POST",
                     body: JSON.stringify({
                         recipients: [email],
-                        subject: `Tem acesso à conta ${account} no Rioko`,
-                        html: `<p>Olá,</p><p>A conta <strong>${account}</strong> deu-lhe acesso ao Rioko`
-                            + `${role === "admin" ? " como administrador" : " em modo de leitura"}.</p>`
-                            + `<p>Entre em <a href="${origin}">${origin.replace(/^https?:\/\//, "")}</a> com este email `
-                            + `(${email}) e a conta aparece automaticamente.</p>`,
+                        subject: `Foi convidado para gerir a conta ${account} no Rioko`,
+                        html: `<p>Olá,</p>`
+                            + `<p>Foi convidado para gerir a conta <strong>${account}</strong> no Rioko, `
+                            + `${role === "admin" ? "com permissões de administrador" : "em modo de leitura"}.</p>`
+                            + `<p>Como já tem login Rioko com este email (${email}), o acesso já está ativo: `
+                            + `entre em <a href="${origin}">${origin.replace(/^https?:\/\//, "")}</a> e a conta aparece na sua área.</p>`
+                            + `<p>Se não estava à espera deste convite, ignore este email ou avise-nos.</p>`,
                         from_name: "Rioko",
                     }),
                 });

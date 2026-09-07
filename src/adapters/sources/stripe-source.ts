@@ -363,7 +363,7 @@ export function stripeToNormalized(event: any): Normalized | null {
     // The subtraction holds for inclusive tax too: Stripe reports the tax
     // contained in the total in this same field.
     const sessionNet = round2(amount - sessionTax);
-    const sessionRate = sessionTax > 0 && sessionNet > 0 ? Math.round((sessionTax / sessionNet) * 10000) / 100 : 0;
+    const sessionRate = derivedVatRate(sessionTax, sessionNet);
     // Re-derive the unit from the ROUNDED rate instead of shipping sessionNet
     // straight through: the destination recomputes gross as net * (1 + rate/100)
     // and a rate rounded to 2dp drifts past the guard's 1 cent tolerance on
@@ -596,18 +596,35 @@ export function stripeToNormalized(event: any): Normalized | null {
             taxAmounts.filter((t: any) => t?.inclusive === true || t?.tax_behavior === "inclusive"),
           );
           const lineNet = round2((l.amount ?? 0) / 100 - sumStripeAmounts(l.discount_amounts) - inclusiveTax);
-          const lineRate = lineTax > 0 && lineNet > 0 ? Math.round((lineTax / lineNet) * 10000) / 100 : 0;
+          const lineRate = derivedVatRate(lineTax, lineNet);
           const qty = l.quantity || 1;
+          // The money this line actually accounts for, whichever side of
+          // `amount` Stripe put the tax on. Nudging the rate to a real one can
+          // leave that figure unreachable: 35.00 gross at 23% wants a net of
+          // 28.4552, and neither 28.45 nor 28.46 comes back to 35.00 once the
+          // destination rounds. So take the unit UP and hand back the remainder
+          // as a discount percentage - the same ceil-then-discount move IxBuilder
+          // makes on the Shopify path, and the only one that keeps a 2-decimal
+          // unit price landing exactly on the amount paid.
+          const lineTarget = round2(lineNet + lineTax);
+          const unitCeil = qty > 0 ? Math.ceil((lineNet / qty) * 100) / 100 : 0;
+          const grossFromUnit = unitCeil * qty * (1 + lineRate / 100);
+          // Only when the ceiling actually costs a cent. Rounding the gross
+          // first keeps a discount off the 95 lines in 100 where the unit
+          // already lands correctly and the difference is float noise.
+          const lineDiscountPct = round2(grossFromUnit) !== lineTarget && grossFromUnit > lineTarget
+            ? Math.round((1 - lineTarget / grossFromUnit) * 100 * 10000) / 10000
+            : 0;
           return {
             id: idx + 1,
             product_id: 0,
             variant_id: 0,
             quantity: l.quantity ?? 1,
-            unit_price: lineNet / qty,
-            unit_price_calculated: lineNet / qty,
+            unit_price: unitCeil,
+            unit_price_calculated: unitCeil,
             subtotal_calculated: lineNet,
             tax: { name: "VAT", value: lineRate, unit_amount: lineTax },
-            discount: { name: "", percent: 0 },
+            discount: { name: "", percent: lineDiscountPct },
             title: l.description ?? "Item",
             variant_title: null,
             // The price behind the line. Same move as the tax fields: `price` up to
@@ -718,6 +735,24 @@ export function stripeToNormalized(event: any): Normalized | null {
  * Sum a Stripe monetary array (`discount_amounts[]`, `tax_amounts[]`) into
  * major currency units. Both shapes are `[{ amount: <cents>, ... }]`.
  */
+/**
+ * The VAT rate a Stripe amount pair implies, to ONE decimal place.
+ *
+ * Stripe reports tax rounded to the cent, so dividing it back by the net gives
+ * a rate that is only approximately the real one: 18.22 on 79.20 is 23.0051%,
+ * and 8.05 on 35.02 is 22.98%. Carried at two decimals those become 23.01% and
+ * 22.98% lines - rates no invoicer can resolve, because InvoiceXpress holds
+ * IVA23 at 23.0 and nothing next to it, so the line arrives with no tax to
+ * match. Every EU VAT rate has at most one decimal (23, 22, 16, 13.5, 6, 4.8),
+ * so rounding there recovers the rate actually charged. The error introduced is
+ * bounded by Stripe's own cent rounding, under half a cent on the line, so the
+ * document still reconciles against the amount paid.
+ */
+function derivedVatRate(tax: number, net: number): number {
+  if (!(tax > 0) || !(net > 0)) return 0;
+  return Math.round((tax / net) * 1000) / 10;
+}
+
 function sumStripeAmounts(entries: any): number {
   if (!Array.isArray(entries)) return 0;
   return entries.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0) / 100;

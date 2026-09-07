@@ -83,6 +83,13 @@ export async function POST(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
+    // Only ever the fields this request actually carries. The upsert below MERGES
+    // this into whatever the row already holds (json_patch) instead of replacing
+    // it, because the callers are partial by design: the wizard's activate step
+    // posts nothing but `{ status: "active" }`, and install-webhook posts nothing
+    // but the webhook pair. A replace let the activate click erase the restricted
+    // key and webhook secret saved seconds earlier, leaving an ACTIVE connection
+    // with no credentials — no signature to verify against, so every event 404s.
     const sourceConfig: Record<string, any> = { stripe_account_id: body.stripe_account_id };
     if (body.webhook_secret) sourceConfig.webhook_secret = body.webhook_secret;
     if (body.restricted_key) sourceConfig.restricted_key = body.restricted_key;
@@ -95,7 +102,7 @@ export async function POST(request: NextRequest) {
           (id, user_id, source_kind, destination_kind, source_config_json, status, created_at, updated_at)
          VALUES (?, ?, 'stripe', ?, ?, ?, ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
-           source_config_json = excluded.source_config_json,
+           source_config_json = json_patch(COALESCE(connections.source_config_json, '{}'), excluded.source_config_json),
            status = excluded.status,
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceConfig), status, now, now).run();

@@ -49,8 +49,7 @@ export default function StripeIXIntegration() {
     const [installError, setInstallError] = useState("");
     const [showManualFallback, setShowManualFallback] = useState(false);
 
-    // IX form state (only used if needsIxStep)
-    const [needsIxStep, setNeedsIxStep] = useState(false);
+    // IX form state
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
     const [ixEnvironment, setIxEnvironment] = useState("production");
@@ -135,9 +134,6 @@ export default function StripeIXIntegration() {
             if (integ._viewer_role) setUserRole(integ._viewer_role);
             if (integ.user_id) setTargetUserId(integ.user_id);
 
-            const ixOk = integ.ix_authorized === 1;
-            setNeedsIxStep(!ixOk);
-
             const conn = stripe?.connection;
             const sCfg = conn?.source_config ?? {};
             if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
@@ -147,20 +143,28 @@ export default function StripeIXIntegration() {
             setHasWebhookSaved(webhookSaved);
             setConnectionStatus(conn?.status ?? "");
 
-            // Smart resume — Stripe step is unified (creds + webhook auto-install)
-            // Without IX: 1=stripe, 2=activate
-            // With IX:    1=stripe, 2=ix, 3=activate
-            const activateStep = ixOk ? 2 : 3;
-            if (conn?.status === "active") setStep(activateStep + 1);
-            else if (webhookSaved && ixOk) setStep(activateStep);
-            else if (webhookSaved && !ixOk) setStep(2);
+            // Smart resume — the Stripe step is unified (creds + webhook auto-install).
+            // Three steps, always: 1=stripe, 2=invoicexpress, 3=activate. Landing
+            // past the last one is the completed view, where every step is still
+            // listed and reopenable, which is how an already-authorised merchant
+            // gets back to the invoice settings.
+            const ixOk = integ.ix_authorized === 1;
+            if (conn?.status === "active") setStep(4);
+            else if (webhookSaved && ixOk) setStep(3);
+            else if (webhookSaved) setStep(2);
             else setStep(1);
         }).finally(() => setLoading(false));
     }, []);
 
-    const totalSteps = needsIxStep ? 3 : 2;
+    // Three steps, always. This used to collapse to two whenever InvoiceXpress
+    // was already authorised, which quietly took the invoice settings with it:
+    // the exemption code, document type, series, payment term, VAT-included and
+    // auto-finalize all live on the IX step, and a merchant who had connected IX
+    // earlier could no longer reach any of them. Authorisation and configuration
+    // are different questions and the step answers both.
+    const totalSteps = 3;
     const activateStepId = totalSteps;
-    const allComplete = connectionStatus === "active" && hasWebhookSaved && (!needsIxStep || ixAuthorized);
+    const allComplete = connectionStatus === "active" && hasWebhookSaved && ixAuthorized;
 
     // ─── Handlers ─────────────────────────────────────────────────────────────
 
@@ -211,7 +215,7 @@ export default function StripeIXIntegration() {
             }
 
             setHasWebhookSaved(true);
-            setStep(needsIxStep ? 2 : activateStepId);
+            setStep(2);
         } catch (e: any) {
             setStripeError(t("errorNetwork", { message: e.message }));
         } finally {
@@ -234,7 +238,7 @@ export default function StripeIXIntegration() {
             }
             setHasWebhookSaved(true);
             setShowManualFallback(false);
-            setStep(needsIxStep ? 2 : activateStepId);
+            setStep(2);
         } catch (e: any) {
             setStripeError(t("errorNetwork", { message: e.message }));
         } finally {
@@ -441,11 +445,11 @@ export default function StripeIXIntegration() {
             icon: CreditCard, isAuthorized: hasStripeSaved && hasWebhookSaved,
             errorMsg: stripeError || installError, kind: "stripe"
         },
-        ...(needsIxStep ? [{
+        {
             id: 2, title: t("step2Title"),
             description: t("step2Desc"),
-            icon: ClipboardList, isAuthorized: ixAuthorized, errorMsg: ixError, flagName: "ix_authorized", kind: "ix" as const
-        }] : []),
+            icon: ClipboardList, isAuthorized: ixAuthorized, errorMsg: ixError, flagName: "ix_authorized", kind: "ix"
+        },
         {
             id: activateStepId, title: t("activateTitle", { n: activateStepId }),
             description: t("activateDesc"),
@@ -747,7 +751,7 @@ export default function StripeIXIntegration() {
                                                     <p className="text-[11px] text-fg-60 leading-relaxed">{t("activateWarning")}</p>
                                                 </div>
 
-                                                <button onClick={handleActivate} disabled={saving || !hasWebhookSaved || (needsIxStep && !ixAuthorized)} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                                                <button onClick={handleActivate} disabled={saving || !hasWebhookSaved || !ixAuthorized} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                                                     {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {t("markAsActive")}</>}
                                                 </button>
 

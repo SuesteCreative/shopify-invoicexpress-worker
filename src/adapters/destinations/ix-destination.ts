@@ -635,7 +635,11 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
 
     const refundItems = normalized.order.items.filter(item => refund.itemsIds.includes(item.id));
-    const items = builder.buildInvoiceItems(refundItems);
+    // Credit lines are built from filtered items, not from the raw order, so the
+    // "no ids means delivery" inference has to be asked for here. It is true of
+    // Shopify and of nothing else — and a Shopify order is exactly the one that
+    // carries a raw payload. Every other source has no shipping to recognise.
+    const items = builder.buildInvoiceItems(refundItems, { shippingFromIds: !!normalized.raw_order });
 
     if (amountToRefund > 0) {
       const taxes = invoice.items.map(i => i.tax);

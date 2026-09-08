@@ -83,6 +83,32 @@
     // A var and not a secret on purpose: it is a policy switch, it belongs in
     // git next to the reason, and a bare `wrangler deploy` cannot lose it.
     "SUBSCRIPTION_PER_CONNECTION": "1",
+    // Which InvoiceXpress proxy every document goes through. `ix-proxy.kapta.app`
+    // is the one that has been serving; its source is not in any repository,
+    // Cloudflare account or backup we hold, and it validates request bodies
+    // against a closed schema that silently drops what it does not name — which
+    // is where multi-currency was lost. `ix.rioko.online` is ours (`ix-proxy/`).
+    //
+    // Before flipping this, both were diffed against each other on real
+    // production data: the stored document date from a full ISO datetime, the
+    // document read shape key by key, and the reference lookup that stands
+    // between a sale and a duplicate — including the prefix trap and an empty
+    // reference. All identical.
+    //
+    // Nem tudo: um diff campo a campo das dez rotas que o worker realmente
+    // chama (08/09/2026) encontrou mais duas a divergir. `related` respondia
+    // 400 onde o antigo responde lista vazia — o IX devolve 404 para um
+    // documento sem nada emitido contra ele, e o caminho de anulação recusa-se
+    // a creditar o que não consiga provar ausente, portanto as anulações teriam
+    // parado. E `link` embrulhava o URL em `{url}` onde o worker lê a string
+    // nua, o que esvaziava o link de todos os emails ao comerciante. Ambas
+    // corrigidas em ix-proxy/ (abeb673) antes do corte.
+    //
+    // Rollback is this value: "https://ix-proxy.kapta.app" returns to the old
+    // one. A MISSING value also means the old one — see src/api/ix/base-url.ts —
+    // so removing the line is equally safe. Rolling back needs no code change,
+    // but it does need a deploy, because this is a var and not a secret.
+    "IX_PROXY_URL": "https://ix.rioko.online",
     "STRIPE_HEAL_ENABLED": "1",
     "STRIPE_HEAL_DAYS": "30",
     "STRIPE_HEAL_USERS": "",

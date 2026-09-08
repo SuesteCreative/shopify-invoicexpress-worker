@@ -6,6 +6,7 @@ import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
+import { destinationHandlesForeignCurrency } from "../services/currency-guard";
 import { matchTagRouting, normalizeRule, applyTagRoute, parseStoredRoute, type NormalizedRoute } from "../services/tag-routing";
 import { describeOrder } from "../services/order-label";
 import { getIxDocumentPermalink } from "../services/ix-document-email";
@@ -454,12 +455,13 @@ async function runPipelineCore(
         ctx = applyTagRoute(ctx, destination, routedDecision);
       }
 
-      // Currency guard. Moloni issues foreign-currency documents natively
-      // (exchange_currency_id + exchange_rate — handled in the adapter), so it
-      // accepts non-EUR. IX/Vendus have no FX path yet, so we still reject
-      // non-EUR there rather than silently issuing a misvalued invoice.
+      // Currency guard. Which destinations can take a foreign-currency sale, and
+      // why, lives in destinationHandlesForeignCurrency — the short version is
+      // that Moloni issues in the paid currency and InvoiceXpress restates the
+      // sale in euros at the ECB rate before building. Vendus still cannot, and
+      // is the one this stops.
       const currency = String(normalized.order?.currency ?? "EUR").toUpperCase();
-      if (currency && currency !== "EUR" && destination !== "moloni") {
+      if (currency && currency !== "EUR" && !destinationHandlesForeignCurrency(destination)) {
         await reportIncident(env, {
           user_id: config.user_id,
           severity: "critical",

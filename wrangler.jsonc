@@ -68,6 +68,21 @@
     // Set while MODE is still "direct": only /admin/lodgify/diag reads it until
     // the flip, which is exactly how the cutover gets tested.
     "LODGIFY_GATEWAY_URL": "https://rioko-lodgify-relay.fly.dev",
+    // One subscription per connection, enforced (migration 0044). Off, any live
+    // subscription on the account let every integration through — which is how a
+    // Shopify shop came to invoice for free on a subscription bought for a
+    // Stripe account (Wim Hof Method, 08/09/2026). On, a connection pays for
+    // itself: no row of its own, no invoices.
+    //
+    // Turned on 08/09/2026 after a coverage sweep of the whole fleet: exactly
+    // one live connection lost cover, WHM's Shopify half, granted an early bird
+    // to 15/09 in the same breath. The five shops reading "trial expirado" and
+    // Casa de Celebrar a Vida are blocked at the account level already, so this
+    // changes nothing for them.
+    //
+    // A var and not a secret on purpose: it is a policy switch, it belongs in
+    // git next to the reason, and a bare `wrangler deploy` cannot lose it.
+    "SUBSCRIPTION_PER_CONNECTION": "1",
     "STRIPE_HEAL_ENABLED": "1",
     "STRIPE_HEAL_DAYS": "30",
     "STRIPE_HEAL_USERS": "",

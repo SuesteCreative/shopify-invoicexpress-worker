@@ -110,6 +110,21 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
  * The migration-0037 switches, in the one place that knows how to read them off
  * a connection blob. Booleans there, SQLite 0/1 on the legacy row.
  */
+/**
+ * What a connection may state about the documents it issues, as opposed to how
+ * it behaves. Read by `projectConnectionBehaviour`.
+ *
+ * `force_tax_rate` and `is_paused` deliberately stay shared: the pause toggle
+ * writes the legacy row, so projecting a connection's `is_paused` would let a
+ * connection that never stated one silently resume a paused account. They move
+ * when the toggle moves with them.
+ */
+const CONNECTION_FISCAL_IDENTITY = [
+  "ix_sequence_name",
+  "ix_exemption_reason",
+  "ix_document_type",
+] as const;
+
 const CONNECTION_FISCAL_FLAGS = [
   "ix_derive_exemption",
   "ix_adapter_safety_nets",
@@ -164,6 +179,28 @@ export function projectConnectionBehaviour(
   }
   if (typeof destinationConfig.stripe_metadata_map === "string") {
     c.stripe_metadata_map = destinationConfig.stripe_metadata_map;
+  }
+  // The fiscal identity of the documents this connection issues: which series
+  // they are filed in, which exemption code they carry when the rate is 0%, and
+  // whether they are invoices or invoice-receipts.
+  //
+  // Until now these came off the shared `integrations` row and nothing else, so
+  // an account running two connections into the SAME InvoiceXpress account
+  // could only ever have one of each — and the second wizard to be saved
+  // overwrote the first. Measured on Wim Hof Method (08/09/2026), who files
+  // Stripe sales into `FR-ROW` (the fallback behind 62 per-country series) and
+  // Shopify orders into `WH-25-1`: the Stripe wizard had already replaced the
+  // shop's series on the shared row, so the shop was one order away from
+  // filing into the wrong series.
+  //
+  // Blank means "not stated" and inherits the legacy row. That is what an empty
+  // field in the wizard means, and it is the only way back to inheriting once a
+  // connection has stated something.
+  for (const key of CONNECTION_FISCAL_IDENTITY) {
+    const value = destinationConfig[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      c[key] = value.trim();
+    }
   }
   return config;
 }

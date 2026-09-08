@@ -2385,6 +2385,42 @@ app.post("/admin/account-invite-email", async (c) => {
   return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
 })
 
+// Admin: the "your subscription charge failed" email, carrying the Stripe link
+// that replaces the card. Called by the backoffice Stripe webhook on
+// invoice.payment_failed — the link is minted there (only the backoffice holds
+// the Stripe key), the HTML is built here so every Rioko email keeps one shell.
+app.post("/admin/payment-failed-email", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    to: string | string[]; cc?: string[]; account: string; update_url: string;
+    invoice_url?: string; amount_label?: string; next_attempt_label?: string;
+    final_attempt?: boolean; dashboard_url?: string;
+  }>();
+  const to = Array.isArray(body.to) ? body.to : [body.to];
+  if (to.length === 0 || !body.account || !body.update_url) {
+    return c.json({ error: "Missing to/account/update_url" }, 400);
+  }
+
+  const { renderPaymentFailedEmail } = await import("./services/email-templates");
+  const { subject, html } = renderPaymentFailedEmail({
+    accountLabel: body.account,
+    updateUrl: body.update_url,
+    invoiceUrl: body.invoice_url,
+    amountLabel: body.amount_label,
+    nextAttemptLabel: body.next_attempt_label,
+    finalAttempt: !!body.final_attempt,
+    dashboardUrl: body.dashboard_url,
+  });
+
+  // A client who hits "Reply" here is asking us about their own money; that has
+  // to land in a mailbox somebody reads.
+  const res = await sendEmailDirect(c.env, {
+    to, cc: body.cc, subject, html, fromName: "Rioko", replyTo: "suporte@kapta.pt",
+  });
+  return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
+})
+
 app.post("/admin/test-quota-email", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;

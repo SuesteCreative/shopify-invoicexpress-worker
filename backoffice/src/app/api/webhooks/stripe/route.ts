@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
 import { grantSeatFromSession } from "@/lib/seats";
+import { notifySubscriptionPaymentFailed } from "@/lib/billing-notify";
 
 export const runtime = "edge";
 
@@ -298,7 +299,7 @@ export async function POST(req: NextRequest) {
                 const piId = typeof pi === "string" ? pi : pi?.id;
 
                 // Insert billing_event first (idempotent)
-                await db.prepare(`
+                const insert = await db.prepare(`
                     INSERT OR IGNORE INTO billing_events (
                         id, user_id, type, stripe_object_id, payment_intent_id,
                         amount_cents, currency, status, raw_json
@@ -314,6 +315,28 @@ export async function POST(req: NextRequest) {
                     invoice.status || (event.type === "invoice.paid" ? "paid" : "failed"),
                     JSON.stringify(invoice),
                 ).run();
+
+                // A charge that failed on a live subscription is the one billing
+                // event only the client can fix, and Stripe tells nobody but us.
+                // Mail them the link that fixes it — once per distinct failed
+                // attempt, and never again when Stripe re-delivers the same event
+                // (the INSERT OR IGNORE above changed no rows the second time).
+                const firstDelivery = ((insert as any)?.meta?.changes ?? 0) > 0;
+                if (event.type === "invoice.payment_failed" && firstDelivery) {
+                    try {
+                        const notice = await notifySubscriptionPaymentFailed({
+                            db, stripe, userId, invoice, origin: new URL(req.url).origin,
+                        });
+                        console.log(
+                            `[Stripe webhook] payment_failed notice for ${invoice.id}: ` +
+                            (notice.sent ? `sent to ${notice.recipients?.join(", ")}` : `skipped (${notice.reason})`)
+                        );
+                    } catch (mailErr: any) {
+                        // Best effort: a mail failure must not make us 500 and have
+                        // Stripe re-deliver an event we already recorded.
+                        console.error(`[Stripe webhook] payment_failed notice error for ${event.id}: ${mailErr.message}`);
+                    }
+                }
 
                 // For paid invoices: try IX matching. Errors here MUST NOT bubble (cron retries).
                 if (event.type === "invoice.paid" && piId) {

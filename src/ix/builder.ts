@@ -520,12 +520,38 @@ export class IxBuilder {
     }
   }
 
-  buildInvoiceItems(normalizedItems: Normalized["order"]["items"], opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {
+  /**
+   * Lines from an order that has no raw Shopify payload behind it.
+   *
+   * `shippingFromIds` asks for the old inference: a line with no product and no
+   * variant id is delivery. It defaults to OFF, and that is the fix.
+   *
+   * The inference is only ever true of Shopify, which puts delivery in
+   * `shipping_lines` — and those have no ids. Every Shopify order carries its
+   * raw payload (src/shopify.ts attaches it on both normalize paths), so it
+   * takes `buildInvoiceItemsFromRaw` and never arrives here at all. What does
+   * arrive here is Stripe, EuPago and Lodgify: sources with no notion of
+   * delivery, whose single line carries `product_id: 0`. Falsy. So the guess
+   * fired on every one of them, and EVERY line of EVERY document they produced
+   * was named "Portes de envio — <the thing actually sold>" — a Wim Hof Method
+   * course invoiced as delivery, with the SKU dropped (shipping lines carry no
+   * description) and `force_shipping_tax_rate` taken in place of the product
+   * rate.
+   *
+   * The one caller that could legitimately want it is the credit-note path,
+   * which builds from filtered items rather than from the raw order: it turns
+   * this on exactly when there IS a raw order, i.e. for Shopify.
+   */
+  buildInvoiceItems(
+    normalizedItems: Normalized["order"]["items"],
+    opts?: { forceZeroTax?: boolean; shippingFromIds?: boolean },
+  ): IxInvoice["items"] {
     const forceTaxProducts = this.config.force_tax_rate;
     const forceTaxShipping = this.config.force_shipping_tax_rate;
     const forceZeroTax = opts?.forceZeroTax === true;
+    const shippingFromIds = opts?.shippingFromIds === true;
     return normalizedItems.map(item => {
-      const isShipping = !item.product_id && !item.variant_id;
+      const isShipping = shippingFromIds && !item.product_id && !item.variant_id;
       const name = isShipping
         ? `Portes de envio${item.title ? ` — ${item.title}` : ""}`.slice(0, 200)
         : (item.variant_title

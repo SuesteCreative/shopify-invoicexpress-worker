@@ -6,6 +6,7 @@ import { IxApi } from "../api/ix";
 import { IxBuilder } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
 import { loadProductOverrides } from "../services/product-overrides";
+import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
 
 export async function handleOrderUpdated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/updated";
@@ -95,6 +96,26 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
       },
       headers: ixHeaders
     });
+
+    // A certified document cannot be edited, and IX refusing the PUT is the
+    // fiscally correct answer, not a failure: once finalized the only lawful
+    // correction is a credit note. Shopify keeps sending orders/updated long
+    // after the sale (tags, fulfilment, notes), so on an auto-finalized shop
+    // every one of those edits used to throw — a retry storm that ended in a
+    // critical "Encomenda NÃO foi facturada" incident for an order that had in
+    // fact been invoiced. 165 such logs on two shops before this guard.
+    if (error && isAlreadyFinalizedIxError(error)) {
+      console.log(`[Rioko] Update ignored for order ${orderId}: document ${invoice.invoice_id} is already finalized`);
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id }),
+        response: "Documento já finalizado — alteração da encomenda ignorada (só corrigível por nota de crédito)",
+        status: 200,
+      });
+      return;
+    }
 
     // Did the update land? This used to print `{ error }` and then write
     // "Updated" with status 200 regardless, so a refused edit and a successful

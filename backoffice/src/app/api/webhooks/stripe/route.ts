@@ -5,7 +5,7 @@ import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
 import { grantSeatFromSession } from "@/lib/seats";
 import { notifySubscriptionPaymentFailed } from "@/lib/billing-notify";
-import { DEFAULT_CONNECTION_KEY, keyFromRequest } from "@/lib/subscription-key";
+import { DEFAULT_CONNECTION_KEY, keyFromRequest, shopIsOldest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -80,7 +80,7 @@ async function resolveConnectionKey(db: D1Database, userId: string, sub: Stripe.
     const shop: any = await db.prepare(
         "SELECT created_at FROM integrations WHERE user_id = ? AND shopify_domain IS NOT NULL AND shopify_domain <> '' LIMIT 1"
     ).bind(userId).first();
-    if (shop && (!conn || String(shop.created_at ?? "") <= String(conn.created_at ?? ""))) return DEFAULT_CONNECTION_KEY;
+    if (shop && shopIsOldest(shop.created_at, conn?.created_at)) return DEFAULT_CONNECTION_KEY;
     if (conn) return `${conn.source_kind}:${conn.destination_kind}`;
     return DEFAULT_CONNECTION_KEY;
 }

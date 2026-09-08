@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { getRequestContext } from "@cloudflare/next-on-pages";
-import { DEFAULT_CONNECTION_KEY } from "./subscription-key";
+import { DEFAULT_CONNECTION_KEY, shopIsOldest } from "./subscription-key";
 
 function readEnv(name: string): string | undefined {
     // process.env works for plaintext on next-on-pages
@@ -108,7 +108,7 @@ export async function primaryConnectionKey(db: D1Database, userId: string): Prom
     const shop: any = await db.prepare(
         "SELECT created_at FROM integrations WHERE user_id = ? AND shopify_domain IS NOT NULL AND shopify_domain <> '' LIMIT 1"
     ).bind(userId).first();
-    if (shop && (!conn || String(shop.created_at ?? "") <= String(conn.created_at ?? ""))) return DEFAULT_CONNECTION_KEY;
+    if (shop && shopIsOldest(shop.created_at, conn?.created_at)) return DEFAULT_CONNECTION_KEY;
     if (conn) return `${conn.source_kind}:${conn.destination_kind}`;
     return DEFAULT_CONNECTION_KEY;
 }

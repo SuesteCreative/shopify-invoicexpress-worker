@@ -49,3 +49,40 @@ export function keyFromRequest(explicitKey?: string | null, source?: string | nu
     if (k.includes(":")) return k;
     return SOURCE_TO_CONNECTION_KEY[String(source ?? "").trim()] ?? DEFAULT_CONNECTION_KEY;
 }
+
+/**
+ * A timestamp from D1, as milliseconds, whichever way it was written.
+ *
+ * The two tables disagree on format and it is not cosmetic. SQLite's
+ * CURRENT_TIMESTAMP writes `2026-09-08 14:52:25`; our own inserts write
+ * `2026-09-08T14:49:59.950Z`. Compared as STRINGS the space sorts before the
+ * `T`, so a row written two and a half minutes LATER reads as older — which is
+ * exactly how Wim Hof Method's subscription was attached to the Shopify shop it
+ * was not bought for (measured 08/09/2026, migration 0044).
+ *
+ * A bare timestamp is UTC: that is what SQLite means by CURRENT_TIMESTAMP, and
+ * reading it as local time would reintroduce the same class of error twice a
+ * year.
+ */
+export function dbTimeMs(value?: string | null): number | null {
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+    const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw);
+    const withT = raw.includes("T") ? raw : raw.replace(" ", "T");
+    const ms = Date.parse(hasZone ? withT : `${withT}Z`);
+    return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * True when the Shopify shop is the account's oldest integration — the one an
+ * unattributed subscription was bought for. An unparseable or missing date
+ * cannot win the comparison, so a connection with a real date is preferred over
+ * a shop with none.
+ */
+export function shopIsOldest(shopCreatedAt?: string | null, connCreatedAt?: string | null): boolean {
+    const shop = dbTimeMs(shopCreatedAt);
+    if (shop === null) return false;
+    const conn = dbTimeMs(connCreatedAt);
+    if (conn === null) return true;
+    return shop <= conn;
+}

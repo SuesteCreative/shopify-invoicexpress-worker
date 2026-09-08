@@ -6,6 +6,7 @@ import { loadProductOverrides } from "./product-overrides";
 import { loadTagRoutingRules, type TagRoutingRule } from "./tag-routing";
 import { makeViesChecker } from "../ix/vies";
 import { resolveLodgifyGateway } from "./lodgify-api";
+import { projectConnectionBehaviour } from "./connection-context";
 
 /**
  * Everything the adapters need to be handed, fetched in one place.
@@ -35,6 +36,15 @@ export async function buildAdapterCtx(
   input: AdapterCtxInput,
 ): Promise<{ ctx: AdapterCtx; tagRoutingRules: TagRoutingRule[] }> {
   const { config, source, destination } = input;
+
+  // The connection's own settings win over the shared legacy row, HERE, because
+  // this is the one function every adapter path goes through. The projection
+  // used to live at each call site instead: the Stripe queue consumer and the
+  // Lodgify poll remembered it, the EuPago webhook and three admin routes did
+  // not, and a connection's series or exemption code reached a document or not
+  // depending on which door the run came in by. Idempotent, so the call sites
+  // that already do it stay correct.
+  projectConnectionBehaviour(config, input.destinationConfig);
 
   // Explicit product mappings (Moloni) + per-SKU overrides (IX) + tag routing
   // rules. All are one D1 round-trip with empty fallbacks.

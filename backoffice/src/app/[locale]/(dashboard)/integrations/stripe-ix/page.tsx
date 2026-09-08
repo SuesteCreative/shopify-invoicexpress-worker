@@ -62,6 +62,12 @@ export default function StripeIXIntegration() {
     const [ixRetentionEnabled, setIxRetentionEnabled] = useState(false);
     const [ixRetention, setIxRetention] = useState<number>(16.5);
     const [ixAuthorized, setIxAuthorized] = useState(false);
+    // What the shared `integrations` row says today. Posted back verbatim when a
+    // Shopify shop owns that row, so saving the Stripe settings cannot rewrite
+    // the shop's series, exemption code or document type.
+    const [legacyFiscal, setLegacyFiscal] = useState({
+        ix_sequence_name: "", ix_exemption_reason: "M01", ix_document_type: "invoice_receipt",
+    });
     const [ixError, setIxError] = useState("");
 
     // Carry-over Shopify fields (so POST /api/integrations doesn't clobber them)
@@ -134,8 +140,22 @@ export default function StripeIXIntegration() {
             if (integ._viewer_role) setUserRole(integ._viewer_role);
             if (integ.user_id) setTargetUserId(integ.user_id);
 
+            setLegacyFiscal({
+                ix_sequence_name: integ.ix_sequence_name ?? "",
+                ix_exemption_reason: integ.ix_exemption_reason ?? "M01",
+                ix_document_type: integ.ix_document_type ?? "invoice_receipt",
+            });
+
             const conn = stripe?.connection;
             const sCfg = conn?.source_config ?? {};
+
+            // The connection's own fiscal identity overrides the shared row —
+            // same precedence the worker applies, so the form shows what the
+            // next invoice will actually use.
+            const fiscal = conn?.fiscal ?? {};
+            if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
+            if (fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
+            if (fiscal.ix_document_type) setIxDocumentType(fiscal.ix_document_type);
             if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
             const stripeSaved = !!sCfg.stripe_account_id;
             const webhookSaved = !!sCfg.has_webhook_secret;
@@ -267,6 +287,24 @@ export default function StripeIXIntegration() {
                     }
                 }
             }
+            // Where the fiscal identity is written depends on who owns the shared
+            // row. With a Shopify shop on the account it belongs to the shop —
+            // this connection states its own on `connections`, and the shop's
+            // values are posted back untouched. Without one, the legacy row is
+            // still mirrored so everything that reads it stays truthful.
+            const ownedByShopify = !!shopifyDomain;
+            const fiscal = {
+                ix_sequence_name: ixSequenceName,
+                ix_exemption_reason: exemptionReason,
+                ix_document_type: ixDocumentType,
+            };
+
+            if (stripeAccountId) {
+                const fiscalRes = await postStripeSource({ fiscal });
+                if (!fiscalRes.ok) { alert(t("alertSaveError")); return; }
+            }
+
+            const legacyBody = ownedByShopify && stripeAccountId ? legacyFiscal : fiscal;
             const saveRes = await fetch("/api/integrations", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -274,8 +312,11 @@ export default function StripeIXIntegration() {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
-                    ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize,
-                    ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName,
+                    vat_included: vatIncluded, auto_finalize: autoFinalize,
+                    ix_payment_term: ixPaymentTerm,
+                    ix_exemption_reason: legacyBody.ix_exemption_reason,
+                    ix_document_type: legacyBody.ix_document_type,
+                    ix_sequence_name: legacyBody.ix_sequence_name,
                     ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
                 })
             });

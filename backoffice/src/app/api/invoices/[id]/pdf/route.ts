@@ -34,8 +34,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         const account = integration.ix_account_name;
         const apiKey = integration.ix_api_key;
         const environment = integration.ix_environment || "production";
+        // See the note in ../route.ts: the bare host does not resolve.
         const baseUrl = environment === "production"
-            ? `https://${account}.invoicexpress.com`
+            ? `https://${account}.app.invoicexpress.com`
             : `https://${account}.${environment}.invoicexpress.com`;
 
         // We need to know the document type. Default to invoice_receipts, but check query

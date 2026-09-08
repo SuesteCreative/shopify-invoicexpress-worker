@@ -4,6 +4,7 @@ import { IxApi } from "../../api/ix";
 import { ixExpectedTotals } from "../../ix/create-invoice";
 import { parseIxDate, formatPtDate, todayUtcYmd } from "../../ix/date";
 import { resolveExemptionCode } from "../../ix/exemption";
+import { ixAccountHost } from "../../ix/host";
 
 /**
  * Certifying a draft in InvoiceXpress, and the date negotiation that goes with it.
@@ -130,7 +131,7 @@ export async function fetchSeriesLastFinalizedDate(
     const apiKey = config.ix_api_key;
     if (!account || !apiKey) return null;
     const path = docKind === "invoice_receipt" ? "invoice_receipts.json" : "invoices.json";
-    const url = `https://${account}.app.invoicexpress.com/${path}?api_key=${apiKey}&status%5B%5D=settled&status%5B%5D=final&order_by=date_desc&per_page=1`;
+    const url = `${ixAccountHost(account, config.ix_environment)}/${path}?api_key=${apiKey}&status%5B%5D=settled&status%5B%5D=final&order_by=date_desc&per_page=1`;
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return null;
     const data = await res.json() as any;

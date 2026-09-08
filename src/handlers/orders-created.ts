@@ -16,6 +16,14 @@ import { saleReference } from "../services/document-references";
 import { findIxDocumentIdByReference } from "../services/ix-find-reference";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 import { platformError } from "../services/platform-error";
+import {
+  loadTagRoutingRules,
+  matchTagRouting,
+  normalizeRule,
+  applyRouteToIxConfig,
+  type NormalizedRoute,
+} from "../services/tag-routing";
+import { resolveIxSequenceId } from "../ix/sequences";
 
 /** The half-sentence that says what the merchant has to go and fix. */
 function holdCause(hold: NifHold): string {
@@ -304,6 +312,30 @@ async function createInvoiceForOrder(
 
   console.log(normalizedOrderResponse);
 
+  // Tag routing. A merchant's rule ("orders tagged B2B are FATURAS in series
+  // B2B2026") decides the document type, the series and draft-vs-finalize, and
+  // everything unmatched keeps the connection's own settings.
+  //
+  // This path had none of it: the rules table was read only by the adapter
+  // pipeline, so a Shopify→InvoiceXpress shop could configure routing in the
+  // backoffice, see the rule saved, and get the connection default on every
+  // single sale with nothing to say otherwise. The route is persisted on
+  // processed_orders.routed_json so orders/paid finalizes the same document
+  // type the create chose — see handleOrderPaid.
+  const tagRoutingRules = config.user_id
+    ? await loadTagRoutingRules(env, config.user_id, "shopify", "invoicexpress").catch(() => [])
+    : [];
+  const tagMatch = matchTagRouting(normalizedOrderResponse.normalized.order, tagRoutingRules, {
+    byCountry: config.tag_route_by_country === 1,
+  });
+  const route: NormalizedRoute | null = tagMatch ? normalizeRule(tagMatch) : null;
+  if (route) {
+    config = applyRouteToIxConfig(config, route);
+    console.log(`[Rioko] Order ${orderId} matched tag rule "${tagMatch!.tag_name}" → ${JSON.stringify(route)}`);
+  }
+
+  const ixDocumentType = config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
+
   const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
   const productOverrides = config.user_id
     ? await loadProductOverrides(env, config.user_id, "shopify", "invoicexpress")
@@ -358,10 +390,34 @@ async function createInvoiceForOrder(
   console.log(`[Rioko] Built follwoing invoice (reverseCharge=${reverseCharge})`);
   console.log(invoice);
 
+  // Tell IX which series to number this document in. Without it the document
+  // lands in whichever series the account happens to have marked as default —
+  // which is how a shop configured for FR2026 kept getting FR2026 by luck, and
+  // a B2B rule pointing at another series would have changed nothing at all.
+  //
+  // The id is per document type, not per series: a series is a family, and the
+  // invoice-receipt id is not the invoice id (see ix/sequences.ts).
+  if (config.ix_sequence_name) {
+    const sequenceId = await resolveIxSequenceId(config, config.ix_sequence_name, ixDocumentType);
+    if (sequenceId) {
+      (invoice as any).sequence_id = sequenceId;
+    } else if (config.ix_require_series === 1) {
+      // Refusing beats filing the sale under the wrong numbering: an unbilled
+      // order is visible in the Conciliação, a document in the wrong series is
+      // found by an accountant months later, if ever.
+      throw platformError(
+        `A série "${config.ix_sequence_name}" não existe na conta InvoiceXpress `
+        + `(ou a lista de séries não respondeu). A encomenda não foi facturada para não ir para a série errada.`,
+      );
+    } else {
+      console.warn(`[Rioko] Series "${config.ix_sequence_name}" did not resolve for order ${orderId} — IX will use its default series`);
+    }
+  }
+
   const { res: ixCreateResponse, via } = await createIxInvoiceWithFallback(
     ixHeaders,
     invoice,
-    config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+    ixDocumentType,
     { forceTaxRate: config.force_tax_rate, forceShippingTaxRate: config.force_shipping_tax_rate },
   );
 
@@ -375,6 +431,10 @@ async function createInvoiceForOrder(
     // what clears a hold on re-emit.
     await appStorage.saveProcessedInvoice(orderId, invoiceId, {
       holdReason: nifHold ? nifHoldReason(nifHold) : null,
+      // Written on every create, NULL included: a re-emit whose order no longer
+      // matches a rule must forget the old route rather than keep finalizing
+      // against a series the merchant removed.
+      routedJson: route ? JSON.stringify(route) : null,
     });
 
     // Record WHAT WE SENT, so the 04:00 sweep can hold InvoiceXpress to it.

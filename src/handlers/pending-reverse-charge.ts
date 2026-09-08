@@ -11,6 +11,8 @@ import { IxBuilder, nifHoldReason, type NifHold } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
 import { reportIncident } from "../services/incidents";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
+import { loadTagRoutingRules, matchTagRouting, normalizeRule, applyRouteToIxConfig } from "../services/tag-routing";
+import { resolveIxSequenceId } from "../ix/sequences";
 
 const RETRY_BACKOFF_MS = [15 * 60_000, 60 * 60_000];
 
@@ -39,12 +41,39 @@ export async function submitInvoiceForPendingRow(
     return { ok: false, error: `Corrupted normalized payload: ${e.message}` };
   }
 
-  const builder = new IxBuilder(config);
+  // Tag routing, from the normalized order this row was parked with.
+  //
+  // This path is where an EU B2B sale lands — a buyer with a VAT id VIES could
+  // not confirm in time — which is exactly the sale a merchant files in its own
+  // series. Emitting it on the connection's defaults would put the one document
+  // the rule was written for in the wrong series, days later, silently.
+  const tagRoutingRules = config.user_id
+    ? await loadTagRoutingRules(env, config.user_id, "shopify", "invoicexpress").catch(() => [])
+    : [];
+  const tagMatch = matchTagRouting(normalized.order, tagRoutingRules, {
+    byCountry: config.tag_route_by_country === 1,
+  });
+  const route = tagMatch ? normalizeRule(tagMatch) : null;
+  const routedConfig = route ? applyRouteToIxConfig(config, route) : config;
+  const ixDocumentType = routedConfig.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
+
+  const builder = new IxBuilder(routedConfig);
   let build: { invoice: any; requestTaxExemptionReason: boolean; nifHold?: NifHold };
   if (disposition === "apply") {
     build = builder.buildReverseChargeInvoice(normalized, row.country_code, row.vat_id);
   } else {
     build = builder.createInvoiceFromNormalizedOrder(normalized);
+  }
+
+  // Same series rule as the create path: the id is per document type, and
+  // refusing beats filing the sale under the wrong numbering.
+  if (routedConfig.ix_sequence_name) {
+    const sequenceId = await resolveIxSequenceId(routedConfig, routedConfig.ix_sequence_name, ixDocumentType);
+    if (sequenceId) {
+      (build.invoice as any).sequence_id = sequenceId;
+    } else if (routedConfig.ix_require_series === 1) {
+      return { ok: false, error: `Series "${routedConfig.ix_sequence_name}" did not resolve` };
+    }
   }
 
   const ixHeaders = {
@@ -57,7 +86,7 @@ export async function submitInvoiceForPendingRow(
     headers: ixHeaders,
     body: {
       data: build.invoice,
-      type: config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+      type: ixDocumentType,
     },
     query: { resolvers: "on_tax_fallback_search_tax_by_value" },
   });
@@ -85,6 +114,7 @@ export async function submitInvoiceForPendingRow(
   // this draft alone, exactly as the create path would have.
   await appStorage.saveProcessedInvoice(row.order_id, String(invoiceId), {
     holdReason,
+    routedJson: route ? JSON.stringify(route) : null,
   });
   await logDocumentEvent(env, {
     externalId: row.order_id,

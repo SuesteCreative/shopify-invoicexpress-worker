@@ -32,8 +32,10 @@ export async function GET(request: NextRequest) {
         const account = integration.ix_account_name;
         const apiKey = integration.ix_api_key;
         const environment = integration.ix_environment || "production";
+        // `.app.` is not optional: the bare `{account}.invoicexpress.com` has no
+        // DNS record (measured 2026-09-08).
         const baseUrl = environment === "production"
-            ? `https://${account}.invoicexpress.com`
+            ? `https://${account}.app.invoicexpress.com`
             : `https://${account}.${environment}.invoicexpress.com`;
 
         // 2. Fetch Invoices from IX (Last 20)

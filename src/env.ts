@@ -81,6 +81,10 @@ export interface Env {
   // "gateway", i.e. fail closed: a lost variable must never restore direct,
   // unallowlisted egress. Only KEY is a `wrangler secret`.
   LODGIFY_EGRESS_MODE?: string;           // "gateway" (default) | "direct"
+  // Which InvoiceXpress proxy to talk to. Absent = ix-proxy.kapta.app, the one
+  // whose source we lost. Set to https://ix.rioko.online to use ours; putting
+  // the old URL back is the rollback. See src/api/ix/base-url.ts.
+  IX_PROXY_URL?: string;
   LODGIFY_GATEWAY_URL?: string;           // relay origin, e.g. https://rioko-lodgify.fly.dev
   LODGIFY_GATEWAY_KEY?: string;           // shared secret — `wrangler secret put`, never a var
 

@@ -100,6 +100,19 @@ export function matchTagRouting(
 
   const candidates = new Set<string>();
 
+  // Everything is compared lower-cased, on both sides (see ruleMatches).
+  //
+  // Shopify preserves the case a merchant typed, and merchants type the same
+  // tag both ways: a rule written `b2b` did not match an order tagged `B2B`,
+  // and the sale went to the connection's default series with nothing said —
+  // the failure mode of a silent mismatch is always a document that looks
+  // right and is filed wrong. Matching case-insensitively is also what the
+  // merchant means: `B2B` and `b2b` are not two different tags to them.
+  const addCandidate = (value: unknown) => {
+    const s = String(value ?? "").trim().toLowerCase();
+    if (s) candidates.add(s);
+  };
+
   // The buyer's own country, for merchants who file each destination into its
   // own document series. Opt-in (`tag_route_by_country`) because it invents
   // matchable strings the merchant did not write: a rule someone named
@@ -113,8 +126,8 @@ export function matchTagRouting(
       order.billing_address?.country_code || order.shipping_address?.country_code || "",
     ).trim().toUpperCase();
     if (cc) {
-      candidates.add(`country:${cc}`);
-      candidates.add(`country_code:${cc}`);
+      addCandidate(`country:${cc}`);
+      addCandidate(`country_code:${cc}`);
     }
   }
 
@@ -125,9 +138,9 @@ export function matchTagRouting(
       if (tag == null) continue;
       const s = String(tag).trim();
       if (s.includes(",")) {
-        for (const t of s.split(",")) { const tt = t.trim(); if (tt) candidates.add(tt); }
-      } else if (s) {
-        candidates.add(s);
+        for (const t of s.split(",")) addCandidate(t);
+      } else {
+        addCandidate(s);
       }
     }
   }
@@ -138,10 +151,7 @@ export function matchTagRouting(
   // they are namespaced so they cannot collide with a tag the merchant wrote.
   const hints = (order as any)?.meta?.routing_hints;
   if (Array.isArray(hints)) {
-    for (const hint of hints) {
-      const s = String(hint ?? "").trim();
-      if (s) candidates.add(s);
-    }
+    for (const hint of hints) addCandidate(hint);
   }
 
   // note_attributes (Stripe metadata / Shopify custom attributes)
@@ -150,8 +160,8 @@ export function matchTagRouting(
       const name = String(attr?.name ?? "").trim();
       const value = String(attr?.value ?? "").trim();
       if (name) {
-        candidates.add(name);
-        if (value) candidates.add(`${name}:${value}`);
+        addCandidate(name);
+        if (value) addCandidate(`${name}:${value}`);
       }
     }
   }
@@ -177,7 +187,7 @@ export function matchTagRouting(
  * splitting on it would break rules that work today.
  */
 function ruleMatches(tagName: string, candidates: Set<string>): boolean {
-  const name = String(tagName ?? "").trim();
+  const name = String(tagName ?? "").trim().toLowerCase();
   if (!name) return false;
   if (!name.includes(" + ")) return candidates.has(name);
 
@@ -209,6 +219,24 @@ export function parseStoredRoute(json: string | null | undefined): NormalizedRou
 }
 
 /**
+ * Fold a route into a connection's config, the InvoiceXpress way.
+ *
+ * Split out of `applyTagRoute` because the legacy Shopify→IX handlers hold a
+ * bare `IRequestConfig` and no adapter context, and they must reach the same
+ * three decisions from the same rule — document type, series, draft-vs-final.
+ * Two copies of this mapping is how the Shopify→IX path ended up ignoring tag
+ * rules entirely while every other source honoured them.
+ */
+export function applyRouteToIxConfig<T extends Record<string, any>>(config: T, route: NormalizedRoute): T {
+  return {
+    ...config,
+    ...(route.finalize === null ? {} : { auto_finalize: route.finalize ? 1 : 0 }),
+    ...(route.docType ? { ix_document_type: route.docType } : {}),
+    ...(route.series ? { ix_sequence_name: route.series } : {}),
+  };
+}
+
+/**
  * Apply a matched rule to the adapter context.
  *
  * Both destinations honour the same three choices — document type, series and
@@ -230,14 +258,7 @@ export function applyTagRoute(
     : { ...ctx.config, auto_finalize: route.finalize ? 1 : 0 };
 
   if (destination === "invoicexpress") {
-    return {
-      ...ctx,
-      config: {
-        ...config,
-        ...(route.docType ? { ix_document_type: route.docType } : {}),
-        ...(route.series ? { ix_sequence_name: route.series } : {}),
-      },
-    };
+    return { ...ctx, config: applyRouteToIxConfig(config, route) };
   }
 
   if (destination === "moloni") {

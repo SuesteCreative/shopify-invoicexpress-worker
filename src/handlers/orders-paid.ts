@@ -13,6 +13,7 @@ import { describeOrder } from "../services/order-label";
 import { ixEnvelopeError } from "../adapters/destinations/ix-destination";
 import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
 import { logDocumentEvent } from "../services/document-log";
+import { parseStoredRoute, applyRouteToIxConfig } from "../services/tag-routing";
 
 export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/paid";
@@ -99,6 +100,21 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
         status: 200,
       });
       return;
+    }
+
+    // Re-apply the route the CREATE chose, from processed_orders.routed_json.
+    //
+    // Finalizing reads two things off the config — auto_finalize and the
+    // document type — and both can have been overridden by a tag rule. Reading
+    // the connection's own values here would ask IX to finalize an
+    // `invoice_receipt` that was in fact created as an `invoice` (wrong
+    // collection, refused), or certify a document the rule said to leave as a
+    // draft. Absent or malformed = no rule matched, which is the connection
+    // default and the behaviour that predates routing.
+    const storedRoute = parseStoredRoute(invoice.routed_json);
+    if (storedRoute) {
+      config = applyRouteToIxConfig(config, storedRoute);
+      console.log(`[Rioko] Order ${orderId} finalize follows stored route ${invoice.routed_json}`);
     }
 
     // Check if auto_finalize is enabled

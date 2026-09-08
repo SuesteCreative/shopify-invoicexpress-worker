@@ -38,9 +38,12 @@ export async function listIxSequences(db: any, userId: string): Promise<IxSequen
   const apiKey = integration?.ix_api_key;
   if (!account || !apiKey) return null;
 
-  const suffix = integration.ix_environment !== "production"
-    ? ".macewindu.invoicexpress.com"
-    : ".invoicexpress.com";
+  // `{account}.invoicexpress.com` has no DNS record at all — the host is
+  // `{account}.app.invoicexpress.com`. Measured 2026-09-08; the bare form is
+  // what made the worker's own sequence lookup fail silently in production.
+  const suffix = integration.ix_environment === "production"
+    ? ".app.invoicexpress.com"
+    : ".macewindu.invoicexpress.com";
 
   try {
     const res = await fetch(`https://${account}${suffix}/sequences.json?api_key=${encodeURIComponent(apiKey)}`, {

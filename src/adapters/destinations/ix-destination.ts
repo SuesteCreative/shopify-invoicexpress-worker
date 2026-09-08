@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { parseIxDate } from "../../ix/date";
 import { resolveExemptionCode } from "../../ix/exemption";
+import { resolveIxSequenceId } from "../../ix/sequences";
 import { classifyExemption, type FiscalClassification } from "../../ix/fiscal-classification";
 import { createIxInvoiceWithFallback } from "../../ix/create-invoice";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
@@ -25,94 +26,20 @@ import { sendIxDocumentEmail, describeIxEmailOutcome } from "../../services/ix-d
 import { refundReference } from "../../services/document-references";
 import { platformError } from "../../services/platform-error";
 
-/**
- * One row of InvoiceXpress's `sequences.json`. The shape that matters is the
- * one nobody read: a "series" is not a single sequence, it is a FAMILY, and it
- * carries a separate numeric id per document type.
- */
-export interface IxSequenceRow {
-  id: number;
-  serie: string;
-  current_invoice_sequence_id?: number;
-  current_invoice_receipt_sequence_id?: number;
-  current_simplified_invoice_sequence_id?: number;
-  current_credit_note_sequence_id?: number;
-  current_debit_note_sequence_id?: number;
-  current_receipt_sequence_id?: number;
-}
+// The sequences lookup moved to ../../ix/sequences so the legacy Shopify→IX
+// handlers can resolve a series too — they route on tags exactly like this
+// pipeline does, and duplicating the family-per-doctype rule is how the two
+// halves drift apart. Re-exported here because that is where callers (and the
+// per-doctype test) have always imported it from.
+export { pickSequenceId, type IxSequenceRow } from "../../ix/sequences";
 
-// Sequences cache: accountName → rows. Survives within a Worker isolate,
-// flushed on cold start. The sequences list changes rarely so this is safe.
-const sequencesCache = new Map<string, IxSequenceRow[]>();
-
-/**
- * The id to send for THIS document type.
- *
- * Measured against the IX sandbox on 2026-09-04. A series named
- * INVOICEXPRESSDEMO answers with `id: 47734` and, inside it,
- * `current_invoice_sequence_id: 47734`, `current_invoice_receipt_sequence_id:
- * 47736`, `current_credit_note_sequence_id: 47739`. The top-level `id` is the
- * INVOICE id — so sending it on an invoice-receipt is rejected outright:
- *
- *   POST /v2/documents type=invoice_receipt sequence_id=47734
- *     → HTTP 400 "A série não corresponde ao tipo de documento"
- *   POST /v2/documents type=invoice_receipt sequence_id=47736
- *     → HTTP 200
- *
- * Which means any connection issuing invoice-receipts into a named series has
- * been failing the create entirely, leaving the sale unbilled — and a merchant
- * filing one series per destination country would have hit it on every sale.
- * Falls back to the top-level id when a type-specific one is absent, which is
- * the previous behaviour and correct for plain invoices.
- */
-export function pickSequenceId(row: IxSequenceRow, docType: string): number | null {
-  const byType: Record<string, number | undefined> = {
-    invoice: row.current_invoice_sequence_id,
-    invoice_receipt: row.current_invoice_receipt_sequence_id,
-    simplified_invoice: row.current_simplified_invoice_sequence_id,
-    credit_note: row.current_credit_note_sequence_id,
-    debit_note: row.current_debit_note_sequence_id,
-    receipt: row.current_receipt_sequence_id,
-  };
-  const specific = byType[docType];
-  if (typeof specific === "number" && specific > 0) return specific;
-  return typeof row.id === "number" && row.id > 0 ? row.id : null;
-}
-
-// Resolve the IX numeric sequence_id for a named series (e.g. "RVFR"), for the
-// document type being issued. Falls back to null (IX uses its default series)
-// if the name isn't found or the sequences API call fails.
-async function resolveSequenceId(
+/** `resolveIxSequenceId` bound to an adapter context. */
+function resolveSequenceId(
   ctx: AdapterCtx,
   seriesName: string,
   docType: string = "invoice",
 ): Promise<number | null> {
-  const account = ctx.config.ix_account_name;
-  const apiKey = ctx.config.ix_api_key;
-  if (!account || !apiKey) return null;
-
-  const cacheKey = `${account}:${ctx.config.ix_environment ?? "production"}`;
-  let sequences = sequencesCache.get(cacheKey);
-
-  if (!sequences) {
-    try {
-      const isTest = ctx.config.ix_environment !== "production";
-      const suffix = isTest ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-      const res = await fetch(`https://${account}${suffix}/sequences.json?api_key=${encodeURIComponent(apiKey)}`);
-      if (!res.ok) return null;
-      const data = await res.json() as { sequences?: IxSequenceRow[] };
-      sequences = data.sequences ?? [];
-      // Only cache a non-empty result. An empty list on first fetch (transient
-      // network hiccup) must not freeze future lookups for the isolate lifetime.
-      if (sequences.length > 0) sequencesCache.set(cacheKey, sequences);
-    } catch {
-      return null;
-    }
-  }
-
-  const target = seriesName.trim().toUpperCase();
-  const match = sequences.find(s => String(s.serie ?? "").trim().toUpperCase() === target);
-  return match ? pickSequenceId(match, docType) : null;
+  return resolveIxSequenceId(ctx.config, seriesName, docType);
 }
 
 /**

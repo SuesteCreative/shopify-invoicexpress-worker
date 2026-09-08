@@ -37,6 +37,7 @@ import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, delet
 import { checkSubscriptionGate } from "./services/subscription-gate";
 import type { IRequestConfig } from "./storage";
 import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
+import { runSubscriptionPausedNotices } from "./services/subscription-paused-notice";
 import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts, externalIdFromEvent } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
 import { sendEmail as sendEmailDirect } from "./services/email";
@@ -2024,6 +2025,29 @@ app.post("/admin/billing/early-bird-reminders", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to run early-bird reminders");
+  }
+})
+
+// Admin: the "invoicing is paused, N invoices waiting" campaign. Emails every
+// merchant the gate is currently blocking that has verified pending orders,
+// with a button to the billing page where the plan cards are.
+//   { dry_run?: boolean (default TRUE), user_id?, min_pending?, resend_after_days?, lookback_days? }
+// dry_run lists who would be mailed, with each merchant's verified count.
+app.post("/admin/billing/paused-notices", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ dry_run?: boolean; user_id?: string; min_pending?: number; resend_after_days?: number; lookback_days?: number }>().catch(() => ({} as any));
+  try {
+    const result = await runSubscriptionPausedNotices(c.env, {
+      dryRun: body.dry_run !== false,
+      userId: body.user_id,
+      minPending: typeof body.min_pending === "number" ? body.min_pending : undefined,
+      resendAfterDays: typeof body.resend_after_days === "number" ? body.resend_after_days : undefined,
+      lookbackDays: typeof body.lookback_days === "number" ? body.lookback_days : undefined,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to run paused-subscription notices");
   }
 })
 

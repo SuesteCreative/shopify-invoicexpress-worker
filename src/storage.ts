@@ -595,7 +595,7 @@ export class AppStorage {
     limit = 500,
     order: "asc" | "desc" = "desc",
     afterRowid?: number | null,
-  ): Promise<Array<{ rowid: number; id: string; invoice_id: string; created_at: string | null; source_kind: string | null }>> {
+  ): Promise<Array<{ rowid: number; id: string; invoice_id: string; created_at: string | null; source_kind: string | null; hold_reason: string | null }>> {
     try {
       const asc = order === "asc";
       const orderClause = asc ? "ASC" : "DESC";
@@ -609,9 +609,9 @@ export class AppStorage {
         binds.push(afterRowid);
       }
       binds.push(limit);
-      const sql = `SELECT rowid AS rowid, id, invoice_id, created_at, source_kind FROM processed_orders WHERE ${where} ORDER BY rowid ${orderClause} LIMIT ?`;
+      const sql = `SELECT rowid AS rowid, id, invoice_id, created_at, source_kind, hold_reason FROM processed_orders WHERE ${where} ORDER BY rowid ${orderClause} LIMIT ?`;
       const result = await this.db.prepare(sql).bind(...binds).all();
-      return (result.results as any[]).map(r => ({ rowid: Number(r.rowid), id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null, source_kind: r.source_kind ?? null }));
+      return (result.results as any[]).map(r => ({ rowid: Number(r.rowid), id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null, source_kind: r.source_kind ?? null, hold_reason: r.hold_reason ?? null }));
     } catch (e) {
       console.error("[Rioko] Failed to list processed invoices by user:", e);
       return [];

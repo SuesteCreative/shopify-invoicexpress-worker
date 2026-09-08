@@ -603,6 +603,12 @@ export async function finalizeStripeDrafts(
 
   for (const row of processed) {
     try {
+      // See the connection route: a held draft is waiting on a human, and
+      // certifying it is irreversible.
+      if (row.hold_reason) {
+        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Em rascunho por decisão: ${row.hold_reason}` });
+        continue;
+      }
       const outcome = await dest.adapter.finalizeWithDate(row.invoice_id, dest.ctx, {
         strategy,
         batch,

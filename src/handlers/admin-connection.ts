@@ -504,12 +504,27 @@ export async function creditConnectionDocument(env: Env, conn: ConnectionContext
     return fail(String(e?.message ?? e));
   }
 
+  // A credited sale is an UNBILLED sale again: the invoice that documented it has
+  // been undone. While the row survives, `isInvoiceAlreadyProcessed` answers yes
+  // and every later backfill or re-emit skips the payment — so a credit-then-
+  // reissue run credited everything and issued nothing, reporting success twice.
+  //
+  // Only on a real, confirmed credit note: a dry run wrote nothing, and an
+  // `alreadyExisted` hit means the document was credited before, which says
+  // nothing about whether the row still describes it.
+  let unlinked = false;
+  if (!options.dry_run && !result.alreadyExisted && result.creditId) {
+    await storage.deleteProcessedInvoice(lookup.externalId, conn.source);
+    unlinked = true;
+  }
+
   const summary = {
     external_id: lookup.externalId,
     invoice_id: lookup.invoiceId,
     credit_note_id: result.creditId,
     destination: conn.destination,
     dry_run: !!options.dry_run,
+    unlinked,
     ...(result.alreadyExisted ? { message: "Nota de crédito já existia, nada emitido" } : {}),
     ...(result.preview ? { preview: result.preview } : {}),
   };
@@ -731,6 +746,14 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
 
   for (const row of processed) {
     try {
+      // A draft parked for a human is exactly the draft a bulk finalize must not
+      // touch: the hold exists to stop it being certified before someone looks.
+      // The legacy /admin/finalize-drafts has refused these since it was written;
+      // this route never read the column, so it certified them.
+      if (row.hold_reason) {
+        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Em rascunho por decisão: ${row.hold_reason}` });
+        continue;
+      }
       const outcome = await dest.finalizeWithDate(row.invoice_id, ctx, {
         strategy,
         batch,

@@ -1349,3 +1349,93 @@ export function renderAccountInviteEmail(input: AccountInviteInput): RenderedTem
     }),
   };
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subscription payment failed — the client-facing dunning email.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface PaymentFailedInput {
+  /** Human name of the account whose subscription failed to charge. */
+  accountLabel: string;
+  /** Where the card is replaced. A Stripe portal `payment_method_update` flow
+   *  link when we could mint one, otherwise the hosted invoice page. */
+  updateUrl: string;
+  /** Stripe's hosted invoice page. Shown as a secondary link when it is not
+   *  already the CTA, so the invoice can be paid on the spot with a new card. */
+  invoiceUrl?: string;
+  /** Amount due, already formatted for a human ("7,50 €"). */
+  amountLabel?: string;
+  /** Date of Stripe's next automatic retry, "DD/MM/YYYY". */
+  nextAttemptLabel?: string;
+  /** True when Stripe has no retry left: the next stop is suspension. */
+  finalAttempt?: boolean;
+  dashboardUrl?: string;
+  helpUrl?: string;
+}
+
+/** "The subscription charge did not go through" — same brand shell, no incident
+ *  meta row. The subscription is still active when this goes out: the email
+ *  exists so it stays that way. */
+export function renderPaymentFailedEmail(input: PaymentFailedInput): RenderedTemplate {
+  const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
+  const account = escapeHtml(input.accountLabel);
+  const amount = input.amountLabel ? `<strong>${escapeHtml(input.amountLabel)}</strong>` : "o valor da subscrição";
+
+  // What happens next is the whole point of the email, and it differs: Stripe
+  // either retries on a known date, or has stopped retrying and the access is
+  // about to go with it. Never promise a retry that is not coming.
+  const consequence = input.finalAttempt
+    ? calloutBox(
+        "Sem novas tentativas automáticas",
+        "Esta foi a última tentativa de cobrança. Sem um método de pagamento válido, a subscrição é suspensa e a emissão automática de documentos para.",
+        BRAND.error,
+      )
+    : calloutBox(
+        "O que acontece a seguir",
+        input.nextAttemptLabel
+          ? `Voltamos a tentar cobrar a <strong>${escapeHtml(input.nextAttemptLabel)}</strong>. Se o método de pagamento for atualizado antes disso, a cobrança passa e não há qualquer interrupção.`
+          : "Vamos voltar a tentar cobrar nos próximos dias. Se o método de pagamento for atualizado antes disso, a cobrança passa e não há qualquer interrupção.",
+        BRAND.warning,
+      );
+
+  const secondary = input.invoiceUrl && input.invoiceUrl !== input.updateUrl
+    ? paragraph(
+        `<span style="font-size:13px;color:${BRAND.muted}">Prefere liquidar já esta fatura? ` +
+        `<a href="${escapeHtml(input.invoiceUrl)}" style="color:${BRAND.blue};text-decoration:none">Pagar a fatura em aberto</a>.</span>`,
+      )
+    : "";
+
+  const bodyHtml = [
+    paragraph(`A cobrança de ${amount} da subscrição Rioko de <strong>${account}</strong> não foi autorizada pelo cartão registado.`),
+    paragraph("A subscrição continua ativa e a faturação automática mantém-se a funcionar. Só falta atualizar o método de pagamento, o que demora menos de um minuto:"),
+    ctaButton("Atualizar método de pagamento", input.updateUrl),
+    paragraph(
+      `<span style="font-size:12px;color:${BRAND.muted}">O link abre uma página segura da Stripe e não pede palavra-passe. ` +
+      `Se já tiver expirado, pode fazer o mesmo no painel, em Faturação.</span>`,
+    ),
+    consequence,
+    calloutBox(
+      "Motivos mais comuns",
+      "Cartão expirado ou substituído pelo banco; plafond insuficiente no momento da cobrança; autenticação do banco (3-D Secure) não confirmada.",
+    ),
+    secondary,
+    paragraph(`<span style="font-size:13px;color:${BRAND.muted}">Se já resolveu entretanto, ignore este email.</span>`),
+  ].join("");
+
+  return {
+    subject: input.finalAttempt
+      ? `Última tentativa falhada — atualize o pagamento da subscrição Rioko`
+      : `O pagamento da subscrição Rioko não foi concluído`,
+    html: shell({
+      title: "O pagamento da subscrição não foi concluído",
+      severity: input.finalAttempt ? "error" : "warning",
+      preheader: `Atualize o método de pagamento${input.amountLabel ? ` (${input.amountLabel})` : ""} para manter a subscrição ativa.`,
+      bodyHtml,
+      merchantName: input.accountLabel,
+      connectionLabel: "Subscrição Rioko",
+      helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
+      dashboardUrl,
+      footerNote: "Faturação da subscrição",
+    }),
+  };
+}

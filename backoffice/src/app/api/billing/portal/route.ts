@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
         const db = getDB();
         const sub: any = await db.prepare(
-            "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ?"
+            "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ? AND stripe_customer_id IS NOT NULL ORDER BY created_at ASC LIMIT 1"
         ).bind(targetUserId).first();
 
         const customerId = sub?.stripe_customer_id;

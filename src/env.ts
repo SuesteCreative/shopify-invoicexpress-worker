@@ -40,6 +40,9 @@ export interface Env {
   // paid Shopify order missing its InvoiceXpress invoice, via the double-guarded
   // reemit path (no duplicates, drift-guarded). Ships DARK.
   RECON_SWEEP_ENABLED?: string;           // "1" enables the 04:00 cron; default off
+  // "1" makes a connection pay for itself (migration 0044). Off, any live
+  // subscription on the account lets every connection through, as before.
+  SUBSCRIPTION_PER_CONNECTION?: string;
   RECON_SWEEP_DAYS?: string;              // legacy short window (days); fallback only
   RECON_SWEEP_DRAIN_DAYS?: string;        // effective lookback (days); default "90" — must match the
                                           // weekly-digest horizon so reported drops actually get healed

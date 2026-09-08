@@ -171,6 +171,12 @@ export async function runSubscriptionPausedNotices(
 
   // Blocked exactly as checkSubscriptionGate decides it: no subscription row,
   // a dead status, or a trial with no Stripe sub and no live early-bird window.
+  //
+  // Since 0044 an account can hold one row per connection, so "blocked" is
+  // "nothing on this account is live" — NOT EXISTS over the rows rather than a
+  // condition on one of them. Joining the rows directly would have reported an
+  // account as suspended because ONE of its two subscriptions had lapsed, and
+  // emailed it once per row.
   const rows = await env.DB.prepare(
     `SELECT u.id                                                                      AS user_id,
             COALESCE(NULLIF(TRIM(s.email), ''), u.email)                              AS email,
@@ -181,14 +187,17 @@ export async function runSubscriptionPausedNotices(
             (SELECT COUNT(*) FROM integrations i WHERE i.user_id = u.id)                                AS int_total,
             (SELECT COUNT(*) FROM integrations i WHERE i.user_id = u.id AND COALESCE(i.is_paused,0) = 0) AS int_active
        FROM users u
-       LEFT JOIN subscriptions s ON s.user_id = u.id
+       LEFT JOIN subscriptions s
+              ON s.user_id = u.id
+             AND s.connection_key = (SELECT MIN(x.connection_key) FROM subscriptions x WHERE x.user_id = u.id)
       WHERE COALESCE(u.role, 'user') NOT IN ('superadmin', 'hiperadmin')
-        AND (
-              s.user_id IS NULL
-           OR s.status IN ('canceled','unpaid','incomplete_expired','incomplete','past_due')
-           OR (s.status = 'trialing'
-               AND s.stripe_subscription_id IS NULL
-               AND NOT (COALESCE(s.early_bird,0) = 1 AND s.trial_end IS NOT NULL AND datetime(s.trial_end) > datetime(?)))
+        AND NOT EXISTS (
+              SELECT 1 FROM subscriptions v
+               WHERE v.user_id = u.id
+                 AND v.status NOT IN ('canceled','unpaid','incomplete_expired','incomplete','past_due')
+                 AND NOT (v.status = 'trialing'
+                          AND v.stripe_subscription_id IS NULL
+                          AND NOT (COALESCE(v.early_bird,0) = 1 AND v.trial_end IS NOT NULL AND datetime(v.trial_end) > datetime(?)))
         )`
   ).bind(nowIso).all();
 

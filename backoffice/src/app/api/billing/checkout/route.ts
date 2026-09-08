@@ -2,6 +2,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getStripeEnvOptional, getDB } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
+import { CONNECTION_KEY_TO_SOURCE, keyFromRequest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -27,7 +28,9 @@ export async function POST(req: NextRequest) {
         if (!targetEmail) return NextResponse.json({ error: "No email for target user" }, { status: 400 });
         const email = targetEmail;
 
-        const body = (await req.json().catch(() => ({}))) as { plan?: "monthly" | "annual"; source?: string };
+        const body = (await req.json().catch(() => ({}))) as {
+            plan?: "monthly" | "annual"; source?: string; connection_key?: string;
+        };
         const plan = body.plan === "annual" ? "annual" : "monthly";
         const rawSource = body.source ?? "";
 
@@ -38,19 +41,19 @@ export async function POST(req: NextRequest) {
         // which price to bill. Resolve it from the merchant's own set-up connection
         // (oldest wins when there is more than one); with nothing set up yet, the
         // default Shopify→IX price applies.
-        const CONNECTION_SOURCES: Record<string, string> = {
-            "shopify:invoicexpress": "faturacao",
-            "lodgify:moloni": "lodgify-moloni",
-            "stripe:moloni": "stripe-moloni",
-            "stripe:invoicexpress": "stripe-ix",
-        };
         let source = rawSource;
         if (rawSource === "dashboard") {
             const conn: any = await db.prepare(
                 "SELECT source_kind, destination_kind FROM connections WHERE user_id = ? AND status IN ('active','paused') ORDER BY created_at ASC LIMIT 1"
             ).bind(targetUserId).first();
-            source = (conn && CONNECTION_SOURCES[`${conn.source_kind}:${conn.destination_kind}`]) || "faturacao";
+            source = (conn && CONNECTION_KEY_TO_SOURCE[`${conn.source_kind}:${conn.destination_kind}`]) || "faturacao";
         }
+
+        // Which connection this subscription pays for (0044). Carried in the
+        // subscription's own metadata so the webhook can file the row against
+        // the right one — a customer can now hold several, and the events for
+        // them are indistinguishable otherwise.
+        const connectionKey = keyFromRequest(body.connection_key, source);
 
         // Each integration bills its OWN price. Explicit source → lookup mapping;
         // an unknown source is rejected (400) rather than silently defaulting to the
@@ -92,8 +95,13 @@ export async function POST(req: NextRequest) {
         if (price.currency !== "eur") return NextResponse.json({ error: `Price ${price.id} currency must be EUR (got ${price.currency})` }, { status: 500 });
         const priceId = price.id;
 
+        // The customer id is the account's (one Stripe customer, several
+        // subscriptions); early_bird belongs to the row of THIS connection.
         const sub: any = await db.prepare(
-            "SELECT stripe_customer_id, stripe_subscription_id, status, early_bird, trial_end FROM subscriptions WHERE user_id = ?"
+            "SELECT stripe_customer_id, stripe_subscription_id, status, early_bird, trial_end FROM subscriptions WHERE user_id = ? AND connection_key = ?"
+        ).bind(targetUserId, connectionKey).first();
+        const anySub: any = sub ?? await db.prepare(
+            "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ? AND stripe_customer_id IS NOT NULL ORDER BY created_at ASC LIMIT 1"
         ).bind(targetUserId).first();
 
         // No Stripe trials — every subscription is charged immediately. The
@@ -122,8 +130,8 @@ export async function POST(req: NextRequest) {
                 quantity: 1,
                 ...(taxRateId ? { tax_rates: [taxRateId] } : {}),
             }],
-            customer: sub?.stripe_customer_id || undefined,
-            customer_email: sub?.stripe_customer_id ? undefined : email,
+            customer: anySub?.stripe_customer_id || undefined,
+            customer_email: anySub?.stripe_customer_id ? undefined : email,
             client_reference_id: targetUserId,
             // Force fixed 23% PT VAT (Stripe Tax automatic would vary by location).
             // With static tax_rate we disable tax_id_collection — collecting EU VAT IDs would mislead B2B
@@ -146,6 +154,7 @@ export async function POST(req: NextRequest) {
                     user_id: targetUserId,
                     early_bird: earlyBirdMeta,
                     plan,
+                    connection_key: connectionKey,
                 },
             },
             payment_method_collection: "always",
@@ -154,6 +163,7 @@ export async function POST(req: NextRequest) {
                 user_id: targetUserId,
                 plan,
                 early_bird: earlyBirdMeta,
+                connection_key: connectionKey,
             },
             success_url: successUrl,
             cancel_url: cancelUrl,

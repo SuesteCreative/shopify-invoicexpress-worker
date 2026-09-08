@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB, isSubscriptionBlocked, SubscriptionRow } from "@/lib/stripe";
 import { getRole } from "@/lib/admin";
+import { listSubscriptions, pickSubscription, subscriptionPerConnectionEnforced } from "@/lib/stripe";
+import { DEFAULT_CONNECTION_KEY } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -34,9 +36,13 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ blocked: false, reason: null, status: "exempt", user_id: integration.user_id });
         }
 
-        const sub: SubscriptionRow | null = await db.prepare(
-            "SELECT * FROM subscriptions WHERE user_id = ?"
-        ).bind(integration.user_id).first();
+        // This endpoint answers for a SHOPIFY shop, so with per-connection
+        // billing on it asks about that connection specifically. Off, any live
+        // subscription on the account answers for it, as before.
+        const rows = await listSubscriptions(db, integration.user_id);
+        const sub: SubscriptionRow | null = subscriptionPerConnectionEnforced()
+            ? pickSubscription(rows, DEFAULT_CONNECTION_KEY)
+            : (rows.find((r) => !isSubscriptionBlocked(r)) ?? rows[0] ?? null);
 
         const blocked = isSubscriptionBlocked(sub);
         return NextResponse.json({

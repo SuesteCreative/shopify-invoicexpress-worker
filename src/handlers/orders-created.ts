@@ -99,7 +99,7 @@ export async function handleOrderCreated(env: Env, config: IRequestConfig, webho
   // order is picked up in full by the reconciliation sweep once the subscription
   // is sorted out. The incident (mirroring generic-pipeline) is what turns this
   // from a silent stop into something we and the merchant can see.
-  const gate = await checkSubscriptionGate(env, config);
+  const gate = await checkSubscriptionGate(env, config, { source: "shopify", destination: "invoicexpress" });
   if (!gate.allowed) {
     console.log(`[Rioko] Subscription gate blocked order ${orderId}: ${gate.reason}`);
     if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");

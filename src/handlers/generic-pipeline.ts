@@ -176,7 +176,7 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   if (await isIntegrationPaused(env, config, logTopic, externalId)) return;
 
   // 1. Subscription gate (applies to every destination/source)
-  const gate = await checkSubscriptionGate(env, config);
+  const gate = await checkSubscriptionGate(env, config, { source, destination });
   if (!gate.allowed) {
     console.log(`[Pipeline] Subscription gate blocked ${logTopic} ${externalId}: ${gate.reason}`);
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: String(externalId), response: `Blocked: ${gate.reason}`, status: 402 });

@@ -19,6 +19,9 @@ interface SubData {
     ui_state: UIState;
     blocked: boolean;
     role?: string;
+    connection_key?: string;
+    enforced?: boolean;
+    connections?: { key: string; source: string | null; ui_state: UIState; blocked: boolean }[];
 }
 
 function daysUntil(iso?: string | null): number | null {
@@ -27,7 +30,15 @@ function daysUntil(iso?: string | null): number | null {
     return Math.max(0, Math.ceil(diff / 86400000));
 }
 
-export default function SubscriptionCard({ onSuccess, source }: { onSuccess?: boolean; source?: string }) {
+/**
+ * `connectionKey` names which connection this card is about — an account can
+ * hold a subscription per connection since migration 0044, and a card on the
+ * Stripe page must not report the Shopify shop's. Omitted (the dashboard), the
+ * API answers for the account's oldest connection.
+ */
+export default function SubscriptionCard(
+    { onSuccess, source, connectionKey }: { onSuccess?: boolean; source?: string; connectionKey?: string },
+) {
     const t = useTranslations("subscriptionCard");
     const dateLocale = t("dateLocale");
     const formatDate = (iso?: string | null): string => {
@@ -44,7 +55,11 @@ export default function SubscriptionCard({ onSuccess, source }: { onSuccess?: bo
 
     const refresh = async () => {
         try {
-            const res = await fetch("/api/billing/subscription");
+            const res = await fetch(
+                connectionKey
+                    ? `/api/billing/subscription?connection_key=${encodeURIComponent(connectionKey)}`
+                    : "/api/billing/subscription",
+            );
             const d = await res.json() as SubData;
             setData(d);
         } catch (e) {
@@ -54,7 +69,7 @@ export default function SubscriptionCard({ onSuccess, source }: { onSuccess?: bo
         }
     };
 
-    useEffect(() => { refresh(); }, []);
+    useEffect(() => { refresh(); }, [connectionKey]);
 
     const startCheckout = async () => {
         setActing(true);
@@ -65,7 +80,11 @@ export default function SubscriptionCard({ onSuccess, source }: { onSuccess?: bo
             const res = await fetch("/api/billing/checkout", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ plan: selectedPlan, source: source ?? "faturacao" }),
+                body: JSON.stringify({
+                    plan: selectedPlan,
+                    source: source ?? "faturacao",
+                    ...(connectionKey ? { connection_key: connectionKey } : {}),
+                }),
             });
             const d = (await res.json()) as { url?: string; error?: string };
             if (d.url) {

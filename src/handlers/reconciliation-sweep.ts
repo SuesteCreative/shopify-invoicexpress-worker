@@ -172,7 +172,7 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     //
     // Same function as the live path on purpose: two answers to "may we invoice
     // this shop?" is how they drift apart.
-    const gate = await checkSubscriptionGate(env, config);
+    const gate = await checkSubscriptionGate(env, config, { source: "shopify", destination: "invoicexpress" });
     if (!gate.allowed) {
       row.skippedNoSubscription = 1;
       result.totals.skippedNoSubscription++;
@@ -471,7 +471,7 @@ export async function runIncidentDrivenHeal(env: Env, options: { dryRun?: boolea
 
     // Same paywall as the live path and the sweep. Healing a shop the gate is
     // refusing would re-invoice exactly what the gate declined, one night later.
-    const healGate = await checkSubscriptionGate(env, config);
+    const healGate = await checkSubscriptionGate(env, config, { source: "shopify", destination: "invoicexpress" });
     if (!healGate.allowed) { result.totals.skippedNoSubscription++; continue; }
 
     // Open invoice-failure incidents for this merchant, within the reporting horizon.

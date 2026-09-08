@@ -2,6 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getDB } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
+import { primaryConnectionKey } from "@/lib/stripe";
+import { keyFromRequest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -14,9 +16,16 @@ export async function POST(req: NextRequest) {
         let targetUserId = await resolveAccountUser(req, userId);
 
         const db = getDB();
+        // Which one. An account can hold a subscription per connection (0044),
+        // and cancelling "the" subscription of an account that has two would
+        // otherwise stop whichever the database happened to return first.
+        const body = (await req.json().catch(() => ({}))) as { connection_key?: string };
+        const connectionKey = body.connection_key
+            ? keyFromRequest(body.connection_key, null)
+            : await primaryConnectionKey(db, targetUserId);
         const sub: any = await db.prepare(
-            "SELECT stripe_subscription_id FROM subscriptions WHERE user_id = ?"
-        ).bind(targetUserId).first();
+            "SELECT stripe_subscription_id FROM subscriptions WHERE user_id = ? AND connection_key = ?"
+        ).bind(targetUserId, connectionKey).first();
 
         if (!sub?.stripe_subscription_id) {
             return NextResponse.json({ error: "No active subscription" }, { status: 400 });
@@ -28,8 +37,8 @@ export async function POST(req: NextRequest) {
         });
 
         await db.prepare(
-            "UPDATE subscriptions SET cancel_at_period_end = 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
-        ).bind(targetUserId).run();
+            "UPDATE subscriptions SET cancel_at_period_end = 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND connection_key = ?"
+        ).bind(targetUserId, connectionKey).run();
 
         return NextResponse.json({ success: true, cancel_at: updated.cancel_at });
     } catch (e: any) {

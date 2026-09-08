@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getDB } from "@/lib/stripe";
 import { isAdmin } from "@/lib/admin";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
+import { primaryConnectionKey } from "@/lib/stripe";
+import { keyFromRequest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -25,7 +27,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         }
 
-        const body = (await req.json().catch(() => ({}))) as { user_id?: string; subscription_id?: string };
+        const body = (await req.json().catch(() => ({}))) as { user_id?: string; subscription_id?: string; connection_key?: string };
         const targetUserId = body.user_id?.trim();
         const subscriptionId = body.subscription_id?.trim();
         if (!targetUserId || !subscriptionId) {
@@ -60,12 +62,20 @@ export async function POST(req: NextRequest) {
         }
 
         // Upsert the Rioko subscription row. early_bird is preserved (DB owns it).
+        // Which connection this Stripe subscription pays for (0044). The
+        // subscription's own metadata wins; an admin linking by hand can name it;
+        // otherwise it lands on the account's oldest connection.
+        const named = (sub.metadata?.connection_key as string) ?? body.connection_key;
+        const connectionKey = named
+            ? keyFromRequest(named, null)
+            : await primaryConnectionKey(db, targetUserId);
+
         await db.prepare(`
-            INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, status,
+            INSERT INTO subscriptions (user_id, connection_key, stripe_customer_id, stripe_subscription_id, status,
                                        plan, price_id, current_period_end, trial_end,
                                        cancel_at_period_end, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(user_id) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, connection_key) DO UPDATE SET
                 stripe_customer_id = excluded.stripe_customer_id,
                 stripe_subscription_id = excluded.stripe_subscription_id,
                 status = excluded.status,
@@ -80,6 +90,7 @@ export async function POST(req: NextRequest) {
                 updated_at = CURRENT_TIMESTAMP
         `).bind(
             targetUserId,
+            connectionKey,
             customerId || null,
             sub.id,
             sub.status,

@@ -33,7 +33,7 @@ export async function handleOrderPaid(env: Env, config: IRequestConfig, webhookI
   // this webhook also self-heals missing invoices, which is creation by another
   // name. The incident is not optional. Until 2026-08-07 this returned silently,
   // and a gate that fired on the whole fleet went unnoticed for three days.
-  const gate = await checkSubscriptionGate(env, config);
+  const gate = await checkSubscriptionGate(env, config, { source: "shopify", destination: "invoicexpress" });
   if (!gate.allowed) {
     console.log(`[Rioko] Subscription gate blocked order ${orderId}: ${gate.reason}`);
     await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: String(orderId), response: `Blocked: ${gate.reason}`, status: 402 });

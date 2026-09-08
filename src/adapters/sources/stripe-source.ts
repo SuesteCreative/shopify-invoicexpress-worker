@@ -717,16 +717,22 @@ export function stripeToNormalized(event: any): Normalized | null {
     },
     refunds: [],
     exchanges: [],
-    credits: ch.refunded ? [{
-      refund_id: ch.refunds?.data?.[0]?.id ?? ch.id,
-      amount: (ch.amount_refunded ?? 0) / 100,
-      // No per-line breakdown for a Stripe refund — leave line_items empty so the
-      // pipeline sets amountToRefund = amount_refunded (partial OR full) and the
-      // Moloni cash-delta path credits exactly that amount. A synthetic line here
-      // would collide (id:1) with the full-value order item and make the credit
-      // note cover the WHOLE invoice instead of the partial refund.
-      line_items: [],
-    }] : [],
+    // `ch.refunded` is Stripe's FULLY-refunded flag: a charge refunded in part
+    // carries `refunded: false` with a non-zero `amount_refunded`. Gating on the
+    // boolean meant a partial refund produced no credit note at all — and the
+    // run reported success, because nothing had failed. Gate on the money.
+    //
+    // One credit per refund, not one per charge: several partial refunds on the
+    // same charge used to collapse onto `refunds.data[0]`, so the second one was
+    // issued under the first one's reference and the pipeline's per-refund dedup
+    // then skipped it as already credited. The pipeline loops `credits` and keys
+    // dedup on `refund_id`, so a list is what it wants.
+    //
+    // No per-line breakdown for a Stripe refund — leave line_items empty so the
+    // pipeline sets amountToRefund = the refunded amount and the Moloni cash-delta
+    // path credits exactly that. A synthetic line here would collide (id:1) with
+    // the full-value order item and make the credit note cover the WHOLE invoice.
+    credits: stripeRefundCredits(ch),
     debits: [],
   };
 }
@@ -973,6 +979,29 @@ function mergeNoteAttributes(base: any, extra: any): any[] {
     out.push(attr);
   }
   return out;
+}
+
+/**
+ * The refunds on a charge, one credit each.
+ *
+ * Prefers `refunds.data[]` because each entry carries its own id and amount, so
+ * two partial refunds on one charge stay two credit notes. Falls back to the
+ * charge's `amount_refunded` when the list is not expanded — a charge fetched
+ * without `expand[]=refunds` reports the total and nothing else, and crediting
+ * that total under the charge's id is better than crediting nothing.
+ */
+function stripeRefundCredits(ch: any): Array<{ refund_id: any; amount: number; line_items: [] }> {
+  const refunded = Number(ch?.amount_refunded ?? 0);
+  if (!(refunded > 0)) return [];
+
+  const list = Array.isArray(ch?.refunds?.data) ? ch.refunds.data : [];
+  const credits = list
+    .filter((r: any) => Number(r?.amount) > 0 && String(r?.status ?? "succeeded") !== "failed"
+      && String(r?.status ?? "succeeded") !== "canceled")
+    .map((r: any) => ({ refund_id: r.id, amount: Number(r.amount) / 100, line_items: [] as [] }));
+
+  if (credits.length > 0) return credits;
+  return [{ refund_id: ch?.refunds?.data?.[0]?.id ?? ch?.id, amount: refunded / 100, line_items: [] }];
 }
 
 function emptyAddress() {

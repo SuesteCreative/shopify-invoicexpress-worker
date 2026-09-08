@@ -532,6 +532,8 @@ export async function finalizeStripeDrafts(
     date_strategy?: FinalizeDateStrategy;
     from_date?: string | null;
     to_date?: string | null;
+    /** Cursor: start after this processed_orders rowid. See the storage method. */
+    after_rowid?: number | null;
   },
 ) {
   const appStorage = new AppStorage(env, config.shopify_domain ?? undefined, config.user_id);
@@ -540,11 +542,12 @@ export async function finalizeStripeDrafts(
   const strategy: FinalizeDateStrategy = options.date_strategy ?? "closest_available";
   const fromDate = options.from_date ?? null;
   const toDate = options.to_date ?? null;
+  const afterRowid = typeof options.after_rowid === "number" ? options.after_rowid : null;
   const jobId = crypto.randomUUID();
   await appStorage.startDevJob({
     id: jobId,
     type: dryRun ? "stripe_finalize_drafts_dry_run" : "stripe_finalize_drafts",
-    params: { limit, dry_run: dryRun, date_strategy: strategy, from_date: fromDate, to_date: toDate },
+    params: { limit, dry_run: dryRun, date_strategy: strategy, from_date: fromDate, to_date: toDate, after_rowid: afterRowid },
     triggered_by: options.triggered_by ?? null,
     reason: options.reason ?? null,
   });
@@ -562,7 +565,13 @@ export async function finalizeStripeDrafts(
     return { job_id: jobId, total: 0, finalized: 0, skipped: 0, errors: 1, would_finalize: 0, dry_run: dryRun, date_strategy: strategy, results: [], error };
   }
 
-  let processed = await appStorage.listProcessedInvoicesByUser(config.user_id, "stripe", limit, "asc");
+  const page = await appStorage.listProcessedInvoicesByUser(config.user_id, "stripe", limit, "asc", afterRowid);
+  // Advance the cursor past everything the QUERY returned, not past what survived
+  // the date filter — otherwise a page whose tail is filtered out is handed back
+  // unchanged on the next call and the run never moves.
+  const nextAfterRowid = page.length > 0 ? page[page.length - 1].rowid : afterRowid;
+  const hasMore = page.length === limit;
+  let processed = page;
   if ((fromDate || toDate) && processed.length > 0) {
     processed = processed.filter(r => {
       const created = r.created_at ?? "";
@@ -594,6 +603,12 @@ export async function finalizeStripeDrafts(
 
   for (const row of processed) {
     try {
+      // See the connection route: a held draft is waiting on a human, and
+      // certifying it is irreversible.
+      if (row.hold_reason) {
+        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Em rascunho por decisão: ${row.hold_reason}` });
+        continue;
+      }
       const outcome = await dest.adapter.finalizeWithDate(row.invoice_id, dest.ctx, {
         strategy,
         batch,
@@ -625,6 +640,9 @@ export async function finalizeStripeDrafts(
     would_finalize: results.filter(r => r.status === "dry_run").length,
     dry_run: dryRun,
     date_strategy: strategy,
+    // Feed these two straight back into the next call to walk the connection.
+    next_after_rowid: nextAfterRowid,
+    has_more: hasMore,
   };
   const status: "success" | "partial" | "error" = summary.errors === 0
     ? "success"

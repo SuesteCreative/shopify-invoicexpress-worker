@@ -1757,6 +1757,9 @@ interface ConnectionRouteBody {
   to_date?: string;
   from_order_number?: number;
   to_order_number?: number;
+  /** finalize-drafts only: resume after this processed_orders rowid. The previous
+   *  response's `next_after_rowid`, so a big connection walks in batches. */
+  after_rowid?: number | null;
 }
 
 /**
@@ -1889,6 +1892,7 @@ app.post("/admin/connection/finalize-drafts", async (c) => {
       date_strategy: body.date_strategy,
       from_date: body.from_date ?? null, to_date: body.to_date ?? null,
       from_order_number: body.from_order_number ?? null, to_order_number: body.to_order_number ?? null,
+      after_rowid: body.after_rowid ?? null,
       reason: body.reason ?? null, triggered_by: body.triggered_by ?? null,
       notify_emails: body.notify_emails,
     }));
@@ -2144,6 +2148,7 @@ app.post("/admin/stripe/finalize-drafts", async (c) => {
     date_strategy?: "today" | "closest_available";
     from_date?: string | null;
     to_date?: string | null;
+    after_rowid?: number | null;
   }>();
   if (!body.user_id) return c.json({ error: "Missing user_id" }, 400);
   const config = await loadConfigForUser(c, body.user_id);
@@ -2158,6 +2163,7 @@ app.post("/admin/stripe/finalize-drafts", async (c) => {
       date_strategy: body.date_strategy,
       from_date: body.from_date,
       to_date: body.to_date,
+      after_rowid: body.after_rowid ?? null,
     });
     return c.json(result);
   } catch (e) {

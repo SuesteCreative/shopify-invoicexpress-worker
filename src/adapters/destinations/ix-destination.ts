@@ -15,7 +15,7 @@ import { parseIxDate } from "../../ix/date";
 import { resolveExemptionCode } from "../../ix/exemption";
 import { resolveIxSequenceId } from "../../ix/sequences";
 import { classifyExemption, type FiscalClassification } from "../../ix/fiscal-classification";
-import { createIxInvoiceWithFallback } from "../../ix/create-invoice";
+import { createIxInvoiceWithFallback, ixExpectedTotals } from "../../ix/create-invoice";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
@@ -226,14 +226,38 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     // is checked against every historical spelling of the cancel reference so a
     // document credited under an older convention is never credited twice.
     const matchRefs = opts.matchReferences ?? [opts.reference];
-    const { data: rel } = await IxApi.v2.documents.byId.related.get({
+    const { data: rel, error: relErr } = await IxApi.v2.documents.byId.related.get({
       headers, path: { id: Number(invoiceId) },
     });
-    const existing = (rel?.data?.documents ?? []).find(
-      (d: any) => d.type === "CreditNote" && matchRefs.includes(d.reference),
-    );
+    // A read we could not make is not "no credit note exists". Swallowing this
+    // turns a flaky proxy into a second credit note on a document that already
+    // has one, and IX will happily issue it.
+    const relProblem = relErr ?? ixEnvelopeError(rel);
+    if (relProblem) {
+      throw new Error(
+        `Não consegui ler os documentos relacionados de ${invoiceId} — não emito nota de crédito às cegas: `
+        + JSON.stringify(relProblem).slice(0, 300),
+      );
+    }
+    const related = (rel?.data?.documents ?? []) as any[];
+    const liveCreditNotes = related.filter((d: any) => {
+      if (String(d?.type ?? "") !== "CreditNote") return false;
+      const s = String(d?.status ?? "").toLowerCase();
+      return s !== "canceled" && s !== "cancelled" && s !== "deleted";
+    });
+    const existing = liveCreditNotes.find((d: any) => matchRefs.includes(d.reference));
     if (existing) {
-      return { creditId: String((existing as any).id), number: (existing as any).sequence_number ?? null, alreadyExisted: true };
+      return { creditId: String(existing.id), number: existing.sequence_number ?? null, alreadyExisted: true };
+    }
+    // A credit note we did NOT write is still a credit note. This account was
+    // regularised by a previous integrator whose references we do not know, and
+    // matching only our own spellings would credit those documents a second
+    // time. Refuse and let a human decide.
+    if (liveCreditNotes.length > 0) {
+      const refs = liveCreditNotes.map((d: any) => d.sequence_number ?? d.id).join(", ");
+      throw new Error(
+        `O documento ${invoiceId} já tem nota de crédito (${refs}) com outra referência — não credito duas vezes`,
+      );
     }
 
     const doc = await this.getDocument(invoiceId, ctx);
@@ -254,7 +278,26 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       tax: it.tax?.id
         ? { id: Number(it.tax.id), name: String(it.tax.name ?? ""), value: Number(it.tax.value ?? 0) }
         : { name: String(it.tax?.name ?? "VAT"), value: Number(it.tax?.value ?? 0) },
+      // The line discount is part of what the line is WORTH. Dropping it credits
+      // the undiscounted price: on a document with a 50% discount the credit note
+      // came out at twice the invoice, and nothing downstream compared the two.
+      ...(typeof it.discount === "number" && it.discount > 0 ? { discount: it.discount } : {}),
     })) : [];
+
+    // A credit note must undo the document exactly. If the payload we rebuilt
+    // from the read-back totals something else, the read-back is not the document
+    // we think it is — the same guard the date PUT has carried since the 0%-VAT
+    // incident, and the same tolerance: IX rounds unit_price to 2dp while adding
+    // up in full precision, so a faithful mirror can land a cent off per line.
+    const rebuilt = ixExpectedTotals(items);
+    const storedTotal = Number(inv.total);
+    const tolerance = 0.02 + 0.01 * items.length;
+    if (Number.isFinite(storedTotal) && Math.abs(rebuilt.gross - storedTotal) > tolerance) {
+      throw new Error(
+        `A nota de crédito daria ${rebuilt.gross.toFixed(2)}€ mas o documento ${invoiceId} tem `
+        + `${storedTotal.toFixed(2)}€ — não credito um valor diferente do que foi facturado`,
+      );
+    }
 
     // IX rejects a 0% line unless a razão de isenção travels with it. Prefer the
     // code the document itself carries over the shop's configured default.
@@ -289,7 +332,12 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     };
 
     if (opts.dryRun) {
-      return { creditId: "", number: null, alreadyExisted: false, preview: creditNote };
+      // The totals go in the preview so a dry run can be checked against the
+      // document without re-deriving them by hand.
+      return {
+        creditId: "", number: null, alreadyExisted: false,
+        preview: { ...creditNote, expected_total: rebuilt.gross, document_total: storedTotal },
+      };
     }
 
     const { data: cnResp, error: cnErr } = await IxApi.v2.creditNotes.post({
@@ -304,10 +352,23 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       ?? (cnResp?.data as any)?.creditNote?.id;
     if (!cnId) throw new Error(`InvoiceXpress credit note create returned no id for document ${invoiceId}`);
 
-    await IxApi.v2.changeState.post({
+    // Same trap as finalize(): the proxy answers some refusals with HTTP 200 and
+    // `success: false`, which the SDK never raises. Unchecked, a credit note IX
+    // declined to certify was reported as issued, and it stays a draft — which no
+    // route can delete, because delete-draft resolves through processed_orders
+    // and a credit note is not registered there.
+    const { data: stateData, error: stateErr, response: stateRes } = await IxApi.v2.changeState.post({
       body: { type: "credit_note", id: Number(cnId), state: "finalized" },
       headers,
     });
+    const stateProblem = stateErr ?? ixEnvelopeError(stateData);
+    if (stateProblem) {
+      throw platformError(
+        `Nota de crédito ${cnId} criada mas o InvoiceXpress recusou certificá-la — ficou em rascunho: `
+        + JSON.stringify(stateProblem).slice(0, 300),
+        stateRes?.status,
+      );
+    }
 
     return { creditId: String(cnId), number: null, alreadyExisted: false };
   }

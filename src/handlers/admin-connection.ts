@@ -504,12 +504,27 @@ export async function creditConnectionDocument(env: Env, conn: ConnectionContext
     return fail(String(e?.message ?? e));
   }
 
+  // A credited sale is an UNBILLED sale again: the invoice that documented it has
+  // been undone. While the row survives, `isInvoiceAlreadyProcessed` answers yes
+  // and every later backfill or re-emit skips the payment — so a credit-then-
+  // reissue run credited everything and issued nothing, reporting success twice.
+  //
+  // Only on a real, confirmed credit note: a dry run wrote nothing, and an
+  // `alreadyExisted` hit means the document was credited before, which says
+  // nothing about whether the row still describes it.
+  let unlinked = false;
+  if (!options.dry_run && !result.alreadyExisted && result.creditId) {
+    await storage.deleteProcessedInvoice(lookup.externalId, conn.source);
+    unlinked = true;
+  }
+
   const summary = {
     external_id: lookup.externalId,
     invoice_id: lookup.invoiceId,
     credit_note_id: result.creditId,
     destination: conn.destination,
     dry_run: !!options.dry_run,
+    unlinked,
     ...(result.alreadyExisted ? { message: "Nota de crédito já existia, nada emitido" } : {}),
     ...(result.preview ? { preview: result.preview } : {}),
   };
@@ -620,6 +635,9 @@ export interface FinalizeDraftsOptions extends RecoveryOptions {
   date_strategy?: FinalizeDateStrategy;
   from_date?: string | null;
   to_date?: string | null;
+  /** Cursor: start after this processed_orders rowid, so a connection larger
+   *  than one request's subrequest budget can be walked in batches. */
+  after_rowid?: number | null;
   from_order_number?: number | null;
   to_order_number?: number | null;
 }
@@ -681,7 +699,14 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
     return { job_id: jobId, ...summarize(results), dry_run: dryRun, date_strategy: strategy, results, error };
   }
 
-  let processed = await storage.listProcessedInvoicesByUser(conn.userId, conn.source, limit, "asc");
+  const afterRowid = typeof options.after_rowid === "number" ? options.after_rowid : null;
+  const page = await storage.listProcessedInvoicesByUser(conn.userId, conn.source, limit, "asc", afterRowid);
+  // Advance past everything the QUERY returned, not past what survived the
+  // filters below: a page whose tail is filtered out would otherwise be handed
+  // back unchanged on the next call and the run would never move.
+  const nextAfterRowid = page.length > 0 ? page[page.length - 1].rowid : afterRowid;
+  const hasMore = page.length === limit;
+  let processed = page;
   if (options.from_date || options.to_date) {
     processed = processed.filter((r) => {
       const created = r.created_at ?? "";
@@ -721,6 +746,14 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
 
   for (const row of processed) {
     try {
+      // A draft parked for a human is exactly the draft a bulk finalize must not
+      // touch: the hold exists to stop it being certified before someone looks.
+      // The legacy /admin/finalize-drafts has refused these since it was written;
+      // this route never read the column, so it certified them.
+      if (row.hold_reason) {
+        results.push({ external_id: row.id, invoice_id: row.invoice_id, status: "skipped", message: `Em rascunho por decisão: ${row.hold_reason}` });
+        continue;
+      }
       const outcome = await dest.finalizeWithDate(row.invoice_id, ctx, {
         strategy,
         batch,
@@ -743,7 +776,11 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
     }
   }
 
-  const summary = { ...summarize(results), dry_run: dryRun, date_strategy: strategy };
+  const summary = {
+    ...summarize(results), dry_run: dryRun, date_strategy: strategy,
+    // Feed these two straight back into the next call to walk the connection.
+    next_after_rowid: nextAfterRowid, has_more: hasMore,
+  };
   await storage.finishDevJob(jobId, jobStatus(summary), summary, results);
   await notify(options,
     `Rioko Dev Mode — finalizar rascunhos ${conn.connectionLabel}${dryRun ? " (dry-run)" : ""}`,

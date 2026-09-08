@@ -21,6 +21,12 @@ export interface Order {
   created_at: string
   note: any
   note_attributes: any[]
+  /**
+   * Shopify's payment terms for this order, when it was sold on credit.
+   * `payment_schedules[0].due_at` is the date the invoice has to be paid by.
+   * Absent on ordinary paid orders.
+   */
+  payment_terms?: any
   metafields: any
   tags: any[]
   meta: Meta

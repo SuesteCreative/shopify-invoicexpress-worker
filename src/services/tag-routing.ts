@@ -131,17 +131,21 @@ export function matchTagRouting(
     }
   }
 
-  // Shopify order tags. The normalize API returns an array, but the raw
-  // Shopify payload is comma-separated — handle both to be safe.
-  if (Array.isArray(order.tags)) {
-    for (const tag of order.tags) {
-      if (tag == null) continue;
-      const s = String(tag).trim();
-      if (s.includes(",")) {
-        for (const t of s.split(",")) addCandidate(t);
-      } else {
-        addCandidate(s);
-      }
+  // Shopify order tags. The normalize API returns an array; the RAW Shopify
+  // payload is one comma-separated string. Both shapes are handled because both
+  // are matched against: the payment gate has to know whether a sale is credit
+  // business BEFORE the order is normalized (see orders-created).
+  const rawTags = (order as any)?.tags;
+  const tagList: unknown[] = Array.isArray(rawTags)
+    ? rawTags
+    : typeof rawTags === "string" ? [rawTags] : [];
+  for (const tag of tagList) {
+    if (tag == null) continue;
+    const s = String(tag).trim();
+    if (s.includes(",")) {
+      for (const t of s.split(",")) addCandidate(t);
+    } else {
+      addCandidate(s);
     }
   }
 

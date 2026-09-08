@@ -102,6 +102,40 @@ export class IxBuilder {
     this.overrides = overrides;
   }
 
+  /**
+   * When the document says it has to be paid.
+   *
+   * The due date used to be the order date, always — which reads as "due
+   * today" and is right for a sale already paid, since the document is issued
+   * against money that has arrived. It is wrong for the one case where the due
+   * date is the whole point: a wholesale order on terms. Shopify carries the
+   * terms the merchant agreed per order (`payment_terms.payment_schedules[]`),
+   * so that is what the invoice says, per order, rather than one fixed number
+   * for the shop.
+   *
+   * `ix_payment_term` is the fallback: a shop-wide default in days, editable in
+   * the backoffice and — until now — read by nothing at all. Zero (the default)
+   * keeps the previous behaviour exactly.
+   */
+  private dueDateFor(order: any): string {
+    const createdAt = order?.created_at;
+
+    const schedules = order?.payment_terms?.payment_schedules;
+    const dueAt = Array.isArray(schedules) ? schedules[0]?.due_at : null;
+    if (dueAt && !Number.isNaN(new Date(dueAt).getTime())) return String(dueAt);
+
+    const days = Number(this.config.ix_payment_term ?? 0);
+    if (Number.isFinite(days) && days > 0) {
+      const base = new Date(createdAt);
+      if (!Number.isNaN(base.getTime())) {
+        base.setUTCDate(base.getUTCDate() + days);
+        return base.toISOString();
+      }
+    }
+
+    return createdAt;
+  }
+
   // Same key shape as MoloniDestination.deriveProductReference so a single
   // overrides table works for both adapters. Shipping iff no SKU and no ids.
   private overrideKeyForLine(li: any): string {
@@ -664,7 +698,7 @@ export class IxBuilder {
       reference: documentReference(normalized.order),
       ...obsCombined ? { observations: obsCombined } : {},
       date: normalized.order.created_at,
-      due_date: normalized.order.created_at,
+      due_date: this.dueDateFor(normalized.order),
       tax_exemption_reason: requestTaxExemptionReason ? rcReason : undefined,
       ...this.config.ix_retention_enabled === 1
         && typeof this.config.ix_retention === "number"
@@ -1181,7 +1215,7 @@ export class IxBuilder {
       reference: documentReference(normalized.order),
       observations,
       date: normalized.order.created_at,
-      due_date: normalized.order.created_at,
+      due_date: this.dueDateFor(normalized.order),
       tax_exemption_reason: reasonCode,
       ...normalized.order?.global_discount
         ? {

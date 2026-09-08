@@ -24,6 +24,7 @@ import {
   type NormalizedRoute,
 } from "../services/tag-routing";
 import { resolveIxSequenceId } from "../ix/sequences";
+import { finalizeIxDocumentById } from "../ix/finalize-document";
 
 /** The half-sentence that says what the merchant has to go and fix. */
 function holdCause(hold: NifHold): string {
@@ -186,6 +187,32 @@ async function createInvoiceForOrder(
   const webhookTopic = "orders/created";
   const orderId = order.id;
 
+  // Tag routing, decided up front — before the payment gate, which needs to
+  // know whether this is credit business.
+  //
+  // Matched against the RAW Shopify order rather than the normalized one: the
+  // gate runs before normalize, and everything a rule matches on (tags, custom
+  // attributes, the buyer's country) is on the raw payload verbatim.
+  const tagRoutingRules = config.user_id
+    ? await loadTagRoutingRules(env, config.user_id, "shopify", "invoicexpress").catch(() => [])
+    : [];
+  const tagMatch = matchTagRouting(order, tagRoutingRules, {
+    byCountry: config.tag_route_by_country === 1,
+  });
+  const route: NormalizedRoute | null = tagMatch ? normalizeRule(tagMatch) : null;
+  if (route) {
+    config = applyRouteToIxConfig(config, route);
+    console.log(`[Rioko] Order ${orderId} matched tag rule "${tagMatch!.tag_name}" → ${JSON.stringify(route)}`);
+  }
+
+  // A sale on credit: unpaid, and routed to a FATURA by one of the merchant's
+  // own rules. The invoice IS what the customer pays against, so waiting for
+  // the payment waits on nothing — see migration 0042. Never for a
+  // fatura-recibo, which asserts the money already came in.
+  const onCredit = config.bill_on_credit === 1
+    && route?.docType === "invoice"
+    && String(order.financial_status) !== "paid";
+
   // Zero-amount short-circuit. For retail these are gift cards and test orders
   // and no document is required. Wholesale is different: a 100%-discounted
   // order is a sample or a warranty replacement, real goods leave the building,
@@ -231,7 +258,7 @@ async function createInvoiceForOrder(
   // invoice is emitted then — and finalized in the same cycle if auto_finalize
   // is on. Orthogonal to auto_finalize: this gates whether an invoice is created
   // at all. POS/ticket-office orders are "paid" at creation, so unaffected.
-  if (config.only_invoice_when_paid === 1 && String(order.financial_status) !== "paid") {
+  if (config.only_invoice_when_paid === 1 && String(order.financial_status) !== "paid" && !onCredit) {
     console.log(`[Rioko] Order ${orderId} held — financial_status=${order.financial_status} (only_invoice_when_paid on)`);
     if (webhookId) {
       await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
@@ -312,28 +339,9 @@ async function createInvoiceForOrder(
 
   console.log(normalizedOrderResponse);
 
-  // Tag routing. A merchant's rule ("orders tagged B2B are FATURAS in series
-  // B2B2026") decides the document type, the series and draft-vs-finalize, and
-  // everything unmatched keeps the connection's own settings.
-  //
-  // This path had none of it: the rules table was read only by the adapter
-  // pipeline, so a Shopify→InvoiceXpress shop could configure routing in the
-  // backoffice, see the rule saved, and get the connection default on every
-  // single sale with nothing to say otherwise. The route is persisted on
-  // processed_orders.routed_json so orders/paid finalizes the same document
-  // type the create chose — see handleOrderPaid.
-  const tagRoutingRules = config.user_id
-    ? await loadTagRoutingRules(env, config.user_id, "shopify", "invoicexpress").catch(() => [])
-    : [];
-  const tagMatch = matchTagRouting(normalizedOrderResponse.normalized.order, tagRoutingRules, {
-    byCountry: config.tag_route_by_country === 1,
-  });
-  const route: NormalizedRoute | null = tagMatch ? normalizeRule(tagMatch) : null;
-  if (route) {
-    config = applyRouteToIxConfig(config, route);
-    console.log(`[Rioko] Order ${orderId} matched tag rule "${tagMatch!.tag_name}" → ${JSON.stringify(route)}`);
-  }
-
+  // The route was decided at the top of this function, before the payment gate.
+  // It is persisted on processed_orders.routed_json below, so orders/paid
+  // finalizes the same document type the create chose — see handleOrderPaid.
   const ixDocumentType = config.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
 
   const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
@@ -486,6 +494,48 @@ async function createInvoiceForOrder(
         summary: `Documento ${invoiceId} ficou retido em rascunho para revisão: ${nifHoldReason(nifHold)}. Corrigir a encomenda na Shopify e reemitir é o que limpa a retenção.`,
         detail: { invoiceId, holdReason: nifHoldReason(nifHold) },
       });
+    }
+
+    // Certify a credit sale's invoice here, because nothing else will.
+    //
+    // On a normal sale orders/paid does the finalizing, and it fires seconds
+    // later. On terms it fires in thirty days, if at all — and the invoice is
+    // the document the customer pays against, so a draft nobody can send is
+    // the sale not happening. A held NIF still blocks it: certifying a document
+    // whose fiscal identity we know is in question is worse than waiting.
+    if (onCredit && config.auto_finalize === 1 && !nifHold) {
+      const finalized = await finalizeIxDocumentById(ixHeaders, invoiceId, ixDocumentType);
+      if (finalized.ok) {
+        await logDocumentEvent(env, {
+          externalId: orderId,
+          event: "finalized",
+          dedupKey: `finalized:${invoiceId}`,
+          invoiceId,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: "shopify",
+          destinationKind: "invoicexpress",
+          actor: "pipeline",
+          summary: `Documento ${invoiceId} fechado na emissão: venda a crédito (${order.financial_status ?? "por pagar"}), o documento é o que o cliente paga.`,
+          detail: { onCredit: true, docType: ixDocumentType },
+        });
+      } else {
+        // Deliberately not thrown. The document exists, so a retry of this
+        // webhook exits at "Already processed" without ever reaching here —
+        // throwing would only cost a retry storm and still leave the draft.
+        // An incident is what actually reaches a person.
+        console.error(`[Rioko] Credit-sale finalize refused for order ${orderId} (invoice ${invoiceId}): ${finalized.detail}`);
+        await reportIncident(env, {
+          user_id: config.user_id,
+          severity: "warning",
+          kind: "destination_reject",
+          dedup_key: invoiceId,
+          summary: `A factura ${invoiceId} da encomenda ${describeOrder(order).orderRef ?? orderId} ficou em rascunho: o InvoiceXpress recusou fechá-la. É uma venda a prazo, por isso ninguém a vai fechar sozinho.`,
+          detail: { invoiceId, orderId: String(orderId), error: finalized.detail },
+          affected_ids: [String(orderId)],
+          connection_label: "shopify → invoicexpress",
+        });
+      }
     }
 
     // Mark webhook as processed

@@ -44,6 +44,12 @@ export interface IRequestConfig {
   // (e.g. Multibanco) are not invoiced at orders/created; orders/paid emits them
   // on payment. Orthogonal to auto_finalize. Set to 0 to restore emit-at-create.
   only_invoice_when_paid: number | null;
+  /**
+   * Lift `only_invoice_when_paid` for credit sales — an order a tag rule routes
+   * to a FATURA. Wholesale on terms is invoiced when placed; retail is not.
+   * See migration 0042.
+   */
+  bill_on_credit: number | null;
   /** 1 = document 100%-discounted orders instead of skipping them (wholesale). */
   invoice_zero_total: number | null;
   // 0 or 1. When 1, invoices/credit notes whose exemption code is applied (any

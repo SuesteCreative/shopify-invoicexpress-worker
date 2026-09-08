@@ -295,3 +295,28 @@ describe("applyRouteToIxConfig", () => {
     expect(applyRouteToIxConfig(base, route)).toEqual(viaCtx);
   });
 });
+
+describe("matching a raw Shopify order", () => {
+  // The payment gate has to know whether a sale is credit business before the
+  // order is normalized, so it matches on the raw webhook payload — where
+  // `tags` is one comma-separated string, not an array.
+  const b2b = rule({ tag_name: "b2b", document_type: "invoice", series_name: "B2B2026" });
+
+  it("reads the comma-separated tag string Shopify actually sends", () => {
+    const raw = { tags: "B2B", note_attributes: [] } as any;
+    expect(matchTagRouting(raw, [b2b])?.series_name).toBe("B2B2026");
+  });
+
+  it("reads one tag out of several in that string", () => {
+    const raw = { tags: "wholesale, B2B, priority", note_attributes: [] } as any;
+    expect(matchTagRouting(raw, [b2b])?.series_name).toBe("B2B2026");
+  });
+
+  it("matches nothing on an untagged raw order", () => {
+    expect(matchTagRouting({ tags: "", note_attributes: [] } as any, [b2b])).toBeNull();
+  });
+
+  it("still reads the normalized array form", () => {
+    expect(matchTagRouting(order({ tags: ["B2B"] }), [b2b])?.series_name).toBe("B2B2026");
+  });
+});

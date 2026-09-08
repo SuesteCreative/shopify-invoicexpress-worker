@@ -41,6 +41,10 @@ export function buildNormalizedFromRaw(raw: any, shop: string): NormalizedOrderR
     created_at: raw?.created_at,
     note: raw?.note ?? null,
     note_attributes: raw?.note_attributes ?? [],
+    // The terms the merchant agreed for THIS order (net 30, net 60, …). Only
+    // present on orders sold on credit; it is what the invoice's due date is
+    // built from. Passthrough, like every other field here.
+    payment_terms: raw?.payment_terms ?? null,
     metafields: null,
     tags,
     meta: {

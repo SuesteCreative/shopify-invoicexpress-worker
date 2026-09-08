@@ -1,0 +1,23 @@
+-- Invoice a B2B sale when it is placed, not when it is paid.
+--
+-- `only_invoice_when_paid` exists because issuing a legal invoice for money
+-- that may never arrive is fiscally wrong: a Multibanco reference goes unpaid,
+-- the invoice stands, and the merchant has declared VAT on a sale that never
+-- happened. That is right for retail, and wrong for wholesale — a B2B order on
+-- 30-day terms is invoiced precisely so the customer has a document to pay
+-- against. Holding it until payment means the buyer never receives the invoice
+-- that would trigger the payment, and the sale waits on nothing.
+--
+-- So this lifts the wait, but only where the merchant has already said the sale
+-- is credit business: an order that matches a tag routing rule issuing a FATURA
+-- (never a fatura-recibo, which asserts the money came in). Everything else on
+-- the shop — retail, pending Multibanco, an untagged order — keeps waiting for
+-- payment exactly as before.
+--
+-- Off by default. Turned on per connection, for merchants who sell on terms.
+--
+-- Apply by hand:
+--   npx wrangler d1 execute rioko-db --remote --file migrations/0042_bill_on_credit.sql
+-- NEVER `d1 migrations apply` on this database: its ledger is stuck at 0017 and
+-- it would replay 0018+ onto columns that already exist.
+ALTER TABLE integrations ADD COLUMN bill_on_credit INTEGER DEFAULT 0;

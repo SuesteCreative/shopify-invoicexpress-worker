@@ -1906,6 +1906,7 @@ export class MoloniDestination implements DestinationAdapter {
       strategy: FinalizeDateStrategy;
       batch?: FinalizeBatch;
       paidTotal?: number | null;
+      requirePaidTotal?: boolean;
       dateMovedNote?: (originalDate: string) => string | null;
       dryRun?: boolean;
     },
@@ -1927,11 +1928,17 @@ export class MoloniDestination implements DestinationAdapter {
     // note — so a draft whose total is not what the buyer paid is never closed.
     const docTotal = moloniDocTotal(found.doc);
     const paid = opts.paidTotal;
-    if (typeof paid === "number" && Number.isFinite(paid) && paid > 0
-      && docTotal != null && Math.abs(docTotal - paid) > 0.011) {
+    const knowPaid = typeof paid === "number" && Number.isFinite(paid) && paid > 0;
+    if (!knowPaid && opts.requirePaidTotal) {
       return {
         status: "error",
-        message: `Total do documento (${docTotal.toFixed(2)}€) não é o valor pago (${paid.toFixed(2)}€) — não certifico`,
+        message: "Não consegui ler o valor pago desta transação — não certifico",
+      };
+    }
+    if (knowPaid && docTotal != null && Math.abs(docTotal - paid!) > 0.011) {
+      return {
+        status: "error",
+        message: `Total do documento (${docTotal.toFixed(2)}€) não é o valor pago (${paid!.toFixed(2)}€) — não certifico`,
       };
     }
 

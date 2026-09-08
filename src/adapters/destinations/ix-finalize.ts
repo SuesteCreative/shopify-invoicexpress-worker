@@ -353,6 +353,7 @@ export async function finalizeIxDraft(
     strategy: FinalizeDateStrategy;
     batch: IxFinalizeBatch;
     paidTotal?: number | null;
+    requirePaidTotal?: boolean;
     dateMovedNote?: (originalDate: string) => string | null;
     dryRun?: boolean;
   },
@@ -373,11 +374,17 @@ export async function finalizeIxDraft(
   // 54.72€ on a 58.00€ sale) that this stops, and any future drift too.
   const paid = opts.paidTotal;
   const docTotal = Number(doc.total);
-  if (typeof paid === "number" && Number.isFinite(paid) && paid > 0 && Number.isFinite(docTotal)
-    && Math.abs(docTotal - paid) > 0.011) {
+  const knowPaid = typeof paid === "number" && Number.isFinite(paid) && paid > 0;
+  if (!knowPaid && opts.requirePaidTotal) {
     return {
       status: "error",
-      message: `Total do documento (${docTotal.toFixed(2)}€) não é o valor pago (${paid.toFixed(2)}€) — não certifico`,
+      message: "Não consegui ler o valor pago desta transação — não certifico",
+    };
+  }
+  if (knowPaid && Number.isFinite(docTotal) && Math.abs(docTotal - paid!) > 0.011) {
+    return {
+      status: "error",
+      message: `Total do documento (${docTotal.toFixed(2)}€) não é o valor pago (${paid!.toFixed(2)}€) — não certifico`,
     };
   }
 

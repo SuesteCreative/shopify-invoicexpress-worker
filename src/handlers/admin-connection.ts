@@ -726,6 +726,9 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
         batch,
         dryRun,
         paidTotal: described.get(row.id)?.paidTotal ?? null,
+        // A source that CAN report paid totals and did not report this one was
+        // not read — the map's own contract. Refuse rather than certify blind.
+        requirePaidTotal: !!recovery?.describe,
         dateMovedNote: (originalDate) => transactionNote(conn.source, row.id, described.get(row.id)?.orderNumber, originalDate),
       });
       results.push({

@@ -10,7 +10,9 @@ import { listStripePaymentIntents, fetchStripeObject } from "../services/stripe"
 import { cancelReferenceCandidates } from "../services/document-references";
 import { stripeStableId } from "../adapters/sources/stripe-source";
 import { buildAdapterCtx } from "../services/adapter-ctx";
-import { projectConnectionBehaviour } from "../services/connection-context";
+import { projectConnectionBehaviour, connectionLabelOf, type ConnectionContext } from "../services/connection-context";
+import { getSourceRecovery } from "../adapters/recovery/registry";
+import type { SourceDescription } from "../adapters/recovery/types";
 import { formatPtDate } from "../ix/date";
 
 type OrderResult = {
@@ -30,6 +32,7 @@ interface StripeConnFull {
   destinationKind: string;
   sourceConfig: StripeConnConfig;
   destinationConfig: Record<string, any> | undefined;
+  invoiceCutoff: string | null;
 }
 
 // Full connection view for recovery ops: destination + both config blobs, so a
@@ -37,7 +40,7 @@ interface StripeConnFull {
 // Vendus, …) instead of the IX-only default. Mirrors processStripeBatch.
 async function loadStripeConnectionFull(env: Env, userId: string): Promise<StripeConnFull | null> {
   const row: any = await env.DB.prepare(
-    "SELECT destination_kind, source_config_json, destination_config_json FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1"
+    "SELECT destination_kind, source_config_json, destination_config_json, invoice_cutoff, created_at FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1"
   ).bind(userId).first();
   if (!row) return null;
   const parse = (s: string | null): Record<string, any> | undefined => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
@@ -45,6 +48,7 @@ async function loadStripeConnectionFull(env: Env, userId: string): Promise<Strip
     destinationKind: row.destination_kind ?? "invoicexpress",
     sourceConfig: (parse(row.source_config_json) ?? {}) as StripeConnConfig,
     destinationConfig: parse(row.destination_config_json),
+    invoiceCutoff: (row.invoice_cutoff ?? row.created_at) ?? null,
   };
 }
 
@@ -341,7 +345,7 @@ export async function reemitStripeOrder(
  * They now go through the destination adapter, so the connection decides.
  */
 async function resolveStripeDestination(env: Env, config: IRequestConfig): Promise<
-  | { ok: true; destination: DestinationKind; adapter: DestinationAdapter; ctx: AdapterCtx }
+  | { ok: true; destination: DestinationKind; adapter: DestinationAdapter; ctx: AdapterCtx; conn: ConnectionContext }
   | { ok: false; error: string }
 > {
   const conn = await loadStripeConnectionFull(env, config.user_id);
@@ -358,7 +362,22 @@ async function resolveStripeDestination(env: Env, config: IRequestConfig): Promi
     sourceConfig: conn.sourceConfig,
     destinationConfig: conn.destinationConfig,
   });
-  return { ok: true, destination, adapter: getDestinationAdapter(destination), ctx };
+  // The same connection, in the shape the source recovery reads. Returned rather
+  // than discarded because `describe` — the paid-total lookup that arms the
+  // finalize money gate — takes a ConnectionContext, and rebuilding one at the
+  // call site is how this route ended up certifying without asking what was paid.
+  const connCtx: ConnectionContext = {
+    source: "stripe",
+    destination,
+    sourceConfig: conn.sourceConfig as Record<string, any>,
+    destinationConfig: conn.destinationConfig ?? {},
+    config,
+    userId: config.user_id ?? null,
+    scope: `u:${config.user_id}`,
+    invoiceCutoff: conn.invoiceCutoff,
+    connectionLabel: connectionLabelOf("stripe", destination),
+  };
+  return { ok: true, destination, adapter: getDestinationAdapter(destination), ctx, conn: connCtx };
 }
 
 /** The destination document id we recorded for a Stripe payment. */
@@ -553,6 +572,20 @@ export async function finalizeStripeDrafts(
     });
   }
 
+  // What Stripe says each of these payments actually charged. Without it the
+  // destination's money gate never fires — it only compares when handed a paid
+  // total — and this route certified whatever the draft happened to say. That is
+  // how 19 drafts with the wrong total stayed certifiable.
+  const recovery = getSourceRecovery("stripe");
+  let described = new Map<string, SourceDescription>();
+  if (recovery.describe && processed.length > 0) {
+    try {
+      described = await recovery.describe(processed.map(r => r.id), dest.conn, env);
+    } catch (e) {
+      console.error("[Rioko] stripe finalize paid-total lookup failed:", e);
+    }
+  }
+
   // One batch for the whole run: the destination fetches its series baseline and
   // tax table once, and advances the baseline as documents are certified.
   const batch = dest.adapter.prepareFinalizeBatch
@@ -565,6 +598,10 @@ export async function finalizeStripeDrafts(
         strategy,
         batch,
         dryRun,
+        paidTotal: described.get(row.id)?.paidTotal ?? null,
+        // Stripe can report what was paid, so a row we could not read is
+        // "cannot answer", not "nothing to check": refuse rather than certify.
+        requirePaidTotal: !!recovery.describe,
         dateMovedNote: (originalDate) =>
           `Fatura referente ao pagamento Stripe ${row.id} de ${formatPtDate(originalDate)}`,
       });

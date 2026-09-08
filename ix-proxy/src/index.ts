@@ -379,11 +379,30 @@ app.get("/v2/documents/:id/related", async (c) => {
   const auth = readAuth(c)!;
   const id = c.req.param("id");
   const { status, body, text } = await ixCall(auth, `/documents/${encodeURIComponent(id)}/related_documents.json`);
+  // InvoiceXpress answers 404 for a document that has nothing issued against it
+  // — every draft, and every invoice never credited. That is the NORMAL answer
+  // to this question, not a failure, and the caller asked for a list.
+  //
+  // It matters because of what the caller does with an error: the invoice-cancel
+  // path refuses to issue a credit note it cannot first prove is absent ("não
+  // emito nota de crédito às cegas"), so passing IX's 404 through as an error
+  // stopped cancellations on exactly the documents that had never been credited.
+  // The old proxy answered an empty list here, and an empty list is right.
+  if (status === 404) return c.json(ok({ documents: [] }));
   if (status >= 400) return c.json(ixError(status, body, text), 400);
   return c.json(ok({ documents: body?.documents ?? [] }));
 });
 
-/** A URL a human can open: the document's own permalink, or the dashboard. */
+/**
+ * A URL a human can open: the document's own permalink, or the dashboard.
+ *
+ * Answers with the URL as a BARE STRING in `data`, not as `{ url }`. That is
+ * the shape ix-proxy.kapta.app returns and the shape the worker's generated
+ * client reads, and this proxy has to be a drop-in for it: a nicer envelope
+ * here reads as `undefined` there, which is a merchant email that silently
+ * loses its link to the document — a regression nobody sees until someone
+ * asks why the mail is bare. Being bug-compatible is the whole job.
+ */
 app.get("/v2/documents/:id/link", async (c) => {
   const auth = readAuth(c)!;
   const id = c.req.param("id");
@@ -392,14 +411,14 @@ app.get("/v2/documents/:id/link", async (c) => {
     return c.json(fail("VALIDATION_ERROR", 'Invalid option: expected one of "permalink"|"dashboard"'), 400);
   }
   if (kind === "dashboard") {
-    return c.json(ok({ url: `${ixBase(auth)}/documents/${encodeURIComponent(id)}` }));
+    return c.json(ok(`${ixBase(auth)}/documents/${encodeURIComponent(id)}`));
   }
 
   for (const type of GUESS_ORDER) {
     const res = await ixCall(auth, `/${DOC_TYPES[type]}/${encodeURIComponent(id)}.json`);
     if (res.status < 400) {
       const doc = res.body?.[type] ?? res.body;
-      return c.json(ok({ url: doc?.permalink ?? null }));
+      return c.json(ok(doc?.permalink ?? null));
     }
     if (res.status !== 404) return c.json(ixError(res.status, res.body, res.text), 400);
   }

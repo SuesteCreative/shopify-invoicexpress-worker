@@ -201,7 +201,9 @@ export default function SubscriptionCard({ onSuccess, source }: { onSuccess?: bo
                         <h3 className="text-2xl font-medium tracking-tight text-fg">{config.title}</h3>
                         <p className="text-sm text-fg-60 font-medium leading-relaxed max-w-2xl">
                             {state === "active" && sub?.current_period_end && t("bodyActive", { date: formatDate(sub.current_period_end) })}
-                            {state === "trialing_earlybird" && t("bodyEarlyBird", { days: daysLeft ?? 0 })}
+                            {state === "trialing_earlybird" && (sub?.trial_end
+                                ? t("bodyEarlyBird", { date: formatDate(sub.trial_end), days: daysLeft ?? 0 })
+                                : t("bodyEarlyBirdNoDate"))}
                             {state === "trialing" && sub?.trial_end && t("bodyTrial", { date: formatDate(sub.trial_end), days: daysLeft ?? 0 })}
                             {state === "blocked" && t("bodyBlocked")}
                             {state === "none" && t("bodyNone")}

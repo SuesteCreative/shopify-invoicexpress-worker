@@ -620,6 +620,9 @@ export interface FinalizeDraftsOptions extends RecoveryOptions {
   date_strategy?: FinalizeDateStrategy;
   from_date?: string | null;
   to_date?: string | null;
+  /** Cursor: start after this processed_orders rowid, so a connection larger
+   *  than one request's subrequest budget can be walked in batches. */
+  after_rowid?: number | null;
   from_order_number?: number | null;
   to_order_number?: number | null;
 }
@@ -681,7 +684,14 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
     return { job_id: jobId, ...summarize(results), dry_run: dryRun, date_strategy: strategy, results, error };
   }
 
-  let processed = await storage.listProcessedInvoicesByUser(conn.userId, conn.source, limit, "asc");
+  const afterRowid = typeof options.after_rowid === "number" ? options.after_rowid : null;
+  const page = await storage.listProcessedInvoicesByUser(conn.userId, conn.source, limit, "asc", afterRowid);
+  // Advance past everything the QUERY returned, not past what survived the
+  // filters below: a page whose tail is filtered out would otherwise be handed
+  // back unchanged on the next call and the run would never move.
+  const nextAfterRowid = page.length > 0 ? page[page.length - 1].rowid : afterRowid;
+  const hasMore = page.length === limit;
+  let processed = page;
   if (options.from_date || options.to_date) {
     processed = processed.filter((r) => {
       const created = r.created_at ?? "";
@@ -743,7 +753,11 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
     }
   }
 
-  const summary = { ...summarize(results), dry_run: dryRun, date_strategy: strategy };
+  const summary = {
+    ...summarize(results), dry_run: dryRun, date_strategy: strategy,
+    // Feed these two straight back into the next call to walk the connection.
+    next_after_rowid: nextAfterRowid, has_more: hasMore,
+  };
   await storage.finishDevJob(jobId, jobStatus(summary), summary, results);
   await notify(options,
     `Rioko Dev Mode — finalizar rascunhos ${conn.connectionLabel}${dryRun ? " (dry-run)" : ""}`,

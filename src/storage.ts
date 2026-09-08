@@ -575,18 +575,43 @@ export class AppStorage {
     }
   }
 
-  // Stripe-only equivalent of listProcessedInvoices, keyed by user_id.
-  async listProcessedInvoicesByUser(userId: string, sourceKind: SourceKind | undefined, limit = 500, order: "asc" | "desc" = "desc"): Promise<Array<{ id: string; invoice_id: string; created_at: string | null; source_kind: string | null }>> {
+  /**
+   * Stripe-only equivalent of listProcessedInvoices, keyed by user_id.
+   *
+   * `afterRowid` is a CURSOR, not an offset, and that distinction is the whole
+   * point: a finalize run walks a connection in batches, and the batches that
+   * come after it delete drafts and issue documents. An OFFSET would silently
+   * skip a row every time something before the cursor disappeared. `rowid` is
+   * monotonic and never reused within a table, so a cursor survives the deletes.
+   *
+   * Without it, a connection larger than one request's subrequest budget simply
+   * could not be finalized: every call re-walked the same first N rows, paying a
+   * source read and a destination read for each already-certified one, and never
+   * reached row N+1.
+   */
+  async listProcessedInvoicesByUser(
+    userId: string,
+    sourceKind: SourceKind | undefined,
+    limit = 500,
+    order: "asc" | "desc" = "desc",
+    afterRowid?: number | null,
+  ): Promise<Array<{ rowid: number; id: string; invoice_id: string; created_at: string | null; source_kind: string | null }>> {
     try {
-      const orderClause = order === "asc" ? "ASC" : "DESC";
-      const sql = sourceKind
-        ? `SELECT id, invoice_id, created_at, source_kind FROM processed_orders WHERE user_id = ? AND source_kind = ? ORDER BY rowid ${orderClause} LIMIT ?`
-        : `SELECT id, invoice_id, created_at, source_kind FROM processed_orders WHERE user_id = ? ORDER BY rowid ${orderClause} LIMIT ?`;
-      const stmt = sourceKind
-        ? this.db.prepare(sql).bind(userId, sourceKind, limit)
-        : this.db.prepare(sql).bind(userId, limit);
-      const result = await stmt.all();
-      return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null, source_kind: r.source_kind ?? null }));
+      const asc = order === "asc";
+      const orderClause = asc ? "ASC" : "DESC";
+      const binds: any[] = [userId];
+      let where = "user_id = ?";
+      if (sourceKind) { where += " AND source_kind = ?"; binds.push(sourceKind); }
+      // The cursor moves with the sort: forward runs want the rows after it,
+      // reverse runs the ones before.
+      if (typeof afterRowid === "number" && Number.isFinite(afterRowid)) {
+        where += asc ? " AND rowid > ?" : " AND rowid < ?";
+        binds.push(afterRowid);
+      }
+      binds.push(limit);
+      const sql = `SELECT rowid AS rowid, id, invoice_id, created_at, source_kind FROM processed_orders WHERE ${where} ORDER BY rowid ${orderClause} LIMIT ?`;
+      const result = await this.db.prepare(sql).bind(...binds).all();
+      return (result.results as any[]).map(r => ({ rowid: Number(r.rowid), id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null, source_kind: r.source_kind ?? null }));
     } catch (e) {
       console.error("[Rioko] Failed to list processed invoices by user:", e);
       return [];

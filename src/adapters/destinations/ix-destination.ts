@@ -14,6 +14,7 @@ import type {
 import { parseIxDate } from "../../ix/date";
 import { resolveExemptionCode } from "../../ix/exemption";
 import { resolveIxSequenceId } from "../../ix/sequences";
+import { restateOrderInEur } from "../../ix/foreign-currency";
 import { classifyExemption, type FiscalClassification } from "../../ix/fiscal-classification";
 import { createIxInvoiceWithFallback, ixExpectedTotals } from "../../ix/create-invoice";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
@@ -463,6 +464,15 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   }
 
   async createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult> {
+    // Euros, before anything is built. InvoiceXpress documents are valued in the
+    // account's currency and `currency_code`/`rate` only print a second figure,
+    // so a sale that reaches here still in AUD would be issued as that many
+    // EUROS. The source restates a payment the processor itself converted; this
+    // catches the one it did not (a Stripe account holding a balance per
+    // currency never converts), and is a no-op on a euro sale. See
+    // ix/foreign-currency.ts — it fails closed rather than guess a rate.
+    await restateOrderInEur(normalized.order);
+
     const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
     const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides);
 
@@ -609,6 +619,17 @@ export class InvoiceXpressDestination implements DestinationAdapter {
   }
 
   async issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult> {
+    // Same reason as createDraft, and the same rate: a credit note has to undo
+    // the document in the currency that document was issued in. The residual
+    // amount travels outside the order, so it is converted with the factor the
+    // restatement reports rather than separately — two conversions of one sale
+    // do not have to agree, and a credit that does not match its invoice is
+    // worse than no credit at all.
+    const fx = await restateOrderInEur(normalized.order);
+    const amountToRefund = fx
+      ? Math.round(refund.amountToRefund * fx.factor * 100) / 100
+      : refund.amountToRefund;
+
     const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
     const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides);
     const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
@@ -616,7 +637,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     const refundItems = normalized.order.items.filter(item => refund.itemsIds.includes(item.id));
     const items = builder.buildInvoiceItems(refundItems);
 
-    if (refund.amountToRefund > 0) {
+    if (amountToRefund > 0) {
       const taxes = invoice.items.map(i => i.tax);
       const maxTax = taxes.reduce((a, b) =>
         (typeof a === "number" ? a : a.value) >= (typeof b === "number" ? b : b.value) ? a : b
@@ -626,8 +647,8 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       items.push({
         quantity: 1,
         tax: maxTax,
-        unit_price: refund.amountToRefund / (1 + taxPercentage),
-        description: `Refund amount of ${refund.amountToRefund}`,
+        unit_price: amountToRefund / (1 + taxPercentage),
+        description: `Refund amount of ${amountToRefund}`,
         name: `Refund amount (#${refund.refundId})`,
       });
     }

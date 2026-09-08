@@ -19,6 +19,8 @@ import {
   isAlreadyFinalizedIxError, isDateRejectionIxError,
 } from "../adapters/destinations/ix-finalize";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
+import { loadTagRoutingRules, matchTagRouting, normalizeRule, applyRouteToIxConfig } from "../services/tag-routing";
+import { resolveIxSequenceId } from "../ix/sequences";
 
 interface ShopifyOrderSummary {
   id: number;
@@ -1221,13 +1223,44 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       return { order_id: order.id, order_number: order.order_number, status: "error", message: "Failed to normalize order" };
     }
 
-    const ixBuilder = new IxBuilder(config);
+    // Tag routing, exactly as the live create path does it.
+    //
+    // This is the path behind the "Emitir fatura" button, the reconciliation
+    // sweep and every backfill — so without this a merchant's rule applies to
+    // sales that arrived by webhook and silently does not apply to the same
+    // sale recovered by hand, which is the harder bug to ever notice.
+    const tagRoutingRules = config.user_id
+      ? await loadTagRoutingRules(env, config.user_id, "shopify", "invoicexpress").catch(() => [])
+      : [];
+    const tagMatch = matchTagRouting(normalizedOrderResponse.normalized.order, tagRoutingRules, {
+      byCountry: config.tag_route_by_country === 1,
+    });
+    const route = tagMatch ? normalizeRule(tagMatch) : null;
+    const routedConfig = route ? applyRouteToIxConfig(config, route) : config;
+    const ixDocumentType = routedConfig.ix_document_type === "invoice_receipt" ? "invoice_receipt" as const : "invoice" as const;
+
+    const ixBuilder = new IxBuilder(routedConfig);
     const { invoice, nifHold } = ixBuilder.createInvoiceFromNormalizedOrder(normalizedOrderResponse.normalized);
+
+    // The series to number this document in — per document type, since a series
+    // is a family (see ix/sequences.ts). Without it IX files the document in
+    // whichever series the account marks as default.
+    if (routedConfig.ix_sequence_name) {
+      const sequenceId = await resolveIxSequenceId(routedConfig, routedConfig.ix_sequence_name, ixDocumentType);
+      if (sequenceId) {
+        (invoice as any).sequence_id = sequenceId;
+      } else if (routedConfig.ix_require_series === 1) {
+        return {
+          order_id: order.id, order_number: order.order_number, status: "error",
+          message: `A série "${routedConfig.ix_sequence_name}" não existe na conta InvoiceXpress — encomenda não facturada para não ir para a série errada.`,
+        };
+      }
+    }
 
     const { res: ixCreateResponse, via } = await createIxInvoiceWithFallback(
       ixHeaders,
       invoice,
-      config.ix_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice",
+      ixDocumentType,
       { forceTaxRate: config.force_tax_rate, forceShippingTaxRate: config.force_shipping_tax_rate },
     );
 
@@ -1237,7 +1270,10 @@ async function adminCreateOrder(env: Env, config: IRequestConfig, order: any, op
       // the fresh build has no hold, so finalize is unblocked.
       const invoiceId = String(ixCreateResponse.data.data.id);
       const holdReason = nifHold ? nifHoldReason(nifHold) : null;
-      await appStorage.saveProcessedInvoice(orderId, invoiceId, { holdReason });
+      await appStorage.saveProcessedInvoice(orderId, invoiceId, {
+        holdReason,
+        routedJson: route ? JSON.stringify(route) : null,
+      });
 
       // The intent, on THE path that has stamped wrong exemption codes before:
       // every confirmed M99 case (Mindful Muse, Bikini Books, DO IT BRAVELY,

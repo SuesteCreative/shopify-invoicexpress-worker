@@ -3,6 +3,7 @@ import {
   normalizeRule,
   parseStoredRoute,
   applyTagRoute,
+  applyRouteToIxConfig,
   matchTagRouting,
   type TagRoutingRule,
 } from "./tag-routing";
@@ -234,5 +235,63 @@ describe("matchTagRouting by buyer country", () => {
       { byCountry: true },
     );
     expect(match?.series_name).toBe("FR-AU");
+  });
+});
+
+describe("matching ignores case", () => {
+  // Measured on a live shop, 2026-09-08: the rule was written `b2b`, Shopify
+  // carried `B2B`, nothing matched, and the sale went to the connection's
+  // default series with no error anywhere. The merchant's workaround was to
+  // write the rule twice.
+  const b2b = rule({ tag_name: "b2b", document_type: "invoice", series_name: "B2B2026", finalize_mode: "draft" });
+
+  it("matches an upper-case Shopify tag against a lower-case rule", () => {
+    expect(matchTagRouting(order({ tags: ["B2B"] }), [b2b])?.series_name).toBe("B2B2026");
+  });
+
+  it("matches a lower-case tag against an upper-case rule", () => {
+    const upper = rule({ tag_name: "B2B", series_name: "B2B2026" });
+    expect(matchTagRouting(order({ tags: ["b2b"] }), [upper])?.series_name).toBe("B2B2026");
+  });
+
+  it("matches mixed case either way", () => {
+    expect(matchTagRouting(order({ tags: ["B2b"] }), [b2b])?.series_name).toBe("B2B2026");
+  });
+
+  it("still refuses a tag that is merely similar", () => {
+    expect(matchTagRouting(order({ tags: ["b2b-eu"] }), [b2b])).toBeNull();
+  });
+
+  it("applies to the comma-separated form of Shopify tags", () => {
+    expect(matchTagRouting(order({ tags: ["wholesale, B2B"] }), [b2b])?.series_name).toBe("B2B2026");
+  });
+
+  it("applies to metadata pairs and to each part of a compound rule", () => {
+    const compound = rule({ tag_name: "stripe:origin:API + Plan:PRO", series_name: "S" });
+    const match = matchTagRouting(
+      order({ note_attributes: [{ name: "plan", value: "pro" }], meta: { routing_hints: ["stripe:origin:api"] } }),
+      [compound],
+    );
+    expect(match?.series_name).toBe("S");
+  });
+});
+
+describe("applyRouteToIxConfig", () => {
+  it("overrides document type, series and finalize together", () => {
+    const config = { auto_finalize: 1, ix_document_type: "invoice_receipt", ix_sequence_name: "FR2026" };
+    expect(applyRouteToIxConfig(config, { docType: "invoice", finalize: false, series: "B2B2026" }))
+      .toEqual({ auto_finalize: 0, ix_document_type: "invoice", ix_sequence_name: "B2B2026" });
+  });
+
+  it("keeps every connection default the rule left unset", () => {
+    const config = { auto_finalize: 1, ix_document_type: "invoice_receipt", ix_sequence_name: "FR2026" };
+    expect(applyRouteToIxConfig(config, { docType: null, finalize: null, series: null })).toEqual(config);
+  });
+
+  it("agrees with applyTagRoute, which is the point of sharing it", () => {
+    const route = { docType: "invoice" as const, finalize: true, series: "B2B2026" };
+    const base = { auto_finalize: 0, ix_document_type: "invoice_receipt", ix_sequence_name: "FR2026" };
+    const viaCtx = applyTagRoute(ctx({ config: base as any }), "invoicexpress", route).config;
+    expect(applyRouteToIxConfig(base, route)).toEqual(viaCtx);
   });
 });

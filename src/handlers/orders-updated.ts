@@ -7,6 +7,7 @@ import { IxBuilder } from "../ix/builder";
 import { makeViesChecker } from "../ix/vies";
 import { loadProductOverrides } from "../services/product-overrides";
 import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
+import { parseStoredRoute, applyRouteToIxConfig } from "../services/tag-routing";
 
 export async function handleOrderUpdated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/updated";
@@ -46,6 +47,13 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
     if (!invoice || !invoice.invoice_id) {
       throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
     }
+
+    // Edit the document as the type it was CREATED as, not as the connection's
+    // default. A tag rule can have made this an `invoice` on a connection whose
+    // default is `invoice_receipt`, and PUTting the wrong type addresses a
+    // different collection — the edit either fails or lands on nothing.
+    const storedRoute = parseStoredRoute(invoice.routed_json);
+    if (storedRoute) config = applyRouteToIxConfig(config, storedRoute);
 
     const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
     const productOverrides = config.user_id

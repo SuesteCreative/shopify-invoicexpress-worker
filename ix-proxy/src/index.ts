@@ -440,7 +440,12 @@ app.post("/v2/documents/reference", async (c) => {
   const auth = readAuth(c)!;
   const payload = await c.req.json().catch(() => null);
   const reference = String(payload?.reference ?? "").trim();
-  if (!reference) return c.json(fail("VALIDATION_ERROR", "reference is required"), 400);
+  // An empty reference answers "not found", not "bad request". The caller reads
+  // a 404 as "no document exists, go ahead and issue one" and anything else as
+  // "the lookup failed" — which aborts the sale. The proxy this replaces
+  // answered 404 here, and a swap-in replacement does not get to be stricter on
+  // the one path that decides whether a duplicate fiscal document is created.
+  if (!reference) return c.json(fail("DOCUMENT_NOT_FOUND", 'Document with reference "" not found'), 404);
 
   for (const type of GUESS_ORDER) {
     const { status, body } = await ixCall(auth, `/${DOC_TYPES[type]}.json`, {

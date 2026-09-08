@@ -218,8 +218,14 @@ export async function getIxDocumentPermalink(config: IRequestConfig, invoiceId: 
       { isOk: (r) => !r.error, label: `permalink ${invoiceId}` },
     );
     if (error) return null;
-    // The endpoint returns the URL directly as `data` (a bare string).
-    const link = (data as any)?.data;
+    // Two proxies, two shapes for the same answer: ix-proxy.kapta.app returns
+    // the URL as a bare string in `data`, ix.rioko.online wraps it as
+    // `data.url`. Reading only the first one is a silent null — a merchant
+    // email that quietly loses its link to the document — the moment
+    // IX_PROXY_URL is flipped, so both are accepted and neither cutover
+    // direction can break it.
+    const payload = (data as any)?.data;
+    const link = typeof payload === "string" ? payload : payload?.url;
     return typeof link === "string" && link ? link : null;
   } catch {
     return null;

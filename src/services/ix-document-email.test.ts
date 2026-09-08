@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const getDoc = vi.fn();
 const postEmail = vi.fn();
+const getLink = vi.fn();
 
 vi.mock("../api/ix", () => ({
   IxApi: {
@@ -14,7 +15,7 @@ vi.mock("../api/ix", () => ({
         byId: {
           get: (...args: any[]) => getDoc(...args),
           email: { post: (...args: any[]) => postEmail(...args) },
-          link: { get: vi.fn() },
+          link: { get: (...args: any[]) => getLink(...args) },
         },
       },
     },
@@ -24,7 +25,7 @@ vi.mock("../api/ix", () => ({
 // ixCall is a timeout/retry wrapper; for these tests it is just "call it".
 vi.mock("../ix/ix-call", () => ({ ixCall: (fn: () => Promise<any>) => fn() }));
 
-const { sendIxDocumentEmail } = await import("./ix-document-email");
+const { sendIxDocumentEmail, getIxDocumentPermalink } = await import("./ix-document-email");
 
 const cfg = (over: Record<string, any> = {}): any => ({
   ix_send_email: 1,
@@ -43,7 +44,31 @@ const doc = (over: Record<string, any> = {}) => ({
 beforeEach(() => {
   getDoc.mockReset();
   postEmail.mockReset();
+  getLink.mockReset();
   postEmail.mockResolvedValue({ error: null });
+});
+
+// The permalink is what a merchant clicks in the email we send them. The two
+// proxies answer this one question in two shapes, so the cutover between them
+// (IX_PROXY_URL) must not quietly empty the link out of every email.
+describe("getIxDocumentPermalink", () => {
+  it("reads the bare string ix-proxy.kapta.app returns", async () => {
+    getLink.mockResolvedValue({ data: { data: "https://web.invoicexpress.com/documents/abc" }, error: null });
+
+    expect(await getIxDocumentPermalink(cfg(), 1)).toBe("https://web.invoicexpress.com/documents/abc");
+  });
+
+  it("reads the { url } object ix.rioko.online returns", async () => {
+    getLink.mockResolvedValue({ data: { data: { url: "https://web.invoicexpress.com/documents/abc" } }, error: null });
+
+    expect(await getIxDocumentPermalink(cfg(), 1)).toBe("https://web.invoicexpress.com/documents/abc");
+  });
+
+  it("stays null when the lookup fails", async () => {
+    getLink.mockResolvedValue({ data: null, error: { message: "boom" } });
+
+    expect(await getIxDocumentPermalink(cfg(), 1)).toBeNull();
+  });
 });
 
 describe("sendIxDocumentEmail", () => {

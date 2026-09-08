@@ -290,10 +290,43 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     // we think it is — the same guard the date PUT has carried since the 0%-VAT
     // incident, and the same tolerance: IX rounds unit_price to 2dp while adding
     // up in full precision, so a faithful mirror can land a cent off per line.
-    const rebuilt = ixExpectedTotals(items);
     const storedTotal = Number(inv.total);
     const tolerance = 0.02 + 0.01 * items.length;
-    if (Number.isFinite(storedTotal) && Math.abs(rebuilt.gross - storedTotal) > tolerance) {
+    const off = (built: { gross: number }) =>
+      Number.isFinite(storedTotal) && Math.abs(built.gross - storedTotal) > tolerance;
+
+    let rebuilt = ixExpectedTotals(items);
+
+    // A document can carry a discount its LINES do not: InvoiceXpress totals a
+    // header-level `discount` on top of the per-line one, and the read-back
+    // reports both. Mirroring the lines then credits the pre-header-discount
+    // amount — 47,97€ against an invoice of 23,24€ on this account's worst case,
+    // where a 99,00€ line at 60,61% off was totalled with a further 20,10€ off.
+    //
+    // The line's own `subtotal` is what it is actually worth after every layer,
+    // so falling back to it reproduces the document's total by construction —
+    // and stays inside the fields the destination already accepts, which matters
+    // because the proxy in front of InvoiceXpress silently drops any field its
+    // schema does not name. The credit note then shows the net being cancelled
+    // rather than a list price and a discount, which for a cancellation is if
+    // anything the clearer statement.
+    if (off(rebuilt) && Array.isArray(inv.items)) {
+      const fromSubtotals = items.map((line: any, i: number) => {
+        const qty = Number(line.quantity) || 1;
+        const net = Number(inv.items[i]?.subtotal);
+        if (!Number.isFinite(net)) return line;
+        const { discount, ...semDesconto } = line;      // o subtotal já o inclui
+        return { ...semDesconto, unit_price: net / qty };
+      });
+      const retry = ixExpectedTotals(fromSubtotals);
+      if (!off(retry)) {
+        items.length = 0;
+        items.push(...fromSubtotals);
+        rebuilt = retry;
+      }
+    }
+
+    if (off(rebuilt)) {
       throw new Error(
         `A nota de crédito daria ${rebuilt.gross.toFixed(2)}€ mas o documento ${invoiceId} tem `
         + `${storedTotal.toFixed(2)}€ — não credito um valor diferente do que foi facturado`,

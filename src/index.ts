@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { configureIxBaseUrl } from "./api/ix/base-url";
 import type { QueueMessage, StripeQueueMessage, StripeCanonicalTopic, WebhookTopic } from "./handlers/types";
 import { Context, Hono } from "hono";
 import { AppStorage } from "./storage";
@@ -3942,8 +3943,16 @@ async function reportStaleLodgifyIngest(env: Env): Promise<{ checked: number; st
 }
 
 export default {
-  fetch: app.fetch,
+  // Every entry point sets the proxy base URL first: the generated IX client is
+  // a module singleton with the URL baked in, and `env` only exists inside a
+  // handler. See src/api/ix/base-url.ts — the flip is IX_PROXY_URL, the
+  // rollback is putting the old value back.
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    configureIxBaseUrl(env);
+    return app.fetch(request, env, ctx);
+  },
   async queue(batch: MessageBatch<QueueMessage | StripeQueueMessage>, env: Env) {
+    configureIxBaseUrl(env);
     // Dispatch by queue name. Stripe + Shopify queues share this consumer;
     // the DLQ ("my-queue-dlq") is also routed here so failures get visibility.
     if (batch.queue === "my-queue-dlq") {
@@ -3957,6 +3966,7 @@ export default {
     await processShopifyBatch(batch as MessageBatch<QueueMessage>, env);
   },
   async scheduled(event: ScheduledController, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
+    configureIxBaseUrl(env);
     // Every 30 min — Lodgify booking poll. Lodgify user-level API keys cannot
     // register webhooks (partner OAuth only), so bookings are polled and
     // invoiced here. Runs on its own cron so it never rides the ops sweep.

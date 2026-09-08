@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { parseIxDate } from "../../ix/date";
 import { resolveExemptionCode } from "../../ix/exemption";
+import { ixAccountHost } from "../../ix/host";
 import { classifyExemption, type FiscalClassification } from "../../ix/fiscal-classification";
 import { createIxInvoiceWithFallback } from "../../ix/create-invoice";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
@@ -96,9 +97,9 @@ async function resolveSequenceId(
 
   if (!sequences) {
     try {
-      const isTest = ctx.config.ix_environment !== "production";
-      const suffix = isTest ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
-      const res = await fetch(`https://${account}${suffix}/sequences.json?api_key=${encodeURIComponent(apiKey)}`);
+      const res = await fetch(
+        `${ixAccountHost(account, ctx.config.ix_environment)}/sequences.json?api_key=${encodeURIComponent(apiKey)}`,
+      );
       if (!res.ok) return null;
       const data = await res.json() as { sequences?: IxSequenceRow[] };
       sequences = data.sequences ?? [];

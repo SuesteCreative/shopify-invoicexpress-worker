@@ -1,0 +1,28 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "rioko-ix-proxy",
+  "compatibility_date": "2026-09-08",
+  "main": "src/index.ts",
+  "account_id": "1cec694895b74f4a87ffab3cde29bf28",
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+  // The proxy holds no secrets of its own: the account name and API key travel
+  // per request, in headers, because one worker serves every merchant. Nothing
+  // here is worth stealing, and nothing here needs `wrangler secret`.
+  //
+  // The custom domain lives on the rioko.online zone, which is in this account.
+  // Set it after the first deploy (Workers → rioko-ix-proxy → Settings →
+  // Domains & Routes → Add custom domain → ix.rioko.online); Cloudflare creates
+  // the DNS record itself.
+  "routes": [
+    {
+      "pattern": "ix.rioko.online",
+      "custom_domain": true
+    }
+  ]
+}

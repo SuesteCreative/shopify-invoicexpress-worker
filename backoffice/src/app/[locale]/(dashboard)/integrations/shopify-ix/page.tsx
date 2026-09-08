@@ -240,7 +240,11 @@ export default function ShopifyIXIntegration() {
                 const seqRes = await fetch(`/api/integrations/sequences?account=${ixAccount}&apiKey=${ixApiKey}&environment=${ixEnvironment}`);
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
-                    const found = seqs.find(s => s.name.toLowerCase() === ixSequenceName.trim().toLowerCase());
+                    const wanted = ixSequenceName.trim().toLowerCase();
+                    // IX names a series `serie`, not `name`. Reading `.name` threw
+                    // "Cannot read properties of undefined" and aborted the save
+                    // for every merchant who had typed a series.
+                    const found = seqs.find(s => String(s.serie ?? s.name ?? "").toLowerCase() === wanted);
                     if (!found) {
                         if (!confirm(t("confirmSequenceMissing", { name: ixSequenceName }))) {
                             setSaving(false);
@@ -288,7 +292,11 @@ export default function ShopifyIXIntegration() {
                 const seqRes = await fetch(`/api/integrations/sequences?account=${ixAccount}&apiKey=${ixApiKey}&environment=${ixEnvironment}`);
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
-                    const found = seqs.find(s => s.name.toLowerCase() === ixSequenceName.trim().toLowerCase());
+                    const wanted = ixSequenceName.trim().toLowerCase();
+                    // IX names a series `serie`, not `name`. Reading `.name` threw
+                    // "Cannot read properties of undefined" and aborted the save
+                    // for every merchant who had typed a series.
+                    const found = seqs.find(s => String(s.serie ?? s.name ?? "").toLowerCase() === wanted);
                     if (!found) {
                         if (!confirm(t("confirmSequenceMissing", { name: ixSequenceName }))) {
                             setSaving(false);

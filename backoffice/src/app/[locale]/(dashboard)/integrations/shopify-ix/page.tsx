@@ -570,7 +570,7 @@ export default function ShopifyIXIntegration() {
                 </div>
             )}
 
-            <SubscriptionCard onSuccess={stripeSuccess} source="faturacao" />
+            <SubscriptionCard onSuccess={stripeSuccess} source="faturacao" connectionKey="shopify:invoicexpress" />
 
             <div className="grid gap-8">
                 {steps.map((s) => {

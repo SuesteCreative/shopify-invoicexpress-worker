@@ -5,6 +5,7 @@ import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
 import { grantSeatFromSession } from "@/lib/seats";
 import { notifySubscriptionPaymentFailed } from "@/lib/billing-notify";
+import { DEFAULT_CONNECTION_KEY, keyFromRequest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -51,18 +52,52 @@ async function activatePausedConnections(db: D1Database, userId: string, cutoffI
     ).bind(userId).run();
 }
 
+/**
+ * Which connection a Stripe subscription pays for.
+ *
+ * Checkouts started after 0044 say so in the subscription's own metadata. The
+ * ones that came before say nothing, so the row we already wrote for that
+ * subscription id answers instead — that is where the migration's attribution
+ * lives, and a renewal must not move a subscription to a different connection.
+ * Only a genuinely new, metadata-less subscription falls through to the default.
+ */
+async function resolveConnectionKey(db: D1Database, userId: string, sub: Stripe.Subscription | null): Promise<string> {
+    const fromMetadata = String(sub?.metadata?.connection_key ?? "").trim();
+    if (fromMetadata.includes(":")) return fromMetadata;
+
+    if (sub?.id) {
+        const existing: any = await db.prepare(
+            "SELECT connection_key FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1"
+        ).bind(sub.id).first();
+        if (existing?.connection_key) return existing.connection_key;
+    }
+
+    // Same rule the migration used: the connection the account set up first is
+    // the one an unattributed subscription was bought for.
+    const conn: any = await db.prepare(
+        "SELECT source_kind, destination_kind FROM connections WHERE user_id = ? ORDER BY created_at ASC LIMIT 1"
+    ).bind(userId).first();
+    const shop: any = await db.prepare(
+        "SELECT created_at FROM integrations WHERE user_id = ? AND shopify_domain IS NOT NULL AND shopify_domain <> '' LIMIT 1"
+    ).bind(userId).first();
+    if (shop && (!conn || String(shop.created_at ?? "") <= String(conn.created_at ?? ""))) return DEFAULT_CONNECTION_KEY;
+    if (conn) return `${conn.source_kind}:${conn.destination_kind}`;
+    return DEFAULT_CONNECTION_KEY;
+}
+
 async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, sub: Stripe.Subscription) {
     const item = sub.items.data[0];
     const priceId = item?.price?.id || null;
     const plan = (sub.metadata?.plan as string) || (item?.price?.recurring?.interval === "year" ? "annual" : "monthly");
     const earlyBird = sub.metadata?.early_bird === "1" ? 1 : 0;
+    const connectionKey = await resolveConnectionKey(db, userId, sub);
 
     await db.prepare(`
-        INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, status,
+        INSERT INTO subscriptions (user_id, connection_key, stripe_customer_id, stripe_subscription_id, status,
                                    plan, price_id, current_period_end, trial_end,
                                    cancel_at_period_end, early_bird, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(user_id) DO UPDATE SET
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, connection_key) DO UPDATE SET
             stripe_customer_id = excluded.stripe_customer_id,
             stripe_subscription_id = excluded.stripe_subscription_id,
             status = excluded.status,
@@ -194,14 +229,22 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
+                // The session says which connection was being paid for; the
+                // subscription's metadata carries the same value for the renewals
+                // that follow.
+                const connectionKey = keyFromRequest(
+                    (sub?.metadata?.connection_key as string) ?? (session.metadata?.connection_key as string),
+                    session.metadata?.source as string,
+                );
+
                 await db.prepare(`
                     INSERT INTO subscriptions (
-                        user_id, stripe_customer_id, stripe_subscription_id, status,
+                        user_id, connection_key, stripe_customer_id, stripe_subscription_id, status,
                         plan, price_id, current_period_end, trial_end,
                         cancel_at_period_end, nif, name, email, phone,
                         address, city, zip, country, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(user_id) DO UPDATE SET
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id, connection_key) DO UPDATE SET
                         stripe_customer_id = excluded.stripe_customer_id,
                         stripe_subscription_id = excluded.stripe_subscription_id,
                         status = excluded.status,
@@ -224,6 +267,7 @@ export async function POST(req: NextRequest) {
                         updated_at = CURRENT_TIMESTAMP
                 `).bind(
                     userId,
+                    connectionKey,
                     customerId || null,
                     sub?.id || null,
                     sub?.status || "incomplete",

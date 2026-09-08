@@ -28,8 +28,14 @@ async function seatEligibility(accountId: string) {
         return { ok: true as const, reason: "exempt", customerId: null, exempt: true };
     }
 
+    // Seats are an account-level add-on, so ANY live subscription on the
+    // account pays for them — not specifically the one of some connection.
     const sub: any = await db
-        .prepare("SELECT status, stripe_customer_id, stripe_subscription_id FROM subscriptions WHERE user_id = ?")
+        .prepare(`SELECT status, stripe_customer_id, stripe_subscription_id
+                    FROM subscriptions
+                   WHERE user_id = ? AND stripe_subscription_id IS NOT NULL
+                     AND status IN ('active','trialing')
+                   ORDER BY created_at ASC LIMIT 1`)
         .bind(accountId)
         .first();
 

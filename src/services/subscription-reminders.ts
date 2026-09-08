@@ -188,7 +188,13 @@ export async function runEarlyBirdEndingReminders(
         AND s.stripe_subscription_id IS NULL
         AND s.trial_end IS NOT NULL
         AND s.trial_end > ?
-        AND COALESCE(u.role, 'user') NOT IN ('superadmin', 'hiperadmin')`
+        AND COALESCE(u.role, 'user') NOT IN ('superadmin', 'hiperadmin')
+      -- One email per merchant, not per connection: an account with two
+      -- early-bird rows (0044) would otherwise be told twice, on the same day,
+      -- that its trial is ending. The earliest date is the one that matters,
+      -- and the marker below is written for every row of the account anyway.
+      GROUP BY s.user_id
+      HAVING s.trial_end = MIN(s.trial_end)`
   ).bind(now.toISOString()).all();
 
   const subs = (rows.results ?? []) as unknown as Array<DueSub & { marker: string | null }>;
@@ -261,7 +267,12 @@ export async function runRenewalReminders(
        AND current_period_end IS NOT NULL
        AND current_period_end > ?
        AND current_period_end <= ?
-       AND (renewal_reminder_sent_for IS NULL OR renewal_reminder_sent_for <> current_period_end)`
+       AND (renewal_reminder_sent_for IS NULL OR renewal_reminder_sent_for <> current_period_end)
+     -- Same reason as the early-bird sweep: one email per merchant. A second
+     -- connection renewing on a different date still gets its own, because the
+     -- marker is compared against that date.
+     GROUP BY user_id
+     HAVING current_period_end = MIN(current_period_end)`
   ).bind(now.toISOString(), until.toISOString()).all();
 
   const subs = (rows.results ?? []) as unknown as DueSub[];

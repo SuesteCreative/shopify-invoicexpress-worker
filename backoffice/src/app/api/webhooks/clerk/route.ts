@@ -107,8 +107,8 @@ export async function POST(req: Request) {
             const trialEndDate = new Date(trialEnd);
             if (!isNaN(trialEndDate.getTime()) && trialEndDate > new Date()) {
                 await db.prepare(`
-                    INSERT OR IGNORE INTO subscriptions (user_id, status, trial_end, early_bird, created_at, updated_at)
-                    VALUES (?, 'trialing', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT OR IGNORE INTO subscriptions (user_id, connection_key, status, trial_end, early_bird, created_at, updated_at)
+                    VALUES (?, 'shopify:invoicexpress', 'trialing', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 `).bind(id, trialEndDate.toISOString()).run();
             }
         }

@@ -1,6 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
+import { getStripe, getStripeEnv, getDB, primaryConnectionKey } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
         const db = getDB();
         const sub: any = await db.prepare(
-            "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ?"
+            "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ? AND stripe_customer_id IS NOT NULL ORDER BY created_at ASC LIMIT 1"
         ).bind(targetUserId).first();
 
         let customerId = sub?.stripe_customer_id;
@@ -38,12 +38,12 @@ export async function POST(req: NextRequest) {
             });
             customerId = created.id;
             await db.prepare(`
-                INSERT INTO subscriptions (user_id, stripe_customer_id, status, updated_at)
-                VALUES (?, ?, 'incomplete', CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id) DO UPDATE SET
+                INSERT INTO subscriptions (user_id, connection_key, stripe_customer_id, status, updated_at)
+                VALUES (?, ?, ?, 'incomplete', CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, connection_key) DO UPDATE SET
                     stripe_customer_id = excluded.stripe_customer_id,
                     updated_at = CURRENT_TIMESTAMP
-            `).bind(targetUserId, customerId).run();
+            `).bind(targetUserId, await primaryConnectionKey(db, targetUserId), customerId).run();
         }
 
         const stripe = getStripe();

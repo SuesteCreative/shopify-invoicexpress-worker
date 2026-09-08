@@ -3,6 +3,8 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getRole, isAdmin } from "@/lib/admin";
 import { resolveAccountUser } from "@/lib/account";
+import { primaryConnectionKey } from "@/lib/stripe";
+import { DEFAULT_CONNECTION_KEY } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -202,18 +204,25 @@ export async function POST(request: NextRequest) {
         // dates by hand in Dev Mode, this save must not re-assert early_bird = 1 nor
         // restore the default cutoff. Rows without the marker behave exactly as before.
         const earlyBirdCutoff = (env as any).EARLY_BIRD_TRIAL_END || process.env.EARLY_BIRD_TRIAL_END || "2026-08-01T00:00:00Z";
+        // Which connection the grant is for (0044). This route saves the legacy
+        // row, so a shop domain names it outright; the Stripe wizard also posts
+        // here for its IX credentials, and on an account with no shop that grant
+        // belongs to whichever connection the account set up first.
+        const earlyBirdKey = clean_shopify_domain
+            ? DEFAULT_CONNECTION_KEY
+            : await primaryConnectionKey(db, targetUserId);
         try {
             await db.prepare(`
-                INSERT INTO subscriptions (user_id, status, trial_end, early_bird, created_at, updated_at)
-                VALUES (?, 'trialing', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id) DO UPDATE SET
+                INSERT INTO subscriptions (user_id, connection_key, status, trial_end, early_bird, created_at, updated_at)
+                VALUES (?, ?, 'trialing', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, connection_key) DO UPDATE SET
                     early_bird = CASE WHEN subscriptions.admin_override_at IS NULL
                                       THEN 1 ELSE subscriptions.early_bird END,
                     trial_end = CASE WHEN subscriptions.admin_override_at IS NULL
                                      THEN COALESCE(subscriptions.trial_end, excluded.trial_end)
                                      ELSE subscriptions.trial_end END,
                     updated_at = CURRENT_TIMESTAMP
-            `).bind(targetUserId, earlyBirdCutoff).run();
+            `).bind(targetUserId, earlyBirdKey, earlyBirdCutoff).run();
         } catch (e: any) {
             // Non-fatal: the integration was saved; early-bird grant is best-effort.
             console.error("[integrations] early-bird grant failed:", e?.message ?? e);

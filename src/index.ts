@@ -558,7 +558,7 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
   };
   applyConnectionEmailPref(legacy, destinationConfig);
 
-  const gate = await checkSubscriptionGate(c.env, legacy);
+  const gate = await checkSubscriptionGate(c.env, legacy, { source: "lodgify", destination: conn.destination_kind ?? "moloni" });
   if (!gate.allowed) {
     console.warn(`[Lodgify] Subscription gate blocked for ${userId}: ${gate.reason}`);
     await reportIncident(c.env, {
@@ -3409,7 +3409,7 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
       ix_send_email: 0,
     };
     applyConnectionEmailPref(legacy, destinationConfig);
-    const gate = await checkSubscriptionGate(env, legacy);
+    const gate = await checkSubscriptionGate(env, legacy, { source: "lodgify", destination: conn.destination_kind ?? "moloni" });
     if (!gate.allowed) {
       console.warn(`[LodgifyPoll] user ${conn.user_id}: subscription gate blocked (${gate.reason}) — skipping`);
       // Previously console-only: a merchant that WAS invoicing and goes dark
@@ -3955,7 +3955,7 @@ async function reportStaleLodgifyIngest(env: Env): Promise<{ checked: number; st
     // sending one critical "as reservas não estão a chegar" every single day.
     // Alarms that are known-wrong are worse than no alarm, because they teach
     // you to skim the ones that are right.
-    const gate = await checkSubscriptionGate(env, { user_id: conn.user_id } as IRequestConfig);
+    const gate = await checkSubscriptionGate(env, { user_id: conn.user_id } as IRequestConfig, { source: "lodgify", destination: conn.destination_kind ?? "moloni" });
     if (!gate.allowed) { out.skipped++; continue; }
 
     out.checked++;

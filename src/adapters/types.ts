@@ -349,6 +349,17 @@ export interface DestinationAdapter {
       /** What the buyer actually paid; the destination refuses to certify a
        *  document whose total drifted from it. */
       paidTotal?: number | null;
+      /**
+       * The source CAN report paid totals, so a null `paidTotal` means the read
+       * failed — not that there is nothing to compare.
+       *
+       * Set it from the source's `paidTotals` capability (in practice: from
+       * whether its recovery has a `describe`). Without it the gate is opt-in by
+       * omission, and a caller that simply forgets `paidTotal` certifies
+       * irreversibly with no check at all — which is exactly what the Stripe
+       * finalize route did until 2026-09.
+       */
+      requirePaidTotal?: boolean;
       batch?: FinalizeBatch;
       /** Builds the note stamped into the document's observations when the date
        *  has to move, given the date the document originally carried. A callback

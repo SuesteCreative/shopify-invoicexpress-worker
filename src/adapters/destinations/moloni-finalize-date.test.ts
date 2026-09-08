@@ -175,6 +175,20 @@ describe("MoloniDestination.finalizeWithDate", () => {
     expect(calls.filter((c) => c.path === "/invoices/update/")).toHaveLength(0);
   });
 
+  it("refuses to certify when the source could report the paid total and did not", async () => {
+    // Absence of a paid total is "the read failed", not "nothing to compare".
+    // Silently certifying on that absence is what let 19 wrong-valued drafts
+    // through the Stripe finalize route, which never passed a paid total at all.
+    const { calls } = mockMoloni({ doc: draft() });
+    const out = await moloni.finalizeWithDate("1010429054", CTX, {
+      strategy: "closest_available", batch: batch(), paidTotal: null, requirePaidTotal: true,
+    });
+
+    expect(out.status).toBe("error");
+    expect(out.message).toContain("Não consegui ler o valor pago");
+    expect(calls.filter((c) => c.path === "/invoices/update/")).toHaveLength(0);
+  });
+
   it("skips a document that is already closed", async () => {
     const { calls } = mockMoloni({ doc: draft({ status: 1 }) });
     const out = await moloni.finalizeWithDate("1010429054", CTX, { strategy: "closest_available", batch: batch() });

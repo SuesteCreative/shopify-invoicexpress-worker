@@ -327,6 +327,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     opts: {
       strategy: FinalizeDateStrategy;
       paidTotal?: number | null;
+      requirePaidTotal?: boolean;
       batch?: FinalizeBatch;
       dateMovedNote?: (originalDate: string) => string | null;
       dryRun?: boolean;
@@ -348,6 +349,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       strategy: opts.strategy,
       batch,
       paidTotal: opts.paidTotal,
+      requirePaidTotal: opts.requirePaidTotal,
       dateMovedNote: opts.dateMovedNote,
       dryRun: opts.dryRun,
     });

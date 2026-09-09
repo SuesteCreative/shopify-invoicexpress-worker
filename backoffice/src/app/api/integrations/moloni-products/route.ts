@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { getMoloniAccessToken, missingMoloniCredentials, moloniBaseUrl } from "@/lib/moloni-token";
 
 export const runtime = "edge";
 
@@ -44,21 +45,6 @@ function formEncode(obj: Record<string, unknown>, prefix = ""): string {
     return parts.filter(Boolean).join("&");
 }
 
-async function moloniOAuth(cfg: any): Promise<string> {
-    const url = new URL("https://api.moloni.pt/v1/grant/");
-    url.searchParams.set("grant_type", "password");
-    url.searchParams.set("client_id", String(cfg.moloni_client_id));
-    url.searchParams.set("client_secret", String(cfg.moloni_client_secret));
-    url.searchParams.set("username", String(cfg.moloni_username));
-    url.searchParams.set("password", String(cfg.moloni_password));
-    const res = await fetch(url.toString(), { method: "POST" });
-    const body = await res.json() as { access_token?: string };
-    if (!res.ok || !body.access_token) {
-        throw new Error(`Moloni OAuth failed: ${res.status}`);
-    }
-    return body.access_token;
-}
-
 export async function GET(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
@@ -81,22 +67,35 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "Moloni connection not configured" }, { status: 400 });
     }
     const cfg = JSON.parse(conn.destination_config_json);
-    if (!cfg.moloni_client_id || !cfg.moloni_client_secret || !cfg.moloni_username || !cfg.moloni_password || !cfg.moloni_company_id) {
+    // An OAuth connection has no username or password by design, so the check
+    // has to ask what THIS connection needs. Without this the product-mapping
+    // page reported "credentials incomplete" for a Stripe Connect merchant whose
+    // Moloni authorisation was perfectly healthy.
+    const missing = missingMoloniCredentials(cfg);
+    if (missing) return NextResponse.json({ error: missing }, { status: 400 });
+    if (!cfg.moloni_company_id) {
         return NextResponse.json({ error: "Moloni credentials incomplete" }, { status: 400 });
     }
 
     let token: string;
     try {
-        token = await moloniOAuth(cfg);
+        token = await getMoloniAccessToken({
+            db, userId: authResult.targetUserId, sourceKind, cfg,
+        });
     } catch (e: any) {
-        return NextResponse.json({ error: `Moloni OAuth: ${e.message}` }, { status: 502 });
+        // A refresh token that Moloni refused is the merchant's to fix, and 502
+        // would send them looking for an outage instead of the authorise button.
+        const status = e?.name === "MoloniReauthRequired" ? 400 : 502;
+        return NextResponse.json({ error: `Moloni: ${e.message}` }, { status });
     }
 
     const endpoint = search ? "/products/getBySearch/" : "/products/getAll/";
     const body: Record<string, unknown> = { company_id: Number(cfg.moloni_company_id), qty: limit, offset };
     if (search) body.search = search;
 
-    const moloniUrl = `https://api.moloni.pt/v1${endpoint}?access_token=${encodeURIComponent(token)}`;
+    // Honour the connection's environment rather than hardcoding production —
+    // a sandbox connection was silently querying live Moloni.
+    const moloniUrl = `${moloniBaseUrl(cfg)}${endpoint}?access_token=${encodeURIComponent(token)}`;
     const res = await fetch(moloniUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },

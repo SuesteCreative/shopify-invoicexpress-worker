@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Store, ClipboardList, Wallet, CreditCard, Landmark, ArrowRight, Lock, CheckCircle2 } from "lucide-react";
+import { Store, ClipboardList, Wallet, CreditCard, Landmark, ArrowRight, Lock, CheckCircle2, Trash2, AlertTriangle, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
@@ -44,6 +44,13 @@ export default function IntegrationsPage() {
     const [selectedInvoicing, setSelectedInvoicing] = useState<string | null>(null);
     const [activeIntegrations, setActiveIntegrations] = useState<any[]>([]);
     const [subBlocked, setSubBlocked] = useState(false);
+    // Deleting an integration throws away credentials and an authorisation, so
+    // it asks the merchant to type the pair's name. A dialog you can dismiss with
+    // one stray Enter is not a confirmation.
+    const [pendingDelete, setPendingDelete] = useState<any | null>(null);
+    const [typed, setTyped] = useState("");
+    const [deleting, setDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState("");
 
     useEffect(() => {
         Promise.all([
@@ -60,9 +67,16 @@ export default function IntegrationsPage() {
                     status: data.shopify_authorized && data.ix_authorized && data.webhooks_active ? "authorized" : "pending"
                 });
             }
-            // Show set-up integrations (active + paused); a paused one is set up but
-            // the subscription isn't active yet → shown as "incomplete". Drafts hidden.
-            const setup = (connData.connections || []).filter((c: any) => c.status === "active" || c.status === "paused");
+            // Every connection the merchant has started, including drafts.
+            //
+            // Drafts used to be hidden, which meant a half-finished setup simply
+            // vanished: the merchant had to remember which two platforms they had
+            // picked and re-select them to find their own data again. An
+            // integration you cannot see is one you cannot finish and cannot
+            // delete.
+            const setup = (connData.connections || []).filter(
+                (c: any) => c.status === "active" || c.status === "paused" || c.status === "draft"
+            );
             for (const conn of setup) {
                 const id = `${conn.source_kind}-${conn.destination_kind}`;
                 if (list.find(i => i.id === id)) continue;
@@ -72,8 +86,10 @@ export default function IntegrationsPage() {
                 const src = conn.source_kind === "stripe_connect" ? "stripe-connect" : conn.source_kind;
                 list.push({
                     id, payment: conn.source_kind, invoicing: conn.destination_kind,
+                    sourceKind: conn.source_kind, destinationKind: conn.destination_kind,
                     href: `/integrations/${src}-${dest}`,
-                    status: "authorized"
+                    status: conn.status === "draft" ? "draft" : "authorized",
+                    deletable: true,
                 });
             }
             setActiveIntegrations(list);
@@ -111,6 +127,36 @@ export default function IntegrationsPage() {
         return "/integrations/shopify-ix";
     })();
 
+    const confirmPhrase = pendingDelete
+        ? `${pendingDelete.sourceKind}:${pendingDelete.destinationKind}`
+        : "";
+
+    const handleDelete = async () => {
+        if (!pendingDelete || typed.trim() !== confirmPhrase) return;
+        setDeleting(true);
+        setDeleteError("");
+        try {
+            const qs = new URLSearchParams({
+                source_kind: pendingDelete.sourceKind,
+                destination_kind: pendingDelete.destinationKind,
+                confirm: confirmPhrase,
+            });
+            const res = await fetch(`/api/connections?${qs}`, { method: "DELETE" });
+            const json: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setDeleteError(json.error ?? `HTTP ${res.status}`);
+                return;
+            }
+            setActiveIntegrations(prev => prev.filter(i => i.id !== pendingDelete.id));
+            setPendingDelete(null);
+            setTyped("");
+        } catch (e: any) {
+            setDeleteError(e?.message ?? "Unknown error");
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     return (
         <div className="max-w-6xl mx-auto space-y-16 animate-in fade-in duration-1000 slide-in-from-bottom-4">
             <div className="space-y-4 text-center md:text-left">
@@ -121,6 +167,60 @@ export default function IntegrationsPage() {
                     {t("subtitle")}
                 </p>
             </div>
+
+            {pendingDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+                    <div className="glass rounded-[2rem] max-w-lg w-full p-8 space-y-6 border border-[rgba(239,68,68,0.25)]">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-[rgba(239,68,68,0.10)] shrink-0">
+                                <AlertTriangle className="w-6 h-6 text-[rgb(239,68,68)]" />
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-xl font-medium tracking-tight">{t("deleteTitle")}</h3>
+                                <p className="text-sm text-fg-60 leading-relaxed">{t("deleteBody")}</p>
+                                <p className="text-[11px] text-fg-40 leading-relaxed">{t("deleteKeepsHistory")}</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] block">
+                                {t("deleteTypeToConfirm")}
+                            </label>
+                            <code className="block bg-surface-2/60 border border-hairline rounded-xl px-4 py-3 text-sm font-mono select-all">
+                                {confirmPhrase}
+                            </code>
+                            <input
+                                type="text"
+                                value={typed}
+                                onChange={(e) => setTyped(e.target.value)}
+                                autoComplete="off"
+                                spellCheck={false}
+                                placeholder={confirmPhrase}
+                                className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-[rgba(239,68,68,0.20)] focus:border-[rgba(239,68,68,0.45)] outline-none transition-all placeholder:text-fg-40"
+                            />
+                        </div>
+
+                        {deleteError && <p className="text-[11px] text-[rgb(239,68,68)] font-bold">{deleteError}</p>}
+
+                        <div className="flex items-center gap-3 pt-2">
+                            <button
+                                onClick={() => { setPendingDelete(null); setTyped(""); setDeleteError(""); }}
+                                className="flex-1 py-4 rounded-2xl border border-hairline hover:border-rule text-[10px] font-black uppercase tracking-[0.18em] transition-colors"
+                            >
+                                {t("deleteCancel")}
+                            </button>
+                            <button
+                                onClick={handleDelete}
+                                disabled={deleting || typed.trim() !== confirmPhrase}
+                                className="flex-1 py-4 rounded-2xl bg-[rgb(239,68,68)] text-white text-[10px] font-black uppercase tracking-[0.18em] transition-all disabled:opacity-25 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                {t("deleteConfirm")}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {activeIntegrations.length > 0 && (
                 <section className="space-y-6">
@@ -156,18 +256,32 @@ export default function IntegrationsPage() {
                                                             ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
                                                             : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
                                                     )}>
-                                                        {subBlocked ? t("statusIncomplete") : ai.status === "authorized" ? t("statusAuthorized") : t("statusPending")}
+                                                        {ai.status === "draft"
+                                                            ? t("statusPending")
+                                                            : subBlocked ? t("statusIncomplete") : t("statusAuthorized")}
                                                     </span>
                                                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("realtimeSync")}</span>
                                                 </div>
                                             </div>
                                         </div>
-                                        <Link
-                                            href={ai.href}
-                                            className="px-5 sm:px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
-                                        >
-                                            {t("manageSettings")} <ArrowRight className="w-4 h-4" />
-                                        </Link>
+                                        <div className="flex items-center gap-3">
+                                            <Link
+                                                href={ai.href}
+                                                className="px-5 sm:px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+                                            >
+                                                {ai.status === "draft" ? t("resumeSetup") : t("manageSettings")} <ArrowRight className="w-4 h-4" />
+                                            </Link>
+                                            {ai.deletable && (
+                                                <button
+                                                    onClick={() => { setPendingDelete(ai); setTyped(""); setDeleteError(""); }}
+                                                    title={t("deleteIntegration")}
+                                                    aria-label={t("deleteIntegration")}
+                                                    className="p-4 rounded-2xl border border-[rgba(239,68,68,0.25)] text-[rgb(239,68,68)] hover:bg-[rgba(239,68,68,0.10)] hover:border-[rgba(239,68,68,0.45)] transition-all"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             );

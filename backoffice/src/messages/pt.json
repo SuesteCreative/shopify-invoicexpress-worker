@@ -753,7 +753,15 @@
         "readyToConnect": "Pronto para Conectar?",
         "readyBody": "Inicie o guia de configuração de 4 passos para automatizar a sua faturação.",
         "configureNow": "Configurar Agora",
-        "unavailableCombo": "Combinação Indisponível"
+        "unavailableCombo": "Combinação Indisponível",
+        "resumeSetup": "Continuar configuração",
+        "deleteIntegration": "Apagar integração",
+        "deleteTitle": "Apagar esta integração?",
+        "deleteBody": "As credenciais, as definições e a autorização desta ligação são apagadas. Se for uma ligação Stripe Connect, retiramos também a autorização do lado do Stripe.",
+        "deleteKeepsHistory": "As faturas já emitidas e o histórico de vendas processadas ficam intactos. É isso que impede que uma nova configuração volte a faturar vendas antigas.",
+        "deleteTypeToConfirm": "Para confirmar, escreva exatamente:",
+        "deleteCancel": "Cancelar",
+        "deleteConfirm": "Apagar"
     },
     "conciliacao": {
         "title": "Conciliação",

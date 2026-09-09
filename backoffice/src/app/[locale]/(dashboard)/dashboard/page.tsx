@@ -58,7 +58,12 @@ export default function WelcomeDashboard() {
         // Show set-up integrations (active + paused) — a paused one is set up but
         // the subscription isn't active yet, so it shows as "incomplete". Drafts
         // (mid-setup) are hidden.
-        const setup = (d.connections || []).filter((c: any) => c.status === "active" || c.status === "paused");
+        // Drafts included: a half-finished setup that shows nowhere is one the
+        // merchant cannot find their way back to. The card's own status badge
+        // already distinguishes "pending" from "active".
+        const setup = (d.connections || []).filter(
+          (c: any) => c.status === "active" || c.status === "paused" || c.status === "draft"
+        );
         setActiveConnections(setup);
       })
       .catch(() => setActiveConnections([]));

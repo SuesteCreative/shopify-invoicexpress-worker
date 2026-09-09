@@ -213,6 +213,11 @@ export default function SuperadminPage() {
                     u.acq_country?.toLowerCase().includes(q)
                 );
             })
+            // An invited extra user works inside somebody else's account: they
+            // have no integration of their own and never will, so listing them
+            // under "No Integration" reads as twelve broken shops. Their card is
+            // the Invited group. A member who somehow owns a pipe still shows.
+            .filter(u => !(u.member_of_id && !u.connection_key))
             .filter(u => subFilter === "all" || subBucket(u.sub_state) === subFilter)
             .filter(u => sourceFilter === "all" || u.source === sourceFilter)
             .filter(u => destFilter === "all" || u.destination === destFilter)
@@ -390,8 +395,33 @@ export default function SuperadminPage() {
                         <div className="flex items-center justify-center lg:justify-start gap-3 flex-wrap">
                             {/* The headline is the name an operator gave this
                                 pipe when there is one: a Clerk profile called
-                                "User" identifies nothing. */}
-                            <h2 className="text-xl font-bold">{label || user.name}</h2>
+                                "User" identifies nothing. It is also the thing
+                                you click to rename — the edit used to hang off
+                                a muted line underneath, so clicking the name
+                                selected text and did nothing else. */}
+                            {labelEditing === user.entry_id ? (
+                                <span className="flex items-center gap-1.5">
+                                    <input
+                                        autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
+                                        onKeyDown={e => { if (e.key === "Enter") handleLabelSave(user); if (e.key === "Escape") setLabelEditing(null); }}
+                                        placeholder={t("storeLabelPlaceholder")}
+                                        className="bg-surface-2/60 border border-hairline rounded-lg px-2.5 py-1 text-lg font-bold w-56 focus:outline-none focus:border-accent transition-all"
+                                    />
+                                    <button onClick={() => handleLabelSave(user)} disabled={acting !== null} className="p-1.5 rounded-md bg-[rgba(2,141,196,0.15)] text-accent hover:bg-[rgba(2,141,196,0.25)] transition-all disabled:opacity-30">
+                                        {acting === user.entry_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                                    </button>
+                                    <button onClick={() => setLabelEditing(null)} className="p-1.5 rounded-md bg-surface-2 text-fg-40 hover:text-fg transition-all"><X className="w-3.5 h-3.5" /></button>
+                                </span>
+                            ) : (
+                                <button
+                                    onClick={() => { setLabelEditing(user.entry_id); setLabelDraft(label || ""); }}
+                                    title={t("storeLabelEdit")}
+                                    className="group/lbl flex items-center gap-2 transition-all"
+                                >
+                                    <h2 className="text-xl font-bold group-hover/lbl:text-accent transition-colors">{label || user.name}</h2>
+                                    <Pencil className="w-3.5 h-3.5 text-fg-40 opacity-40 group-hover/lbl:opacity-100 group-hover/lbl:text-accent transition-all" />
+                                </button>
+                            )}
                             <RoleBadge role={targetRole} t={t} />
                             <SubBadge state={user.sub_state} t={t} />
                             {/* The pipe this card IS: payment platform, then invoicing software. */}
@@ -419,30 +449,11 @@ export default function SuperadminPage() {
                                 <span className="px-2 py-0.5 rounded-md bg-surface-2 text-fg-40 text-[10px] font-black uppercase tracking-widest border border-hairline">{t("yourAccount")}</span>
                             )}
                         </div>
-                        {/* Store name — per connection, identification only; never fiscal */}
-                        {labelEditing === user.entry_id ? (
-                            <div className="flex items-center justify-center lg:justify-start gap-1.5">
-                                <input
-                                    autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
-                                    onKeyDown={e => { if (e.key === "Enter") handleLabelSave(user); if (e.key === "Escape") setLabelEditing(null); }}
-                                    placeholder={t("storeLabelPlaceholder")}
-                                    className="bg-surface-2/60 border border-hairline rounded-lg px-2.5 py-1 text-sm font-semibold w-52 focus:outline-none focus:border-accent transition-all"
-                                />
-                                <button onClick={() => handleLabelSave(user)} disabled={acting !== null} className="p-1.5 rounded-md bg-[rgba(2,141,196,0.15)] text-accent hover:bg-[rgba(2,141,196,0.25)] transition-all disabled:opacity-30">
-                                    {acting === user.entry_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                                </button>
-                                <button onClick={() => setLabelEditing(null)} className="p-1.5 rounded-md bg-surface-2 text-fg-40 hover:text-fg transition-all"><X className="w-3.5 h-3.5" /></button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={() => { setLabelEditing(user.entry_id); setLabelDraft(label || ""); }}
-                                className="group/lbl flex items-center justify-center lg:justify-start gap-2 transition-all"
-                            >
-                                {label
-                                    ? <span className="text-xs font-bold text-fg-40 uppercase tracking-widest">{user.name}</span>
-                                    : <span className="text-xs font-bold text-fg-40/70 italic flex items-center gap-1.5 group-hover/lbl:text-accent transition-colors"><Pencil className="w-3 h-3" /> {t("storeLabelAdd")}</span>}
-                                {label && <Pencil className="w-3 h-3 text-fg-40 opacity-0 group-hover/lbl:opacity-60 transition-opacity" />}
-                            </button>
+                        {/* Whose profile sits behind the name, when the name is
+                            not theirs. Caption, not control: the control is the
+                            headline above. */}
+                        {label && label !== user.name && (
+                            <p className="text-xs font-bold text-fg-40 uppercase tracking-widest">{user.name}</p>
                         )}
                         <div className="flex flex-col gap-1.5">
                             <p className="text-fg-40 text-sm font-medium">{user.email}</p>
@@ -634,6 +645,16 @@ export default function SuperadminPage() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap justify-center">
+                        {/* Impersonation follows the person, Dev Mode follows the
+                            account they work in — the tools act on the pipes, and
+                            an extra user owns none. */}
+                        {inv.member_user_id && inv.member_user_id !== (clerkUser?.id ?? viewerId) && (
+                            <button onClick={() => handleImpersonate(inv.member_user_id)} disabled={acting !== null}
+                                className="bg-white text-black px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-fg transition-all duration-300 active:scale-95 disabled:opacity-30">
+                                {acting === inv.member_user_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
+                                {t("impersonate")}
+                            </button>
+                        )}
                         <Link href={`/superadmin/users/${inv.account_id}/dev-mode`}
                             className="bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(2,141,196,0.18)] transition-all active:scale-95">
                             <Wrench className="w-3 h-3" /> {t("devMode")}

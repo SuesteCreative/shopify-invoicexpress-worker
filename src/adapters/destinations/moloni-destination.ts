@@ -646,7 +646,7 @@ async function resolveCountryId(
   return companyCountries.get(iso) ?? MOLONI_PT_COUNTRY_ID;
 }
 
-function taxRateForItem(
+export function taxRateForItem(
   item: Normalized["order"]["items"][number],
   ctx: AdapterCtx,
 ): number {
@@ -655,16 +655,32 @@ function taxRateForItem(
   // genuine shipping lines, not Stripe synthetic items with a price id.
   const sku = (item.sku ?? "").trim();
   const isShipping = !sku && !item.product_id && !item.variant_id;
+
+  // The connection's own default VAT rate, when it states one.
+  const def = Number((ctx.destinationConfig as any)?.default_vat_rate);
+  const hasConnectionRate = Number.isFinite(def) && def > 0;
+
+  // `force_tax_rate` lives on the legacy `integrations` row, which is the
+  // ACCOUNT's — in practice the account's Shopify shop. It is shared on purpose
+  // (see CONNECTION_FISCAL_IDENTITY) and keeps governing every connection that
+  // says nothing about its own rate.
+  //
+  // What it must not do is outrank a connection that DID say. Measured
+  // 09/09/2026: a shop with force_tax_rate=0 silently rewrote a Stripe Connect
+  // connection configured at 23% down to 0% with an exemption code, on a sale
+  // belonging to an entirely different business. The merchant had typed 23 into
+  // the wizard, the field's own help text promised it applied "when Stripe sends
+  // no VAT", and it never reached the document.
   const forceTax = isShipping
     ? ctx.config.force_shipping_tax_rate
     : ctx.config.force_tax_rate;
-  if (forceTax != null) return Number(forceTax);
+  if (forceTax != null && !hasConnectionRate) return Number(forceTax);
+
+  // Whatever the payment itself stated always wins over a default.
   if (item.tax.unit_amount !== 0) return Number(item.tax.value);
-  // Fallback: the connection's default VAT rate, applied when the payment carries
-  // no tax breakdown (e.g. Stripe PaymentIntents). Stripe's real tax above always
-  // wins; this is the last resort before treating the line as exempt.
-  const def = Number((ctx.destinationConfig as any)?.default_vat_rate);
-  return Number.isFinite(def) && def > 0 ? def : 0;
+
+  // Last resort before treating the line as exempt.
+  return hasConnectionRate ? def : 0;
 }
 
 // companyId → (rate → tax_id), from /taxes/getAll/. Survives within an isolate.

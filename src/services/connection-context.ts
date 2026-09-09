@@ -125,6 +125,32 @@ const CONNECTION_FISCAL_IDENTITY = [
   "ix_document_type",
 ] as const;
 
+/**
+ * Fiscal settings that used to reach a connection from the ACCOUNT's legacy row.
+ *
+ * The legacy `integrations` row belongs to one integration — in practice the
+ * account's Shopify shop, or (for a client who never had one) their single
+ * Stripe→IX setup. It was never meant to govern a second, unrelated integration,
+ * and when it did the result was invisible: measured 09/09/2026, a shop with
+ * `force_tax_rate = 0` issued a different business's Stripe sales at 0% with an
+ * exemption code, ignoring the 23% that connection had been configured with.
+ *
+ * A merchant may run every combination at once, and each one is its own
+ * business decision. So for a connection-based source these are read from the
+ * CONNECTION and nowhere else: stated there, or neutral. Shopify keeps reading
+ * the legacy row, which is its own.
+ */
+const CONNECTION_FISCAL_RATES = [
+  "force_tax_rate",
+  "force_shipping_tax_rate",
+] as const;
+
+const CONNECTION_FISCAL_TOGGLES = [
+  "b2b_reverse_charge",
+  "oss_enabled",
+  "vat_included",
+] as const;
+
 const CONNECTION_FISCAL_FLAGS = [
   "ix_derive_exemption",
   "ix_adapter_safety_nets",
@@ -153,9 +179,40 @@ const CONNECTION_FISCAL_FLAGS = [
 export function projectConnectionBehaviour(
   config: IRequestConfig,
   destinationConfig?: Record<string, any>,
+  /**
+   * The connection's source. When given and not "shopify", the fiscal settings
+   * in CONNECTION_FISCAL_RATES / _TOGGLES are isolated: taken from this
+   * connection or left neutral, never inherited from the account's legacy row.
+   * Omitted keeps the historical inherit-everything behaviour, which is what
+   * every legacy Shopify caller wants.
+   */
+  source?: SourceKind,
 ): IRequestConfig {
-  if (!destinationConfig) return config;
   const c = config as any;
+  const isolate = !!source && source !== "shopify";
+
+  // Isolation runs even with no destination config: a connection that has said
+  // nothing must still not inherit another integration's rates.
+  if (isolate) {
+    for (const key of CONNECTION_FISCAL_RATES) {
+      const stated = Number(destinationConfig?.[key]);
+      c[key] = Number.isFinite(stated) ? stated : null;
+    }
+    for (const key of CONNECTION_FISCAL_TOGGLES) {
+      const stated = destinationConfig?.[key];
+      if (typeof stated === "boolean") c[key] = stated ? 1 : 0;
+      else if (stated === 0 || stated === 1) c[key] = stated;
+      else c[key] = 0;
+    }
+    // Same reasoning for the exemption code: an account-level M40 is one
+    // integration's fiscal identity, not every integration's. The adapters
+    // supply their own default when it is absent.
+    if (!destinationConfig?.ix_exemption_reason && !destinationConfig?.exemption_reason) {
+      c.ix_exemption_reason = null;
+    }
+  }
+
+  if (!destinationConfig) return config;
   if (typeof destinationConfig.auto_finalize === "boolean") {
     c.auto_finalize = destinationConfig.auto_finalize ? 1 : 0;
   }
@@ -269,7 +326,7 @@ export async function resolveConnectionContext(
       // A Shopify connection still has a legacy integrations row; a Lodgify- or
       // Moloni-only user may not, so synthesize one.
       const config = (await appStorage.loadConfig()) ?? synthLegacyConfig(opts.userId);
-      projectConnectionBehaviour(config, destinationConfig);
+      projectConnectionBehaviour(config, destinationConfig, source);
       const scope = source === "shopify" && config.shopify_domain
         ? config.shopify_domain
         : `u:${opts.userId}`;

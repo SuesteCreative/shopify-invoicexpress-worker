@@ -46,7 +46,7 @@ export async function buildAdapterCtx(
   // not, and a connection's series or exemption code reached a document or not
   // depending on which door the run came in by. Idempotent, so the call sites
   // that already do it stay correct.
-  projectConnectionBehaviour(config, input.destinationConfig);
+  projectConnectionBehaviour(config, input.destinationConfig, source);
 
   // Explicit product mappings (Moloni) + per-SKU overrides (IX) + tag routing
   // rules. All are one D1 round-trip with empty fallbacks.

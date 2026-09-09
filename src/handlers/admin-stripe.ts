@@ -394,7 +394,7 @@ async function resolveStripeDestination(env: Env, config: IRequestConfig): Promi
 
   const destination = (conn.destinationKind as DestinationKind) ?? "invoicexpress";
   // The connection's own auto_finalize/send_email must win for its own traffic.
-  projectConnectionBehaviour(config, conn.destinationConfig);
+  projectConnectionBehaviour(config, conn.destinationConfig, conn.sourceKind);
 
   const { ctx } = await buildAdapterCtx(env, {
     config,

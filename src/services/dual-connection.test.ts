@@ -124,18 +124,46 @@ describe("resolving which connection an operation acts on", () => {
     } finally { h.close(); }
   });
 
-  it("hands the Stripe pipeline the shop's own fiscal identity", async () => {
-    // Still the fallback, and correct: this connection states nothing of its own,
-    // so it inherits the account's row. What changed is that it no longer HAS to.
+  it("does not hand a Stripe connection the shop's fiscal settings", async () => {
+    // The account here runs a Shopify shop AND a Stripe connection. They are two
+    // different integrations, and a merchant may run every combination at once —
+    // so the shop's exemption code and forced rates are the SHOP's, not the
+    // account's, and must not decide what the Stripe connection issues.
+    //
+    // Measured before this was true: a shop with force_tax_rate = 0 issued a
+    // different business's Stripe sales at 0% with an exemption code, ignoring
+    // the 23% that connection had been configured with. Nothing about the
+    // resulting invoice looked wrong.
     const h = await db(DUAL);
     if (!h) return;
     try {
       const r = await resolveConnectionContext(h.env, { userId: "user_X", source: "stripe" });
       expect(r.ok).toBe(true);
       if (!r.ok) return;
+
+      // Isolated: the connection states neither, so it gets neither.
+      expect(r.ctx.config.ix_exemption_reason).toBeNull();
+      expect(r.ctx.config.force_tax_rate).toBeNull();
+      expect(r.ctx.config.oss_enabled).toBe(0);
+
+      // Still inherited, deliberately: `ix_sequence_name` moves with the series
+      // work, and `auto_finalize` is behaviour the connection projects when it
+      // states one. Neither is part of this change.
       expect(r.ctx.config.ix_sequence_name).toBe("LOJA");
-      expect(r.ctx.config.ix_exemption_reason).toBe("M01");
       expect(r.ctx.config.auto_finalize).toBe(1);
+    } finally { h.close(); }
+  });
+
+  it("still hands a Shopify connection its own row, untouched", async () => {
+    // The legacy row belongs to the shop. Nothing here changes for it.
+    const h = await db(DUAL);
+    if (!h) return;
+    try {
+      const r = await resolveConnectionContext(h.env, { userId: "user_X", shop: "loja.myshopify.com" });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.ctx.config.ix_exemption_reason).toBe("M01");
+      expect(r.ctx.config.ix_sequence_name).toBe("LOJA");
     } finally { h.close(); }
   });
 });

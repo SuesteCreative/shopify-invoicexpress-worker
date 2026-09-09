@@ -1380,7 +1380,7 @@ app.post("/admin/lodgify/settle-receipts", async (c) => {
     const result = await settleLodgifyReceipts(c.env, {
       userId: body.user_id,
       destination,
-      config: projectConnectionBehaviour(legacy, destinationConfig),
+      config: projectConnectionBehaviour(legacy, destinationConfig, "lodgify"),
       sourceCfg,
       destinationConfig,
       connLabel: `lodgify → ${destination}`,
@@ -2982,7 +2982,7 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       // synthLegacyConfig for the fallback, for the same reason: it defines
       // every flag the pipeline reads, and the inline object here defined four.
       const legacy: any = legacyRow ?? synthLegacyConfig(userId);
-      projectConnectionBehaviour(legacy, destinationConfig);
+      projectConnectionBehaviour(legacy, destinationConfig, sourceKind);
       applyConnectionEmailPref(legacy, destinationConfig);
 
       // An invoice event has to carry the PaymentIntent that paid it BEFORE
@@ -3850,7 +3850,7 @@ async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {}): Pro
         const settle = await settleLodgifyReceipts(env, {
           userId: conn.user_id,
           destination,
-          config: projectConnectionBehaviour(legacy, destinationConfig),
+          config: projectConnectionBehaviour(legacy, destinationConfig, "lodgify"),
           sourceCfg,
           destinationConfig,
           connLabel,

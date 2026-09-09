@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { getStripeEnvOptional } from "@/lib/stripe";
 
 export const runtime = "edge";
 
@@ -59,15 +60,20 @@ async function listShopify(domain: string, token: string, apiVersion: string): P
     return out;
 }
 
-async function listStripe(restrictedKey: string): Promise<SourceProduct[]> {
+async function listStripe(apiKey: string, connectAccount?: string | null): Promise<SourceProduct[]> {
     // Stripe Source emits invoice/charge line items with `sku = l.price?.id`
     // (the price id, e.g. price_xxx). To produce stable mapping rows that
     // match the worker's deriveProductReference, we enumerate PRICES — one
     // row per price — and embed the parent product's name as `title`.
     const out: SourceProduct[] = [];
+    // Connect connections are read with Rioko's platform key, scoped to the
+    // merchant's account by the header; restricted-key connections send no header
+    // at all, exactly as they always have.
+    const headers: Record<string, string> = { "Authorization": `Bearer ${apiKey}` };
+    if (connectAccount) headers["Stripe-Account"] = connectAccount;
     const res = await fetch(
         "https://api.stripe.com/v1/prices?limit=100&active=true&expand[]=data.product",
-        { headers: { "Authorization": `Bearer ${restrictedKey}` } },
+        { headers },
     );
     if (!res.ok) throw new Error(`Stripe ${res.status}: ${await res.text().catch(() => "")}`);
     const json = await res.json() as { data?: any[] };
@@ -93,8 +99,8 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url);
     const sourceKind = url.searchParams.get("source_kind");
-    if (sourceKind !== "shopify" && sourceKind !== "stripe") {
-        return NextResponse.json({ error: "source_kind must be 'shopify' or 'stripe'" }, { status: 400 });
+    if (sourceKind !== "shopify" && sourceKind !== "stripe" && sourceKind !== "stripe_connect") {
+        return NextResponse.json({ error: "source_kind must be 'shopify', 'stripe' or 'stripe_connect'" }, { status: 400 });
     }
 
     const { env } = getRequestContext();
@@ -113,15 +119,22 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ products });
         }
 
-        // Stripe path
+        // Stripe path — either connection kind, whichever the caller asked for.
         const row: any = await db.prepare(
             `SELECT source_config_json FROM connections
-             WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1`,
-        ).bind(authResult.targetUserId).first();
+             WHERE user_id = ? AND source_kind = ? LIMIT 1`,
+        ).bind(authResult.targetUserId, sourceKind).first();
         if (!row?.source_config_json) {
             return NextResponse.json({ error: "Stripe not configured" }, { status: 400 });
         }
         const cfg = JSON.parse(row.source_config_json);
+        if (cfg.auth_mode === "connect") {
+            const platformKey = getStripeEnvOptional("STRIPE_SECRET_KEY");
+            if (!platformKey) return NextResponse.json({ error: "STRIPE_SECRET_KEY not configured" }, { status: 500 });
+            if (!cfg.stripe_account_id) return NextResponse.json({ error: "Stripe not connected yet" }, { status: 400 });
+            const products = await listStripe(platformKey, String(cfg.stripe_account_id));
+            return NextResponse.json({ products });
+        }
         const key = cfg.restricted_key ?? cfg.stripe_restricted_key;
         if (!key) return NextResponse.json({ error: "Stripe restricted_key missing" }, { status: 400 });
         const products = await listStripe(String(key));

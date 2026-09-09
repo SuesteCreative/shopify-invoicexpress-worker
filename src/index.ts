@@ -52,9 +52,11 @@ import {
 } from "./handlers/reconciliation";
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
+import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
 import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour } from "./services/connection-context";
 import { stampInvoicePaymentIntent } from "./services/stripe";
+import { resolveStripeAuth } from "./services/stripe-auth";
 import { buildAdapterCtx } from "./services/adapter-ctx";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
@@ -362,6 +364,157 @@ app.post("/webhooks/stripe", async (c) => {
     }
     // 500 → Stripe retries. No `processing` row was written, so the retry runs
     // the full path again rather than being short-circuited as "already processed".
+    return c.text("Enqueue failed", 500);
+  }
+
+  return c.text("Queued", 200);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stripe CONNECT webhooks — POST /webhooks/stripe/connect
+//
+// Deliberately a second route rather than a branch inside the one above. The
+// two flows share nothing but the event shape:
+//
+//   /webhooks/stripe          one endpoint installed on EACH merchant's account,
+//                             one whsec_ per connection, and no way to know who
+//                             sent an event except by trying every connection's
+//                             secret until one verifies.
+//   /webhooks/stripe/connect  ONE endpoint on Rioko's platform account, ONE
+//                             signing secret for every connected account, and
+//                             the sender named in the event's `account` field.
+//
+// Keeping them apart means the merchants already on the restricted-key flow
+// cannot be affected by anything here, including this route being switched off.
+// ────────────────────────────────────────────────────────────────────────────
+app.post("/webhooks/stripe/connect", async (c) => {
+  if (c.env.STRIPE_CONNECT_ENABLED !== "1") {
+    return c.text("Stripe Connect disabled", 404);
+  }
+
+  const sig = c.req.header("Stripe-Signature");
+  const rawBody = await c.req.text();
+  if (!sig) return c.text("Missing Stripe-Signature", 400);
+
+  const secret = c.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error("[StripeConnect] STRIPE_CONNECT_WEBHOOK_SECRET is not set");
+    return c.text("Secret not configured", 500);
+  }
+
+  // Replay window, same 5-minute tolerance as the restricted-key route.
+  const tMatch = sig.match(/(?:^|,)t=(\d+)/);
+  if (tMatch) {
+    const eventTsMs = Number(tMatch[1]) * 1000;
+    const ageMs = Date.now() - eventTsMs;
+    if (Number.isFinite(eventTsMs) && ageMs > 5 * 60_000) {
+      console.warn(`[StripeConnect] Rejecting webhook: timestamp ${Math.round(ageMs / 1000)}s old (>5min)`);
+      return c.text("Webhook timestamp too old", 400);
+    }
+  }
+
+  // Signature FIRST, before any database work: one secret means there is no
+  // reason to look anything up in order to verify, and an unverified body must
+  // not be allowed to make us query.
+  const adapter = getSourceAdapter("stripe_connect");
+  if (!await adapter.verifyWebhook(rawBody, sig, secret)) {
+    console.error("[StripeConnect] Invalid signature");
+    return c.text("Invalid signature", 401);
+  }
+
+  const event = JSON.parse(rawBody);
+  const eventId: string = event.id ?? "";
+  const account: string = event.account ?? "";
+  if (!account) {
+    // A platform-scoped event (Rioko's own billing) reaching the Connect
+    // endpoint. Not ours to invoice.
+    return c.text("Not a connected-account event", 200);
+  }
+
+  const ownerRow: any = await c.env.DB.prepare(
+    `SELECT id, user_id, source_config_json, destination_kind FROM connections
+      WHERE source_kind = 'stripe_connect' AND status = 'active'
+        AND json_extract(source_config_json, '$.stripe_account_id') = ?
+      LIMIT 1`
+  ).bind(account).first();
+
+  if (!ownerRow) {
+    // Rioko's Stripe account also carries Connect accounts belonging to an
+    // unrelated product, so events from accounts we do not invoice for are
+    // NORMAL here. 200 and silence — an incident per event would drown the
+    // daily digest in other people's payments.
+    console.log(`[StripeConnect] Ignoring event ${eventId} for unknown account ${account}`);
+    return c.text("No connection for this account", 200);
+  }
+
+  // A merchant disconnecting Rioko in their own Stripe dashboard. Stripe tells
+  // us once and never again; without handling it the connection would keep
+  // looking healthy while every read 401s.
+  if (event.type === "account.application.deauthorized") {
+    const now = new Date().toISOString();
+    await c.env.DB.prepare(
+      `UPDATE connections
+          SET status = 'error', updated_at = ?,
+              source_config_json = json_patch(COALESCE(source_config_json, '{}'), ?)
+        WHERE id = ?`
+    ).bind(now, JSON.stringify({ deauthorized_at: now }), ownerRow.id).run();
+
+    await reportIncident(c.env, {
+      user_id: ownerRow.user_id,
+      severity: "critical",
+      kind: "auth_failure_source",
+      summary: `Cliente desligou o Stripe da Rioko (${account}). A faturação parou.`,
+      detail: { stripeAccount: account, eventId },
+      connection_label: `stripe_connect → ${ownerRow.destination_kind ?? "moloni"}`,
+      bucket: "daily",
+    });
+    return c.text("Deauthorized", 200);
+  }
+
+  const canonical = stripeEventToCanonical(event.type ?? "");
+  if (!canonical) {
+    console.log(`[StripeConnect] Ignoring unhandled event type: ${event.type}`);
+    return c.text("Event type ignored", 200);
+  }
+
+  const topicKey = `stripe/${canonical}`;
+  const appStorage = new AppStorage(c.env);
+  const { isProcessed, state } = await appStorage.isWebhookProcessed(eventId, topicKey);
+  if (isProcessed && state !== "failed") {
+    return c.text("Already processed", 200);
+  }
+
+  try {
+    const queueMsg: StripeQueueMessage = {
+      topic: canonical,
+      eventId,
+      userId: ownerRow.user_id,
+      body: event,
+      sourceKind: "stripe_connect",
+    };
+    if (rawBody.length > 110_000) {
+      const kvKey = `stripe-evt:${eventId}`;
+      await c.env.INVOICE_KV.put(kvKey, rawBody, { expirationTtl: 7 * 24 * 60 * 60 });
+      delete queueMsg.body;
+      queueMsg.bodyRef = kvKey;
+    }
+    await c.env.STRIPE_QUEUE.send(queueMsg);
+    await appStorage.markWebhookAsProcessing(eventId, topicKey);
+  } catch (err: any) {
+    console.error(`[StripeConnect] Failed to enqueue event ${eventId}: ${err?.message ?? err}`);
+    try {
+      await reportIncident(c.env, {
+        user_id: ownerRow.user_id,
+        severity: "critical",
+        kind: "queue_retry_exhausted",
+        summary: `Falha ao enfileirar evento Stripe Connect ${eventId} (${canonical}). Evento NÃO foi processado.`,
+        detail: { eventId, topic: canonical, stripeAccount: account, message: String(err?.message ?? err), error: String(err?.message ?? err) },
+        affected_ids: [eventId],
+        connection_label: `stripe_connect → ${ownerRow.destination_kind ?? "moloni"}`,
+      });
+    } catch (incErr) {
+      console.error("[StripeConnect] Failed to emit enqueue-failure incident:", incErr);
+    }
     return c.text("Enqueue failed", 500);
   }
 
@@ -2749,7 +2902,10 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
 async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: Env) {
   for (const message of batch.messages) {
     const { topic, eventId, userId, bodyRef } = message.body;
-    console.log(`[Stripe] Queue processing: ${topic} event=${eventId} user=${userId}`);
+    // Absent on every message enqueued before Connect existed, and on every
+    // message the restricted-key route still enqueues today.
+    const sourceKind = message.body.sourceKind ?? "stripe";
+    console.log(`[Stripe] Queue processing: ${topic} event=${eventId} user=${userId} source=${sourceKind}`);
 
     try {
       // Hydrate the payload: small events travel inline as `body`; oversized ones
@@ -2766,8 +2922,8 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       // expand Customer.tax_ids for B2B native VAT collection.
       const connRow: any = await env.DB.prepare(
         `SELECT destination_kind, destination_config_json, behavior_json, source_config_json
-         FROM connections WHERE user_id = ? AND source_kind = 'stripe' AND status = 'active' LIMIT 1`
-      ).bind(userId).first();
+         FROM connections WHERE user_id = ? AND source_kind = ? AND status = 'active' LIMIT 1`
+      ).bind(userId, sourceKind).first();
 
       if (!connRow) {
         console.error(`[Stripe] No active connection for user ${userId}, acking`);
@@ -2828,12 +2984,21 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       // current API version — see stampInvoicePaymentIntent. A failure here
       // throws, so the queue retries: a delayed document is recoverable, a
       // duplicate certified one is a credit note.
-      await stampInvoicePaymentIntent(body, sourceConfig?.restricted_key, sourceConfig?.stripe_account_id);
+      //
+      // Resolved through the shared helper so a Connect connection — which has
+      // no restricted_key at all — reads the invoice with the platform key
+      // instead of silently skipping the link and double-invoicing the sale.
+      const stripeAuth = resolveStripeAuth(env, sourceConfig);
+      await stampInvoicePaymentIntent(
+        body,
+        stripeAuth?.apiKey,
+        stripeAuth?.connectAccount ?? sourceConfig?.stripe_account_id,
+      );
 
       await runAdapterPipeline({
         env,
         config: legacy,
-        source: "stripe",
+        source: sourceKind,
         destination: connRow.destination_kind ?? "invoicexpress",
         topic,
         webhookId: eventId,
@@ -4109,6 +4274,20 @@ export default {
           console.log(`[Cron] Stripe heal: connections=${s.connectionsScanned} created=${s.totals.created} skipped=${s.totals.skipped} errors=${s.totals.errors}`);
         } catch (e: any) {
           console.error(`[Cron] Stripe heal failed: ${e.message}`);
+        }
+      }
+
+      // Keep Moloni OAuth connections alive. Their refresh token dies after 14
+      // days of disuse, so a merchant who sells nothing for a fortnight would
+      // come back to a dead connection and a reauthorisation email nobody
+      // expected. Daily, not weekly: the token rotates on every use, so a failed
+      // renewal has to have many nights left to retry in rather than two.
+      if (env.MOLONI_TOKEN_REFRESH_ENABLED === "1") {
+        try {
+          const m = await refreshMoloniConnections(env);
+          console.log(`[Cron] Moloni token refresh: checked=${m.checked} renewed=${m.renewed} failed=${m.failed}`);
+        } catch (e: any) {
+          console.error(`[Cron] Moloni token refresh failed: ${e.message}`);
         }
       }
 

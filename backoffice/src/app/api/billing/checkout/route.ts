@@ -69,6 +69,9 @@ export async function POST(req: NextRequest) {
                 lookupOrId = plan === "annual" ? getStripeEnv("STRIPE_PRICE_LODGIFY_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_LODGIFY_MONTHLY_LOOKUP");
                 break;
             case "stripe-moloni":
+            // The Connect wizard posts its own source string so the merchant returns
+            // to the page they left, but it bills the Stripe→Moloni price.
+            case "stripe-connect-moloni":
                 lookupOrId = plan === "annual" ? "stripe-moloni-yearly" : "stripe-moloni-monthly";
                 break;
             case "stripe-ix":
@@ -113,6 +116,7 @@ export async function POST(req: NextRequest) {
         const SOURCE_PATHS: Record<string, { ok: string; cancel: string }> = {
             "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
             "stripe-moloni":  { ok: "/integrations/stripe-moloni?stripe=success",  cancel: "/integrations/stripe-moloni?stripe=cancel" },
+            "stripe-connect-moloni": { ok: "/integrations/stripe-connect-moloni?stripe=success", cancel: "/integrations/stripe-connect-moloni?stripe=cancel" },
             "faturacao":      { ok: "/faturacao?stripe=success",                   cancel: "/faturacao?stripe=cancel" },
             "dashboard":      { ok: "/dashboard?stripe=success",                   cancel: "/dashboard?stripe=cancel" },
         };

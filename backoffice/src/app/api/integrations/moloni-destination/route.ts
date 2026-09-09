@@ -26,7 +26,7 @@ async function resolveTargetUser(request: NextRequest) {
 }
 
 type MoloniBody = {
-    source_kind?: "stripe" | "shopify" | "lodgify";
+    source_kind?: "stripe" | "stripe_connect" | "shopify" | "lodgify";
     moloni_client_id?: string;
     moloni_client_secret?: string;
     moloni_username?: string;
@@ -67,12 +67,28 @@ function redactConfig(cfg: Record<string, unknown>) {
     };
 }
 
+/**
+ * Which connection a Moloni settings write belongs to.
+ *
+ * Unknown values still collapse to "stripe", which is the behaviour every caller
+ * has relied on since this route was written. The only thing that changed is
+ * that "stripe_connect" is now a value of its own — without it, the new wizard's
+ * settings would be written straight onto an existing Stripe→Moloni customer's
+ * live connection, which is the one row this project must not touch.
+ */
+function normalizeSourceKind(raw: string | null | undefined): string {
+    if (raw === "shopify") return "shopify";
+    if (raw === "lodgify") return "lodgify";
+    if (raw === "stripe_connect") return "stripe_connect";
+    return "stripe";
+}
+
 export async function GET(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const rawSrc = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
-    const sourceKind = rawSrc === "shopify" ? "shopify" : rawSrc === "lodgify" ? "lodgify" : "stripe";
+    const sourceKind = normalizeSourceKind(rawSrc);
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -110,7 +126,7 @@ export async function POST(request: NextRequest) {
     // lodgify must stay "lodgify" so the Lodgify webhook handler finds the
     // destination config in the same row as the source config. All other
     // non-shopify sources collapse to "stripe".
-    const sourceKind = body.source_kind === "shopify" ? "shopify" : body.source_kind === "lodgify" ? "lodgify" : "stripe";
+    const sourceKind = normalizeSourceKind(body.source_kind);
     // Resolved AFTER the existing row is read (below), because the default for a
     // connection that already exists is the status it already has. Defaulting to
     // "draft" took a live connection off the air every time someone saved a
@@ -256,7 +272,7 @@ export async function DELETE(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const rawSrc2 = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
-    const sourceKind = rawSrc2 === "shopify" ? "shopify" : rawSrc2 === "lodgify" ? "lodgify" : "stripe";
+    const sourceKind = normalizeSourceKind(rawSrc2);
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

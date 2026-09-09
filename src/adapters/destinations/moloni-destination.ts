@@ -18,6 +18,7 @@ import { reconcileTotalOrThrow, receiptDelta } from "../reconcile";
 import { redactSecrets } from "../../security";
 import { refundReference, isRefundReference, documentReference } from "../../services/document-references";
 import { platformError } from "../../services/platform-error";
+import type { MoloniTokenProvider } from "../../services/moloni-oauth";
 
 /**
  * MoloniDestination
@@ -76,6 +77,12 @@ export type MoloniCfg = {
   clientSecret: string;
   username: string;
   password: string;
+  /**
+   * Set only on OAuth connections (Stripe Connect → Moloni). When present it is
+   * the sole source of access tokens and `username`/`password` are empty — we
+   * never held them. Absent means the password grant below, unchanged.
+   */
+  tokenProvider?: MoloniTokenProvider;
   companyId: number;
   documentSetId: number;
   // Moloni account tax rule ID for the standard VAT rate (e.g. "IVA 23%").
@@ -220,12 +227,16 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   const clientSecret = String(c.moloni_client_secret ?? "").trim();
   const username = String(c.moloni_username ?? "").trim();
   const password = String(c.moloni_password ?? "").trim();
+  // An OAuth connection has a token provider and no username/password to check.
+  // Its credential was validated when the merchant authorised, and is checked
+  // again by the provider on every refresh.
+  const tokenProvider = ctx.moloniToken;
   const companyId = Number(c.moloni_company_id ?? 0);
   const documentSetId = Number(c.moloni_document_set_id ?? 0);
   const companyName = String(c.moloni_company_name ?? "").trim() || undefined;
   const documentSetName = String(c.moloni_document_set_name ?? "").trim() || undefined;
 
-  if (!clientId || !clientSecret || !username || !password) {
+  if (!tokenProvider && (!clientId || !clientSecret || !username || !password)) {
     throw new Error("Moloni create failed: missing OAuth credentials (client_id/client_secret/username/password)");
   }
 
@@ -251,7 +262,7 @@ function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   const categoryId = Number(c.moloni_category_id ?? 0);
   const maturityDateId = Number(c.moloni_maturity_date_id ?? 0);
   return {
-    baseUrl: env, clientId, clientSecret, username, password, companyId, documentSetId,
+    baseUrl: env, clientId, clientSecret, username, password, tokenProvider, companyId, documentSetId,
     companyName, documentSetName, defaultTaxId, documentType, categoryId, maturityDateId,
     receiptSeriesMap, receiptDocumentSetName, receiptDocumentSetId,
   };
@@ -276,7 +287,14 @@ export async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
   const raw = readMoloniCfg(ctx);
   if (raw.companyId && raw.documentSetId) return raw;
 
-  const cacheKey = `${raw.clientId}:${raw.username}:${raw.documentSetName ?? raw.documentSetId}`;
+  // Password-grant connections keep the exact key they have always had. An
+  // OAuth connection has no username, and several merchants could share one
+  // Rioko-owned client_id, so those get the company appended — otherwise two
+  // shops with a série of the same name would read each other's resolved ids.
+  // Written as a suffix rather than a new format so the existing key is
+  // untouched for every connection that exists today.
+  const oauthDiscriminator = raw.tokenProvider ? `:${raw.companyName ?? raw.companyId}` : "";
+  const cacheKey = `${raw.clientId}:${raw.username}${oauthDiscriminator}:${raw.documentSetName ?? raw.documentSetId}`;
   const cached = resolvedIdCache.get(cacheKey);
   if (cached) return { ...raw, ...cached };
 
@@ -330,6 +348,10 @@ export async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
 }
 
 export async function getAccessToken(cfg: MoloniCfg): Promise<string> {
+  // OAuth connection: the provider owns caching, refresh and rotation, because
+  // a rotated refresh token has to reach D1 and this module has no DB handle.
+  if (cfg.tokenProvider) return cfg.tokenProvider.get();
+
   const cacheKey = `${cfg.clientId}:${cfg.username}`;
   const cached = tokenCache.get(cacheKey);
   // Evict 60 s before actual expiry to avoid races at the token boundary.

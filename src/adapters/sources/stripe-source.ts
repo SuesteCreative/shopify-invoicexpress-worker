@@ -3,6 +3,7 @@ import type { Normalized } from "../../api/normalize-shopify";
 import { saleReference } from "../../services/document-references";
 import { parseMetadataMap, applyMetadataMap, applyMetadataVatRate } from "./metadata-map";
 import { pickInvoicePaymentIntent } from "../../services/stripe";
+import { ctxStripeAuth } from "../../services/stripe-auth";
 
 /**
  * Verifies a Stripe webhook signature per
@@ -109,6 +110,24 @@ function taxIdsToNoteAttributes(taxIds: any): any[] {
 }
 
 /**
+ * Headers for the three direct Stripe reads below.
+ *
+ * `stripeAccount` is passed ONLY for Connect connections, where the key is
+ * Rioko's and the objects live on the merchant's account — without the header
+ * Stripe answers "no such customer" for a customer that plainly exists, and the
+ * buyer's NIF and the sale's VAT quietly go missing. Restricted-key connections
+ * pass nothing and produce byte-identical requests to the ones they always sent.
+ */
+function stripeApiHeaders(apiKey: string, stripeAccount?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${apiKey}`,
+    "Stripe-Version": "2024-12-18.acacia",
+  };
+  if (stripeAccount) headers["Stripe-Account"] = stripeAccount;
+  return headers;
+}
+
+/**
  * Pull the buyer's record off a Stripe Customer ID via the REST API — name,
  * email, phone, address AND tax_ids. Used when the event is a PaymentIntent or
  * Charge that didn't go through Checkout — Session events carry
@@ -123,14 +142,11 @@ function taxIdsToNoteAttributes(taxIds: any): any[] {
  * Failures are swallowed: the worst case is a less complete client record, but
  * the invoice still gets created for the buyer.
  */
-async function fetchStripeCustomer(customerId: string, restrictedKey: string): Promise<any | null> {
+async function fetchStripeCustomer(customerId: string, restrictedKey: string, stripeAccount?: string): Promise<any | null> {
   try {
     const url = `https://api.stripe.com/v1/customers/${encodeURIComponent(customerId)}?expand[]=tax_ids`;
     const res = await fetch(url, {
-      headers: {
-        "Authorization": `Bearer ${restrictedKey}`,
-        "Stripe-Version": "2024-12-18.acacia",
-      },
+      headers: stripeApiHeaders(restrictedKey, stripeAccount),
     });
     if (!res.ok) {
       console.warn(`[Stripe] Customer expand failed (${res.status}) for ${customerId}`);
@@ -157,7 +173,7 @@ async function fetchStripeCustomer(customerId: string, restrictedKey: string): P
  *
  * Failures are swallowed: the invoice still gets issued, from the PI alone.
  */
-async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string): Promise<any | null> {
+async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string, stripeAccount?: string): Promise<any | null> {
   try {
     // `latest_charge.balance_transaction` comes along for the ride: it is the
     // only place Stripe states what the payment became in the account's own
@@ -165,10 +181,7 @@ async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string)
     // without it (see convertToSettlementCurrency).
     const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge.balance_transaction`;
     const res = await fetch(url, {
-      headers: {
-        "Authorization": `Bearer ${restrictedKey}`,
-        "Stripe-Version": "2024-12-18.acacia",
-      },
+      headers: stripeApiHeaders(restrictedKey, stripeAccount),
     });
     if (!res.ok) {
       console.warn(`[Stripe] latest_charge expand failed (${res.status}) for ${paymentIntentId}`);
@@ -209,14 +222,12 @@ async function fetchRicherTaxSource(
    *  and routing hints have to tell them apart: the first says the payment was
    *  created straight through the API, the second says nothing at all. */
   status?: { failed: boolean },
+  stripeAccount?: string,
 ): Promise<any | null> {
   const get = async (url: string): Promise<any | null> => {
     try {
       const res = await fetch(url, {
-        headers: {
-          "Authorization": `Bearer ${restrictedKey}`,
-          "Stripe-Version": "2024-12-18.acacia",
-        },
+        headers: stripeApiHeaders(restrictedKey, stripeAccount),
       });
       if (!res.ok) {
         console.warn(`[Stripe] tax-source lookup failed (${res.status}): ${url.split("?")[0]}`);
@@ -1079,11 +1090,18 @@ export class StripeSource implements SourceAdapter {
     const event = parsedBody;
     const obj = event?.data?.object;
     const isSession = event?.type === "checkout.session.completed";
-    const restrictedKey = ctx.sourceConfig?.restricted_key as string | undefined;
+    // One credential for every read below. On a Connect connection this is the
+    // platform key plus the merchant's acct_…; on a restricted-key connection it
+    // is the merchant's own key and no account, exactly as before. Reading
+    // `restricted_key` directly here would have made every enrichment in this
+    // method silently no-op for Connect: no NIF, no payment date, no VAT.
+    const auth = ctxStripeAuth(ctx);
+    const restrictedKey = auth?.apiKey;
+    const connectAccount = auth?.connectAccount;
 
     let stripeCustomer: any = null;
     if (!isSession && restrictedKey && obj?.customer && typeof obj.customer === "string") {
-      stripeCustomer = await fetchStripeCustomer(obj.customer, restrictedKey);
+      stripeCustomer = await fetchStripeCustomer(obj.customer, restrictedKey, connectAccount);
       const taxIds = Array.isArray(stripeCustomer?.tax_ids?.data) ? stripeCustomer.tax_ids.data : [];
       if (taxIds.length > 0) {
         const extra = taxIdsToNoteAttributes(taxIds);
@@ -1103,7 +1121,7 @@ export class StripeSource implements SourceAdapter {
     if (restrictedKey && (isPI || isCharge)) {
       // A charge event already IS the charge — no round-trip needed.
       const piId = isPI ? obj?.id : obj?.payment_intent;
-      charge = isCharge ? obj : (piId ? await fetchLatestCharge(String(piId), restrictedKey) : null);
+      charge = isCharge ? obj : (piId ? await fetchLatestCharge(String(piId), restrictedKey, connectAccount) : null);
     }
 
     // Buyer-name tier 2: a PaymentIntent carries a name only when pi.shipping was
@@ -1149,7 +1167,7 @@ export class StripeSource implements SourceAdapter {
     const lookupStatus = { failed: false };
     const lookupRan = restrictedKey != null && restrictedKey !== "" && (isPI || isCharge) && (wantsTax || wantsHints);
     const richerEvent = lookupRan
-      ? await fetchRicherTaxSource(piId, invoiceId, restrictedKey!, lookupStatus)
+      ? await fetchRicherTaxSource(piId, invoiceId, restrictedKey!, lookupStatus, connectAccount)
       : null;
 
     if (wantsTax && restrictedKey && (isPI || isCharge)) {
@@ -1229,7 +1247,7 @@ export class StripeSource implements SourceAdapter {
       let fxCharge = charge;
       if (!fxCharge) {
         const piId = String(obj?.payment_intent ?? obj?.id ?? "");
-        if (piId.startsWith("pi_")) fxCharge = await fetchLatestCharge(piId, restrictedKey);
+        if (piId.startsWith("pi_")) fxCharge = await fetchLatestCharge(piId, restrictedKey, connectAccount);
       }
       if (fxCharge) convertToSettlementCurrency(normalized, fxCharge);
     }

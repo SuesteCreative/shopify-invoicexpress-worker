@@ -14,6 +14,25 @@ export interface Env {
   STRIPE_SOURCE_ENABLED?: string;   // "0" | "1" — when "0", /webhooks/stripe/* returns 404
   // Phase 3 Stripe-source secret (set via `wrangler secret put STRIPE_WEBHOOK_SECRET`)
   STRIPE_WEBHOOK_SECRET?: string;
+  // Stripe Connect (source_kind = "stripe_connect"). Separate from the flags
+  // above on purpose: this gates the NEW /webhooks/stripe/connect route only,
+  // and turning it off must never disturb the restricted-key connections that
+  // keep arriving on /webhooks/stripe.
+  STRIPE_CONNECT_ENABLED?: string;         // "0" | "1"
+  // Rioko's own Stripe secret key. Connect connections are read with THIS key
+  // plus a Stripe-Account header — we never hold the merchant's own key.
+  STRIPE_PLATFORM_SECRET_KEY?: string;
+  // Signing secret of the single platform-level Connect webhook endpoint. One
+  // secret for every connected account, unlike the per-connection whsec_ that
+  // the restricted-key flow installs on each merchant's account.
+  STRIPE_CONNECT_WEBHOOK_SECRET?: string;
+  // Moloni OAuth app credentials, used only when a connection does not carry its
+  // own (i.e. if one Rioko-owned Moloni app can authorise third-party accounts).
+  MOLONI_APP_CLIENT_ID?: string;
+  MOLONI_APP_CLIENT_SECRET?: string;
+  // "0" | "1" — nightly renewal of Moloni OAuth refresh tokens (they die after
+  // 14 days of disuse and rotate on every use).
+  MOLONI_TOKEN_REFRESH_ENABLED?: string;
   // Phase 4a.1 — Resend + Incidents
   RESEND_API_KEY?: string;                // when set, sendEmail uses Resend; otherwise falls back to MailChannels
   RESEND_FROM_EMAIL?: string;             // optional override; defaults to rioko-devmode@kapta.pt

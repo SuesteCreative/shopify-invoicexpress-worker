@@ -207,6 +207,28 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     return;
   }
 
+  // 2. One document per sale, even when three events describe it.
+  //
+  // A single Stripe payment fires `checkout.session.completed`,
+  // `payment_intent.succeeded` and `charge.succeeded`. They dedup on the same
+  // PaymentIntent, but only AFTER a document exists — and the three arrive in
+  // parallel, so all three can read "not processed" and all three can create.
+  // The Shopify path has claimed orders since the day it minted 60 duplicate
+  // drafts; this is the same compare-and-swap, scoped by user because a Stripe
+  // connection has no shop domain.
+  //
+  // NEW SOURCES ONLY. The restricted-key `stripe` connections keep the behaviour
+  // they have today: they carry a history of documents issued without a claim,
+  // and their merchants have arranged around it.
+  const claimScope = source === "stripe_connect" && config.user_id ? `u:${config.user_id}` : null;
+  if (claimScope && !await appStorage.claimOrder(externalId, undefined, claimScope)) {
+    // Throw rather than ack, for the reason spelled out in orders-created: if the
+    // holder died, acking here would consume the redelivery that was the sale's
+    // last chance to be invoiced.
+    console.log(`[Pipeline] ${externalId} is claimed by another delivery — retrying`);
+    throw new Error(`${externalId} is claimed by another delivery — retrying`);
+  }
+
   try {
     await runPipelineCore(input, sourceAdapter, destAdapter, externalId, appStorage, ctx, logTopic, connectionLabel, tagRoutingRules ?? []);
   } catch (err) {
@@ -266,6 +288,11 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
     }
 
     throw err; // transient — re-throw so queue handler retries
+  } finally {
+    // Released whatever happened: a claim left behind would block the retry of
+    // the very delivery that failed. Claims expire on their own after three
+    // minutes, so this is a courtesy, not the safety net.
+    if (claimScope) await appStorage.releaseOrderClaim(externalId, claimScope);
   }
 }
 

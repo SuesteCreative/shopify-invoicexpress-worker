@@ -7,6 +7,7 @@ import { getDestinationAdapter } from "../adapters/registry";
 import { runAdapterPipeline } from "./generic-pipeline";
 import { sendDevModeEmail } from "./notify";
 import { listStripePaymentIntents, fetchStripeObject } from "../services/stripe";
+import { resolveStripeAuth, type StripeAuth } from "../services/stripe-auth";
 import { cancelReferenceCandidates } from "../services/document-references";
 import { stripeStableId } from "../adapters/sources/stripe-source";
 import { buildAdapterCtx } from "../services/adapter-ctx";
@@ -30,25 +31,44 @@ interface StripeConnConfig {
 
 interface StripeConnFull {
   destinationKind: string;
+  /** Which of the two Stripe connection kinds this user actually has. */
+  sourceKind: StripeSourceKind;
   sourceConfig: StripeConnConfig;
   destinationConfig: Record<string, any> | undefined;
   invoiceCutoff: string | null;
+  /** Platform key + acct_… for Connect, the merchant's restricted key otherwise. */
+  auth: StripeAuth | null;
 }
+
+type StripeSourceKind = "stripe" | "stripe_connect";
 
 // Full connection view for recovery ops: destination + both config blobs, so a
 // re-emit routes to the SAME destination the live webhook path would (Moloni,
 // Vendus, …) instead of the IX-only default. Mirrors processStripeBatch.
+//
+// Looks for both Stripe kinds because every recovery tool in this file — backfill,
+// re-emit, credit note, the nightly heal — would otherwise report a Connect
+// merchant as having no Stripe connection at all. The ORDER BY keeps `stripe`
+// first, so a user who only has the restricted-key connection gets the identical
+// row this query has always returned.
 async function loadStripeConnectionFull(env: Env, userId: string): Promise<StripeConnFull | null> {
   const row: any = await env.DB.prepare(
-    "SELECT destination_kind, source_config_json, destination_config_json, invoice_cutoff, created_at FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1"
+    `SELECT source_kind, destination_kind, source_config_json, destination_config_json, invoice_cutoff, created_at
+       FROM connections
+      WHERE user_id = ? AND source_kind IN ('stripe', 'stripe_connect')
+      ORDER BY CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END
+      LIMIT 1`
   ).bind(userId).first();
   if (!row) return null;
   const parse = (s: string | null): Record<string, any> | undefined => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
+  const sourceConfig = (parse(row.source_config_json) ?? {}) as StripeConnConfig;
   return {
     destinationKind: row.destination_kind ?? "invoicexpress",
-    sourceConfig: (parse(row.source_config_json) ?? {}) as StripeConnConfig,
+    sourceKind: (row.source_kind === "stripe_connect" ? "stripe_connect" : "stripe") as StripeSourceKind,
+    sourceConfig,
     destinationConfig: parse(row.destination_config_json),
     invoiceCutoff: (row.invoice_cutoff ?? row.created_at) ?? null,
+    auth: resolveStripeAuth(env, sourceConfig),
   };
 }
 
@@ -89,10 +109,10 @@ export async function processStripeBackfill(
   // destination:"invoicexpress" below, which silently mis-issued a Moloni
   // connection's backfilled payments to InvoiceXpress.
   const conn = await loadStripeConnectionFull(env, config.user_id);
-  const connCfg = conn?.sourceConfig;
-  if (!conn || !connCfg?.restricted_key) {
-    return { error: "No Stripe restricted_key on connection. Save Stripe credentials first." };
+  if (!conn || !conn.auth) {
+    return { error: "No Stripe credentials on connection. Save Stripe credentials first." };
   }
+  const connCfg = conn.sourceConfig;
   // Non-IX destinations store auto_finalize in destination_config (the wizard writes
   // it there); the pipeline reads config.auto_finalize, so project it — this keeps a
   // healed/backfilled payment a DRAFT when the client hasn't opted into auto-finalize.
@@ -103,7 +123,7 @@ export async function processStripeBackfill(
   let effectiveFrom = options.from;
   let effectiveTo = options.to ?? new Date().toISOString();
   if (options.since_last_processed) {
-    const last = await appStorage.getLastProcessedDateByUser(config.user_id, "stripe");
+    const last = await appStorage.getLastProcessedDateByUser(config.user_id, conn.sourceKind);
     effectiveFrom = last ?? (effectiveFrom ?? "2020-01-01T00:00:00Z");
   }
   if (!effectiveFrom || !effectiveTo) {
@@ -121,7 +141,10 @@ export async function processStripeBackfill(
 
   let pis: any[];
   try {
-    pis = await listStripePaymentIntents(connCfg.restricted_key, effectiveFrom, effectiveTo, 500, connCfg.stripe_account_id);
+    pis = await listStripePaymentIntents(
+      conn.auth.apiKey, effectiveFrom, effectiveTo, 500,
+      conn.auth.connectAccount ?? connCfg.stripe_account_id,
+    );
   } catch (e: any) {
     const summary = { error: String(e) };
     await appStorage.finishDevJob(jobId, "error", summary, []);
@@ -146,7 +169,7 @@ export async function processStripeBackfill(
     try {
       const event = { type: "payment_intent.succeeded", data: { object: pi }, ...(connCfg.stripe_account_id ? { account: connCfg.stripe_account_id } : {}) };
       await runAdapterPipeline({
-        env, config, source: "stripe",
+        env, config, source: conn.sourceKind,
         destination: (conn.destinationKind as any) ?? "invoicexpress",
         topic: "created", webhookId: null, body: event,
         sourceConfig: connCfg,
@@ -236,12 +259,12 @@ export async function reemitStripeOrder(
   });
 
   const conn = await loadStripeConnectionFull(env, config.user_id);
-  const connCfg = conn?.sourceConfig;
-  if (!conn || !connCfg?.restricted_key) {
-    const err = "No Stripe restricted_key on connection";
+  if (!conn || !conn.auth) {
+    const err = "No Stripe credentials on connection";
     await appStorage.finishDevJob(jobId, "error", { error: err }, []);
     return { job_id: jobId, status: "error", error: err };
   }
+  const connCfg = conn.sourceConfig;
   // Non-IX destinations store auto_finalize in destination_config (the wizard
   // writes it there); the pipeline reads config.auto_finalize, so project it —
   // this is what keeps a re-emit a DRAFT when the client hasn't opted into
@@ -250,7 +273,10 @@ export async function reemitStripeOrder(
     (config as any).auto_finalize = conn.destinationConfig.auto_finalize ? 1 : 0;
   }
 
-  const fetched = await fetchStripeObject(connCfg.restricted_key, stripeId, connCfg.stripe_account_id);
+  const fetched = await fetchStripeObject(
+    conn.auth.apiKey, stripeId,
+    conn.auth.connectAccount ?? connCfg.stripe_account_id,
+  );
   if ("error" in fetched) {
     await appStorage.finishDevJob(jobId, "error", { error: fetched.error }, []);
     return { job_id: jobId, status: "error", error: fetched.error };
@@ -286,7 +312,7 @@ export async function reemitStripeOrder(
         previousDraft = "unknown";
       }
     }
-    await appStorage.deleteProcessedInvoice(externalId, "stripe");
+    await appStorage.deleteProcessedInvoice(externalId, conn.sourceKind);
   }
 
   // The operator is about to hold two documents for one payment. Say so in the
@@ -300,7 +326,7 @@ export async function reemitStripeOrder(
 
   try {
     await runAdapterPipeline({
-      env, config, source: "stripe",
+      env, config, source: conn.sourceKind,
       destination: (conn.destinationKind as any) ?? "invoicexpress",
       topic: "created", webhookId: null, body: event,
       sourceConfig: connCfg,
@@ -357,7 +383,7 @@ async function resolveStripeDestination(env: Env, config: IRequestConfig): Promi
 
   const { ctx } = await buildAdapterCtx(env, {
     config,
-    source: "stripe",
+    source: conn.sourceKind,
     destination,
     sourceConfig: conn.sourceConfig,
     destinationConfig: conn.destinationConfig,
@@ -367,7 +393,7 @@ async function resolveStripeDestination(env: Env, config: IRequestConfig): Promi
   // finalize money gate — takes a ConnectionContext, and rebuilding one at the
   // call site is how this route ended up certifying without asking what was paid.
   const connCtx: ConnectionContext = {
-    source: "stripe",
+    source: conn.sourceKind,
     destination,
     sourceConfig: conn.sourceConfig as Record<string, any>,
     destinationConfig: conn.destinationConfig ?? {},
@@ -375,7 +401,7 @@ async function resolveStripeDestination(env: Env, config: IRequestConfig): Promi
     userId: config.user_id ?? null,
     scope: `u:${config.user_id}`,
     invoiceCutoff: conn.invoiceCutoff,
-    connectionLabel: connectionLabelOf("stripe", destination),
+    connectionLabel: connectionLabelOf(conn.sourceKind, destination),
   };
   return { ok: true, destination, adapter: getDestinationAdapter(destination), ctx, conn: connCtx };
 }
@@ -434,7 +460,7 @@ export async function deleteStripeDraft(
     return fail(`Document ${lookup.invoiceId} is certified — use issue-credit-note instead of delete-draft.`);
   }
 
-  await appStorage.deleteProcessedInvoice(stripeId, "stripe");
+  await appStorage.deleteProcessedInvoice(stripeId, dest.conn.source);
   const summary = {
     invoice_id: lookup.invoiceId,
     external_id: stripeId,
@@ -493,7 +519,7 @@ export async function issueStripeCreditNote(
   try {
     result = await dest.adapter.creditFullDocument(lookup.invoiceId, dest.ctx, {
       reference,
-      matchReferences: cancelReferenceCandidates("stripe", stripeId),
+      matchReferences: cancelReferenceCandidates(dest.conn.source, stripeId),
       reason: options.reason ?? null,
     });
   } catch (e: any) {
@@ -565,7 +591,7 @@ export async function finalizeStripeDrafts(
     return { job_id: jobId, total: 0, finalized: 0, skipped: 0, errors: 1, would_finalize: 0, dry_run: dryRun, date_strategy: strategy, results: [], error };
   }
 
-  const page = await appStorage.listProcessedInvoicesByUser(config.user_id, "stripe", limit, "asc", afterRowid);
+  const page = await appStorage.listProcessedInvoicesByUser(config.user_id, dest.conn.source, limit, "asc", afterRowid);
   // Advance the cursor past everything the QUERY returned, not past what survived
   // the date filter — otherwise a page whose tail is filtered out is handed back
   // unchanged on the next call and the run never moves.
@@ -585,7 +611,7 @@ export async function finalizeStripeDrafts(
   // destination's money gate never fires — it only compares when handed a paid
   // total — and this route certified whatever the draft happened to say. That is
   // how 19 drafts with the wrong total stayed certifiable.
-  const recovery = getSourceRecovery("stripe");
+  const recovery = getSourceRecovery(dest.conn.source);
   let described = new Map<string, SourceDescription>();
   if (recovery.describe && processed.length > 0) {
     try {

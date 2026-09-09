@@ -12,9 +12,15 @@ import { LodgifyRecovery } from "./lodgify-recovery";
  * getting a 500. EuPago is webhook-in only, with no read API wired — which is
  * also why reconciliation reports no source orders for it.
  */
+const stripeRecovery = new StripeRecovery();
+
 const instances: Partial<Record<SourceKind, SourceRecovery>> = {
   shopify: new ShopifyRecovery(),
-  stripe: new StripeRecovery(),
+  stripe: stripeRecovery,
+  // Same recovery, same Stripe API. Leaving it out would make the capabilities
+  // endpoint report a Connect connection as unrecoverable and hide the dev-mode
+  // cards for it.
+  stripe_connect: stripeRecovery,
   lodgify: new LodgifyRecovery(),
 };
 

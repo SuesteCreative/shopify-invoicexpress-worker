@@ -55,6 +55,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                 if (integrations.find(i => i.id === id)) continue;
                 const srcLabel = conn.source_kind === "lodgify" ? "Lodgify"
                     : conn.source_kind === "stripe" ? "Stripe"
+                    : conn.source_kind === "stripe_connect" ? "Stripe Connect"
                     : conn.source_kind === "shopify" ? "Shopify"
                     : conn.source_kind === "eupago" ? "EuPago"
                     : conn.source_kind;
@@ -63,10 +64,12 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                     : conn.destination_kind === "vendus" ? "Vendus"
                     : conn.destination_kind;
                 const dest = conn.destination_kind === "invoicexpress" ? "ix" : conn.destination_kind;
+                // Route is kebab-cased, the kind is not.
+                const src = conn.source_kind === "stripe_connect" ? "stripe-connect" : conn.source_kind;
                 integrations.push({
                     id,
                     label: `${srcLabel} + ${destLabel}`,
-                    href: `/integrations/${conn.source_kind}-${dest}`,
+                    href: `/integrations/${src}-${dest}`,
                     iconLetter: srcLabel[0].toUpperCase(),
                 });
             }

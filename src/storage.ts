@@ -151,7 +151,7 @@ export interface PendingReverseChargeRow {
   updated_at: string;
 }
 
-export type SourceKind = "shopify" | "stripe" | "eupago" | "lodgify";
+export type SourceKind = "shopify" | "stripe" | "stripe_connect" | "eupago" | "lodgify";
 export type DestinationKind = "invoicexpress" | "moloni" | "vendus";
 
 export interface ConnectionRow {
@@ -260,14 +260,21 @@ export class AppStorage {
    * reconcile. Returns the user_id + destination_kind; callers resolve the rest of
    * the config from the connection itself (mirrors the live Stripe queue path).
    */
-  async listActiveConnections(sourceKind: SourceKind): Promise<Array<{ user_id: string; destination_kind: string; created_at: string | null; invoice_cutoff: string | null }>> {
+  // Accepts several kinds because one source can be reached two ways — a Stripe
+  // merchant is either on a restricted key or on Connect, and the nightly heal
+  // has to sweep both or the newer half of the fleet is never healed. A single
+  // kind behaves exactly as before.
+  async listActiveConnections(sourceKind: SourceKind | SourceKind[]): Promise<Array<{ user_id: string; source_kind: SourceKind; destination_kind: string; created_at: string | null; invoice_cutoff: string | null }>> {
+    const kinds = Array.isArray(sourceKind) ? sourceKind : [sourceKind];
+    const placeholders = kinds.map(() => "?").join(", ");
     const res = await this.db.prepare(
-      `SELECT user_id, destination_kind, created_at, invoice_cutoff FROM connections
-       WHERE source_kind = ? AND status = 'active' AND user_id IS NOT NULL AND user_id != ''
+      `SELECT user_id, source_kind, destination_kind, created_at, invoice_cutoff FROM connections
+       WHERE source_kind IN (${placeholders}) AND status = 'active' AND user_id IS NOT NULL AND user_id != ''
        ORDER BY created_at`
-    ).bind(sourceKind).all();
+    ).bind(...kinds).all();
     return ((res.results as any[]) ?? []).map((r) => ({
       user_id: String(r.user_id),
+      source_kind: String(r.source_kind) as SourceKind,
       destination_kind: String(r.destination_kind ?? ""),
       created_at: r.created_at != null ? String(r.created_at) : null,
       invoice_cutoff: r.invoice_cutoff != null ? String(r.invoice_cutoff) : null,
@@ -338,8 +345,12 @@ export class AppStorage {
    * left when it expires. ALWAYS pair a won claim with `releaseOrderClaim` in a
    * finally.
    */
-  async claimOrder(orderId: string, staleAfterMs = 3 * 60_000): Promise<boolean> {
-    const shop = this.shopDomain ?? "";
+  // `scope` overrides the shop domain for sources that have none. Passing the
+  // user scope (`u:<userId>`) is what stops two merchants' sales sharing a claim
+  // row under the empty-string domain — for Shopify it stays the domain, exactly
+  // as before.
+  async claimOrder(orderId: string, staleAfterMs = 3 * 60_000, scope?: string): Promise<boolean> {
+    const shop = scope ?? this.shopDomain ?? "";
     const now = new Date();
     try {
       const res = await this.db
@@ -370,11 +381,11 @@ export class AppStorage {
   }
 
   /** Release a claim won by `claimOrder`. Best-effort; stale claims expire anyway. */
-  async releaseOrderClaim(orderId: string): Promise<void> {
+  async releaseOrderClaim(orderId: string, scope?: string): Promise<void> {
     try {
       await this.db
         .prepare("DELETE FROM order_claims WHERE shopify_domain = ? AND order_id = ?")
-        .bind(this.shopDomain ?? "", String(orderId))
+        .bind(scope ?? this.shopDomain ?? "", String(orderId))
         .run();
     } catch (e) {
       console.warn("[Rioko] Failed to release order claim (it will expire):", e);

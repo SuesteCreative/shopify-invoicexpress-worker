@@ -7,6 +7,8 @@ import { loadTagRoutingRules, type TagRoutingRule } from "./tag-routing";
 import { makeViesChecker } from "../ix/vies";
 import { resolveLodgifyGateway } from "./lodgify-api";
 import { projectConnectionBehaviour } from "./connection-context";
+import { resolveStripeAuth } from "./stripe-auth";
+import { createMoloniTokenProvider, isMoloniOAuthConfig } from "./moloni-oauth";
 
 /**
  * Everything the adapters need to be handed, fetched in one place.
@@ -73,6 +75,26 @@ export async function buildAdapterCtx(
       productMappings,
       productOverrides,
       viesChecker,
+      // Stripe only, both kinds. Resolved here because the Connect answer needs
+      // the platform key off `env`, which the adapter never sees. A
+      // restricted-key connection resolves to its own key and no account, i.e.
+      // the exact credential it used before this existed.
+      stripeAuth: source === "stripe" || source === "stripe_connect"
+        ? (resolveStripeAuth(env, input.sourceConfig) ?? undefined)
+        : undefined,
+      // Moloni OAuth connections only, and only when we know which row to write
+      // a rotated refresh token back to. A password-grant connection gets no
+      // provider and takes the untouched path through getAccessToken.
+      moloniToken: destination === "moloni"
+        && isMoloniOAuthConfig(input.destinationConfig)
+        && config.user_id
+        ? (createMoloniTokenProvider(env, {
+            userId: config.user_id,
+            source,
+            destination,
+            destinationConfig: input.destinationConfig!,
+          }) ?? undefined)
+        : undefined,
       // Lodgify only. Resolving it here means every caller that reaches for an
       // adapter — webhook, poll, take-back, admin button — gets the same egress
       // decision, and a misconfigured relay throws HERE rather than each call

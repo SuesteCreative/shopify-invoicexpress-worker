@@ -1115,7 +1115,11 @@
         "lastVisit": "Last visit: {date}",
         "never": "never",
         "invitedBy": "Invited by",
-        "storeLabelEdit": "Rename"
+        "storeLabelEdit": "Rename",
+        "deleteAccountTitle": "Delete the whole account",
+        "deleteAccountQuestion": "Delete the WHOLE account?",
+        "deleteAccountImpact": "{label}: {connections} connection(s) and {orders} invoiced order(s). The connections are destroyed and invoicing stops. The orders stay on record.",
+        "deleteAccountForce": "Delete account"
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Back to integrations",

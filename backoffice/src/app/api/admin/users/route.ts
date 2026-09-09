@@ -369,7 +369,24 @@ export async function PATCH(request: NextRequest) {
     }
 }
 
-/** DELETE /api/admin/users — removes user from D1 only */
+/**
+ * DELETE /api/admin/users — deletes the whole ACCOUNT, never one connection.
+ *
+ * The button that calls this sits on a card, and a card is now a connection, so
+ * it reads as "remove this pipe". It is not: MeetFrank was deleted whole —
+ * account row gone, 725 invoiced orders and a live Stripe→IX connection left
+ * pointing at a user that no longer existed, still invoicing, invisible to the
+ * page (09/09/2026). Nothing had asked whether that was the intention.
+ *
+ * So an account that has anything attached is refused unless the caller says
+ * `force`, and the refusal reports exactly what is attached — the operator
+ * confirms against the real numbers, not against a trash icon. When it does go
+ * ahead it takes the connections and subscriptions with it, because a live
+ * connection outliving its account keeps invoicing for nobody.
+ *
+ * `processed_orders` and the documents stay: they are the fiscal record of
+ * invoices actually issued, and they are what made the recovery above possible.
+ */
 export async function DELETE(request: NextRequest) {
     try {
         const { userId } = await auth();
@@ -378,7 +395,7 @@ export async function DELETE(request: NextRequest) {
         }
 
         const callerRole = await getRole(userId);
-        const { targetId } = await request.json() as { targetId: string };
+        const { targetId, force } = await request.json() as { targetId: string; force?: boolean };
         if (!targetId) return NextResponse.json({ error: "Missing targetId" }, { status: 400 });
 
         const { env } = getRequestContext();
@@ -388,11 +405,41 @@ export async function DELETE(request: NextRequest) {
         if (target?.role === "hiperadmin") return NextResponse.json({ error: "Cannot delete hiperadmin" }, { status: 403 });
         if (target?.role === "superadmin" && callerRole !== "hiperadmin") return NextResponse.json({ error: "Only hiperadmin can delete superadmins" }, { status: 403 });
 
+        // What would be destroyed, and what would be orphaned.
+        const counts: any = await db.prepare(
+            `SELECT
+               (SELECT COUNT(*) FROM connections      WHERE user_id = ?1) AS connections,
+               (SELECT COUNT(*) FROM integrations     WHERE user_id = ?1) AS integrations,
+               (SELECT COUNT(*) FROM processed_orders WHERE user_id = ?1) AS orders`
+        ).bind(targetId).first().catch(() => ({ connections: 0, integrations: 0, orders: 0 }));
+
+        const connections = Number(counts?.connections ?? 0);
+        const integrations = Number(counts?.integrations ?? 0);
+        const orders = Number(counts?.orders ?? 0);
+
+        if (!force && (connections > 0 || integrations > 0 || orders > 0)) {
+            return NextResponse.json({
+                error: "This deletes the whole account, not one connection",
+                requires_force: true,
+                connections, integrations, orders,
+            }, { status: 409 });
+        }
+
+        // The shop domain has to be read BEFORE the integrations row goes, or the
+        // log cleanup runs against a subquery that already returns NULL.
+        const shop: any = await db.prepare("SELECT shopify_domain FROM integrations WHERE user_id = ?").bind(targetId).first().catch(() => null);
+
         await db.prepare("DELETE FROM integrations WHERE user_id = ?").bind(targetId).run();
-        await db.prepare("DELETE FROM logs WHERE shopify_domain = (SELECT shopify_domain FROM integrations WHERE user_id = ?)").bind(targetId).run().catch(() => { });
+        if (shop?.shopify_domain) {
+            await db.prepare("DELETE FROM logs WHERE shopify_domain = ?").bind(shop.shopify_domain).run().catch(() => { });
+        }
+        await db.prepare("DELETE FROM connections WHERE user_id = ?").bind(targetId).run().catch(() => { });
+        await db.prepare("DELETE FROM subscriptions WHERE user_id = ?").bind(targetId).run().catch(() => { });
+        await db.prepare("DELETE FROM account_members WHERE account_id = ?").bind(targetId).run().catch(() => { });
         await db.prepare("DELETE FROM users WHERE id = ?").bind(targetId).run();
 
-        return NextResponse.json({ success: true });
+        console.warn(`[admin/users] account ${targetId} deleted by ${userId} — ${connections} connection(s), ${integrations} integration(s), ${orders} invoiced order(s) left on record`);
+        return NextResponse.json({ success: true, deleted: { connections, integrations, orders } });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

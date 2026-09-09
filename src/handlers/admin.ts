@@ -21,6 +21,7 @@ import {
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 import { loadTagRoutingRules, matchTagRouting, normalizeRule, applyRouteToIxConfig } from "../services/tag-routing";
 import { resolveIxSequenceId } from "../ix/sequences";
+import { ixRelatedDocuments } from "../adapters/destinations/ix-destination";
 
 interface ShopifyOrderSummary {
   id: number;
@@ -591,7 +592,7 @@ export async function issueCreditNoteByOrderNumber(
     headers: ixHeaders, path: { id: Number(lookup.invoiceId) },
   });
   const reference = cancelReference("shopify", orderNumber);
-  const existing = (rel?.data?.documents ?? []).find((d: any) => d.type === "CreditNote" && d.reference === reference);
+  const existing = ixRelatedDocuments(rel).find((d: any) => d.type === "CreditNote" && d.reference === reference);
   if (existing) {
     const summary = { invoice_id: lookup.invoiceId, credit_note_id: existing.id, message: "Credit note already exists, skipped" };
     await appStorage.finishDevJob(jobId, "success", summary, [summary]);

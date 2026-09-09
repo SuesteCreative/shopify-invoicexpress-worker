@@ -10,7 +10,7 @@ import { isIntegrationPaused } from "../services/pause-gate";
 import { loadProductOverrides } from "../services/product-overrides";
 import { reportIncident } from "../services/incidents";
 import { refundReference } from "../services/document-references";
-import { ixEnvelopeError } from "../adapters/destinations/ix-destination";
+import { ixEnvelopeError, ixRelatedDocuments } from "../adapters/destinations/ix-destination";
 import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
 import { logDocumentEvent } from "../services/document-log";
 
@@ -197,8 +197,8 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
       }
     });
 
-    const creditNotes = (creditNotesData?.data?.documents ?? [])
-      .filter(document => document.type === "CreditNote");
+    const creditNotes = ixRelatedDocuments(creditNotesData)
+      .filter((document: any) => document.type === "CreditNote");
 
     // Process each credit/refund
     const credits = normalizedOrderResponse.normalized.credits.map(credit => {

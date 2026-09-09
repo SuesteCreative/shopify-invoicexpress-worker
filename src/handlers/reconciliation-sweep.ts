@@ -4,6 +4,7 @@ import { processOrders } from "./admin";
 import { processStripeBackfill } from "./admin-stripe";
 import { reportIncident, INVOICE_FAILURE_KINDS } from "../services/incidents";
 import { checkSubscriptionGate } from "../services/subscription-gate";
+import { resolveConnectionContext } from "../services/connection-context";
 import { sendEmail } from "../services/email";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -614,11 +615,40 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
 
     const row = { user_id: conn.user_id, displayName, destination: conn.destination_kind, from: effFromIso, created: 0, skipped: 0, errors: 0, wouldCreate: 0, errorSamples: [] as string[], note: undefined as string | undefined };
 
-    // Minimal config: processStripeBackfill + the pipeline resolve the real
-    // destination, credentials and auto_finalize from the connection itself
-    // (Stripe-only clients have no legacy `integrations` row). Mirrors the live
-    // queue path's synthesized config.
-    const config = { user_id: conn.user_id, shopify_domain: null, b2b_reverse_charge: 0, ix_send_email: 0, auto_finalize: 0 } as any;
+    // The merchant's REAL config, resolved exactly as /admin/stripe/backfill and
+    // /admin/stripe/reemit resolve it.
+    //
+    // This used to be a hand-built minimal object, on the belief that "the
+    // pipeline resolves credentials from the connection itself". True of Moloni
+    // and Vendus, whose credentials live in the connection blob. FALSE of
+    // InvoiceXpress: `ix_account_name` and `ix_api_key` live on the legacy
+    // `integrations` row, and ixHeadersFromCtx reads them off `config`. So every
+    // nightly heal of a Stripe→IX connection called the proxy with no
+    // credentials at all:
+    //
+    //   2026-09-09 04:05 · WHM · x108
+    //   UNAUTHENTICATED — "x-account-name and x-api-key are required"
+    //
+    // Which means the automatic recovery could never have worked for any
+    // Stripe→InvoiceXpress client — it failed the same way every night, on every
+    // payment, while the manual admin route beside it worked fine on the same
+    // data. Two ways to answer "what is this merchant's config?" is how they
+    // drift; there is now one.
+    //
+    // Falls back to the old object if the connection cannot be resolved, so a
+    // resolution failure degrades to yesterday's behaviour rather than skipping
+    // the merchant entirely.
+    const resolved = await resolveConnectionContext(env, {
+      userId: conn.user_id,
+      source: "stripe",
+      destination: conn.destination_kind as any,
+    });
+    if (!resolved.ok) {
+      console.warn(`[StripeHeal] could not resolve the connection for ${conn.user_id} (${resolved.error}) — falling back to a minimal config`);
+    }
+    const config: any = resolved.ok
+      ? resolved.ctx.config
+      : { user_id: conn.user_id, shopify_domain: null, b2b_reverse_charge: 0, ix_send_email: 0, auto_finalize: 0 };
     try {
       const r: any = await processStripeBackfill(env, config, {
         from: effFromIso, to: toIso, dry_run: dryRun,

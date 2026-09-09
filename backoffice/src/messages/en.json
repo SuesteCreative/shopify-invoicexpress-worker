@@ -1114,7 +1114,8 @@
         "joinedOn": "Joined: {date}",
         "lastVisit": "Last visit: {date}",
         "never": "never",
-        "invitedBy": "Invited by"
+        "invitedBy": "Invited by",
+        "storeLabelEdit": "Rename"
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Back to integrations",

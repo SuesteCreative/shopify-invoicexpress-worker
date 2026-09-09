@@ -1114,7 +1114,8 @@
         "joinedOn": "Adesão: {date}",
         "lastVisit": "Última visita: {date}",
         "never": "nunca",
-        "invitedBy": "Convidado por"
+        "invitedBy": "Convidado por",
+        "storeLabelEdit": "Mudar o nome"
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Voltar para Integrações",

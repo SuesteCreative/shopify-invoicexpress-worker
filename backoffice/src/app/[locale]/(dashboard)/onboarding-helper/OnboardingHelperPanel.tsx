@@ -178,10 +178,10 @@ const TOC = [
 ];
 
 const WEBHOOKS = [
-    { event: "Order creation", note: "orders/create", key: "orders-created" },
-    { event: "Order edit", note: "orders/updated", key: "orders-updated" },
-    { event: "Order payment", note: "orders/paid", key: "orders-paid" },
-    { event: "Refund create", note: "refunds/create", key: "refunds-create" },
+    { event: "Order creation", pt: "Criação de encomenda", note: "orders/create", key: "orders-created" },
+    { event: "Order edit", pt: "Atualização de encomenda", note: "orders/updated", key: "orders-updated" },
+    { event: "Order payment", pt: "Pagamento de encomenda", note: "orders/paid", key: "orders-paid" },
+    { event: "Refund create", pt: "Criação de reembolso", note: "refunds/create", key: "refunds-create" },
 ];
 
 export function OnboardingHelperPanel() {
@@ -471,6 +471,7 @@ export function OnboardingHelperPanel() {
                                             <td className="px-4 py-3 align-top text-fg-60 whitespace-nowrap">
                                                 <Code>{wh.event}</Code>
                                                 <div className="text-[11px] text-fg-40 mt-1">({wh.note})</div>
+                                                <div className="text-[11px] text-fg-40">{wh.pt}</div>
                                             </td>
                                             <td className="px-4 py-3 align-top">
                                                 <div className="flex items-center justify-between gap-3">

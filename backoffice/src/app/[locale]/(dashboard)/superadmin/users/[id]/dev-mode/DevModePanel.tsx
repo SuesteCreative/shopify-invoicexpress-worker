@@ -452,7 +452,12 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                     setTrialEnd(d.subscription.trial_end ? d.subscription.trial_end.split("T")[0] : "");
                 } else {
                     setEarlyBird(false);
-                    setTrialEnd("2026-08-01");
+                    // A default is a suggestion, and this one used to be the date
+                    // of a campaign that ended in August: whoever changed only the
+                    // day of it — the day is the part you read — saved a trial
+                    // that had already expired. A month from today is always a
+                    // date that grants what it says it grants.
+                    setTrialEnd(ymdOf(new Date(Date.now() + 30 * 86400000).toISOString()));
                 }
                 setLoaded(true);
             })
@@ -469,9 +474,19 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
             setError(t("trialEndInvalid"));
             return;
         }
+        // A date in the past is not a shorter trial, it is no trial: the gate
+        // refuses the merchant and the card reads "No sub". Say so here rather
+        // than letting the save look like it worked.
+        if (earlyBird && new Date(`${trialEnd}T23:59:59Z`).getTime() <= Date.now()) {
+            setError(t("trialEndPast"));
+            return;
+        }
         setSaving(true);
         try {
-            const trialEndIso = trialEnd ? `${trialEnd}T00:00:00Z` : null;
+            // End of the named day, not its first instant: "early bird until the
+            // 16th" is read by everyone as including the 16th, and midnight at
+            // its start cut the last day off every trial set here.
+            const trialEndIso = trialEnd ? `${trialEnd}T23:59:59Z` : null;
             const res = await fetch("/api/admin/subscription", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

@@ -40,6 +40,18 @@ export async function POST(req: NextRequest) {
         if (body.early_bird && !trialEndIso) {
             return NextResponse.json({ error: "trial_end required when early_bird=true" }, { status: 400 });
         }
+        // ...and require it to be in the future, which this endpoint claimed to
+        // check and did not. A date already past grants nothing: the gate reads
+        // it as expired, the merchant is refused, and superadmin shows "No sub"
+        // for an account somebody just deliberately gave free access to.
+        // Measured on Vandersol (09/09/2026): 16/08 stored where 16/09 was meant,
+        // because the form offered a date from a campaign that had ended.
+        if (body.early_bird && trialEndIso && new Date(trialEndIso).getTime() <= Date.now()) {
+            return NextResponse.json(
+                { error: `trial_end ${trialEndIso.slice(0, 10)} is in the past — an early bird that has already expired grants no access` },
+                { status: 400 },
+            );
+        }
 
         const db = getDB();
 

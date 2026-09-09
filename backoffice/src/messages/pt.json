@@ -1115,7 +1115,11 @@
         "lastVisit": "Última visita: {date}",
         "never": "nunca",
         "invitedBy": "Convidado por",
-        "storeLabelEdit": "Mudar o nome"
+        "storeLabelEdit": "Mudar o nome",
+        "deleteAccountTitle": "Apagar a conta inteira",
+        "deleteAccountQuestion": "Apagar a conta INTEIRA?",
+        "deleteAccountImpact": "{label}: {connections} ligação(ões) e {orders} encomenda(s) facturada(s). As ligações são destruídas e a facturação pára. As encomendas ficam no registo.",
+        "deleteAccountForce": "Apagar conta"
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Voltar para Integrações",

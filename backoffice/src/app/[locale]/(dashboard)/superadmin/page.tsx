@@ -130,6 +130,8 @@ export default function SuperadminPage() {
     const [sourceFilter, setSourceFilter] = useState<string>("all");
     const [destFilter, setDestFilter] = useState<string>("all");
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+    // What the API says would be destroyed, once it has refused the first attempt.
+    const [deleteImpact, setDeleteImpact] = useState<{ entryId: string; connections: number; integrations: number; orders: number } | null>(null);
     const [callerRole, setCallerRole] = useState<Role>("user");
     const [viewerId, setViewerId] = useState<string | null>(null); // impersonation-aware self ID
     // Administrators are the group an operator almost never needs: closed until asked for.
@@ -316,15 +318,33 @@ export default function SuperadminPage() {
         finally { setActing(null); }
     };
 
-    const handleDelete = async (targetId: string) => {
+    /** Deleting an account is not deleting a card. The API refuses the first
+     *  attempt whenever anything is attached and answers with the counts; the
+     *  operator then confirms against those numbers, not against an icon. */
+    const handleDelete = async (entry: any, force = false) => {
+        const targetId = entry.id;
         setActing(targetId); setDeleteConfirm(null);
         try {
             const res = await fetch("/api/admin/users", {
                 method: "DELETE", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetId })
+                body: JSON.stringify({ targetId, force })
             });
-            if (res.ok) setEntries(prev => prev.filter(e => e.id !== targetId));
-            else { const err = await res.json() as any; alert(t("errorPrefix", { error: err.error })); }
+            if (res.ok) {
+                setEntries(prev => prev.filter(e => e.id !== targetId));
+                setDeleteImpact(null);
+                return;
+            }
+            const err = await res.json() as any;
+            if (err?.requires_force) {
+                setDeleteImpact({
+                    entryId: entry.entry_id,
+                    connections: err.connections ?? 0,
+                    integrations: err.integrations ?? 0,
+                    orders: err.orders ?? 0,
+                });
+                return;
+            }
+            alert(t("errorPrefix", { error: err.error }));
         } catch (err) { console.error(err); }
         finally { setActing(null); }
     };
@@ -370,6 +390,8 @@ export default function SuperadminPage() {
             (callerRole === "hiperadmin" || (callerRole === "superadmin" && targetLevel < ROLE_ORDER["superadmin"]));
 
         const label = user.entry_label || user.admin_label;
+        // Narrowed here rather than inline, so the JSX below can read the counts.
+        const impact = deleteImpact && deleteImpact.entryId === user.entry_id ? deleteImpact : null;
 
         // Acquisition origin: utm > referrer host > direct; null = never captured (bot/API signup).
         const acqLabel: string | null = user.acq_utm_source
@@ -555,16 +577,34 @@ export default function SuperadminPage() {
                             </button>
                         ))}
 
-                        {/* Delete */}
+                        {/* Delete — the ACCOUNT, with every pipe on it */}
                         {canDelete && (
-                            deleteConfirm === user.entry_id ? (
+                            impact ? (
+                                <div className="flex flex-col gap-2 bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.30)] rounded-2xl px-4 py-3 max-w-[280px]">
+                                    <span className="text-[10px] font-black text-destructive uppercase tracking-wider leading-relaxed">
+                                        {t("deleteAccountImpact", {
+                                            label: label || user.name,
+                                            connections: impact.connections + impact.integrations,
+                                            orders: impact.orders,
+                                        })}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => handleDelete(user, true)} disabled={acting !== null}
+                                            className="flex-1 px-3 py-2 rounded-xl bg-destructive text-white text-[10px] font-black uppercase tracking-widest hover:bg-destructive/85 transition-all disabled:opacity-30">
+                                            {t("deleteAccountForce")}
+                                        </button>
+                                        <button onClick={() => setDeleteImpact(null)} className="p-2 rounded-xl bg-surface-2 text-fg-60 hover:bg-surface-2/70 transition-all"><X className="w-3 h-3" /></button>
+                                    </div>
+                                </div>
+                            ) : deleteConfirm === user.entry_id ? (
                                 <div className="flex items-center gap-2 bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] rounded-2xl px-4 py-2">
-                                    <span className="text-[10px] font-black text-destructive uppercase tracking-wider">{t("confirmQuestion")}</span>
-                                    <button onClick={() => handleDelete(user.id)} className="p-1 rounded-lg bg-destructive text-white hover:bg-destructive/85 transition-all"><Check className="w-3 h-3" /></button>
+                                    <span className="text-[10px] font-black text-destructive uppercase tracking-wider">{t("deleteAccountQuestion")}</span>
+                                    <button onClick={() => handleDelete(user)} className="p-1 rounded-lg bg-destructive text-white hover:bg-destructive/85 transition-all"><Check className="w-3 h-3" /></button>
                                     <button onClick={() => setDeleteConfirm(null)} className="p-1 rounded-lg bg-surface-2 text-fg-60 hover:bg-surface-2/70 transition-all"><X className="w-3 h-3" /></button>
                                 </div>
                             ) : (
                                 <button onClick={() => setDeleteConfirm(user.entry_id)} disabled={acting !== null}
+                                    title={t("deleteAccountTitle")}
                                     className="px-3 py-3 rounded-2xl flex items-center gap-2 bg-[rgba(244,63,94,0.05)] text-destructive/50 border border-[rgba(244,63,94,0.10)] hover:bg-[rgba(244,63,94,0.10)] hover:text-destructive hover:border-[rgba(244,63,94,0.20)] transition-all disabled:opacity-30">
                                     <Trash2 className="w-3.5 h-3.5" />
                                 </button>

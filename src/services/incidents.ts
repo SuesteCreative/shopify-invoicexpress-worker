@@ -5,6 +5,7 @@ import { renderIncidentTemplate, tplPatternReport, type IncidentKind } from "./e
 import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type IncidentDiagnosis, type RedactedIncident } from "./anthropic";
 import { getCompanyRulesNotes } from "./company-rules";
 import { redactSecrets, redactDeep } from "./redact";
+import { isInactiveAccount } from "./inactive-accounts";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -502,6 +503,14 @@ export async function runWeeklyPatternReport(
 
 async function resolveMerchantEmails(env: Env, userId?: string | null): Promise<string[]> {
   if (!userId) return [];
+  // A parked account is dormant on purpose: nothing is being invoiced for them,
+  // so every warning we would send is about work nobody intends to do. No
+  // recipients means no incident email and no digest — newsletters do not come
+  // through here. See src/services/inactive-accounts.ts.
+  if (await isInactiveAccount(env, userId)) {
+    console.log(`[incidents] user ${userId} is marked inactive; no warning emails`);
+    return [];
+  }
   try {
     // Look at the integrations row's dev_notify_emails JSON column, plus the user's own email.
     const row: any = await env.DB.prepare(

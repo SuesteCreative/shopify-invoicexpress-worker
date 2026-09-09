@@ -19,6 +19,7 @@ export default async function DevModePage({ params }: { params: Promise<{ id: st
 
     const target: any = await db.prepare(`
       SELECT u.id, u.name, u.email, u.role, u.nif, u.company_name,
+             COALESCE(u.is_inactive, 0) AS is_inactive,
              i.shopify_domain, i.shopify_authorized, i.ix_authorized,
              i.shopify_error, i.ix_error, i.dev_notify_emails
       FROM users u
@@ -42,6 +43,7 @@ export default async function DevModePage({ params }: { params: Promise<{ id: st
                 ix_authorized: !!target.ix_authorized,
                 shopify_error: target.shopify_error,
                 ix_error: target.ix_error,
+                is_inactive: Number(target.is_inactive) === 1,
             }}
         />
     );

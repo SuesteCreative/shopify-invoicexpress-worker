@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
+import { loadInactiveUserIds } from "./inactive-accounts";
 
 // Internal address copied on every send so Kapta sees exactly what the
 // merchant saw, in the same thread they may reply to.
@@ -202,6 +203,10 @@ export async function runSubscriptionPausedNotices(
   ).bind(nowIso).all();
 
   let blocked = (rows.results ?? []) as unknown as BlockedRow[];
+  // A parked account is blocked on purpose and knows it: telling them again is
+  // noise. See ./inactive-accounts.
+  const parked = await loadInactiveUserIds(env);
+  blocked = blocked.filter((b) => !parked.has(String(b.user_id)));
   if (opts.userId) blocked = blocked.filter((b) => String(b.user_id) === String(opts.userId));
   if (blocked.length === 0) return result;
 

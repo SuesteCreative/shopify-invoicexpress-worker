@@ -10,7 +10,7 @@ import {
 import { kindLabel, connectionLabel } from "@/lib/connection-kinds";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
-    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2, Webhook
+    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2, Webhook, Moon
 } from "lucide-react";
 
 type Target = {
@@ -25,6 +25,7 @@ type Target = {
     ix_authorized: boolean;
     shopify_error: string | null;
     ix_error: string | null;
+    is_inactive: boolean;
 };
 
 /**
@@ -191,6 +192,7 @@ export function DevModePanel({ target }: { target: Target }) {
                 cutoffs={cutoffs}
                 onCutoffSaved={onCutoffSaved}
             />
+            <AccountStateCard targetUserId={target.id} initialInactive={target.is_inactive} />
             <StripeRecoveryCard targetUserId={target.id} />
             <NotifyEmailsCard emails={notifyEmails} input={emailInput} setInput={setEmailInput} onAdd={addEmail} onRemove={removeEmail} saving={savingEmails} />
 
@@ -355,6 +357,69 @@ function IntegrationStartRow({
                 </div>
             )}
         </div>
+    );
+}
+
+/**
+ * Dormant by decision.
+ *
+ * A client we have parked (Fabrica Coffee Roasters, OPH Van de Ven) still has a
+ * shop, a domain and open incidents, so every warning sender keeps writing to
+ * them about work nobody intends to do. Off by default: only an operator who
+ * knows the client is parked flips this, and only warnings stop — a newsletter
+ * still reaches them.
+ */
+function AccountStateCard({ targetUserId, initialInactive }: { targetUserId: string; initialInactive: boolean }) {
+    const t = useTranslations("devMode");
+    const [inactive, setInactive] = useState(initialInactive);
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const toggle = async (on: boolean) => {
+        setSaving(true); setError(null);
+        const previous = inactive;
+        setInactive(on);
+        try {
+            const res = await fetch("/api/admin/users", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetId: targetUserId, is_inactive: on }),
+            });
+            const d: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                // Never leave the switch showing a state D1 refused.
+                setInactive(previous);
+                setError(d?.error ?? `HTTP ${res.status}`);
+                return;
+            }
+            setSavedAt(Date.now());
+        } catch (e: any) {
+            setInactive(previous);
+            setError(String(e?.message ?? e));
+        } finally { setSaving(false); }
+    };
+
+    return (
+        <Section icon={<Moon className="w-5 h-5 text-fg-40" />} title={t("accountStateTitle")} desc={t("accountStateDesc")}>
+            <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                    type="checkbox"
+                    checked={inactive}
+                    disabled={saving}
+                    onChange={e => toggle(e.target.checked)}
+                    className="accent-fg-40 w-4 h-4"
+                />
+                <span className="text-xs font-bold text-fg">{t("accountInactiveLabel")}</span>
+                {saving && <Loader2 className="w-3 h-3 animate-spin text-fg-40" />}
+                {!saving && savedAt && <span className="text-[10px] font-black uppercase tracking-widest text-accent-hot">{t("accountStateSaved")}</span>}
+            </label>
+            {error && (
+                <div className="px-4 py-3 rounded-xl bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] text-destructive text-xs font-bold">
+                    {error}
+                </div>
+            )}
+        </Section>
     );
 }
 

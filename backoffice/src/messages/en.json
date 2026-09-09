@@ -2050,7 +2050,8 @@
         "accountStateTitle": "Account state",
         "accountStateDesc": "An inactive account is dormant by decision: it receives no warning emails, only newsletters. Invoicing is unaffected.",
         "accountInactiveLabel": "Inactive account",
-        "accountStateSaved": "Saved"
+        "accountStateSaved": "Saved",
+        "trialEndPast": "That date is already past — an expired early bird grants no access. Pick a date in the future."
     },
     "help": {
         "backToDashboard": "Back to dashboard",

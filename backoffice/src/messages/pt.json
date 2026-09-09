@@ -2050,7 +2050,8 @@
         "accountStateTitle": "Estado da conta",
         "accountStateDesc": "Uma conta inactiva está dormente por decisão: não recebe emails de aviso, só newsletters. A facturação não é afectada.",
         "accountInactiveLabel": "Conta inactiva",
-        "accountStateSaved": "Guardado"
+        "accountStateSaved": "Guardado",
+        "trialEndPast": "Essa data já passou — um early bird expirado não dá acesso nenhum. Escolhe uma data no futuro."
     },
     "help": {
         "backToDashboard": "Voltar ao Dashboard",

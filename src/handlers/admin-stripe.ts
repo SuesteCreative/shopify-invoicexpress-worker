@@ -52,24 +52,39 @@ type StripeSourceKind = "stripe" | "stripe_connect";
 // first, so a user who only has the restricted-key connection gets the identical
 // row this query has always returned.
 async function loadStripeConnectionFull(env: Env, userId: string): Promise<StripeConnFull | null> {
-  const row: any = await env.DB.prepare(
+  const res = await env.DB.prepare(
     `SELECT source_kind, destination_kind, source_config_json, destination_config_json, invoice_cutoff, created_at
        FROM connections
       WHERE user_id = ? AND source_kind IN ('stripe', 'stripe_connect')
-      ORDER BY CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END
-      LIMIT 1`
-  ).bind(userId).first();
-  if (!row) return null;
+      ORDER BY CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END`
+  ).bind(userId).all();
+
   const parse = (s: string | null): Record<string, any> | undefined => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
-  const sourceConfig = (parse(row.source_config_json) ?? {}) as StripeConnConfig;
-  return {
-    destinationKind: row.destination_kind ?? "invoicexpress",
-    sourceKind: (row.source_kind === "stripe_connect" ? "stripe_connect" : "stripe") as StripeSourceKind,
-    sourceConfig,
-    destinationConfig: parse(row.destination_config_json),
-    invoiceCutoff: (row.invoice_cutoff ?? row.created_at) ?? null,
-    auth: resolveStripeAuth(env, sourceConfig),
-  };
+  const rows = ((res.results as any[]) ?? []).map((row) => {
+    const sourceConfig = (parse(row.source_config_json) ?? {}) as StripeConnConfig;
+    return {
+      destinationKind: row.destination_kind ?? "invoicexpress",
+      sourceKind: (row.source_kind === "stripe_connect" ? "stripe_connect" : "stripe") as StripeSourceKind,
+      sourceConfig,
+      destinationConfig: parse(row.destination_config_json),
+      invoiceCutoff: (row.invoice_cutoff ?? row.created_at) ?? null,
+      auth: resolveStripeAuth(env, sourceConfig),
+    };
+  });
+  if (rows.length === 0) return null;
+
+  // A connection that can actually talk to Stripe beats one that cannot, before
+  // the historic `stripe`-first preference applies.
+  //
+  // Ordering by kind alone was enough while a merchant could only have one
+  // Stripe connection. It stopped being enough the day they could have two: an
+  // abandoned restricted-key row with no key left in it — a wizard someone
+  // started and never finished — shadowed a healthy Stripe Connect connection,
+  // and every recovery route answered "no Stripe credentials on connection"
+  // while pointing at the wrong row. Among rows that CAN authenticate, `stripe`
+  // still wins, so a merchant with two working connections keeps the one these
+  // routes have always resolved for them.
+  return rows.find((r) => r.auth) ?? rows[0];
 }
 
 // The externalId the pipeline dedups on for a given event payload.

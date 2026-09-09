@@ -59,17 +59,50 @@ export type IxCreditNote = NonNullable<PostV2CreditNotesData["body"]>["credit_no
 // document fails). A few names from Intl.DisplayNames don't match IX's list, so
 // we override those specific ISO codes. Add new entries here as IX rejections
 // surface (verified live: MO must be "Macau", not the Intl "Macao").
+// Measured against IX on 2026-09-09 by creating a client per country and reading
+// it back: 58 of the 63 names Intl produces are stored as sent, and these five
+// are DROPPED — the document is still created, with a client that has no country
+// at all. No 422, no error, nothing to notice. A UK buyer's invoice came out with
+// an empty country on a live account (doc 269811236), and the account's own older
+// clients showed why: IX spells it "UK".
 const IX_COUNTRY_OVERRIDE: Record<string, string> = {
   MO: "Macau",
+  GB: "UK",
+  CZ: "Czech Republic",
+  KR: "Korea, South",
+  HK: "Hong Kong",
+  TR: "Turkey",
+};
+
+// The same five, by name, for the sources that already send one. Shopify does:
+// its orders carry `billing_address.country` as "United Kingdom", which sailed
+// through the length check below untouched and was dropped by IX exactly like
+// the ISO path — so every Shopify shop selling to the UK has been filing clients
+// with no country. Keyed lowercase; values are the names IX accepted.
+const IX_COUNTRY_NAME_OVERRIDE: Record<string, string> = {
+  "united kingdom": "UK",
+  "united kingdom of great britain and northern ireland": "UK",
+  "great britain": "UK",
+  "czechia": "Czech Republic",
+  "south korea": "Korea, South",
+  "korea, republic of": "Korea, South",
+  "republic of korea": "Korea, South",
+  "hong kong sar china": "Hong Kong",
+  "hong kong sar": "Hong Kong",
+  "türkiye": "Turkey",
+  "turkiye": "Turkey",
+  "macao": "Macau",
+  "macao sar china": "Macau",
 };
 
 function toIxCountryName(value: string): string {
   const v = (value || "").trim();
-  if (v.length !== 2) return v; // already a full name (or empty)
+  if (v.length !== 2) return IX_COUNTRY_NAME_OVERRIDE[v.toLowerCase()] ?? v;
   const cc = v.toUpperCase();
   if (IX_COUNTRY_OVERRIDE[cc]) return IX_COUNTRY_OVERRIDE[cc];
   try {
-    return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || v;
+    const name = new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || v;
+    return IX_COUNTRY_NAME_OVERRIDE[name.toLowerCase()] ?? name;
   } catch {
     return v;
   }

@@ -19,6 +19,9 @@ export const SOURCE_TO_CONNECTION_KEY: Record<string, string> = {
     "shopify-ix": DEFAULT_CONNECTION_KEY,
     "stripe-ix": "stripe:invoicexpress",
     "stripe-moloni": "stripe:moloni",
+    // The Connect wizard is its own page and its own connection, but the same
+    // product at the same price. Only the key differs.
+    "stripe-connect-moloni": "stripe_connect:moloni",
     "lodgify-moloni": "lodgify:moloni",
 };
 
@@ -27,6 +30,7 @@ export const CONNECTION_KEY_TO_SOURCE: Record<string, string> = {
     "shopify:invoicexpress": "faturacao",
     "stripe:invoicexpress": "stripe-ix",
     "stripe:moloni": "stripe-moloni",
+    "stripe_connect:moloni": "stripe-connect-moloni",
     "lodgify:moloni": "lodgify-moloni",
 };
 

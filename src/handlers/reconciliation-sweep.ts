@@ -584,7 +584,9 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
   const toIso = now.toISOString();
 
   const root = new AppStorage(env);
-  let conns = await root.listActiveConnections("stripe");
+  // Both Stripe kinds. A Connect connection heals through the same backfill —
+  // only the credential differs, and that is resolved per connection downstream.
+  let conns = await root.listActiveConnections(["stripe", "stripe_connect"]);
   // Allowlist: explicit option beats env; empty = all active Stripe connections.
   const envAllow = (env.STRIPE_HEAL_USERS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const allow = options.users?.length ? options.users : envAllow;
@@ -640,7 +642,7 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
     // the merchant entirely.
     const resolved = await resolveConnectionContext(env, {
       userId: conn.user_id,
-      source: "stripe",
+      source: conn.source_kind ?? "stripe",
       destination: conn.destination_kind as any,
     });
     if (!resolved.ok) {
@@ -692,7 +694,7 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
             window: { from: fromIso, to: toIso }, errors: row.errorSamples,
             message: summarizeErrorSamples(row.errorSamples),
           },
-          connection_label: `stripe → ${conn.destination_kind}`,
+          connection_label: `${conn.source_kind} → ${conn.destination_kind}`,
           merchant_name: displayName,
           bucket: "daily",
         });

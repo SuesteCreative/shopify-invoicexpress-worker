@@ -85,6 +85,7 @@ export default function WelcomeDashboard() {
     : kind === "lodgify" ? "Lodgify"
     : kind === "shopify" ? "Shopify"
     : kind === "stripe" ? "Stripe"
+    : kind === "stripe_connect" ? "Stripe Connect"
     : kind === "eupago" ? "EuPago"
     : kind;
 
@@ -92,6 +93,7 @@ export default function WelcomeDashboard() {
     const d = dest === "invoicexpress" ? "ix" : dest;
     if (source === "lodgify") return `/integrations/lodgify-${d}`;
     if (source === "stripe") return `/integrations/stripe-${d}`;
+    if (source === "stripe_connect") return `/integrations/stripe-connect-${d}`;
     if (source === "shopify") return `/integrations/shopify-${d}`;
     return "/integrations";
   };

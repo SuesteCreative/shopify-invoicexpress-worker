@@ -22,4 +22,10 @@ export interface StripeQueueMessage {
    * Queues 128KB per-message limit. The consumer hydrates `body` from here.
    */
   bodyRef?: string;
+  /**
+   * Which connection kind this event belongs to. Absent means `"stripe"`, so
+   * messages already sitting in the queue when this shipped keep resolving to
+   * the restricted-key connection they were enqueued for.
+   */
+  sourceKind?: "stripe" | "stripe_connect";
 }

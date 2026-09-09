@@ -1,8 +1,15 @@
 import type { Normalized } from "../api/normalize-shopify";
 import type { IRequestConfig } from "../storage";
 import type { LodgifyGateway } from "../services/lodgify-api";
+import type { StripeAuth } from "../services/stripe-auth";
+import type { MoloniTokenProvider } from "../services/moloni-oauth";
 
-export type SourceKind = "shopify" | "stripe" | "eupago" | "lodgify";
+// `stripe_connect` is the same Stripe, reached a different way: the merchant
+// authorises us through Connect OAuth instead of pasting a restricted key, so we
+// call their account with the platform key + a Stripe-Account header. The events,
+// the objects and the adapter are identical — only the credential differs — which
+// is why both kinds share one StripeSource instance in the registry.
+export type SourceKind = "shopify" | "stripe" | "stripe_connect" | "eupago" | "lodgify";
 export type DestinationKind = "invoicexpress" | "moloni" | "vendus";
 
 export interface AdapterCtx {
@@ -17,6 +24,16 @@ export interface AdapterCtx {
   // toggles (auto_finalize, ix_send_email, ix_exemption_reason fallback) still
   // live in `config` (legacy `integrations` row) until Phase 5 projects them.
   destinationConfig?: Record<string, any>;
+  // How to authenticate against the merchant's Stripe account, resolved once per
+  // run by buildAdapterCtx because the answer needs `env` (the platform key) and
+  // the adapter has none. Absent for every non-Stripe source, and absent when a
+  // caller hand-rolled a ctx — `ctxStripeAuth` then falls back to the restricted
+  // key on sourceConfig, which is what those callers always used.
+  stripeAuth?: StripeAuth;
+  // Moloni access tokens for an OAuth connection, refreshed and persisted by the
+  // provider. Absent on password-grant connections, which mint their own token
+  // from the stored username/password exactly as they always have.
+  moloniToken?: MoloniTokenProvider;
   // Pre-fetched explicit product mappings, keyed by source_reference
   // (output of MoloniDestination.deriveProductReference). Adapters consult
   // this Map before falling back to the find-or-create-by-reference path.

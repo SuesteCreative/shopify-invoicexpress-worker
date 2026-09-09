@@ -3,11 +3,20 @@ import type { ConnectionContext } from "../../services/connection-context";
 import type { SourceRecovery, SourceRecordRef, SourceDescription } from "./types";
 import { listStripePaymentIntents, fetchStripeObject } from "../../services/stripe";
 import { getSourceAdapter } from "../registry";
+import { resolveStripeAuth } from "../../services/stripe-auth";
 
-function restrictedKeyOf(ctx: ConnectionContext): string {
-  const key = ctx.sourceConfig?.restricted_key;
-  if (!key) throw new Error("No Stripe restricted_key on the connection");
-  return String(key);
+/**
+ * The credential and the account to scope reads to.
+ *
+ * Takes `env` because a Connect connection stores no key of its own — the
+ * platform key lives there. Reading `sourceConfig.restricted_key` directly, as
+ * this used to, made every recovery tool throw "no restricted_key" at a Connect
+ * merchant whose connection is perfectly healthy.
+ */
+function authOf(ctx: ConnectionContext, env: Env): { key: string; account?: string } {
+  const auth = resolveStripeAuth(env, ctx.sourceConfig);
+  if (!auth) throw new Error("No Stripe credentials on the connection");
+  return { key: auth.apiKey, account: auth.connectAccount ?? ctx.sourceConfig?.stripe_account_id };
 }
 
 /**
@@ -41,9 +50,10 @@ export class StripeRecovery implements SourceRecovery {
   readonly kind = "stripe" as const;
 
   /** Accepts any of `pi_…`, `ch_…`, `cs_…`, `in_…`. */
-  async resolveRecord(input: string, ctx: ConnectionContext, _env: Env): Promise<SourceRecordRef | null> {
+  async resolveRecord(input: string, ctx: ConnectionContext, env: Env): Promise<SourceRecordRef | null> {
     const stripeId = input.trim();
-    const fetched = await fetchStripeObject(restrictedKeyOf(ctx), stripeId, ctx.sourceConfig?.stripe_account_id);
+    const auth = authOf(ctx, env);
+    const fetched = await fetchStripeObject(auth.key, stripeId, auth.account);
     if ("error" in fetched) throw new Error(fetched.error);
 
     const obj = fetched.event?.data?.object;
@@ -52,11 +62,12 @@ export class StripeRecovery implements SourceRecovery {
 
   async listCandidates(
     ctx: ConnectionContext,
-    _env: Env,
+    env: Env,
     window: { from: string; to: string; limit: number },
   ): Promise<SourceRecordRef[]> {
+    const auth = authOf(ctx, env);
     const pis = await listStripePaymentIntents(
-      restrictedKeyOf(ctx), window.from, window.to, window.limit, ctx.sourceConfig?.stripe_account_id,
+      auth.key, window.from, window.to, window.limit, auth.account,
     );
     return pis.map((pi) => {
       const event = {
@@ -76,10 +87,9 @@ export class StripeRecovery implements SourceRecovery {
    * check, while the Shopify one has refused on more than a cent of drift since
    * the 0%-VAT incident.
    */
-  async describe(externalIds: string[], ctx: ConnectionContext, _env: Env): Promise<Map<string, SourceDescription>> {
+  async describe(externalIds: string[], ctx: ConnectionContext, env: Env): Promise<Map<string, SourceDescription>> {
     const map = new Map<string, SourceDescription>();
-    const key = restrictedKeyOf(ctx);
-    const account = ctx.sourceConfig?.stripe_account_id;
+    const { key, account } = authOf(ctx, env);
 
     // One read per id: Stripe's list endpoint cannot filter by an id set, and a
     // recovery run is bounded (limit-capped) by design.

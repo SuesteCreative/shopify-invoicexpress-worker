@@ -8,7 +8,7 @@
  * rejected writes for connection kinds that were already live in production.
  */
 
-export const SOURCE_KINDS = ["shopify", "stripe", "eupago", "lodgify"] as const;
+export const SOURCE_KINDS = ["shopify", "stripe", "stripe_connect", "eupago", "lodgify"] as const;
 export const DESTINATION_KINDS = ["invoicexpress", "moloni", "vendus"] as const;
 
 export type SourceKind = (typeof SOURCE_KINDS)[number];
@@ -28,6 +28,10 @@ export function isDestinationKind(v: unknown): v is DestinationKind {
 const LABELS: Record<string, string> = {
     shopify: "Shopify",
     stripe: "Stripe",
+    // Deliberately distinct from "Stripe": an account can hold both kinds at
+    // once, and a support conversation about "the Stripe connection" has to be
+    // able to name which one.
+    stripe_connect: "Stripe Connect",
     eupago: "EuPago",
     lodgify: "Lodgify",
     invoicexpress: "IX API",

@@ -35,6 +35,14 @@
     "BACKOFFICE_URL": "https://rioko.online",
     "DESTINATION_VIA_ADAPTER": "0",
     "STRIPE_SOURCE_ENABLED": "1",
+    // Stripe Connect → Moloni. Ships DARK: the route 404s and the wizard is
+    // hidden until the platform is enabled on Rioko's Stripe account and one
+    // merchant has been onboarded end to end in a sandbox. Turning it on cannot
+    // affect the restricted-key connections — different route, different secret.
+    "STRIPE_CONNECT_ENABLED": "0",
+    // Nightly renewal of Moloni OAuth refresh tokens (they expire after 14 idle
+    // days). Pointless until the first OAuth connection exists.
+    "MOLONI_TOKEN_REFRESH_ENABLED": "0",
     "RESEND_FROM_EMAIL": "noreply@rioko.online",
     "KAPTA_DEV_EMAILS": "pedrotovarporto@gmail.com",
     "INCIDENT_DIGEST_ENABLED": "0",

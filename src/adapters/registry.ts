@@ -7,9 +7,16 @@ import { InvoiceXpressDestination } from "./destinations/ix-destination";
 import { MoloniDestination } from "./destinations/moloni-destination";
 import { VendusDestination } from "./destinations/vendus-destination";
 
+const stripeSource = new StripeSource();
+
 const sourceInstances: Partial<Record<SourceKind, SourceAdapter>> = {
   shopify: new ShopifySource(),
-  stripe: new StripeSource(),
+  stripe: stripeSource,
+  // Connect connections read the same Stripe objects with the same code. The
+  // credential swap happens upstream, in resolveStripeAuth, so the adapter has
+  // nothing to branch on and a second instance would only be a second thing to
+  // keep in sync.
+  stripe_connect: stripeSource,
   eupago: new EuPagoSource(),
   lodgify: new LodgifySource(),
 };

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(node scripts/stripe-connect-killswitch.mjs --off*)",
+      "Bash(node scripts/stripe-connect-killswitch.mjs --on*)",
+      "Bash(npm run stripe-connect:off*)",
+      "Bash(npm run stripe-connect:on*)",
+      "Bash(npx wrangler versions deploy*)",
+      "Bash(npx wrangler rollback*)",
+      "Bash(wrangler versions deploy*)",
+      "Bash(wrangler rollback*)"
+    ],
+    "ask": [
+      "Bash(npx wrangler d1 execute rioko-db --remote*)",
+      "Bash(npm run deploy*)",
+      "Bash(npx wrangler deploy*)",
+      "Bash(wrangler deploy*)",
+      "Bash(npx wrangler secret*)"
+    ]
+  }
+}

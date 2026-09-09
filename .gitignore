@@ -37,3 +37,6 @@ docs/customer-profiles.md
 # Stray binaries & DB dumps (belong in object storage, not git)
 *.ai
 backup-*.sql
+
+# Local snapshot taken before deploying Stripe Connect; machine-specific.
+.stripe-connect-baseline.json

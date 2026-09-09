@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
 }
 
 type PostBody = {
-    source_kind?: "shopify" | "stripe";
+    source_kind?: "shopify" | "stripe" | "stripe_connect";
     source_reference?: string;
     destination_product_id?: number | string;
     destination_reference?: string;
@@ -71,7 +71,14 @@ export async function POST(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const body = await request.json() as PostBody;
-    const sourceKind = body.source_kind === "stripe" ? "stripe" : "shopify";
+    // Unknown values still fall back to "shopify", the behaviour every existing
+    // caller relies on. "stripe_connect" is spelled out because a mapping stored
+    // under the wrong kind is a mapping the pipeline never finds — the line then
+    // silently falls back to find-or-create by reference against a product that
+    // may carry a different VAT rate.
+    const sourceKind = body.source_kind === "stripe" ? "stripe"
+        : body.source_kind === "stripe_connect" ? "stripe_connect"
+        : "shopify";
     const sourceReference = (body.source_reference ?? "").trim();
     const destProductId = Number(body.destination_product_id);
 

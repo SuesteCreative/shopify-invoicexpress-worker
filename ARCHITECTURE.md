@@ -86,6 +86,7 @@ Every webhook route does the same shape: **verify signature first** (HMAC), dedu
 |---|---|---|
 | `POST /webhooks/shopify/{orders-created,orders-updated,orders-paid,refunds-create}` | Shopify | HMAC-SHA256 vs per-shop `shopify_webhook_secret` |
 | `POST /webhooks/stripe` | Stripe (gated by `STRIPE_SOURCE_ENABLED=1`) | Stripe signature + 5-min replay window; resolves owning `connections` row |
+| `POST /webhooks/stripe/connect` | Stripe Connect (gated by `STRIPE_CONNECT_ENABLED=1`) | ONE platform signing secret (`STRIPE_CONNECT_WEBHOOK_SECRET`); routes by the event's `account` field, not by trying each connection's secret. Unknown accounts answer 200 — Rioko's Stripe account also carries an unrelated product's connected accounts |
 | `POST /webhooks/eupago/:userId` | EuPago | base64 HMAC vs per-user `hmac_secret` |
 | `GET /` | health check | none |
 | `/admin/*` | dev-mode + ops tooling | `requireAdminAuth` (admin key) |
@@ -150,6 +151,8 @@ Pluggable sources and destinations behind two interfaces, wired by `registry.ts`
 | `product-mappings.ts` | SKU → Moloni product id bindings (Map, 1 D1 read) |
 | `product-overrides.ts` | per-SKU tax/VAT/name overrides (Map, 1 D1 read) |
 | `stripe.ts` | thin Stripe REST wrapper (restricted key) for `tax_ids` expansion |
+| `stripe-auth.ts` | which credential talks to a merchant's Stripe: their restricted key, or Rioko's platform key + `Stripe-Account` for `stripe_connect` |
+| `moloni-oauth.ts` | Moloni authorization-code flow + the token provider that refreshes, rotates and persists (refresh token: 14 idle days, rotates on every use) |
 | `order-label.ts` | `describeOrder` → `{orderRef, clientName}` for human-readable alerts |
 
 ---
@@ -176,7 +179,7 @@ Migrations live in `migrations/0001…0015_*.sql`; apply in order with `wrangler
 `{source}_order:{id}` (fast idempotency) · `ixmeta:{invoiceId}` (24h) · `ixref:{account}:{reference}` (1h) · `stripe-evt:{eventId}` (7d payload spill).
 
 ### Bindings & env (`src/env.ts`, `wrangler.jsonc`)
-`DB` (D1), `INVOICE_KV` (KV), `SHOPIFY_ORDERS_QUEUE` + `STRIPE_QUEUE` (queues). Secrets via `wrangler secret put` (`STRIPE_WEBHOOK_SECRET`, IX keys, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `ADMIN_API_KEY`/`CRON_SECRET`). Feature flags in `vars`: `STRIPE_SOURCE_ENABLED`, `DESTINATION_VIA_ADAPTER`, `*_DIGEST_ENABLED`.
+`DB` (D1), `INVOICE_KV` (KV), `SHOPIFY_ORDERS_QUEUE` + `STRIPE_QUEUE` (queues). Secrets via `wrangler secret put` (`STRIPE_WEBHOOK_SECRET`, IX keys, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `ADMIN_API_KEY`/`CRON_SECRET`). Feature flags in `vars`: `STRIPE_SOURCE_ENABLED`, `STRIPE_CONNECT_ENABLED`, `MOLONI_TOKEN_REFRESH_ENABLED`, `DESTINATION_VIA_ADAPTER`, `*_DIGEST_ENABLED`. Connect also needs the secrets `STRIPE_PLATFORM_SECRET_KEY` and `STRIPE_CONNECT_WEBHOOK_SECRET`.
 
 ---
 

@@ -52,7 +52,7 @@ beforeEach(() => {
   resolveConnectionContext.mockReset();
 
   listActiveConnections.mockResolvedValue([
-    { user_id: "user_WHM", destination_kind: "invoicexpress", created_at: "2026-09-08T14:49:59.950Z", invoice_cutoff: null },
+    { user_id: "user_WHM", source_kind: "stripe", destination_kind: "invoicexpress", created_at: "2026-09-08T14:49:59.950Z", invoice_cutoff: null },
   ]);
   getMerchantDisplayNames.mockResolvedValue(new Map([["user_WHM", "WHM"]]));
   processStripeBackfill.mockResolvedValue({ success: 0, skipped: 0, errors: 0 });

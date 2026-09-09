@@ -39,7 +39,7 @@ export default function MoloniMappingsPage() {
     const t = useTranslations("moloniMappings");
     const searchParams = useSearchParams();
     const rawSource = searchParams?.get("source_kind") ?? "shopify";
-    const sourceKind = (["shopify", "stripe", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "lodgify" | "eupago";
+    const sourceKind = (["shopify", "stripe", "stripe_connect", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "stripe_connect" | "lodgify" | "eupago";
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<string | null>(null); // source_reference being saved
@@ -190,8 +190,13 @@ export default function MoloniMappingsPage() {
         );
     }
 
-    const srcLabel = sourceKind === "stripe" ? "Stripe" : sourceKind === "lodgify" ? "Lodgify" : sourceKind === "eupago" ? "EuPago" : "Shopify";
-    const backHref = `/integrations/${sourceKind}-moloni`;
+    const srcLabel = sourceKind === "stripe" ? "Stripe"
+        : sourceKind === "stripe_connect" ? "Stripe Connect"
+        : sourceKind === "lodgify" ? "Lodgify"
+        : sourceKind === "eupago" ? "EuPago"
+        : "Shopify";
+    // The wizard routes are kebab-cased; the connection kinds are not.
+    const backHref = `/integrations/${sourceKind === "stripe_connect" ? "stripe-connect" : sourceKind}-moloni`;
     const mappedCount = mappings.size;
     const unmappedCount = sourceProducts.filter(p => !mappings.has(p.source_reference)).length;
     const autoMatchableCount = sourceProducts.filter(p =>

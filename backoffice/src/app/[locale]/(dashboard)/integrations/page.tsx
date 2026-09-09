@@ -15,9 +15,17 @@ function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
+// Ships dark: until the platform is live on Rioko's Stripe account the tile is
+// rendered locked, exactly like the payment providers we have not built yet.
+const STRIPE_CONNECT_ENABLED = process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED === "1";
+
 const PAYMENT_PLATFORMS = [
     { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
     { id: "stripe", name: "Stripe", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
+    // The same Stripe, connected in one click instead of by pasting a restricted
+    // key. A separate tile because it is a separate connection: an account can
+    // hold both, and support has to be able to tell which one is being discussed.
+    { id: "stripe_connect", name: "Stripe Connect", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: STRIPE_CONNECT_ENABLED },
     { id: "eupago", name: "EuPago", icon: Wallet, logo: "/images/eupago-logo.svg", logoW: 30, logoH: 30, active: true },
     { id: "lodgify", name: "Lodgify", icon: Wallet, logo: "/images/lodgify-logo-white.svg", logoW: 44, logoH: 12, active: true },
     { id: "easypay", name: "Easypay", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
@@ -59,9 +67,12 @@ export default function IntegrationsPage() {
                 const id = `${conn.source_kind}-${conn.destination_kind}`;
                 if (list.find(i => i.id === id)) continue;
                 const dest = conn.destination_kind === "invoicexpress" ? "ix" : conn.destination_kind;
+                // The route is kebab-cased; the kind is snake_cased. Without this
+                // an active Connect integration links to a 404.
+                const src = conn.source_kind === "stripe_connect" ? "stripe-connect" : conn.source_kind;
                 list.push({
                     id, payment: conn.source_kind, invoicing: conn.destination_kind,
-                    href: `/integrations/${conn.source_kind}-${dest}`,
+                    href: `/integrations/${src}-${dest}`,
                     status: "authorized"
                 });
             }
@@ -81,6 +92,7 @@ export default function IntegrationsPage() {
     const canConnect =
         (selectedPayment === "shopify" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
         || (selectedPayment === "stripe" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
+        || (STRIPE_CONNECT_ENABLED && selectedPayment === "stripe_connect" && selectedInvoicing === "moloni")
         || (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress")
         || (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress")
         || (selectedPayment === "lodgify" && selectedInvoicing === "moloni")
@@ -90,6 +102,7 @@ export default function IntegrationsPage() {
         if (selectedPayment === "lodgify" && selectedInvoicing === "moloni") return "/integrations/lodgify-moloni";
         if (selectedPayment === "lodgify" && selectedInvoicing === "vendus") return "/integrations/lodgify-vendus";
         if (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress") return "/integrations/eupago-ix";
+        if (selectedPayment === "stripe_connect" && selectedInvoicing === "moloni") return "/integrations/stripe-connect-moloni";
         if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
         if (selectedPayment === "stripe" && selectedInvoicing === "vendus") return "/integrations/stripe-vendus";
         if (selectedPayment === "shopify" && selectedInvoicing === "moloni") return "/integrations/shopify-moloni";

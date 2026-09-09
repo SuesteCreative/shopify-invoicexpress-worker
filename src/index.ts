@@ -2096,10 +2096,18 @@ app.post("/admin/connection/invoice-cutoff", async (c) => {
  * somehow has more than one Stripe connection.
  */
 async function loadConfigForUser(c: Context<{ Bindings: Env }>, userId: string) {
-  const resolved = await resolveConnectionContext(c.env, {
-    userId, source: "stripe", onAmbiguous: "pick_latest",
-  });
-  return resolved.ok ? resolved.ctx.config : null;
+  // Both Stripe connection kinds. Hardcoding "stripe" made every admin recovery
+  // route — backfill, re-emit, credit note, finalize — answer "no connection"
+  // for a merchant on Stripe Connect, whose connection is perfectly healthy.
+  // `stripe` is tried first so a merchant who has both keeps the row these
+  // routes have always resolved for them.
+  for (const source of ["stripe", "stripe_connect"] as const) {
+    const resolved = await resolveConnectionContext(c.env, {
+      userId, source, onAmbiguous: "pick_latest",
+    });
+    if (resolved.ok) return resolved.ctx.config;
+  }
+  return null;
 }
 
 app.post("/admin/stripe/backfill", async (c) => {

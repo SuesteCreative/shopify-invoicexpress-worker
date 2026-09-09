@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { sendEmail } from "./email";
+import { loadInactiveUserIds } from "./inactive-accounts";
 
 // Internal address always copied on renewal reminders so Kapta can follow up.
 const OPS_EMAIL = "pedro@kapta.pt";
@@ -197,7 +198,11 @@ export async function runEarlyBirdEndingReminders(
       HAVING s.trial_end = MIN(s.trial_end)`
   ).bind(now.toISOString()).all();
 
-  const subs = (rows.results ?? []) as unknown as Array<DueSub & { marker: string | null }>;
+  // Parked accounts are dormant by decision — do not nag them about a trial
+  // ending on a pipeline nobody is running. See ./inactive-accounts.
+  const parked = await loadInactiveUserIds(env);
+  const subs = ((rows.results ?? []) as unknown as Array<DueSub & { marker: string | null }>)
+    .filter(s => !parked.has(String(s.user_id)));
   const result: RenewalReminderResult = { checked: 0, sent: 0, failed: 0, dry_run: dryRun, due: [] };
 
   for (const s of subs) {
@@ -275,7 +280,9 @@ export async function runRenewalReminders(
      HAVING current_period_end = MIN(current_period_end)`
   ).bind(now.toISOString(), until.toISOString()).all();
 
-  const subs = (rows.results ?? []) as unknown as DueSub[];
+  const parked = await loadInactiveUserIds(env);
+  const subs = ((rows.results ?? []) as unknown as DueSub[])
+    .filter(s => !parked.has(String(s.user_id)));
   const result: RenewalReminderResult = { checked: subs.length, sent: 0, failed: 0, dry_run: dryRun, due: [] };
 
   for (const s of subs) {

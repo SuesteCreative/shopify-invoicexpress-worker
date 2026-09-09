@@ -71,6 +71,30 @@ export function ixEnvelopeError(body: unknown): { message: string | null; code: 
   return b.error ?? null;
 }
 
+/**
+ * The related documents out of a `/v2/documents/{id}/related` response.
+ *
+ * Two `data` deep, and that is the whole point of this function existing. The
+ * generated client hands back `{ data: <body> }`, and the body is the proxy's
+ * envelope `{ data: { documents }, success, error }` — so the list lives at
+ * `data.data.documents`. Three call sites read `data.documents` instead and got
+ * `undefined`, which `?? []` turned into "this document has no credit notes".
+ *
+ * That is the worst possible failure for the question being asked. Every caller
+ * asks it to decide whether a credit note ALREADY EXISTS before issuing another
+ * one: the refund path, the legacy cancel, and the connection cancel. All three
+ * were answered "no" for a document that plainly had one, so the guard against
+ * crediting twice has never once fired.
+ *
+ * Takes either the client's response or the bare envelope, because one caller
+ * (reconciliation) fetches this endpoint by hand and already unwraps a level.
+ */
+export function ixRelatedDocuments(res: unknown): any[] {
+  const envelope = (res as any)?.data ?? res;
+  const docs = (envelope as any)?.data?.documents ?? (envelope as any)?.documents;
+  return Array.isArray(docs) ? docs : [];
+}
+
 // Document lifecycle per the InvoiceXpress docs: a GET reads back `status`
 // (draft | final | settled | canceled | second_copy — note "final", while
 // change_state is POSTed the verb "finalized"). `deleted` is a state you can
@@ -240,7 +264,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
         + JSON.stringify(relProblem).slice(0, 300),
       );
     }
-    const related = (rel?.data?.documents ?? []) as any[];
+    const related = ixRelatedDocuments(rel);
     const liveCreditNotes = related.filter((d: any) => {
       if (String(d?.type ?? "") !== "CreditNote") return false;
       const s = String(d?.status ?? "").toLowerCase();

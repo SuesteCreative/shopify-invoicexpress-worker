@@ -168,13 +168,31 @@ export async function POST(request: NextRequest) {
     // company_id + document_set_id are optional when names are present — the
     // Worker queue consumer resolves names → IDs lazily on first invoice.
     if (status === "active") {
-        const credFields: Array<keyof typeof merged> = [
-            "moloni_client_id", "moloni_client_secret", "moloni_username", "moloni_password",
-        ];
+        // The four-field check below is unchanged for every connection that
+        // authenticates with a username and password — which is all of them
+        // except the Stripe Connect ones, and they must keep failing activation
+        // if a credential is missing.
+        //
+        // An OAuth connection has no username and no password. Not missing:
+        // never asked for. Demanding them is what blocked "Marcar como activo"
+        // on a wizard that had already authorised Moloni successfully. What it
+        // must prove instead is that the merchant completed the consent screen,
+        // and the refresh token is that proof.
+        const isOAuth = previousCfg.moloni_auth_mode === "oauth" || !!previousCfg.moloni_refresh_token;
+
+        const credFields: Array<keyof typeof merged> = isOAuth
+            ? ["moloni_client_id", "moloni_client_secret"]
+            : ["moloni_client_id", "moloni_client_secret", "moloni_username", "moloni_password"];
         for (const field of credFields) {
             if (merged[field] === undefined || merged[field] === "" || merged[field] === null) {
                 return NextResponse.json({ error: `Missing ${field}` }, { status: 400 });
             }
+        }
+        if (isOAuth && !previousCfg.moloni_refresh_token) {
+            return NextResponse.json(
+                { error: "O Moloni ainda não foi autorizado. Volte ao passo do Moloni e carregue em autorizar." },
+                { status: 400 },
+            );
         }
         // Company is required (id or name). The document set is OPTIONAL: when
         // omitted, the Worker uses the account's default série (active_by_default).

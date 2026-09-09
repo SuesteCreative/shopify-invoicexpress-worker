@@ -1119,7 +1119,14 @@
         "deleteAccountTitle": "Delete the whole account",
         "deleteAccountQuestion": "Delete the WHOLE account?",
         "deleteAccountImpact": "{label}: {connections} connection(s) and {orders} invoiced order(s). The connections are destroyed and invoicing stops. The orders stay on record.",
-        "deleteAccountForce": "Delete account"
+        "deleteAccountForce": "Delete account",
+        "issue_no_source_key": "No API key stored for this platform.",
+        "issue_no_webhook": "Credentials are there, but no webhook is registered — nothing will arrive.",
+        "issue_no_ix_credentials": "No InvoiceXpress credentials on this account. Nothing can be issued.",
+        "issue_destination_error": "The destination reported an error.",
+        "issue_destination_unauthorized": "Credentials stored but never authorized.",
+        "issue_no_destination_credentials": "No credentials stored for the invoicing software.",
+        "issue_no_company": "Credentials are there, but no company is selected."
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Back to integrations",

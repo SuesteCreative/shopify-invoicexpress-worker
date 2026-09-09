@@ -48,6 +48,54 @@ function subFor(subs: SubRow[], key: string | null): { sub: SubRow | null; inher
     return { sub: best, inherited: true };
 }
 
+type SideHealth = { ok: boolean; issue: string | null; err: string | null };
+
+/**
+ * Can each end of this connection actually be reached?
+ *
+ * Credentials only — no live call is made, because a page that pings four APIs
+ * per card takes seconds to load and still says nothing about the one that
+ * matters. What it does prove is the case that bit us: an account whose
+ * InvoiceXpress key is simply not there.
+ *
+ * InvoiceXpress is the asymmetric one: its credentials live on the legacy
+ * `integrations` row, one per account, whatever number of connections point at
+ * it. Delete that row and every IX connection on the account is dead while its
+ * own config still looks complete.
+ */
+function connectionHealth(conn: any, user: any): { source: SideHealth; destination: SideHealth } {
+    const has = (v: any) => Number(v) === 1;
+
+    const source: SideHealth = !has(conn.src_key)
+        ? { ok: false, issue: "no_source_key", err: null }
+        : !has(conn.src_hook)
+            ? { ok: false, issue: "no_webhook", err: null }
+            : { ok: true, issue: null, err: null };
+
+    let destination: SideHealth;
+    if (conn.destination_kind === "invoicexpress") {
+        destination = !has(user.ix_has_key) && !has(conn.dst_key)
+            ? { ok: false, issue: "no_ix_credentials", err: null }
+            : user.ix_error
+                ? { ok: false, issue: "destination_error", err: String(user.ix_error) }
+                : has(user.ix_authorized) || has(conn.dst_key)
+                    ? { ok: true, issue: null, err: null }
+                    : { ok: false, issue: "destination_unauthorized", err: null };
+    } else if (conn.destination_kind === "moloni") {
+        destination = !has(conn.dst_moloni_auth)
+            ? { ok: false, issue: "no_destination_credentials", err: null }
+            : !has(conn.dst_moloni_company)
+                ? { ok: false, issue: "no_company", err: null }
+                : { ok: true, issue: null, err: null };
+    } else {
+        destination = has(conn.dst_key)
+            ? { ok: true, issue: null, err: null }
+            : { ok: false, issue: "no_destination_credentials", err: null };
+    }
+
+    return { source, destination };
+}
+
 /** GET /api/admin/users */
 export async function GET(request: NextRequest) {
     try {
@@ -75,6 +123,7 @@ export async function GET(request: NextRequest) {
         COALESCE(u.is_inactive, 0) AS is_inactive,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
         i.ix_authorized, i.ix_error,
+        CASE WHEN i.ix_api_key IS NOT NULL AND i.ix_api_key != '' THEN 1 ELSE 0 END AS ix_has_key,
         m.role as member_role, m.account_id as member_of_id,
         mo_label.label as member_of_label
       FROM users u
@@ -95,7 +144,8 @@ export async function GET(request: NextRequest) {
         u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
         0 AS is_inactive,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
-        i.ix_authorized, i.ix_error
+        i.ix_authorized, i.ix_error,
+        CASE WHEN i.ix_api_key IS NOT NULL AND i.ix_api_key != '' THEN 1 ELSE 0 END AS ix_has_key
       FROM users u
       LEFT JOIN integrations i ON u.id = i.user_id
       ORDER BY u.created_at DESC
@@ -106,10 +156,34 @@ export async function GET(request: NextRequest) {
         // Only the two identifying fields are read out of the config blobs. The
         // rest holds live API keys (never-print-secrets): never SELECT the blob
         // itself into a payload the browser receives.
+        // Whether a credential EXISTS is decided inside D1 and only the yes/no
+        // crosses the wire: the blobs hold live API keys, and a page that ships
+        // them to a browser to count them has leaked them (never-print-secrets).
         const CONN_SQL = `
       SELECT id, user_id, source_kind, destination_kind, status, created_at, admin_label,
              json_extract(source_config_json, '$.stripe_account_id') AS stripe_account_id,
-             json_extract(source_config_json, '$.shop_domain')        AS shop_domain
+             json_extract(source_config_json, '$.shop_domain')        AS shop_domain,
+             CASE WHEN COALESCE(
+                    json_extract(source_config_json, '$.restricted_key'),
+                    json_extract(source_config_json, '$.api_key'),
+                    json_extract(source_config_json, '$.shopify_token')
+                  ) IS NOT NULL THEN 1 ELSE 0 END AS src_key,
+             CASE WHEN COALESCE(
+                    json_extract(source_config_json, '$.webhook_secret'),
+                    json_extract(source_config_json, '$.webhook_id'),
+                    json_extract(source_config_json, '$.webhook_endpoint_id')
+                  ) IS NOT NULL THEN 1 ELSE 0 END AS src_hook,
+             CASE WHEN (json_extract(destination_config_json, '$.moloni_client_id') IS NOT NULL
+                        AND json_extract(destination_config_json, '$.moloni_client_secret') IS NOT NULL)
+                    OR (json_extract(destination_config_json, '$.moloni_username') IS NOT NULL
+                        AND json_extract(destination_config_json, '$.moloni_password') IS NOT NULL)
+                  THEN 1 ELSE 0 END AS dst_moloni_auth,
+             CASE WHEN json_extract(destination_config_json, '$.moloni_company_id') IS NOT NULL THEN 1 ELSE 0 END AS dst_moloni_company,
+             CASE WHEN COALESCE(
+                    json_extract(destination_config_json, '$.ix_api_key'),
+                    json_extract(destination_config_json, '$.api_key'),
+                    json_extract(destination_config_json, '$.vendus_api_key')
+                  ) IS NOT NULL THEN 1 ELSE 0 END AS dst_key
       FROM connections
 `;
         const CONN_SQL_LEGACY = CONN_SQL.replace(", admin_label", ", NULL AS admin_label");
@@ -227,6 +301,7 @@ export async function GET(request: NextRequest) {
             for (const c of userConns) {
                 const key = `${c.source_kind}:${c.destination_kind}`;
                 const live = c.status === "active";
+                const { source: sourceState, destination: destState } = connectionHealth(c, u);
                 entries.push(withSub({
                     ...base,
                     entry_id: `${u.id}::conn::${c.id}`,
@@ -241,13 +316,19 @@ export async function GET(request: NextRequest) {
                     connection_created_at: c.created_at ?? null,
                     identifier: c.stripe_account_id ?? c.shop_domain ?? null,
                     identifier_kind: c.stripe_account_id ? "stripe_account" : (c.shop_domain ? "domain" : null),
-                    source_ok: live,
+                    // Not the connection's status printed twice: whether each
+                    // side can actually be talked to. MeetFrank sat at "IX API
+                    // OK" with no InvoiceXpress credentials at all, because the
+                    // dot was reading `status = active` and nothing else.
+                    source_ok: sourceState.ok,
+                    source_issue: sourceState.issue,
                     source_err: null,
-                    source_off: !live,
-                    dest_ok: live,
-                    dest_err: null,
-                    dest_off: !live,
-                    integrated: live,
+                    source_off: !sourceState.ok,
+                    dest_ok: destState.ok,
+                    dest_issue: destState.issue,
+                    dest_err: destState.err,
+                    dest_off: !destState.ok,
+                    integrated: live && sourceState.ok && destState.ok,
                 }, key));
             }
 

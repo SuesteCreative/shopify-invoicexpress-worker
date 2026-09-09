@@ -1119,7 +1119,14 @@
         "deleteAccountTitle": "Apagar a conta inteira",
         "deleteAccountQuestion": "Apagar a conta INTEIRA?",
         "deleteAccountImpact": "{label}: {connections} ligação(ões) e {orders} encomenda(s) facturada(s). As ligações são destruídas e a facturação pára. As encomendas ficam no registo.",
-        "deleteAccountForce": "Apagar conta"
+        "deleteAccountForce": "Apagar conta",
+        "issue_no_source_key": "Sem chave de API guardada para esta plataforma.",
+        "issue_no_webhook": "Credenciais existem, mas não há webhook registado — não chega nada.",
+        "issue_no_ix_credentials": "Esta conta não tem credenciais InvoiceXpress. Não se emite nada.",
+        "issue_destination_error": "O destino devolveu um erro.",
+        "issue_destination_unauthorized": "Credenciais guardadas mas nunca autorizadas.",
+        "issue_no_destination_credentials": "Sem credenciais guardadas para o software de facturação.",
+        "issue_no_company": "Credenciais existem, mas não há empresa escolhida."
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Voltar para Integrações",

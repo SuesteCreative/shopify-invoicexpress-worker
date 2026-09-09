@@ -363,20 +363,25 @@ export default function SuperadminPage() {
         return [];
     };
 
-    /** One endpoint's status, as the card prints it. */
-    const StatusDot = ({ label, ok, err, off }: { label: string; ok: boolean; err?: string | null; off?: boolean }) => (
-        <div className="flex flex-col items-center group/tip relative">
-            <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
-            {ok ? <div className="text-accent-hot text-[10px] font-bold">● OK</div>
-                : <div className="text-soon text-[10px] font-bold flex items-center gap-1">
-                    ● {off ? "OFF" : "ERR"}
-                    {err && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
+    /** One endpoint's status, as the card prints it. A dot that cannot say why
+     *  it is red is worth very little, so `issue` carries the reason the API
+     *  found and the tooltip states it in words. */
+    const StatusDot = ({ label, ok, err, off, issue }: { label: string; ok: boolean; err?: string | null; off?: boolean; issue?: string | null }) => {
+        const reason = err || (issue ? t(`issue_${issue}` as any) : null);
+        return (
+            <div className="flex flex-col items-center group/tip relative">
+                <span className="text-[10px] font-black text-fg-40 uppercase mb-1 opacity-50">{label}</span>
+                {ok ? <div className="text-accent-hot text-[10px] font-bold">● OK</div>
+                    : <div className={`text-[10px] font-bold flex items-center gap-1 ${reason ? "text-destructive" : "text-soon"}`}>
+                        ● {reason ? "ERR" : (off ? "OFF" : "ERR")}
+                        {reason && <HelpCircle className="w-2.5 h-2.5 opacity-50" />}
+                    </div>}
+                {reason && <div className="absolute bottom-full mb-2 w-48 p-3 bg-surface-2 border border-hairline rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
+                    <p className="text-[10px] text-soon/80 font-medium leading-tight">{reason}</p>
                 </div>}
-            {err && <div className="absolute bottom-full mb-2 w-48 p-3 bg-surface-2 border border-hairline rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-50">
-                <p className="text-[10px] text-soon/80 font-medium leading-tight">{err}</p>
-            </div>}
-        </div>
-    );
+            </div>
+        );
+    };
 
     const renderUserCard = (user: any) => {
         const isSelf = (clerkUser?.id ?? viewerId) === user.id;
@@ -511,8 +516,8 @@ export default function SuperadminPage() {
                             <div className="flex items-center gap-4">
                                 {user.source ? (
                                     <>
-                                        <StatusDot label={kindLabel(user.source)} ok={user.source_ok} err={user.source_err} off={user.source_off} />
-                                        <StatusDot label={kindLabel(user.destination)} ok={user.dest_ok} err={user.dest_err} off={user.dest_off} />
+                                        <StatusDot label={kindLabel(user.source)} ok={user.source_ok} err={user.source_err} off={user.source_off} issue={user.source_issue} />
+                                        <StatusDot label={kindLabel(user.destination)} ok={user.dest_ok} err={user.dest_err} off={user.dest_off} issue={user.dest_issue} />
                                     </>
                                 ) : (
                                     <div className="text-soon/60 text-[10px] font-bold">● OFF</div>

@@ -753,7 +753,15 @@
         "readyToConnect": "Ready to connect?",
         "readyBody": "Start the 4-step setup guide to automate your invoicing.",
         "configureNow": "Configure now",
-        "unavailableCombo": "Combination unavailable"
+        "unavailableCombo": "Combination unavailable",
+        "resumeSetup": "Resume setup",
+        "deleteIntegration": "Delete integration",
+        "deleteTitle": "Delete this integration?",
+        "deleteBody": "This connection's credentials, settings and authorisation are deleted. For a Stripe Connect connection we also revoke the authorisation on Stripe's side.",
+        "deleteKeepsHistory": "Invoices already issued and the record of processed sales stay untouched. That is what stops a fresh setup from re-invoicing old sales.",
+        "deleteTypeToConfirm": "To confirm, type exactly:",
+        "deleteCancel": "Cancel",
+        "deleteConfirm": "Delete"
     },
     "conciliacao": {
         "title": "Reconciliation",

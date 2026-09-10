@@ -1,26 +1,20 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
-import { isStripeConnectEnabled, resolveTargetUser, moloniRedirectUri } from "@/lib/stripe-connect";
-import { exchangeMoloniCode } from "@/lib/moloni-oauth";
+import { isStripeConnectEnabled, resolveTargetUser } from "@/lib/stripe-connect";
+import { exchangeMoloniCode, findPendingMoloniConnection, moloniCallbackUri } from "@/lib/moloni-oauth";
 import { resolveReturnPath, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 
 export const runtime = "edge";
 
 /**
- * The per-connection callback, kept for the developer apps that were registered
- * with it before the URL became one for everybody.
- *
- * Nothing points merchants here any more: the start route hands out
- * `moloniCallbackUri()`. It stays because a Moloni app still holding this URL
- * would otherwise fail its next authorisation with an error the merchant could
- * do nothing about, which is the very thing that made us move.
- *
- * The connection id is in the path, but it is not what makes this safe: the row
- * is read scoped by the session's account as well, because that id travels in a
- * URL the merchant pasted into a third-party console.
+ * Where Moloni sends every merchant back, whichever connection they were
+ * authorising. One URL for the whole product, because a Moloni developer app
+ * holds exactly one — see `@/lib/moloni-oauth` for what the per-connection URL
+ * cost. The sibling `[connectionId]` route still answers for apps registered
+ * with the old one.
  */
-export async function GET(request: NextRequest, context: { params: Promise<{ connectionId: string }> }) {
+export async function GET(request: NextRequest) {
     if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });
 
     // Which page the merchant started on. Only known once the row is read, so
@@ -35,7 +29,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ con
         return NextResponse.redirect(url.toString(), 302);
     };
 
-    const { connectionId } = await context.params;
     const params = request.nextUrl.searchParams;
     const code = params.get("code");
     const error = params.get("error");
@@ -50,17 +43,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ con
     const db = (env as any).DB;
     if (!db) return backToWizard("error", "Database binding missing");
 
-    const row: any = await db
-        .prepare(`SELECT id, destination_config_json, source_config_json FROM connections
-                   WHERE id = ? AND user_id = ? AND source_kind = 'stripe_connect' LIMIT 1`)
-        .bind(connectionId, authResult.targetUserId)
-        .first();
-    if (!row) return backToWizard("error", "Ligação não encontrada.");
+    const row = await findPendingMoloniConnection(db, authResult.targetUserId, params.get("state"));
+    if (!row) {
+        return backToWizard("error", "A autorização expirou ou já foi usada. Carregue outra vez em autorizar.");
+    }
 
     const startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {};
     returnPath = resolveReturnPath(startedOn.return_slug, startedOn.return_locale);
 
-    const result = await exchangeMoloniCode(db, row, code, moloniRedirectUri(row.id));
+    const result = await exchangeMoloniCode(db, row, code, moloniCallbackUri());
     if (!result.ok) return backToWizard("error", result.detail);
 
     return backToWizard("connected");

@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
+import { getStripe, getStripeEnv, getDB, listAccountConnections } from "@/lib/stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
 import { grantSeatFromSession } from "@/lib/seats";
 import { notifySubscriptionPaymentFailed } from "@/lib/billing-notify";
@@ -62,8 +62,17 @@ async function activatePausedConnections(db: D1Database, userId: string, cutoffI
  * Only a genuinely new, metadata-less subscription falls through to the default.
  */
 async function resolveConnectionKey(db: D1Database, userId: string, sub: Stripe.Subscription | null): Promise<string> {
+    // Metadata is trusted only when it names a connection the account HAS.
+    // Checkouts started from a generic page stamped `shopify:invoicexpress` on
+    // every account regardless, so a merchant running only Lodgify->IX had the
+    // payment filed against a connection that does not exist, and the page kept
+    // reading the real one as unpaid. An account with nothing set up yet has
+    // nothing better to go on, so there the metadata still wins.
     const fromMetadata = String(sub?.metadata?.connection_key ?? "").trim();
-    if (fromMetadata.includes(":")) return fromMetadata;
+    if (fromMetadata.includes(":")) {
+        const accountKeys = (await listAccountConnections(db, userId)).map((c) => c.key);
+        if (accountKeys.length === 0 || accountKeys.includes(fromMetadata)) return fromMetadata;
+    }
 
     if (sub?.id) {
         const existing: any = await db.prepare(
@@ -231,11 +240,17 @@ export async function POST(req: NextRequest) {
 
                 // The session says which connection was being paid for; the
                 // subscription's metadata carries the same value for the renewals
-                // that follow.
-                const connectionKey = keyFromRequest(
+                // that follow. Both go through the same check as every other
+                // event: a key naming a connection the account does not have is
+                // not attribution, it is the old generic-page default.
+                const claimedKey = keyFromRequest(
                     (sub?.metadata?.connection_key as string) ?? (session.metadata?.connection_key as string),
                     session.metadata?.source as string,
                 );
+                const accountKeys = (await listAccountConnections(db, userId)).map((c) => c.key);
+                const connectionKey = accountKeys.length === 0 || accountKeys.includes(claimedKey)
+                    ? claimedKey
+                    : await resolveConnectionKey(db, userId, sub);
 
                 await db.prepare(`
                     INSERT INTO subscriptions (

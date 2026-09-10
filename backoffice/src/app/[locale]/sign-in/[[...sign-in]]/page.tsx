@@ -36,7 +36,7 @@ export default async function Page({
                     forceRedirectUrl={afterSignIn}
                     appearance={{
                         layout: {
-                            logoImageUrl: "/images/rioko2-logo-black.svg",
+                            logoImageUrl: "/images/rioko2-logo-light2.svg",
                             logoPlacement: "inside",
                         },
                         elements: {

@@ -2715,5 +2715,28 @@
         "failedTitle": "O pagamento não foi concluído",
         "failedBody": "Nada foi cobrado. Pode tentar outra vez.",
         "retry": "Tentar outra vez"
+    },
+    "taxRegistrations": {
+        "title": "Registos fiscais",
+        "subtitle": "O que esta empresa está registada para fazer",
+        "intro": "O regime de cada venda é decidido pelo comprador: o país, se é uma empresa com número de IVA, e o que o VIES responde. O que só tu sabes é em que regimes estás inscrito. Cada resposta abaixo autoriza um desses regimes a mudar o IVA dos documentos; deixá-las desligadas mantém tudo exactamente como está hoje.",
+        "reverseCharge": {
+            "label": "Presto serviços com autoliquidação (art. 6.º n.º 6 / art. 196.º)",
+            "help": "Vendas a empresas noutro Estado-Membro saem a 0% com menção de autoliquidação, depois de o VIES confirmar o número de IVA do comprador. Se o VIES não responder, o documento fica em rascunho em vez de declarar um regime por confirmar."
+        },
+        "oss": {
+            "label": "Estou registado no OSS",
+            "help": "Vendas a consumidores noutro país da UE passam a levar a taxa normal desse país, e vendas para fora da UE saem a 0%. Só para venda à distância a consumidores: se o teu negócio é autoliquidação B2B, esta não é a tua."
+        },
+        "ptRegional": {
+            "label": "Facturo para a Madeira e os Açores",
+            "help": "Aplica 22% na Madeira e 16% nos Açores em vez dos 23% do continente, pelo código postal do cliente. Só substitui a taxa normal: uma linha já a 6% ou 13% fica como está."
+        },
+        "exportCode": {
+            "label": "Código de isenção fora da UE",
+            "help": "Carimbado quando uma venda para fora da UE fica a 0%. Vazio usa M40."
+        },
+        "consequence": "Isto muda o IVA dos documentos emitidos a partir de agora, e o varrimento nocturno também reemite os últimos 30 dias. Confirma com quem trata da tua contabilidade antes de ligar.",
+        "consequenceMoloni": "Isto muda o IVA dos documentos emitidos a partir de agora, e o varrimento nocturno também reemite os últimos 30 dias. As taxas dos países de destino têm de existir na tua conta Moloni, senão o documento é recusado. Confirma com quem trata da tua contabilidade antes de ligar."
     }
 }

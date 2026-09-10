@@ -9,6 +9,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
+import TaxRegistrations from "@/components/TaxRegistrations";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
@@ -31,6 +32,9 @@ export default function LodgifyIxIntegration() {
     const t = useTranslations("lodgifyIxSetup");
 
     const [step, setStep] = useState(1);
+    // Only what the connection states. Starting from {} and merging only what
+    // the merchant touches is what stops a never-stated key being written false.
+    const [registrations, setRegistrations] = useState<ConnectionFiscal>({});
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [globalError, setGlobalError] = useState("");
@@ -129,6 +133,12 @@ export default function LodgifyIxIntegration() {
                         if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
                         if (fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
                         if (fiscal.ix_document_type) setIxDocumentType(fiscal.ix_document_type);
+                        setRegistrations({
+                        ...(typeof fiscal.oss_engine === "boolean" ? { oss_engine: fiscal.oss_engine } : {}),
+                        ...(typeof fiscal.pt_regional_rates === "boolean" ? { pt_regional_rates: fiscal.pt_regional_rates } : {}),
+                        ...(typeof fiscal.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: fiscal.b2b_reverse_charge_pipeline } : {}),
+                        ...(typeof fiscal.oss_export_exemption_code === "string" ? { oss_export_exemption_code: fiscal.oss_export_exemption_code } : {}),
+                        });
                         if (typeof fiscal.vat_included === "boolean") setVatIncluded(fiscal.vat_included);
                         if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
                         // The settings step is done once the connection has a
@@ -234,6 +244,7 @@ export default function LodgifyIxIntegration() {
                         ix_document_type: ixDocumentType,
                         vat_included: vatIncluded,
                         auto_finalize: autoFinalize,
+                        ...registrations,
                     },
                 }),
             });
@@ -513,6 +524,13 @@ export default function LodgifyIxIntegration() {
                             ))}
                         </select>
                     </div>
+                    <TaxRegistrations
+                        value={registrations}
+                        onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
+                        disabled={saving}
+                        destination="invoicexpress"
+                    />
+
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
                             <div className="p-2 bg-accent/10 rounded-xl shrink-0"><Zap className="w-4 h-4 text-accent-ink" /></div>

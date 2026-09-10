@@ -13,6 +13,8 @@ import { useUser } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import SubscriptionCard from "@/components/SubscriptionCard";
 import { RIOKO_CONFIG } from "@/lib/config";
+import TaxRegistrations from "@/components/TaxRegistrations";
+import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -28,6 +30,9 @@ export default function StripeIXIntegration() {
     const searchParams = useSearchParams();
     const stripeSuccess = searchParams?.get("stripe") === "success";
     const [dbUserName, setDbUserName] = useState("");
+    // Only what the connection states. Starting from {} and merging only what
+    // the merchant touches is what stops a never-stated key being written false.
+    const [registrations, setRegistrations] = useState<ConnectionFiscal>({});
     const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
 
     const [step, setStep] = useState(1);
@@ -157,6 +162,12 @@ export default function StripeIXIntegration() {
             if (fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
             if (fiscal.ix_document_type) setIxDocumentType(fiscal.ix_document_type);
             if (typeof fiscal.vat_included === "boolean") setVatIncluded(fiscal.vat_included);
+            setRegistrations({
+            ...(typeof fiscal.oss_engine === "boolean" ? { oss_engine: fiscal.oss_engine } : {}),
+            ...(typeof fiscal.pt_regional_rates === "boolean" ? { pt_regional_rates: fiscal.pt_regional_rates } : {}),
+            ...(typeof fiscal.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: fiscal.b2b_reverse_charge_pipeline } : {}),
+            ...(typeof fiscal.oss_export_exemption_code === "string" ? { oss_export_exemption_code: fiscal.oss_export_exemption_code } : {}),
+            });
             if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
             if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
             const stripeSaved = !!sCfg.stripe_account_id;
@@ -305,7 +316,7 @@ export default function StripeIXIntegration() {
             // written by hand before the isolation shipped. `auto_finalize`
             // decides draft versus certified, which is not a setting to inherit
             // from a shop either.
-            const connectionFiscal = { ...fiscal, vat_included: vatIncluded, auto_finalize: autoFinalize };
+            const connectionFiscal = { ...fiscal, vat_included: vatIncluded, auto_finalize: autoFinalize, ...registrations };
 
             if (stripeAccountId) {
                 const fiscalRes = await postStripeSource({ fiscal: connectionFiscal });
@@ -756,6 +767,12 @@ export default function StripeIXIntegration() {
                                                 </div>
 
                                                 <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
+                                                    <TaxRegistrations
+                                                        value={registrations}
+                                                        onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
+                                                        disabled={saving}
+                                                        destination="invoicexpress"
+                                                    />
                                                     <div className="min-w-0">
                                                         <h3 className="font-bold text-sm">{t("overridesTitle")}</h3>
                                                         <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("overridesDesc")}</p>

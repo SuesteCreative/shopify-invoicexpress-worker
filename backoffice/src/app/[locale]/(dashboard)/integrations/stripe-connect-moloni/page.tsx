@@ -13,6 +13,8 @@ import { moloniCallbackUri } from "@/lib/moloni-oauth";
 import { VAT_EXEMPTION_OPTIONS } from "@/lib/vat-exemptions";
 import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
+import TaxRegistrations from "@/components/TaxRegistrations";
+import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 /**
  * Stripe Connect → Moloni.
@@ -46,6 +48,9 @@ export default function StripeConnectMoloniIntegration() {
     const callbackDetail = searchParams.get("detail");
 
     const [sub, setSub] = useState<any>(null);
+    // Only what the connection states; merging only what the merchant touches
+    // is what stops a never-stated key being written false.
+    const [registrations, setRegistrations] = useState<ConnectionFiscal>({});
     const [subscribing, setSubscribing] = useState<"monthly" | "annual" | null>(null);
 
     const [step, setStep] = useState(1);
@@ -124,6 +129,12 @@ export default function StripeConnectMoloniIntegration() {
             if (typeof cfg.moloni_partial_invoicing === "boolean") setPartialInvoicing(cfg.moloni_partial_invoicing);
             if (typeof cfg.moloni_document_type === "string") setDocumentType(cfg.moloni_document_type === "invoice_receipt" ? "invoice_receipt" : "invoice");
             if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
+            setRegistrations({
+                ...(typeof cfg.oss_engine === "boolean" ? { oss_engine: cfg.oss_engine } : {}),
+                ...(typeof cfg.pt_regional_rates === "boolean" ? { pt_regional_rates: cfg.pt_regional_rates } : {}),
+                ...(typeof cfg.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: cfg.b2b_reverse_charge_pipeline } : {}),
+                ...(typeof cfg.oss_export_exemption_code === "string" ? { oss_export_exemption_code: cfg.oss_export_exemption_code } : {}),
+            });
             if (cfg.default_vat_rate != null) setDefaultVatRate(String(cfg.default_vat_rate));
         }
 
@@ -247,6 +258,7 @@ export default function StripeConnectMoloniIntegration() {
                     send_email: sendEmail,
                     moloni_partial_invoicing: partialInvoicing,
                     exemption_reason: exemptionReason,
+                    ...registrations,
                     default_vat_rate: defaultVatRate.trim() === "" ? null : Number(defaultVatRate),
                     status: "draft",
                 }),
@@ -555,6 +567,13 @@ export default function StripeConnectMoloniIntegration() {
                             {VAT_EXEMPTION_OPTIONS.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
                         </select>
                     </div>
+                    <TaxRegistrations
+                        value={registrations}
+                        onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
+                        disabled={saving}
+                        destination="moloni"
+                    />
+
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
                             <div className="p-2 bg-accent/10 rounded-xl shrink-0"><Building2 className="w-4 h-4 text-accent-ink" /></div>

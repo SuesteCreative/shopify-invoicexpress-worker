@@ -23,6 +23,10 @@ export const CONNECTION_FISCAL_TEXT_KEYS = [
     "ix_sequence_name",
     "ix_exemption_reason",
     "ix_document_type",
+    // Which article a sale outside the EU is zero-rated under, when the merchant
+    // wants one other than the default. Only consulted when a registration below
+    // is on.
+    "oss_export_exemption_code",
 ] as const;
 
 /**
@@ -33,14 +37,28 @@ export const CONNECTION_FISCAL_TEXT_KEYS = [
 export const CONNECTION_FISCAL_BOOL_KEYS = [
     "vat_included",
     "auto_finalize",
+    // The tax REGISTRATIONS. Not preferences and not rules: a declaration of
+    // what this business is registered for, which is the only thing a merchant
+    // can answer that we cannot. Each one authorises exactly one rung of the VAT
+    // decision to move money; absent means off, and absent is the default.
+    //
+    // `src/adapters/tax-rates.ts` reads all three straight off
+    // `destination_config_json`, so a key written here is the key it reads.
+    "oss_engine",
+    "pt_regional_rates",
+    "b2b_reverse_charge_pipeline",
 ] as const;
 
 export interface ConnectionFiscal {
     ix_sequence_name?: string;
     ix_exemption_reason?: string;
     ix_document_type?: string;
+    oss_export_exemption_code?: string;
     vat_included?: boolean;
     auto_finalize?: boolean;
+    oss_engine?: boolean;
+    pt_regional_rates?: boolean;
+    b2b_reverse_charge_pipeline?: boolean;
 }
 
 /** What this connection states, for the wizard to show. Silent about the rest. */

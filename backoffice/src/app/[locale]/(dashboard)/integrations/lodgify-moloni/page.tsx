@@ -12,6 +12,8 @@ import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/In
 import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
 import { RIOKO_CONFIG } from "@/lib/config";
+import TaxRegistrations from "@/components/TaxRegistrations";
+import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
@@ -43,6 +45,9 @@ export default function LodgifyMoloniIntegration() {
     const stripeResult = searchParams.get("stripe");
 
     const [sub, setSub] = useState<any>(null);
+    // Only what the connection states; merging only what the merchant touches
+    // is what stops a never-stated key being written false.
+    const [registrations, setRegistrations] = useState<ConnectionFiscal>({});
     const [subscribing, setSubscribing] = useState<"monthly" | "annual" | null>(null);
 
     const [step, setStep] = useState(1);
@@ -147,6 +152,12 @@ export default function LodgifyMoloniIntegration() {
                 if (typeof cfg.moloni_partial_invoicing === "boolean") setPartialInvoicing(cfg.moloni_partial_invoicing);
                 if (typeof cfg.moloni_document_type === "string") setDocumentType(cfg.moloni_document_type === "invoice" ? "invoice" : "invoice_receipt");
                 if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
+                setRegistrations({
+                    ...(typeof cfg.oss_engine === "boolean" ? { oss_engine: cfg.oss_engine } : {}),
+                    ...(typeof cfg.pt_regional_rates === "boolean" ? { pt_regional_rates: cfg.pt_regional_rates } : {}),
+                    ...(typeof cfg.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: cfg.b2b_reverse_charge_pipeline } : {}),
+                    ...(typeof cfg.oss_export_exemption_code === "string" ? { oss_export_exemption_code: cfg.oss_export_exemption_code } : {}),
+                });
                 setConnectionStatus(mConn.status ?? "");
                 credsOk = !!cfg.moloni_client_id && !!cfg.has_client_secret && !!cfg.moloni_username && !!cfg.has_password;
                 setOk = (!!cfg.moloni_company_id && !!cfg.moloni_document_set_id) || !!cfg.moloni_company_name;
@@ -256,6 +267,7 @@ export default function LodgifyMoloniIntegration() {
                     send_email: sendEmail,
                     moloni_partial_invoicing: partialInvoicing,
                     exemption_reason: exemptionReason,
+                    ...registrations,
                     status: "draft",
                 }),
             });
@@ -527,6 +539,13 @@ export default function LodgifyMoloniIntegration() {
                             {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
                         </select>
                     </div>
+                    <TaxRegistrations
+                        value={registrations}
+                        onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
+                        disabled={saving}
+                        destination="moloni"
+                    />
+
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
                             <div className="p-2 bg-accent/10 rounded-xl shrink-0"><Building2 className="w-4 h-4 text-accent-ink" /></div>

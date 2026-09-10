@@ -12,6 +12,8 @@ import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/In
 import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
 import { RETURN_SLUG_WIZARD_IX } from "@/lib/oauth-return";
+import TaxRegistrations from "@/components/TaxRegistrations";
+import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 /**
  * Stripe Connect → InvoiceXpress.
@@ -90,6 +92,10 @@ export default function StripeConnectIxIntegration() {
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
     const [settingsSaved, setSettingsSaved] = useState(false);
+    // Exactly what the connection states, and nothing else. Starting from {} and
+    // only ever merging what the merchant touches is what keeps a key that was
+    // never stated from being written as `false` on the next save.
+    const [registrations, setRegistrations] = useState<ConnectionFiscal>({});
 
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
 
@@ -122,6 +128,12 @@ export default function StripeConnectIxIntegration() {
         if (typeof fiscal.ix_exemption_reason === "string" && fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
         if (typeof fiscal.vat_included === "boolean") setVatIncluded(fiscal.vat_included);
         if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
+        setRegistrations({
+            ...(typeof fiscal.oss_engine === "boolean" ? { oss_engine: fiscal.oss_engine } : {}),
+            ...(typeof fiscal.pt_regional_rates === "boolean" ? { pt_regional_rates: fiscal.pt_regional_rates } : {}),
+            ...(typeof fiscal.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: fiscal.b2b_reverse_charge_pipeline } : {}),
+            ...(typeof fiscal.oss_export_exemption_code === "string" ? { oss_export_exemption_code: fiscal.oss_export_exemption_code } : {}),
+        });
         const hasFiscal = typeof fiscal.ix_document_type === "string";
         setSettingsSaved(hasFiscal);
 
@@ -225,6 +237,9 @@ export default function StripeConnectIxIntegration() {
                     ix_exemption_reason: exemptionReason,
                     vat_included: vatIncluded,
                     auto_finalize: autoFinalize,
+                    // Spread last and only what was stated: a registration the
+                    // merchant never touched is absent here, and absent is off.
+                    ...registrations,
                 },
                 status: "draft",
             });
@@ -430,6 +445,13 @@ export default function StripeConnectIxIntegration() {
                             {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
                         </select>
                     </div>
+
+                    <TaxRegistrations
+                        value={registrations}
+                        onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
+                        disabled={saving}
+                        destination="invoicexpress"
+                    />
 
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                         <div className="min-w-0">

@@ -9,6 +9,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
+import TaxRegistrations from "@/components/TaxRegistrations";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
@@ -31,6 +32,9 @@ export default function EuPagoIxIntegration() {
     const t = useTranslations("eupagoIxSetup");
 
     const [step, setStep] = useState(1);
+    // Only what the connection states. Starting from {} and merging only what
+    // the merchant touches is what stops a never-stated key being written false.
+    const [registrations, setRegistrations] = useState<ConnectionFiscal>({});
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [globalError, setGlobalError] = useState("");
@@ -124,6 +128,12 @@ export default function EuPagoIxIntegration() {
                         if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
                         if (fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
                         if (fiscal.ix_document_type) setIxDocumentType(fiscal.ix_document_type);
+                        setRegistrations({
+                        ...(typeof fiscal.oss_engine === "boolean" ? { oss_engine: fiscal.oss_engine } : {}),
+                        ...(typeof fiscal.pt_regional_rates === "boolean" ? { pt_regional_rates: fiscal.pt_regional_rates } : {}),
+                        ...(typeof fiscal.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: fiscal.b2b_reverse_charge_pipeline } : {}),
+                        ...(typeof fiscal.oss_export_exemption_code === "string" ? { oss_export_exemption_code: fiscal.oss_export_exemption_code } : {}),
+                        });
                         if (typeof fiscal.vat_included === "boolean") setVatIncluded(fiscal.vat_included);
                         if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
                         // The settings step is done once the connection has a
@@ -235,6 +245,7 @@ export default function EuPagoIxIntegration() {
                         ix_document_type: ixDocumentType,
                         vat_included: vatIncluded,
                         auto_finalize: autoFinalize,
+                        ...registrations,
                     },
                 }),
             });
@@ -469,6 +480,13 @@ export default function EuPagoIxIntegration() {
                             {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
                         </select>
                     </div>
+                    <TaxRegistrations
+                        value={registrations}
+                        onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
+                        disabled={saving}
+                        destination="invoicexpress"
+                    />
+
                     <div className="md:col-span-2 pt-4 flex items-center gap-4">
                         <button onClick={() => setStep(2)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
                         <button onClick={handleSaveSettings} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">

@@ -43,6 +43,12 @@ type MoloniBody = {
     moloni_partial_invoicing?: boolean;
     exemption_reason?: string;
     default_vat_rate?: number | string | null;
+    // The tax registrations the merchant declares. Absent keeps whatever is
+    // stored — see the write below, which never flips one on.
+    oss_engine?: boolean;
+    pt_regional_rates?: boolean;
+    b2b_reverse_charge_pipeline?: boolean;
+    oss_export_exemption_code?: string;
     status?: "draft" | "active" | "paused" | "error";
 };
 
@@ -64,6 +70,16 @@ function redactConfig(cfg: Record<string, unknown>) {
         moloni_partial_invoicing: cfg.moloni_partial_invoicing === true,
         exemption_reason: cfg.exemption_reason ?? "M01",
         default_vat_rate: cfg.default_vat_rate ?? null,
+        // The registrations keep their THIRD state. Every field above collapses
+        // absent into a value — `vat_included: cfg.vat_included !== false` reads
+        // an unset key as true — and doing that here would be the bug: the wizard
+        // would render `false`, save it back, and materialise a decision the
+        // merchant never made on a field that changes the VAT of every document.
+        // `undefined` is dropped by JSON.stringify, so absent stays absent.
+        oss_engine: typeof cfg.oss_engine === "boolean" ? cfg.oss_engine : undefined,
+        pt_regional_rates: typeof cfg.pt_regional_rates === "boolean" ? cfg.pt_regional_rates : undefined,
+        b2b_reverse_charge_pipeline: typeof cfg.b2b_reverse_charge_pipeline === "boolean" ? cfg.b2b_reverse_charge_pipeline : undefined,
+        oss_export_exemption_code: typeof cfg.oss_export_exemption_code === "string" ? cfg.oss_export_exemption_code : undefined,
     };
 }
 
@@ -247,6 +263,23 @@ export async function POST(request: NextRequest) {
         exemption_reason: typeof body.exemption_reason === "string" && body.exemption_reason.trim()
             ? body.exemption_reason.trim()
             : (previousCfg.exemption_reason ?? "M01"),
+        // The tax REGISTRATIONS. Same discipline as send_email above: absent
+        // keeps whatever is stored and NEVER flips one on, because turning one on
+        // changes the VAT on every future document and, through the nightly heal,
+        // on the last 30 days. A merchant who never opens that card keeps being
+        // invoiced exactly as they are today.
+        oss_engine: body.oss_engine !== undefined
+            ? body.oss_engine === true
+            : previousCfg.oss_engine,
+        pt_regional_rates: body.pt_regional_rates !== undefined
+            ? body.pt_regional_rates === true
+            : previousCfg.pt_regional_rates,
+        b2b_reverse_charge_pipeline: body.b2b_reverse_charge_pipeline !== undefined
+            ? body.b2b_reverse_charge_pipeline === true
+            : previousCfg.b2b_reverse_charge_pipeline,
+        oss_export_exemption_code: typeof body.oss_export_exemption_code === "string"
+            ? (body.oss_export_exemption_code.trim() || undefined)
+            : previousCfg.oss_export_exemption_code,
         // Fallback VAT rate applied when the payment source carries no tax (e.g.
         // Stripe PaymentIntents). "" / null clears it → exempt. Undefined keeps prior.
         default_vat_rate: body.default_vat_rate === "" || body.default_vat_rate === null

@@ -2715,5 +2715,28 @@
         "failedTitle": "The payment was not completed",
         "failedBody": "Nothing was charged. You can try again.",
         "retry": "Try again"
+    },
+    "taxRegistrations": {
+        "title": "Tax registrations",
+        "subtitle": "What this business is registered to do",
+        "intro": "Each sale's regime is decided by the buyer: the country, whether they are a VAT-registered business, and what VIES answers. The one thing only you know is which regimes you are registered under. Each answer below authorises one of them to change the VAT on your documents; leaving them off keeps everything exactly as it is today.",
+        "reverseCharge": {
+            "label": "I supply services under reverse charge (art. 6.º n.º 6 / art. 196)",
+            "help": "Sales to businesses in another member state go out at 0% with a reverse-charge mention, once VIES confirms the buyer's VAT number. If VIES does not answer, the document is held as a draft rather than declaring an unverified regime."
+        },
+        "oss": {
+            "label": "I am registered for OSS",
+            "help": "Sales to consumers in another EU country carry that country's standard rate, and sales outside the EU go out at 0%. For distance selling to consumers only: if your business is B2B reverse charge, this is not the one you want."
+        },
+        "ptRegional": {
+            "label": "I invoice into Madeira and the Azores",
+            "help": "Applies 22% in Madeira and 16% in the Azores instead of the mainland 23%, from the customer's postal code. It only replaces the standard rate: a line already at 6% or 13% is left as it is."
+        },
+        "exportCode": {
+            "label": "Non-EU exemption code",
+            "help": "Stamped when a sale outside the EU is zero-rated. Empty uses M40."
+        },
+        "consequence": "This changes the VAT on documents issued from now on, and the nightly sweep also re-issues the last 30 days. Check with whoever does your accounting before switching it on.",
+        "consequenceMoloni": "This changes the VAT on documents issued from now on, and the nightly sweep also re-issues the last 30 days. The destination countries' rates must exist in your Moloni account, or the document is refused. Check with whoever does your accounting before switching it on."
     }
 }

@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
-import { isStripeConnectEnabled, resolveTargetUser, moloniRedirectUri } from "@/lib/stripe-connect";
+import { isStripeConnectEnabled, resolveTargetUser } from "@/lib/stripe-connect";
+import { moloniCallbackUri } from "@/lib/moloni-oauth";
 
 export const runtime = "edge";
 
@@ -11,9 +12,11 @@ export const runtime = "edge";
 const MOLONI_AUTHORIZE_URL = "https://www.moloni.pt/ac/root/oauth/";
 
 /**
- * The URL the merchant pastes into the *Redirect URI* field of their Moloni
- * developer app. One per connection, so the callback knows whose code it is
- * holding without trusting anything in the query string.
+ * Saves the merchant's Moloni developer credentials and returns the consent URL.
+ *
+ * The credentials are still typed by hand because Moloni's documentation
+ * describes the redirect flow for plugins installed on many sites but never
+ * states that one developer app may authorise third-party accounts.
  */
 export async function POST(request: NextRequest) {
     if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });
@@ -71,11 +74,18 @@ export async function POST(request: NextRequest) {
           WHERE id = ?`
     ).bind(JSON.stringify(patch), state, expiresAt, now, row.id).run();
 
-    const redirectUri = moloniRedirectUri(row.id);
+    // The same URL for every merchant and every connection: a Moloni developer
+    // app holds exactly one callback, so a URL that changed per connection was a
+    // "redirect_uri não coincide" waiting to happen the second time anyone used
+    // it. Which connection the code belongs to is decided in the callback.
+    const redirectUri = moloniCallbackUri();
     const url = new URL(MOLONI_AUTHORIZE_URL);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", redirectUri);
+    // Moloni is not documented as echoing this back. It costs nothing to send,
+    // and the callback names the connection outright whenever it does come back.
+    url.searchParams.set("state", state);
 
     return NextResponse.json({
         authorize_url: url.toString(),

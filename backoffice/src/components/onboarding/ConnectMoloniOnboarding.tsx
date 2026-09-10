@@ -19,6 +19,7 @@ import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LangToggle } from "@/components/landing/LangToggle";
 import { RETURN_SLUG_ONBOARDING_CONNECT_MOLONI } from "@/lib/oauth-return";
+import { moloniCallbackUri } from "@/lib/moloni-oauth";
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -153,7 +154,6 @@ export default function ConnectMoloniOnboarding() {
 
     // Server-side truth for every step.
     const [profileDone, setProfileDone] = useState(false);
-    const [connectionId, setConnectionId] = useState("");
     const [stripeConnected, setStripeConnected] = useState(false);
     const [stripeAccountId, setStripeAccountId] = useState("");
     const [moloniAuthorized, setMoloniAuthorized] = useState(false);
@@ -216,7 +216,6 @@ export default function ConnectMoloniOnboarding() {
         }
 
         const conn = connect?.connection;
-        setConnectionId(conn?.id ?? "");
         setStripeConnected(!!conn?.stripe?.connected);
         setStripeAccountId(conn?.stripe?.stripe_account_id ?? "");
         setMoloniAuthorized(!!conn?.moloni?.authorized);
@@ -273,9 +272,12 @@ export default function ConnectMoloniOnboarding() {
     /** A company NIF starts with 5, 6, 8 or 9; only then is a legal name asked for. */
     const isCompany = ["5", "6", "8", "9"].includes(form.nif.trim()[0] ?? "");
 
-    const redirectUri = connectionId
-        ? `${typeof window !== "undefined" ? window.location.origin : "https://rioko.online"}/api/integrations/moloni-oauth/callback/${connectionId}`
-        : "";
+    // The same for every merchant, and it never changes: a Moloni developer app
+    // holds one callback URL, so one that carried the connection id stopped
+    // matching the moment a second connection existed. Taken from the shared
+    // helper rather than from window.location, because what has to match is the
+    // URL the server sends, and a preview deployment's origin is not it.
+    const redirectUri = moloniCallbackUri();
 
     const saveProfile = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -609,7 +611,7 @@ export default function ConnectMoloniOnboarding() {
                     <p className="text-[11px] leading-relaxed text-fg-40">{tWiz("redirectUriBody")}</p>
                     <div className="flex flex-col sm:flex-row items-stretch gap-3">
                         <code className="flex-1 min-w-0 rounded-xl border border-hairline bg-surface-2/60 px-4 py-3 font-mono text-[11px] break-all">
-                            {redirectUri || tWiz("redirectUriPending")}
+                            {redirectUri}
                         </code>
                         <button
                             onClick={copyRedirectUri} disabled={!redirectUri}

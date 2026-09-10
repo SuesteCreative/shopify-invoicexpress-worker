@@ -164,6 +164,10 @@ interface Palette {
   chipType: string;
   sectionType: string;
   occurBorder: string;
+  /** Where the call to action sits. Night has always had it against the left
+   *  margin; day centres it on the card, the way the dashboard centres a
+   *  primary action in an empty state. */
+  ctaAlign: string;
   /** The mono chip naming the connection. */
   monoChipRadius: string;
   /** @font-face block. Only day loads the dashboard's faces. */
@@ -229,6 +233,7 @@ const NIGHT: Palette = {
   stripeAccent: false,
   chipType: "font-weight:600;letter-spacing:0.5px",
   occurBorder: "rgba(251,191,36,0.35)",
+  ctaAlign: "left",
   monoChipRadius: "6px",
   sectionType: "font-size:14px;font-weight:600;letter-spacing:0.3px",
   faces: "",
@@ -287,6 +292,7 @@ const DAY: Palette = {
   stripeAccent: true,
   chipType: "font-weight:700;letter-spacing:0.06em",
   occurBorder: "#E7DED3",
+  ctaAlign: "center",
   monoChipRadius: "999px",
   sectionType: "font-size:11px;font-weight:700;letter-spacing:0.06em",
   faces: FONT_FACES,
@@ -608,7 +614,7 @@ function detailBlock(detail: any): string {
 
 function ctaButton(label: string, href: string): string {
   return `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 0">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${P().ctaAlign}" style="margin:8px ${P().ctaAlign === "center" ? "auto" : "0"} 0">
     <tr>
       <td style="background:${P().ctaBg};${P().ctaShape.split("|")[0]}">
         <a href="${escapeHtml(href)}" style="display:inline-block;${P().ctaShape.split("|")[1]};color:${P().ctaText};font-size:14px;text-decoration:none;font-family:inherit">${escapeHtml(label)}</a>

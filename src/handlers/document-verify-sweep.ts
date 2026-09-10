@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { resolveConnectionContext } from "../services/connection-context";
 import { buildAdapterCtx } from "../services/adapter-ctx";
+import { possibleExemptionCodes } from "../ix/fiscal-classification";
 import { getDestinationAdapter } from "../adapters/registry";
 import { mapWithConcurrency } from "../services/concurrency";
 import { verifyCreatedDocument } from "../services/document-verify";
@@ -259,17 +260,16 @@ export async function runDocumentVerifySweep(
           total: c.intent.total ?? null,
           reference: c.intent.reference ?? null,
           exemptionCode: c.intent.exemptionCode ?? null,
-          // History has no recorded intent, so the exact code we sent is gone.
-          // What IS knowable is the set the shop could legitimately have used:
-          // its generic code, or its B2B one when the order carried a
-          // reverse-charge exemption (which is a property of the ORDER, not the
-          // config — see detectShopifyReverseCharge). A stored code outside that
-          // set could not have come from this shop's configuration at all, and
-          // that is the only claim worth making from here.
+          // History has no recorded intent, so the exact code we sent is gone —
+          // `built` is routine-tier and ages out at 90 days. What IS knowable is
+          // the set this connection could legitimately have produced: its
+          // generic code, its B2B one, and — only when it names the regime per
+          // sale — the export and intra-Community articles the classifier
+          // stamps. A stored code outside that set could not have come from this
+          // connection at all, and that is the only claim worth making here.
           acceptableExemptionCodes: c.intent.exemptionCode
             ? null
-            : [connCtx.config.ix_exemption_reason, connCtx.config.ix_b2b_exemption_reason]
-                .filter((v): v is string => !!v),
+            : possibleExemptionCodes(connCtx.config, connCtx.destinationConfig),
         },
         userId: c.userId,
         shopifyDomain: c.shopifyDomain,

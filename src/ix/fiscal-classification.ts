@@ -50,6 +50,50 @@ export interface FiscalClassification {
   basis: "domestic" | "export" | "intra_eu_b2b" | "intra_eu_b2b_unverified" | "configured";
 }
 
+/**
+ * Every exemption code this connection could legitimately have stamped.
+ *
+ * For the nightly verification, and only in HISTORY mode: `document_events`
+ * keeps a `built` intent for 90 days, so beyond that the exact code we sent is
+ * gone and the honest question becomes "could this connection have produced
+ * what InvoiceXpress is holding?".
+ *
+ * The set has to be built from the connection's own registrations, not from a
+ * fixed list. A connection that names the regime per sale can produce the export
+ * article and the intra-Community one; a connection that does not, cannot — and
+ * widening the set for everyone would blunt the only claim this check makes.
+ *
+ * Without this, every export older than 90 days on a classifying connection
+ * reports a drift that is not one. It is `drift_lead`, so it raises no incident,
+ * but a log full of phantoms is a log nobody reads.
+ */
+export function possibleExemptionCodes(
+  config: {
+    ix_exemption_reason?: string | null;
+    ix_b2b_exemption_reason?: string | null;
+    ix_derive_exemption?: number | null;
+  },
+  destinationConfig?: Record<string, any> | null,
+): string[] {
+  const codes = [config.ix_exemption_reason, config.ix_b2b_exemption_reason];
+
+  const namesTheRegime = Number(config.ix_derive_exemption) === 1;
+  const rc = destinationConfig?.b2b_reverse_charge_pipeline;
+  const doesReverseCharge = rc === true || Number(rc) === 1;
+
+  if (namesTheRegime || doesReverseCharge) {
+    codes.push(EXPORT_EXEMPTION_CODE, DEFAULT_B2B_EXEMPTION_CODE);
+    // The merchant's own answer for an export, when they stated one.
+    codes.push(destinationConfig?.oss_export_exemption_code);
+    // What the rate engine stamps on a non-EU sale when nothing named it.
+    if (destinationConfig?.oss_engine === true || Number(destinationConfig?.oss_engine) === 1) {
+      codes.push("M40");
+    }
+  }
+
+  return [...new Set(codes.map((c) => String(c ?? "").trim()).filter(Boolean))];
+}
+
 export interface ClassifyInput {
   /** ISO-2 of the buyer's billing country. Empty/unknown is handled. */
   buyerCountryCode: string | null | undefined;

@@ -173,3 +173,16 @@ export function subscriptionUIState(sub: SubscriptionRow | null | undefined): "a
     }
     return "blocked";
 }
+
+/**
+ * Embedded Checkout speaks a newer API than the one this client pins.
+ *
+ * The browser SDK mounts it with `createEmbeddedCheckoutPage`, which only
+ * understands a session created with `ui_mode: "embedded_page"`. That value does
+ * not exist before this API version, and the older `embedded` no longer exists
+ * after it — send the wrong pair and the form mounts as an empty box, with
+ * nothing in the console to say why. Passed per request, so every other call
+ * stays on the pinned version.
+ */
+export const EMBEDDED_CHECKOUT_API_VERSION = "2026-04-22.dahlia";
+export const EMBEDDED_CHECKOUT_UI_MODE = "embedded_page";

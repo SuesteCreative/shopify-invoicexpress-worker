@@ -14,7 +14,7 @@ const LOCALES = ["pt", "en"] as const;
 const NAMESPACES = { terms: 14, privacy: 11 } as const;
 
 const load = (locale: string) =>
-    JSON.parse(readFileSync(`backoffice/src/messages/${locale}.json`, "utf-8"));
+    JSON.parse(readFileSync(`backoffice/src/messages/${locale}.json`, "utf8"));
 
 describe("legal message catalogs", () => {
     for (const locale of LOCALES) {
@@ -75,7 +75,7 @@ describe("legal message catalogs", () => {
         // ANCHORS in privacy/page.tsx maps that id onto s10.
         const page = readFileSync(
             "backoffice/src/app/[locale]/privacy/page.tsx",
-            "utf-8"
+            "utf8"
         );
         const anchored = page.match(/ANCHORS[^=]*=\s*\{\s*(s\d+):\s*"litigios"/);
         expect(anchored, "no s<n>: 'litigios' entry in ANCHORS").toBeTruthy();

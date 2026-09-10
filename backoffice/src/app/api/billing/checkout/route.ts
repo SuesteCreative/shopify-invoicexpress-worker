@@ -1,6 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe, getStripeEnv, getStripeEnvOptional, getDB, primaryConnectionKey } from "@/lib/stripe";
+import { getStripe, getStripeEnv, getStripeEnvOptional, getDB, primaryConnectionKey, EMBEDDED_CHECKOUT_API_VERSION, EMBEDDED_CHECKOUT_UI_MODE } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
 import { CONNECTION_KEY_TO_SOURCE, keyFromRequest } from "@/lib/subscription-key";
 import { RIOKO_CONFIG } from "@/lib/config";
@@ -247,11 +247,21 @@ export async function POST(req: NextRequest) {
             // Embedded forbids success_url/cancel_url and wants a return_url; the
             // hosted flow is unchanged.
             ...(embedded
-                ? { ui_mode: "embedded" as const, return_url: returnUrl! }
+                ? { ui_mode: EMBEDDED_CHECKOUT_UI_MODE as any, return_url: returnUrl! }
                 : { success_url: successUrl, cancel_url: cancelUrl }
             ),
             allow_promotion_codes: true,
-        });
+        },
+            // The embedded session is created against a NEWER API version than the
+            // one this client pins. The browser SDK mounts embedded Checkout with
+            // `createEmbeddedCheckoutPage`, which only understands a session made
+            // with `ui_mode: "embedded_page"` — and that value does not exist
+            // before this version, while the older `embedded` no longer exists
+            // after it. Sent with the older pair, the form mounted as an empty
+            // box with nothing in the console. Per request, so every other call in
+            // the app stays on the pinned version.
+            embedded ? { apiVersion: EMBEDDED_CHECKOUT_API_VERSION } : undefined,
+        );
 
         if (embedded) {
             return NextResponse.json({

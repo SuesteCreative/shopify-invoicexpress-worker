@@ -950,6 +950,14 @@
                 "label": "OSS",
                 "help": "Required alongside reverse charge for cross-border EU B2B handling."
             },
+            "ossEngine": {
+                "label": "Per-country VAT engine (OSS)",
+                "help": "Decides the rate from the buyer's country instead of taking it from the source: the member state's standard rate, 0% outside the EU. For B2C distance selling only — do NOT enable under a B2B reverse-charge regime, where an intra-EU sale must leave at 0%. Requires VAT-inclusive prices; otherwise the document is held as a draft with a notice."
+            },
+            "ossExportExemptionCode": {
+                "label": "Non-EU exemption code",
+                "help": "The code stamped when the engine zero-rates a sale outside the EU. Defaults to M40."
+            },
             "b2bReverseCharge": {
                 "label": "B2B reverse charge",
                 "help": "Invoice qualifying EU B2B sales as reverse charge, after VIES confirms the buyer."

@@ -4,6 +4,7 @@ import { AppStorage } from "../storage";
 import { getSourceAdapter, getDestinationAdapter } from "../adapters/registry";
 import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
+import { applyOssRates } from "../adapters/oss";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 import { destinationHandlesForeignCurrency } from "../services/currency-guard";
@@ -385,6 +386,17 @@ async function runPipelineCore(
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
 
+      // Decide the VAT ourselves, when the connection asks us to.
+      //
+      // Here, and not in the destination adapters, because `item.tax` +
+      // `unit_price` is the one contract all three read — Vendus reads nothing
+      // else — and because a rewrite of the normalized order reaches the credit
+      // note by the same path. Off unless the connection sets `oss_engine`.
+      const ossOutcome = applyOssRates(normalized, ctx, destination);
+      if (ossOutcome.changed > 0) {
+        console.log(`[Pipeline] ${externalId}: ${ossOutcome.changed} line(s) re-rated for ${ossOutcome.country}`);
+      }
+
       // Defense in depth: does the destination already hold this sale?
       //
       // This runs AFTER normalize on purpose. It used to build the reference from
@@ -551,7 +563,13 @@ async function runPipelineCore(
         return;
       }
 
-      const { invoiceId, holdReason, exemptionCode } = await destAdapter.createDraft(normalized, ctx);
+      const { invoiceId, holdReason: draftHold, exemptionCode } = await destAdapter.createDraft(normalized, ctx);
+      // A rate the engine could not apply holds the document too: it goes out
+      // at the rate actually charged, as a draft, and the merchant is told why.
+      // Emitting it certified would put a rate we know to be wrong on a fiscal
+      // document; refusing it outright would leave a paid sale unbilled with a
+      // message that names neither cause.
+      const holdReason = [draftHold, ossOutcome.holdReason].filter(Boolean).join(" · ") || null;
       await appStorage.saveProcessedInvoice(externalId, invoiceId, {
         sourceKind: source,
         destinationKind: destination,
@@ -746,6 +764,10 @@ async function runPipelineCore(
     case "refund": {
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
+
+      // The credit note corrects a document whose lines were re-rated, so it
+      // has to be built from the same rates. Same call, same connection flag.
+      applyOssRates(normalized, ctx, destination);
 
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for refund of ${externalId}`);

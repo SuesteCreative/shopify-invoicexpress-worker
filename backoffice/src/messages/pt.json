@@ -950,6 +950,14 @@
                 "label": "OSS",
                 "help": "Necessário, com a autoliquidação, para o tratamento B2B intracomunitário."
             },
+            "ossEngine": {
+                "label": "Motor de IVA por país (OSS)",
+                "help": "Decide a taxa a partir do país do comprador em vez de a receber da origem: taxa normal do Estado-Membro, 0% fora da UE. Só para vendas B2C à distância — NÃO ligar num regime de autoliquidação B2B, onde a venda intracomunitária tem de sair a 0%. Exige preços com IVA incluído; caso contrário o documento fica em rascunho com aviso."
+            },
+            "ossExportExemptionCode": {
+                "label": "Código de isenção fora da UE",
+                "help": "O código carimbado quando o motor põe uma venda fora da UE a 0%. Por omissão M40."
+            },
             "b2bReverseCharge": {
                 "label": "Autoliquidação B2B",
                 "help": "Fatura as vendas B2B da UE elegíveis com autoliquidação, depois de o VIES confirmar o comprador."

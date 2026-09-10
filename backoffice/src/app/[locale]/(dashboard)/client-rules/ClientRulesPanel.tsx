@@ -87,6 +87,8 @@ const STRIPE_IX_FISCAL_FIELDS: FieldDef[] = [
  */
 const TAX_BEHAVIOUR_FIELDS: FieldDef[] = [
   { key: "oss_enabled", kind: "bool", i18n: "ossEnabled", dangerous: true },
+  { key: "oss_engine", kind: "bool", i18n: "ossEngine", dangerous: true },
+  { key: "oss_export_exemption_code", kind: "text", i18n: "ossExportExemptionCode", dangerous: true },
   { key: "b2b_reverse_charge", kind: "bool", i18n: "b2bReverseCharge", dangerous: true },
   { key: "force_tax_rate", kind: "number", i18n: "forceTaxRate", dangerous: true },
   { key: "force_shipping_tax_rate", kind: "number", i18n: "forceShippingTaxRate", dangerous: true },

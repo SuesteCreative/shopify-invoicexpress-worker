@@ -41,6 +41,11 @@ export const FISCAL_CONFIG_KEYS = [
   "b2b_reverse_charge",
   "force_tax_rate",
   "force_shipping_tax_rate",
+  // Decide the rate from the buyer's country instead of taking it from the
+  // source. Off unless stated, which is what keeps the legacy Shopify fleet
+  // — with `oss_enabled` defaulted to 1 since 0002 — out of it entirely.
+  "oss_engine",
+  "oss_export_exemption_code",
   // The fiscal identity of the documents this connection issues.
   //
   // `exemption_reason` above is Moloni's name for the same idea, and it is NOT

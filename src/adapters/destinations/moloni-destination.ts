@@ -1117,7 +1117,7 @@ async function resolveOrCreateCustomer(
 const FALLBACK_PLACEHOLDER_REFERENCE = "RIOKO-PLACEHOLDER";
 const SHIPPING_REFERENCE = "RIOKO-SHIPPING";
 
-function deriveProductReference(item: Normalized["order"]["items"][number]): string {
+export function deriveProductReference(item: Normalized["order"]["items"][number]): string {
   // SKU wins regardless of product_id/variant_id: Stripe-source items emit
   // sku=price_xxx with product_id=0/variant_id=0, and we want the mapping key
   // to be `price_xxx`, not RIOKO-SHIPPING. Shopify shipping lines have no SKU,

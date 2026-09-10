@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
+import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
 
 export const runtime = "edge";
 
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
     const row: any = await db.prepare(
-        `SELECT id, status, source_config_json, destination_kind, created_at, updated_at
+        `SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at
          FROM connections WHERE user_id = ? AND source_kind = 'eupago' LIMIT 1`
     ).bind(authResult.targetUserId).first();
 
@@ -62,6 +63,10 @@ export async function GET(request: NextRequest) {
             status: row.status,
             destination_kind: row.destination_kind ?? "invoicexpress",
             source_config: redact(cfg),
+            // What this connection states about its own documents. The wizard
+            // shows these instead of the account's legacy row, because for a
+            // non-Shopify source that is what the worker reads.
+            fiscal: readConnectionFiscal(row.destination_config_json),
             created_at: row.created_at,
             updated_at: row.updated_at,
             webhook_url: `${WORKER_BASE}/webhooks/eupago/${authResult.targetUserId}`,
@@ -79,6 +84,7 @@ export async function POST(request: NextRequest) {
         encrypted?: boolean;
         destination_kind?: "invoicexpress" | "moloni" | "vendus";
         status?: "draft" | "active" | "paused" | "error";
+        fiscal?: Record<string, unknown>;
     };
 
     const destinationKind = ["invoicexpress", "moloni", "vendus"].includes(body.destination_kind || "")
@@ -94,6 +100,37 @@ export async function POST(request: NextRequest) {
     const { env } = getRequestContext();
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+
+    // The fiscal identity of the documents this connection issues — series,
+    // exemption code, document type, whether prices already include tax.
+    //
+    // It used to be posted to `/api/integrations`, the account's legacy row,
+    // where the worker no longer looks: `projectConnectionBehaviour` refuses to
+    // read that row for a non-Shopify source, because it belongs to another
+    // integration. Merged (json_patch) rather than replaced, so the settings step
+    // never erases what the EuPago step wrote.
+    const fiscalPatch = fiscalPatchFrom(body.fiscal);
+    const saveFiscal = async (): Promise<boolean> => {
+        if (!fiscalPatch) return true;
+        const res = await db.prepare(
+            `UPDATE connections
+                SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
+                    updated_at = ?
+              WHERE user_id = ? AND source_kind = 'eupago' AND destination_kind = ?`
+        ).bind(JSON.stringify(fiscalPatch), new Date().toISOString(),
+            authResult.targetUserId, destinationKind).run();
+        return (res.meta?.changes ?? 0) > 0;
+    };
+
+    // A settings-only post — the wizard's invoice step — must not fall through
+    // to the upsert below: `status` defaults to "draft" there, so saving invoice
+    // settings would deactivate a live connection.
+    if (fiscalPatch && !body.hmac_secret && !body.api_key && !body.status) {
+        if (!(await saveFiscal())) {
+            return NextResponse.json({ error: "Connect EuPago before saving invoice settings" }, { status: 409 });
+        }
+        return NextResponse.json({ ok: true });
+    }
 
     // If hmac_secret is empty in the body, preserve the existing one (allows
     // editing destination_kind/status without re-pasting the secret).
@@ -122,6 +159,8 @@ export async function POST(request: NextRequest) {
            status = excluded.status,
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceCfg), status, now, now).run();
+
+    await saveFiscal();
 
     return NextResponse.json({
         ok: true,

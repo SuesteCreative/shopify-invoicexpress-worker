@@ -8,6 +8,7 @@ import { Wallet, ClipboardList, Loader2, Check, AlertTriangle, ChevronRight, Set
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
+import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
@@ -60,6 +61,10 @@ export default function EuPagoIxIntegration() {
     const [ixPaymentTerm, setIxPaymentTerm] = useState(0);
     const [ixSequenceName, setIxSequenceName] = useState("");
     const [settingsSaved, setSettingsSaved] = useState(false);
+    /** Whether the account's legacy `integrations` row belongs to a Shopify shop.
+     *  If it does, this wizard writes nothing there — those settings are the
+     *  shop's, and this connection's own live on the connection. */
+    const [ownedByShopify, setOwnedByShopify] = useState(false);
 
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
     const eupagoSaved = hasSavedHmac;
@@ -80,6 +85,7 @@ export default function EuPagoIxIntegration() {
                     const data = await integRes.json() as any;
                     if (data._viewer_role) setUserRole(data._viewer_role);
                     if (data.user_id) setTargetUserId(data.user_id);
+                    setOwnedByShopify(!!data.shopify_domain);
                     if (data.ix_account_name) setIxAccount(data.ix_account_name);
                     if (data.ix_api_key) setIxApiKey(data.ix_api_key);
                     if (data.ix_environment) setIxEnvironment(data.ix_environment);
@@ -100,7 +106,7 @@ export default function EuPagoIxIntegration() {
 
                 let eupagoOk = false, status = "";
                 if (eupagoRes.ok) {
-                    const data = await eupagoRes.json() as { connection?: { status: ConnectionStatus; source_config: { has_hmac_secret: boolean; api_key_masked: string | null }; webhook_url?: string } | null };
+                    const data = await eupagoRes.json() as { connection?: { status: ConnectionStatus; source_config: { has_hmac_secret: boolean; api_key_masked: string | null }; fiscal?: ConnectionFiscal; webhook_url?: string } | null };
                     if (data.connection) {
                         setHasSavedHmac(data.connection.source_config.has_hmac_secret);
                         setHasSavedApiKey(!!data.connection.source_config.api_key_masked);
@@ -108,6 +114,23 @@ export default function EuPagoIxIntegration() {
                         if (data.connection.webhook_url) setWebhookUrl(data.connection.webhook_url);
                         eupagoOk = data.connection.source_config.has_hmac_secret;
                         status = data.connection.status;
+
+                        // What this connection states wins over the account's
+                        // legacy row, because that is the precedence the worker
+                        // applies: for a non-Shopify source it reads the
+                        // connection and nothing else. The form has to show what
+                        // the next document will actually use.
+                        const fiscal = data.connection.fiscal ?? {};
+                        if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
+                        if (fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
+                        if (fiscal.ix_document_type) setIxDocumentType(fiscal.ix_document_type);
+                        if (typeof fiscal.vat_included === "boolean") setVatIncluded(fiscal.vat_included);
+                        if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
+                        // The settings step is done once the connection has a
+                        // series of its own. A series on the legacy row alone no
+                        // longer counts: the worker will not read it.
+                        setOk = !!fiscal.ix_sequence_name;
+                        setSettingsSaved(setOk);
                     }
                 }
 
@@ -198,22 +221,55 @@ export default function EuPagoIxIntegration() {
         setSaving(true);
         setGlobalError("");
         try {
-            const res = await fetch("/api/integrations", {
+            // The fiscal identity goes on the CONNECTION. This integration's
+            // source is not Shopify, so the worker reads it there and nowhere
+            // else — posting it to the account's legacy row, as this wizard did,
+            // wrote it where nothing would ever read it.
+            const fiscalRes = await fetch("/api/integrations/eupago-source", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    ix_sequence_name: ixSequenceName,
-                    ix_exemption_reason: exemptionReason,
-                    vat_included: vatIncluded,
-                    auto_finalize: autoFinalize,
-                    ix_document_type: ixDocumentType,
-                    ix_payment_term: ixPaymentTerm,
+                    fiscal: {
+                        ix_sequence_name: ixSequenceName,
+                        ix_exemption_reason: exemptionReason,
+                        ix_document_type: ixDocumentType,
+                        vat_included: vatIncluded,
+                        auto_finalize: autoFinalize,
+                    },
                 }),
             });
-            if (!res.ok) {
-                const json: any = await res.json().catch(() => ({}));
-                setGlobalError(json.error ?? `HTTP ${res.status}`);
+            if (!fiscalRes.ok) {
+                const json: any = await fiscalRes.json().catch(() => ({}));
+                setGlobalError(json.error ?? `HTTP ${fiscalRes.status}`);
                 return;
+            }
+
+            // Mirrored onto the legacy row too, so the fiscal console, the
+            // digests and everything else that still reads it stay truthful, and
+            // because `ix_payment_term` is not isolated per connection and lives
+            // only there.
+            //
+            // Unless a Shopify shop owns that row, in which case it is the shop's
+            // configuration and writing to it from here is how one integration's
+            // settings used to overwrite another's.
+            if (!ownedByShopify) {
+                const res = await fetch("/api/integrations", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        ix_sequence_name: ixSequenceName,
+                        ix_exemption_reason: exemptionReason,
+                        vat_included: vatIncluded,
+                        auto_finalize: autoFinalize,
+                        ix_document_type: ixDocumentType,
+                        ix_payment_term: ixPaymentTerm,
+                    }),
+                });
+                if (!res.ok) {
+                    const json: any = await res.json().catch(() => ({}));
+                    setGlobalError(json.error ?? `HTTP ${res.status}`);
+                    return;
+                }
             }
             setSettingsSaved(true);
             setStep(4);

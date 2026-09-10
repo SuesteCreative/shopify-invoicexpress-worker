@@ -156,6 +156,8 @@ export default function StripeIXIntegration() {
             if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
             if (fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
             if (fiscal.ix_document_type) setIxDocumentType(fiscal.ix_document_type);
+            if (typeof fiscal.vat_included === "boolean") setVatIncluded(fiscal.vat_included);
+            if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
             if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
             const stripeSaved = !!sCfg.stripe_account_id;
             const webhookSaved = !!sCfg.has_webhook_secret;
@@ -298,9 +300,15 @@ export default function StripeIXIntegration() {
                 ix_exemption_reason: exemptionReason,
                 ix_document_type: ixDocumentType,
             };
+            // `vat_included` is isolated per connection too, and had no way of
+            // getting there: two live Stripe→IX clients had to have theirs
+            // written by hand before the isolation shipped. `auto_finalize`
+            // decides draft versus certified, which is not a setting to inherit
+            // from a shop either.
+            const connectionFiscal = { ...fiscal, vat_included: vatIncluded, auto_finalize: autoFinalize };
 
             if (stripeAccountId) {
-                const fiscalRes = await postStripeSource({ fiscal });
+                const fiscalRes = await postStripeSource({ fiscal: connectionFiscal });
                 if (!fiscalRes.ok) { alert(t("alertSaveError")); return; }
             }
 

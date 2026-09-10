@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
+import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
 import { callWorkerJson } from "@/lib/worker";
 
 export const runtime = "edge";
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
     const destinationKindParam = new URL(request.url).searchParams.get("destination_kind") ?? "invoicexpress";
 
     const row: any = await db.prepare(
-        `SELECT id, status, source_config_json, destination_kind, created_at, updated_at
+        `SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at
          FROM connections WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ?`
     ).bind(authResult.targetUserId, destinationKindParam).first();
 
@@ -71,6 +72,10 @@ export async function GET(request: NextRequest) {
             status: row.status,
             destination_kind: row.destination_kind ?? "invoicexpress",
             source_config: redact(cfg),
+            // What this connection states about its own documents. The wizard
+            // shows these instead of the account's legacy row, because for a
+            // non-Shopify source that is what the worker reads.
+            fiscal: readConnectionFiscal(row.destination_config_json),
             created_at: row.created_at,
             updated_at: row.updated_at,
             webhook_url: `${WORKER_BASE}/webhooks/lodgify/${authResult.targetUserId}`,
@@ -87,6 +92,7 @@ export async function POST(request: NextRequest) {
             api_key?: string;
             destination_kind?: "invoicexpress" | "moloni" | "vendus";
             status?: "draft" | "active" | "paused" | "error";
+            fiscal?: Record<string, unknown>;
         };
 
         const destinationKind = ["invoicexpress", "moloni", "vendus"].includes(body.destination_kind || "")
@@ -107,6 +113,41 @@ export async function POST(request: NextRequest) {
         const previousCfg: Record<string, any> = existing?.source_config_json
             ? JSON.parse(existing.source_config_json)
             : {};
+
+        // The fiscal identity of the documents this connection issues — series,
+        // exemption code, document type, whether prices already include tax.
+        //
+        // It used to be posted to `/api/integrations`, the account's legacy row,
+        // where the worker no longer looks: `projectConnectionBehaviour` refuses
+        // to read that row for a non-Shopify source, because it belongs to
+        // another integration. Merged (json_patch) rather than replaced, so the
+        // settings step never erases what the Lodgify step wrote.
+        const fiscalPatch = fiscalPatchFrom(body.fiscal);
+        const saveFiscal = async (): Promise<boolean> => {
+            if (!fiscalPatch) return true;
+            const res = await db.prepare(
+                `UPDATE connections
+                    SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
+                        updated_at = ?
+                  WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ?`
+            ).bind(JSON.stringify(fiscalPatch), new Date().toISOString(),
+                authResult.targetUserId, destinationKind).run();
+            // No row means the merchant has not connected Lodgify yet. Say so:
+            // settings silently written nowhere is the bug this whole change is
+            // about.
+            return (res.meta?.changes ?? 0) > 0;
+        };
+
+        // A settings-only post — the wizard's invoice step — must not fall into
+        // the branch below: that one re-registers the Lodgify webhooks through
+        // the relay and mints new signing secrets, for a request that changed no
+        // credential.
+        if (fiscalPatch && !body.api_key && !body.status) {
+            if (!(await saveFiscal())) {
+                return NextResponse.json({ error: "Connect Lodgify before saving invoice settings" }, { status: 409 });
+            }
+            return NextResponse.json({ ok: true });
+        }
 
         const apiKey = body.api_key || previousCfg.api_key;
         if (status === "active" && !apiKey) {
@@ -150,6 +191,8 @@ export async function POST(request: NextRequest) {
                    updated_at = excluded.updated_at`
             ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceCfg), now, now).run();
 
+            await saveFiscal();
+
             // Best-effort, exactly as before: a registration failure must not
             // lose the key the merchant just typed.
             let needsManualWebhook = true;
@@ -180,6 +223,8 @@ export async function POST(request: NextRequest) {
             `UPDATE connections SET status = ?, updated_at = ?
              WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ?`
         ).bind(status, now, authResult.targetUserId, destinationKind).run();
+
+        await saveFiscal();
 
         return NextResponse.json({ ok: true });
     } catch (e: any) {

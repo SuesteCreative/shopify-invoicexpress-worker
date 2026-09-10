@@ -92,6 +92,24 @@ export interface RenderedTemplate {
 // Dark-first palette. Mirrors the dashboard's glassmorphism aesthetic and
 // sidesteps Gmail mobile dark-mode auto-inversion (which turns white→gray
 // while leaving dark text dark — invisible on the resulting mid-gray card).
+// Type. Night has always used the system stack; day brings the dashboard's
+// faces, for the clients that honour @font-face. Single quotes throughout:
+// these land inside double-quoted style attributes.
+/**
+ * The dashboard's two faces, for the clients that honour @font-face (Apple Mail,
+ * iOS Mail, Thunderbird). Everywhere else falls through to the system stack and
+ * the layout is unchanged, because the metrics are close enough not to reflow.
+ */
+const FONT_FACES = `
+    @font-face { font-family: "General Sans"; src: url("https://rioko.online/fonts/GeneralSans-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+    @font-face { font-family: "General Sans"; src: url("https://rioko.online/fonts/GeneralSans-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+    @font-face { font-family: "General Sans"; src: url("https://rioko.online/fonts/GeneralSans-Semibold.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+    @font-face { font-family: "Satoshi"; src: url("https://rioko.online/fonts/Satoshi-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }`;
+
+const SYSTEM_STACK = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif`;
+const DAY_BODY = `'General Sans',${SYSTEM_STACK}`;
+const DAY_DISPLAY = `'Satoshi','General Sans',${SYSTEM_STACK}`;
+
 export type EmailTheme = "day" | "night";
 
 interface Palette {
@@ -110,6 +128,46 @@ interface Palette {
   purple: string;        // the second half of the accent stripe
   ctaBg: string;
   ctaText: string;
+  /** The wordmark, in the version that reads on `headerBg`. */
+  logoUrl: string;
+  logoWidth: number;
+  /** Header bar. `headerGradient: "none"` leaves it flat. */
+  headerGradient: string;
+  headerRule: string;
+  /** The chip that names the connection, sitting on the header bar. */
+  headerChipBg: string;
+  headerChipBorder: string;
+  headerChipText: string;
+  /** The "3x ocorrências" chip. */
+  occurBg: string;
+  occurText: string;
+  /** Callout plates. Night draws a rule down the left; day is a plain plate. */
+  calloutBg: string;
+  calloutRule: string;
+  /** Card corner. The dashboard's cards are 20px by day. */
+  radius: string;
+  fontBody: string;
+  fontDisplay: string;
+  /** Shapes. Night keeps what it shipped; day follows the dashboard. */
+  titleType: string;
+  eyebrowType: string;
+  chipRadius: string;
+  ctaShape: string;
+  platePad: string;
+  plateRadius: string;
+  idChip: string;
+  idChipBorder: string;
+  stripe: string;
+  /** The rule under the title: night runs the brand gradient, day takes the
+   *  severity colour flat. */
+  stripeAccent: boolean;
+  chipType: string;
+  sectionType: string;
+  occurBorder: string;
+  /** The mono chip naming the connection. */
+  monoChipRadius: string;
+  /** @font-face block. Only day loads the dashboard's faces. */
+  faces: string;
   codeBg: string;
   codeText: string;
   info: string;
@@ -145,6 +203,35 @@ const NIGHT: Palette = {
   error: "#f87171",
   critical: "#ef4444",
   colorScheme: "dark only",
+  logoUrl: "https://rioko.online/images/rioko2-logo.png",
+  logoWidth: 140,
+  headerGradient: "linear-gradient(135deg, #1e293b 0%, #0f172a 50%, #1e1b4b 100%)",
+  headerRule: "none",
+  headerChipBg: "rgba(255,255,255,0.08)",
+  headerChipBorder: "rgba(255,255,255,0.15)",
+  headerChipText: "#cbd5e1",
+  occurBg: "rgba(251,191,36,0.18)",
+  occurText: "#fbbf24",
+  calloutBg: "#1e293b",
+  calloutRule: "3px",
+  radius: "14px",
+  fontBody: SYSTEM_STACK,
+  fontDisplay: SYSTEM_STACK,
+  titleType: "font-size:22px;font-weight:600;letter-spacing:-0.3px;line-height:1.3",
+  eyebrowType: "font-size:12px;font-weight:600;letter-spacing:0.4px",
+  chipRadius: "12px",
+  ctaShape: "border-radius:8px|padding:10px 22px;font-weight:600",
+  platePad: "14px 18px",
+  plateRadius: "6px",
+  idChip: "border-radius:5px|padding:4px 8px;margin:0 4px 4px 0",
+  idChipBorder: "#334155",
+  stripe: "3px",
+  stripeAccent: false,
+  chipType: "font-weight:600;letter-spacing:0.5px",
+  occurBorder: "rgba(251,191,36,0.35)",
+  monoChipRadius: "6px",
+  sectionType: "font-size:14px;font-weight:600;letter-spacing:0.3px",
+  faces: "",
 };
 
 // Day: the Kapta-admin skin the dashboard wears in Day Mode. Cream page, white
@@ -155,10 +242,10 @@ const DAY: Palette = {
   pageBg: "#F6F3EE",
   cardBg: "#FFFFFF",
   cardBgAlt: "#FAF7F1",
-  headerBg: "#111111",
+  headerBg: "#FFFFFF",
   bgGradient: "linear-gradient(135deg, #2A2A2A 0%, #111111 55%, #3A1F17 100%)",
   text: "#111111",
-  textStrong: "#FEFEFE",
+  textStrong: "#111111",
   muted: "#8A857E",
   border: "#E7DED3",
   borderSubtle: "#CABFB2",
@@ -174,6 +261,35 @@ const DAY: Palette = {
   error: "#B42318",
   critical: "#B42318",
   colorScheme: "light only",
+  logoUrl: "https://rioko.online/images/logo-rioko-black.png",
+  logoWidth: 108,
+  headerGradient: "none",
+  headerRule: "#E7DED3",
+  headerChipBg: "#F6F3EE",
+  headerChipBorder: "#E7DED3",
+  headerChipText: "#4B4B4B",
+  occurBg: "#F6F3EE",
+  occurText: "#4B4B4B",
+  calloutBg: "#F6F3EE",
+  calloutRule: "0",
+  radius: "20px",
+  fontBody: DAY_BODY,
+  fontDisplay: DAY_DISPLAY,
+  titleType: "font-size:24px;font-weight:500;letter-spacing:-0.02em;line-height:1.25",
+  eyebrowType: "font-size:11px;font-weight:700;letter-spacing:0.06em",
+  chipRadius: "999px",
+  ctaShape: "border-radius:999px|padding:13px 26px;font-weight:500",
+  platePad: "16px 20px",
+  plateRadius: "12px",
+  idChip: "border-radius:999px|padding:4px 10px;margin:0 4px 6px 0",
+  idChipBorder: "#CABFB2",
+  stripe: "2px",
+  stripeAccent: true,
+  chipType: "font-weight:700;letter-spacing:0.06em",
+  occurBorder: "#E7DED3",
+  monoChipRadius: "999px",
+  sectionType: "font-size:11px;font-weight:700;letter-spacing:0.06em",
+  faces: FONT_FACES,
 };
 
 // Which palette the next template renders in.
@@ -203,7 +319,15 @@ export function renderInTheme<T>(theme: EmailTheme | undefined, render: () => T)
 // Wide PNG logo hosted on rioko.online (Gmail's image proxy reliably fetches
 // from there; workers.dev subdomains are unreliable, inline base64 ≥ ~10KB
 // gets stripped on Gmail web, and SVG data URIs are stripped entirely).
+/** Kept for callers that hardcoded it; the skins choose through `P().logoUrl`. */
 const LOGO_WHITE = "https://rioko.online/images/rioko2-logo.png";
+
+/** rioko.online/pt. The legal pages every email links to, small, in the footer. */
+const LEGAL = {
+  privacy: "https://rioko.online/pt/privacy",
+  terms: "https://rioko.online/pt/terms",
+};
+
 const DEFAULT_DASHBOARD = "https://rioko.online";
 const DEFAULT_HELP_URL = "mailto:suporte@kapta.pt";
 
@@ -216,6 +340,9 @@ function escapeHtml(s: string): string {
 }
 
 function severityColor(s: Severity | undefined): string {
+  // No severity is not an "info" alert: it is an ordinary message, and it takes
+  // the brand accent.
+  if (!s) return P().blue;
   return s === "critical" ? P().critical
     : s === "error" ? P().error
     : s === "warning" ? P().warning
@@ -252,18 +379,18 @@ function shell(opts: {
 }): string {
   const accent = severityColor(opts.severity);
   const severityChip = opts.severity ? `
-    <span style="display:inline-block;background:${accent};color:#fff;font-size:11px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;padding:4px 10px;border-radius:12px;vertical-align:middle">
+    <span style="display:inline-block;background:${accent};color:#fff;font-size:11px;${P().chipType};text-transform:uppercase;padding:4px 10px;border-radius:${P().chipRadius};vertical-align:middle">
       ${severityLabelPT(opts.severity)}
     </span>` : "";
 
   const occurChip = (opts.occurrences ?? 0) > 1 ? `
-    <span style="display:inline-block;background:rgba(251,191,36,0.18);color:#fbbf24;border:1px solid rgba(251,191,36,0.35);font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;margin-left:6px;vertical-align:middle">
+    <span style="display:inline-block;background:${P().occurBg};color:${P().occurText};border:1px solid ${P().occurBorder};font-size:11px;font-weight:600;padding:3px 9px;border-radius:${P().chipRadius};margin-left:6px;vertical-align:middle">
       ${opts.occurrences}× ocorrências
     </span>` : "";
 
   const connectionChip = opts.connectionLabel ? `
     <div style="margin-top:8px">
-      <span style="display:inline-block;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:${P().codeText};font-size:12px;font-weight:500;padding:4px 10px;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">
+      <span style="display:inline-block;background:${P().headerChipBg};border:1px solid ${P().headerChipBorder};color:${P().headerChipText};font-size:12px;font-weight:500;padding:4px 10px;border-radius:${P().monoChipRadius};font-family:ui-monospace,SFMono-Regular,Menlo,monospace">
         ${escapeHtml(opts.connectionLabel)}
       </span>
     </div>` : "";
@@ -281,7 +408,7 @@ function shell(opts: {
   <meta name="color-scheme" content="${P().colorScheme}">
   <meta name="supported-color-schemes" content="${P().colorScheme}">
   <title>${escapeHtml(opts.title)}</title>
-  <style>
+  <style>${P().faces}
     /* Gmail mobile (Android + iOS) injects data-ogsc on body / data-ogsb on bg-styled elements
        when dark mode is on, then rewrites colors. Targeting those attributes lets us force
        the colors we want and survive Gmail's rewrite. */
@@ -305,21 +432,21 @@ function shell(opts: {
     }
   </style>
 </head>
-<body style="margin:0;padding:0;background:${P().pageBg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:${P().text};-webkit-font-smoothing:antialiased">
+<body style="margin:0;padding:0;background:${P().pageBg};font-family:${P().fontBody};color:${P().text};-webkit-font-smoothing:antialiased">
   <!-- preheader (hidden, shows in inbox preview) -->
   ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${escapeHtml(opts.preheader)}</div>` : ""}
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${P().pageBg}" style="background-color:${P().pageBg};padding:32px 16px">
     <tr>
       <td align="center" bgcolor="${P().pageBg}">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${P().cardBg}" style="max-width:600px;width:100%;background-color:${P().cardBg};border-radius:14px;overflow:hidden">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${P().cardBg}" style="max-width:600px;width:100%;background-color:${P().cardBg};border-radius:${P().radius};overflow:hidden;border:1px solid ${P().headerRule === "none" ? "transparent" : P().headerRule}">
           <!-- header bar — bgcolor + classed for Gmail mobile dark-mode override -->
           <tr>
-            <td class="header-bg" bgcolor="${P().headerBg}" style="background-color:${P().headerBg};background-image:${P().bgGradient};padding:28px 32px 24px;position:relative">
+            <td class="header-bg" bgcolor="${P().headerBg}" style="background-color:${P().headerBg};${P().headerGradient === "none" ? "" : `background-image:${P().headerGradient};`}padding:28px 32px 24px;${P().headerRule === "none" ? "" : `border-bottom:1px solid ${P().headerRule};`}position:relative">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td valign="middle">
-                    <img src="${LOGO_WHITE}" alt="Rioko 2.0" width="140" height="auto" style="display:block;border:0;outline:none;text-decoration:none;max-width:140px;height:auto">
+                    <img src="${P().logoUrl}" alt="Rioko 2.0" width="${P().logoWidth}" height="auto" style="display:block;border:0;outline:none;text-decoration:none;max-width:${P().logoWidth}px;height:auto">
                   </td>
                   <td valign="middle" align="right">
                     ${severityChip}${occurChip}
@@ -327,14 +454,14 @@ function shell(opts: {
                 </tr>
               </table>
               <div class="force-white" style="margin-top:20px">
-                <h1 class="force-white" style="margin:0;color:${P().textStrong};font-size:22px;font-weight:600;letter-spacing:-0.3px;line-height:1.3;mso-line-height-rule:exactly">
+                <h1 class="force-white" style="margin:0;color:${P().textStrong};font-family:${P().fontDisplay};${P().titleType};mso-line-height-rule:exactly">
                   <span style="color:${P().textStrong}">${escapeHtml(opts.title)}</span>
                 </h1>
                 ${merchantLine}
                 ${connectionChip}
               </div>
               <!-- severity accent stripe -->
-              <div style="height:3px;width:100%;background-color:${P().blue};background-image:linear-gradient(90deg, ${P().blue}, ${P().purple});margin-top:24px"></div>
+              <div style="height:${P().stripe};width:100%;background-color:${P().stripeAccent ? accent : P().blue};${P().headerGradient === "none" ? "" : `background-image:linear-gradient(90deg, ${P().blue}, ${P().purple});`}margin-top:24px"></div>
             </td>
           </tr>
 
@@ -375,6 +502,7 @@ function shell(opts: {
               <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}">
                 <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · ${escapeHtml(opts.footerNote ?? "Notificação automática · Não responda a este email")}</font>
               </p>
+              ${legalLinks()}
             </td>
           </tr>
         </table>
@@ -385,8 +513,18 @@ function shell(opts: {
 </html>`;
 }
 
+/** Small print, every email: where the terms and the privacy policy live. */
+function legalLinks(): string {
+  return `
+              <p class="force-muted" style="margin:10px 0 0;font-size:11px;color:${P().muted}">
+                <a href="${LEGAL.privacy}" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Política de privacidade</font></a>
+                <font color="${P().muted}"> · </font>
+                <a href="${LEGAL.terms}" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Termos e condições</font></a>
+              </p>`;
+}
+
 function sectionTitle(text: string): string {
-  return `<h2 style="margin:0 0 12px;font-size:14px;font-weight:600;letter-spacing:0.3px;text-transform:uppercase;color:${P().muted}">${escapeHtml(text)}</h2>`;
+  return `<h2 style="margin:0 0 12px;${P().sectionType};text-transform:uppercase;color:${P().muted}">${escapeHtml(text)}</h2>`;
 }
 
 function paragraph(text: string, opts: { strong?: boolean } = {}): string {
@@ -394,11 +532,14 @@ function paragraph(text: string, opts: { strong?: boolean } = {}): string {
 }
 
 function calloutBox(headingText: string, html: string, accent = P().blue): string {
+  // A plate, the way the dashboard states one: tinted ground, an eyebrow in the
+  // status colour, and no rule down the side.
+  const rule = P().calloutRule === "0" ? "" : `border-left:${P().calloutRule} solid ${accent};`;
   return `
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${P().chipBg};border-left:3px solid ${accent};border-radius:6px;margin:0 0 20px">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${P().calloutBg};${rule}border-radius:${P().plateRadius};margin:0 0 ${P().plateRadius === "6px" ? "20px" : "24px"}">
     <tr>
-      <td style="padding:14px 18px">
-        <p style="margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:${accent}">${escapeHtml(headingText)}</p>
+      <td style="padding:${P().platePad}">
+        <p style="margin:0 0 6px;${P().eyebrowType};text-transform:uppercase;color:${accent}">${escapeHtml(headingText)}</p>
         <div style="font-size:14px;line-height:1.6;color:${P().text}">${html}</div>
       </td>
     </tr>
@@ -450,7 +591,7 @@ function affectedIdsBlock(ids?: string[]): string {
   const shown = ids.slice(0, 10);
   const more = ids.length > 10 ? `<div style="font-size:12px;color:${P().muted};margin-top:8px">… e mais ${ids.length - 10}</div>` : "";
   const chips = shown.map(id =>
-    `<span style="display:inline-block;background:${P().chipBg};border:1px solid ${P().borderSubtle};color:${P().text};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:4px 8px;border-radius:5px;margin:0 4px 4px 0">${escapeHtml(id)}</span>`
+    `<span style="display:inline-block;background:${P().calloutBg};border:1px solid ${P().idChipBorder};color:${P().text};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;${P().idChip.split("|")[0]};${P().idChip.split("|")[1]}">${escapeHtml(id)}</span>`
   ).join("");
   return `
   ${sectionTitle("Encomendas / pagamentos afetados")}
@@ -469,8 +610,8 @@ function ctaButton(label: string, href: string): string {
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 0">
     <tr>
-      <td style="background:${P().ctaBg};border-radius:8px">
-        <a href="${escapeHtml(href)}" style="display:inline-block;padding:10px 22px;color:${P().ctaText};font-size:14px;font-weight:600;text-decoration:none;font-family:inherit">${escapeHtml(label)}</a>
+      <td style="background:${P().ctaBg};${P().ctaShape.split("|")[0]}">
+        <a href="${escapeHtml(href)}" style="display:inline-block;${P().ctaShape.split("|")[1]};color:${P().ctaText};font-size:14px;text-decoration:none;font-family:inherit">${escapeHtml(label)}</a>
       </td>
     </tr>
   </table>`;
@@ -1406,8 +1547,8 @@ export function renderAccountInviteEmail(input: AccountInviteInput): RenderedTem
   const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
   const account = escapeHtml(input.accountLabel);
   const permission = input.role === "admin"
-    ? "administrador — pode configurar integrações, emitir e gerir a faturação"
-    : "só leitura — vê tudo, não altera nada";
+    ? "administrador: pode configurar integrações, emitir e gerir a faturação"
+    : "só leitura: vê tudo, não altera nada";
 
   const bodyHtml = [
     paragraph(`Foi convidado para gerir a conta <strong>${account}</strong> no Rioko.`),

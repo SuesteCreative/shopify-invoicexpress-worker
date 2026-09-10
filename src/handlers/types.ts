@@ -1,3 +1,5 @@
+import type { DestinationKind } from "../adapters/types";
+
 export type WebhookTopic = "orders/created" | "orders/updated" | "orders/paid" | "refunds/create";
 
 export interface QueueMessage {
@@ -28,4 +30,18 @@ export interface StripeQueueMessage {
    * the restricted-key connection they were enqueued for.
    */
   sourceKind?: "stripe" | "stripe_connect";
+  /**
+   * Which destination this event's connection issues into.
+   *
+   * One account may run `stripe → invoicexpress` AND `stripe → moloni` at once:
+   * they are different rows, with different series, exemption codes and tax
+   * settings. The consumer used to load "an active connection for this user and
+   * source", with no destination filter and no ORDER BY, so which of the two
+   * issued the document was decided by SQLite.
+   *
+   * Absent means the enqueuer did not know — a message already in the queue when
+   * this shipped, or an older admin replay. The consumer then falls back to the
+   * oldest active connection and says so in the log.
+   */
+  destinationKind?: DestinationKind;
 }

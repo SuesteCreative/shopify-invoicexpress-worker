@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import type { DestinationKind } from "../adapters/types";
 
 /**
  * Stripe webhook + event recovery helpers (Phase 3 ops tooling).
@@ -18,12 +19,14 @@ export interface StripeConnection {
   restrictedKey: string;
   webhookEndpointId: string | null;
   sourceConfig: Record<string, any>;
+  /** So a replayed event lands on the same destination the webhook would have. */
+  destinationKind: DestinationKind | null;
 }
 
 /** Load the active (or draft) Stripe-source connection + its restricted_key. */
 export async function resolveStripeConnection(env: Env, userId: string): Promise<StripeConnection | null> {
   const row: any = await env.DB.prepare(
-    `SELECT id, source_config_json FROM connections
+    `SELECT id, source_config_json, destination_kind FROM connections
      WHERE user_id = ? AND source_kind = 'stripe'
      ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END
      LIMIT 1`
@@ -40,6 +43,7 @@ export async function resolveStripeConnection(env: Env, userId: string): Promise
     restrictedKey,
     webhookEndpointId: cfg.webhook_endpoint_id ?? null,
     sourceConfig: cfg,
+    destinationKind: (row.destination_kind as DestinationKind) ?? null,
   };
 }
 

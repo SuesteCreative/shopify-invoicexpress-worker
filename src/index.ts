@@ -54,7 +54,7 @@ import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-rev
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
-import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour } from "./services/connection-context";
+import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection } from "./services/connection-context";
 import { stampInvoicePaymentIntent } from "./services/stripe";
 import { resolveStripeAuth } from "./services/stripe-auth";
 import { buildAdapterCtx } from "./services/adapter-ctx";
@@ -336,7 +336,7 @@ app.post("/webhooks/stripe", async (c) => {
   // silently lost events). Events larger than the Cloudflare Queues 128KB limit
   // are spilled to KV and passed by reference.
   try {
-    const queueMsg: StripeQueueMessage = { topic: canonical, eventId, userId: ownerRow.user_id, body: event };
+    const queueMsg: StripeQueueMessage = { topic: canonical, eventId, userId: ownerRow.user_id, body: event, destinationKind: ownerRow.destination_kind ?? undefined };
     if (rawBody.length > 110_000) {
       const kvKey = `stripe-evt:${eventId}`;
       await c.env.INVOICE_KV.put(kvKey, rawBody, { expirationTtl: 7 * 24 * 60 * 60 });
@@ -491,6 +491,7 @@ app.post("/webhooks/stripe/connect", async (c) => {
       userId: ownerRow.user_id,
       body: event,
       sourceKind: "stripe_connect",
+      destinationKind: ownerRow.destination_kind ?? undefined,
     };
     if (rawBody.length > 110_000) {
       const kvKey = `stripe-evt:${eventId}`;
@@ -869,7 +870,7 @@ app.post("/admin/stripe/replay", async (c) => {
       // Reset dedup so the success-defense re-marks cleanly; the consumer's
       // processed_orders idempotency still blocks a duplicate invoice.
       await appStorage.resetWebhookInfo(event.id, `stripe/${canonical}`);
-      await c.env.STRIPE_QUEUE.send({ topic: canonical, eventId: event.id, userId: body.userId, body: event } satisfies StripeQueueMessage);
+      await c.env.STRIPE_QUEUE.send({ topic: canonical, eventId: event.id, userId: body.userId, body: event, destinationKind: conn.destinationKind ?? undefined } satisfies StripeQueueMessage);
       queued.push(event.id);
     }
     return c.json({ ok: true, queued_count: queued.length, queued, skipped });
@@ -2967,10 +2968,7 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       // Stripe-source connection drives config + destination choice. We also
       // pull source_config_json so the adapter can use the restricted_key to
       // expand Customer.tax_ids for B2B native VAT collection.
-      const connRow: any = await env.DB.prepare(
-        `SELECT destination_kind, destination_config_json, behavior_json, source_config_json
-         FROM connections WHERE user_id = ? AND source_kind = ? AND status = 'active' LIMIT 1`
-      ).bind(userId, sourceKind).first();
+      const connRow: any = await pickStripeConnection(env.DB, userId, sourceKind, message.body.destinationKind);
 
       if (!connRow) {
         console.error(`[Stripe] No active connection for user ${userId}, acking`);

@@ -1,9 +1,9 @@
 import { SignUp } from "@clerk/nextjs";
 import { getTranslations } from "next-intl/server";
-import { Link } from "@/i18n/navigation";
 import { LangToggle } from "@/components/landing/LangToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { normalizeReturnSlug, resolveReturnPath } from "@/lib/oauth-return";
+import { LegalLinks } from "@/components/LegalLinks";
 
 export const runtime = "edge";
 
@@ -46,14 +46,8 @@ export default async function Page({
                     }}
                 />
             </div>
-            <div className="flex items-center gap-3 text-xs text-fg-40">
-                <Link href="/privacy" className="hover:text-fg-60 transition-colors">
-                    {t("privacy")}
-                </Link>
-                <span className="text-hairline-strong">·</span>
-                <Link href="/terms" className="hover:text-fg-60 transition-colors">
-                    {t("terms")}
-                </Link>
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-fg-40">
+                <LegalLinks className="hover:text-fg-60 transition-colors" />
             </div>
         </div>
     );

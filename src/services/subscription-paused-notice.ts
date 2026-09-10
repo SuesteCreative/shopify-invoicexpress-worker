@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
 import { loadInactiveUserIds } from "./inactive-accounts";
+import { legalLinks } from "./email-templates";
 
 // Internal address copied on every send so Kapta sees exactly what the
 // merchant saw, in the same thread they may reply to.
@@ -113,7 +114,7 @@ export function pausedNoticeEmail(
           <a href="mailto:${OPS_EMAIL}" style="color:#028dc4;text-decoration:none;font-weight:500;">${OPS_EMAIL}</a>.
         </p>
         <div style="border-top:1px solid #eceff3;padding-top:16px;">
-          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">Equipa Rioko · Kapta<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">Equipa Rioko · Kapta<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>${legalLinks("#8a97a6")}
         </div>
       </td></tr>
 

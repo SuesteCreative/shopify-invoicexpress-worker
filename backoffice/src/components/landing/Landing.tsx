@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { LangToggle } from "./LangToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { LegalLinks } from "@/components/LegalLinks";
 
 // ─────────────────────────────────────────────────────────────
 // Design tokens
@@ -1988,17 +1989,8 @@ function Footer() {
           </span>
         </div>
 
-        <div className="flex items-center gap-6">
-          <Link
-            href="/privacy"
-            className="text-[12px]"
-            style={{ color: FG_60 }}
-          >
-            {t("privacy")}
-          </Link>
-          <Link href="/terms" className="text-[12px]" style={{ color: FG_60 }}>
-            {t("terms")}
-          </Link>
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+          <LegalLinks className="text-[12px]" style={{ color: FG_60 }} />
           <button
             type="button"
             onClick={() =>

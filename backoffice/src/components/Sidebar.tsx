@@ -8,6 +8,7 @@ import { LogOut, Menu, X } from "lucide-react";
 import { NavLinks } from "@/components/NavLinks";
 import { LangToggle } from "@/components/landing/LangToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { LegalLinks } from "@/components/LegalLinks";
 
 type SidebarStrings = {
     developedBy: string;
@@ -153,6 +154,9 @@ export function Sidebar({
                         </div>
                         <div className="font-mono text-[10px] text-fg-40 leading-snug tracking-[0.06em]">
                             {strings.rights}
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 font-mono text-[9px] leading-snug">
+                            <LegalLinks className="text-fg-40 hover:text-accent-ink transition-colors" />
                         </div>
                         <div className="pt-1 font-mono text-[9px] text-fg-40 tracking-[0.22em] uppercase">v{version} {buildBadge}</div>
                     </div>

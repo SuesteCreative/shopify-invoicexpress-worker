@@ -266,7 +266,10 @@ const DAY: Palette = {
   error: "#B42318",
   critical: "#B42318",
   colorScheme: "light only",
-  logoUrl: "https://rioko.online/images/logo-rioko-black.png",
+  // Rasterised from rioko2-logo-light2.svg at 4x (432px for a 108px slot): the
+  // same day wordmark the site wears, ink plus the terracotta the skin accents
+  // with. PNG, not the SVG the site loads — Gmail and Outlook strip SVG.
+  logoUrl: "https://rioko.online/images/rioko2-logo-light2.png",
   logoWidth: 108,
   headerGradient: "none",
   headerRule: "#E7DED3",
@@ -325,13 +328,17 @@ export function renderInTheme<T>(theme: EmailTheme | undefined, render: () => T)
 // Wide PNG logo hosted on rioko.online (Gmail's image proxy reliably fetches
 // from there; workers.dev subdomains are unreliable, inline base64 ≥ ~10KB
 // gets stripped on Gmail web, and SVG data URIs are stripped entirely).
-/** Kept for callers that hardcoded it; the skins choose through `P().logoUrl`. */
-const LOGO_WHITE = "https://rioko.online/images/rioko2-logo.png";
+// Every header now reads the wordmark off the skin through `P().logoUrl`, so the
+// night PNG lives in the NIGHT palette and nothing hardcodes a logo any more.
 
-/** rioko.online/pt. The legal pages every email links to, small, in the footer. */
+/** rioko.online/pt. The legal pages every email links to, small, in the footer.
+ *  `disputes` is an anchor inside the privacy page, not a page of its own — the
+ *  same shape kapta.pt uses, and it keeps the middleware allowlist out of it. */
 const LEGAL = {
   privacy: "https://rioko.online/pt/privacy",
   terms: "https://rioko.online/pt/terms",
+  disputes: "https://rioko.online/pt/privacy#litigios",
+  complaints: "https://www.livroreclamacoes.pt/inicio",
 };
 
 const DEFAULT_DASHBOARD = "https://rioko.online";
@@ -519,13 +526,20 @@ function shell(opts: {
 </html>`;
 }
 
-/** Small print, every email: where the terms and the privacy policy live. */
-function legalLinks(): string {
+/** Small print, every email: the legal pages, plus the two a Portuguese site has
+ *  to surface — consumer dispute resolution and the Livro de Reclamações.
+ *
+ *  `color` is for the light-card emails, which are hand-rolled outside the skin
+ *  system and pass their own muted grey. Everything rendered through `shell()`
+ *  leaves it out and picks the colour up from the active palette. */
+export function legalLinks(color?: string): string {
+  const c = color ?? P().muted;
+  const link = (href: string, label: string) =>
+    `<a href="${href}" style="color:${c};text-decoration:underline"><font color="${c}">${label}</font></a>`;
+  const dot = `<font color="${c}"> · </font>`;
   return `
-              <p class="force-muted" style="margin:10px 0 0;font-size:11px;color:${P().muted}">
-                <a href="${LEGAL.privacy}" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Política de privacidade</font></a>
-                <font color="${P().muted}"> · </font>
-                <a href="${LEGAL.terms}" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Termos e condições</font></a>
+              <p class="force-muted" style="margin:10px 0 0;font-size:11px;line-height:1.7;color:${c}">
+                ${link(LEGAL.privacy, "Política de privacidade")}${dot}${link(LEGAL.terms, "Termos e condições")}${dot}${link(LEGAL.disputes, "Resolução de litígios")}${dot}${link(LEGAL.complaints, "Livro de Reclamações")}
               </p>`;
 }
 
@@ -1230,7 +1244,7 @@ export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
   <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="card-bg" bgcolor="${P().cardBg}" style="max-width:600px;width:100%;background-color:${P().cardBg};border-radius:14px;overflow:hidden">
     <tr><td class="header-bg" bgcolor="${P().headerBg}" style="background-color:${P().headerBg};background-image:${P().bgGradient};padding:28px 32px 24px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-        <td valign="middle"><img src="${LOGO_WHITE}" alt="Rioko 2.0" width="140" style="display:block;border:0;max-width:140px;height:auto"></td>
+        <td valign="middle"><img src="${P().logoUrl}" alt="Rioko 2.0" width="${P().logoWidth}" style="display:block;border:0;max-width:${P().logoWidth}px;height:auto"></td>
         <td valign="middle" align="right"><span style="display:inline-block;background:${accent};color:#1a1206;font-size:11px;font-weight:700;letter-spacing:0.5px;padding:4px 11px;border-radius:12px"><font color="#1a1206">${chip}</font></span></td></tr></table>
       <div style="margin-top:20px"><h1 class="f-white" style="margin:0;color:${P().textStrong};font-size:22px;font-weight:600;letter-spacing:-0.3px;line-height:1.3"><span style="color:${P().textStrong}">${escapeHtml(title)}</span></h1>
         <p class="f-muted" style="margin:6px 0 0;color:${P().muted};font-size:13px"><font color="${P().muted}">${escapeHtml(input.merchantName)} · Shopify → InvoiceXpress</font></p></div>
@@ -1238,7 +1252,7 @@ export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
     <tr><td class="card-bg" bgcolor="${P().cardBg}" style="background-color:${P().cardBg};padding:32px">${body}</td></tr>
     <tr><td class="footer-bg" bgcolor="${P().cardBgAlt}" style="background-color:${P().cardBgAlt};padding:24px 32px;border-top:1px solid ${P().border};text-align:center">
       <p class="f-muted" style="margin:0;font-size:13px;color:${P().muted};line-height:1.6"><font color="${P().muted}">Precisa de ajuda? </font><a href="${escapeHtml(DEFAULT_HELP_URL)}" class="f-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">Contacte a equipa Rioko 2.0</font></a></p>
-      <p class="f-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}"><font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted}"><font color="${P().muted}">Kapta</font></a> · Notificação automática · Não responda a este email</font></p></td></tr>
+      <p class="f-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}"><font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted}"><font color="${P().muted}">Kapta</font></a> · Notificação automática · Não responda a este email</font></p>${legalLinks()}</td></tr>
   </table></td></tr></table></body></html>`;
 
   return { subject, html };
@@ -1297,7 +1311,7 @@ export function tplDigest(input: {
     <tr><td align="center">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;background:${P().cardBg};border-radius:14px;overflow:hidden">
         <tr><td class="header-bg" bgcolor="${P().headerBg}" style="background-color:${P().headerBg};background-image:${P().bgGradient};padding:28px 32px 24px">
-          <img src="${LOGO_WHITE}" alt="Rioko 2.0" width="140" height="auto" style="display:block;border:0;max-width:140px;height:auto">
+          <img src="${P().logoUrl}" alt="Rioko 2.0" width="${P().logoWidth}" height="auto" style="display:block;border:0;max-width:${P().logoWidth}px;height:auto">
           <h1 class="force-white" style="margin:20px 0 0;color:#ffffff !important;font-size:22px;font-weight:600;letter-spacing:-0.3px"><font color="#ffffff">Resumo diário de incidentes</font></h1>
           ${merchant}
           <div style="height:3px;width:100%;background-color:${P().blue};background-image:linear-gradient(90deg, ${P().blue}, ${P().purple});margin-top:24px"></div>
@@ -1319,7 +1333,7 @@ export function tplDigest(input: {
           </p>
           <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}">
             <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · Notificação automática</font>
-          </p>
+          </p>${legalLinks()}
         </td></tr>
       </table>
     </td></tr>
@@ -1489,7 +1503,7 @@ export function tplWeeklyUnprocessed(input: {
     <tr><td align="center">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;background:${P().cardBg};border-radius:14px;overflow:hidden">
         <tr><td class="header-bg" bgcolor="${P().headerBg}" style="background-color:${P().headerBg};background-image:${P().bgGradient};padding:28px 32px 24px">
-          <img src="${LOGO_WHITE}" alt="Rioko 2.0" width="140" height="auto" style="display:block;border:0;max-width:140px;height:auto">
+          <img src="${P().logoUrl}" alt="Rioko 2.0" width="${P().logoWidth}" height="auto" style="display:block;border:0;max-width:${P().logoWidth}px;height:auto">
           <h1 class="force-white" style="margin:20px 0 0;color:#ffffff !important;font-size:22px;font-weight:600;letter-spacing:-0.3px"><font color="#ffffff">${heading}</font></h1>
           ${merchant}
           <div style="height:3px;width:100%;background-color:${P().blue};background-image:linear-gradient(90deg, ${P().blue}, ${P().purple});margin-top:24px"></div>
@@ -1515,7 +1529,7 @@ export function tplWeeklyUnprocessed(input: {
           </p>
           <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}">
             <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · Resumo semanal · Não responda a este email</font>
-          </p>
+          </p>${legalLinks()}
         </td></tr>
       </table>
     </td></tr>

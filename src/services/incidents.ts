@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
-import { renderInTheme } from "./email-templates";
+import { renderInTheme, legalLinks } from "./email-templates";
 import { getUserTheme } from "./user-theme";
 import { renderIncidentTemplate, tplPatternReport, type IncidentKind } from "./email-templates";
 import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type IncidentDiagnosis, type RedactedIncident } from "./anthropic";
@@ -330,7 +330,7 @@ export function renderMerchantActionNeeded(input: ReportIncidentInput): { subjec
           Se preferires que tratemos disto, responde a este email.
         </p>
         <div style="border-top:1px solid #eceff3;padding-top:16px;">
-          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">Equipa Rioko · Kapta<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">Equipa Rioko · Kapta<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>${legalLinks("#8a97a6")}
         </div>
       </td></tr>
     </table>

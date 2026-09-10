@@ -18,6 +18,7 @@ import OnboardingSubscribe from "@/components/onboarding/OnboardingSubscribe";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LangToggle } from "@/components/landing/LangToggle";
+import { LegalLinks } from "@/components/LegalLinks";
 import { RETURN_SLUG_ONBOARDING_CONNECT_MOLONI } from "@/lib/oauth-return";
 import { moloniCallbackUri } from "@/lib/moloni-oauth";
 import { VAT_EXEMPTION_OPTIONS } from "@/lib/vat-exemptions";
@@ -940,10 +941,8 @@ export default function ConnectMoloniOnboarding() {
                             {SUPPORT_EMAIL}
                         </a>
                     </p>
-                    <div className="flex items-center gap-3 text-[11px] text-fg-40 shrink-0">
-                        <Link href="/privacy" className="hover:text-fg-60 transition-colors">{t("privacy")}</Link>
-                        <span className="text-hairline-strong">·</span>
-                        <Link href="/terms" className="hover:text-fg-60 transition-colors">{t("terms")}</Link>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-40">
+                        <LegalLinks className="hover:text-fg-60 transition-colors" />
                     </div>
                 </footer>
             </main>

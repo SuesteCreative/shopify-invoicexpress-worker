@@ -461,7 +461,9 @@
             "privacy": "Privacidade",
             "terms": "Termos",
             "cookies": "Gerir cookies",
-            "developedBy": "Developed by"
+            "developedBy": "Developed by",
+            "disputes": "Resolução de Litígios",
+            "complaints": "Livro de Reclamações"
         }
     },
     "shopifyLanding": {
@@ -646,26 +648,26 @@
     "privacy": {
         "back": "← Voltar",
         "title": "Política de Privacidade",
-        "lastUpdate": "Última atualização: 2 de junho de 2026",
+        "lastUpdate": "Última atualização: 10 de setembro de 2026",
         "s1": {
             "title": "1. Quem somos",
-            "body": "A Rioko é um serviço operado pela <b>Kapta</b>, com sede em Portugal, que automatiza a faturação de lojas Shopify através do InvoiceXpress. Para questões de privacidade, contacta-nos em <mail>pedro@kapta.pt</mail>."
+            "body": "A Rioko é um serviço operado pela <b>Kapta</b>, marca explorada pela <b>ABSOLUTEPIXEL UNIPESSOAL, LDA</b>, com sede em Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal. A Rioko automatiza a emissão de documentos fiscais a partir das tuas plataformas de venda. Para questões de privacidade, contacta-nos em <mail>pedro@kapta.pt</mail>."
         },
         "s2": {
             "title": "2. Dados que recolhemos",
-            "body": "<ul><li><b>Conta</b>: nome, email e identificador único (via Clerk autenticação).</li><li><b>Credenciais de integração</b>: token Shopify, chave API InvoiceXpress, webhook secrets — usados apenas para emitir documentos fiscais em teu nome.</li><li><b>Dados de encomendas</b>: ID, cliente, NIF, valores, produtos — processados em tempo real para criar a fatura ou nota de crédito.</li><li><b>Logs técnicos</b>: timestamps, IDs de pedido, respostas das APIs externas, para auditoria e diagnóstico.</li></ul>"
+            "body": "<ul><li><b>Conta</b>: nome, email e identificador único (via Clerk autenticação).</li><li><b>Credenciais de integração</b>: tokens, chaves API e webhook secrets das plataformas que ligas, usados apenas para emitir documentos fiscais em teu nome.</li><li><b>Dados de vendas</b>: identificador, cliente, NIF, valores, produtos e estados, processados para criar a fatura ou nota de crédito.</li><li><b>Logs técnicos</b>: timestamps, identificadores de pedido e respostas das APIs externas, para auditoria e diagnóstico.</li></ul>"
         },
         "s3": {
             "title": "3. Para que usamos",
-            "body": "Os dados são usados exclusivamente para:<ul><li>Criar Faturas-Recibo e Notas de Crédito no InvoiceXpress automaticamente.</li><li>Garantir conformidade fiscal (regras AT, isenções IVA M01–M99, NIF).</li><li>Apresentar o histórico no dashboard.</li><li>Suporte técnico quando o solicitas.</li></ul><p>Não vendemos nem partilhamos os teus dados com terceiros para fins de marketing.</p>"
+            "body": "Os dados são usados exclusivamente para:<ul><li>Criar Faturas, Faturas-Recibo e Notas de Crédito no teu programa de faturação automaticamente.</li><li>Garantir conformidade fiscal (regras AT, isenções IVA M01–M99, NIF).</li><li>Apresentar o histórico e a conciliação no painel.</li><li>Enviar alertas de falha e relatórios de emissão.</li><li>Suporte técnico quando o solicitas.</li></ul><p>Não vendemos nem partilhamos os teus dados com terceiros para fins de marketing.</p>"
         },
         "s4": {
             "title": "4. Subprocessadores",
-            "body": "Para operar o serviço, recorremos a:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — EU/global.</li><li><b>Clerk</b> (autenticação) — EU/US.</li><li><b>Shopify</b> (origem das encomendas) — conforme a configuração da tua loja.</li><li><b>InvoiceXpress</b> (emissor fiscal) — Portugal.</li><li><b>Vercel</b> (logging suplementar) — EU/US.</li><li><b>Google</b> (Google Analytics 4 — medição anónima de tráfego) — EU/US, ao abrigo das Cláusulas Contratuais-Tipo da UE. Só carrega com o teu consentimento.</li></ul>"
+            "body": "Para operar o serviço, recorremos a:<ul><li><b>Cloudflare</b> (hosting, DNS, D1, KV, Workers) — UE/global.</li><li><b>Clerk</b> (autenticação) — UE/EUA.</li><li><b>Shopify</b>, <b>Stripe</b>, <b>Lodgify</b>, <b>EuPago</b> (plataformas de origem das vendas) — conforme a ligação que configurares.</li><li><b>InvoiceXpress</b>, <b>Moloni</b>, <b>Vendus</b> (emissores fiscais) — Portugal.</li><li><b>Stripe</b> (processamento dos pagamentos da tua subscrição Rioko) — UE/EUA.</li><li><b>Resend</b>, com <b>MailChannels</b> em recurso (envio dos emails de alerta e relatório) — UE/EUA.</li><li><b>Fly.io</b> (relay de saída com IP fixo, exigido pela Lodgify) — UE.</li><li><b>Anthropic</b> (diagnóstico automático anexado a alertas críticos) — EUA. Só é enviado um conjunto restrito de campos previamente definido: cálculos de totais e impostos, nomes de produto e SKU, o texto de erro devolvido pela plataforma e metadados da ligação. <b>Nome do cliente, email, NIF, referência da encomenda e identificador de utilizador nunca são enviados.</b></li><li><b>Google</b> (Google Analytics 4, medição anónima de tráfego) — UE/EUA, ao abrigo das Cláusulas Contratuais-Tipo da UE. Só carrega com o teu consentimento.</li></ul><p>Recorremos apenas aos subprocessadores necessários à ligação que configurares. Uma plataforma que não ligues não recebe nem trata dados teus.</p>"
         },
         "s5": {
             "title": "5. Retenção",
-            "body": "Mantemos os teus dados enquanto a tua conta estiver activa. Eliminada a conta, os dados pessoais são removidos da nossa base de dados em até 30 dias. Logs anonimizados podem ser retidos até 12 meses para diagnóstico e prevenção de fraude."
+            "body": "Mantemos os teus dados enquanto a tua conta estiver activa. Eliminada a conta, os dados pessoais são removidos da nossa base de dados em até 30 dias. Logs anonimizados podem ser retidos até 12 meses para diagnóstico e prevenção de fraude.<p>Os documentos fiscais já emitidos residem na tua conta de faturação e não são apagados por nós: a sua conservação segue os prazos legais de arquivo aplicáveis e está sob a tua responsabilidade.</p>"
         },
         "s6": {
             "title": "6. Os teus direitos (RGPD)",
@@ -673,7 +675,7 @@
         },
         "s7": {
             "title": "7. Segurança",
-            "body": "Todos os tokens e chaves API são armazenados encriptados. As comunicações entre Rioko e serviços externos (Shopify, InvoiceXpress, Clerk) usam exclusivamente HTTPS/TLS. Webhooks Shopify são verificados com HMAC-SHA256 antes de qualquer processamento."
+            "body": "Todos os tokens e chaves API são armazenados encriptados. As comunicações entre a Rioko e os serviços externos usam exclusivamente HTTPS/TLS. Os webhooks recebidos são verificados criptograficamente (por exemplo, HMAC-SHA256 no caso da Shopify) antes de qualquer processamento. O acesso aos dados obedece ao critério da necessidade de conhecer."
         },
         "s8": {
             "title": "8. Cookies",
@@ -684,61 +686,73 @@
             "body": "Esta política pode ser actualizada. Alterações materiais serão comunicadas por email aos utilizadores registados pelo menos 14 dias antes de entrarem em vigor."
         },
         "s10": {
-            "title": "10. Contacto",
-            "body": "Kapta — <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+            "title": "10. Informação ao consumidor",
+            "body": "Ao abrigo do disposto no artigo 18.º da Lei n.º 144/2015, em caso de litígio o consumidor pode recorrer a uma Entidade de Resolução Alternativa de Litígios de consumo:<p><b>CIMAAL</b>, Centro de Informação, Mediação e Arbitragem de Conflitos de Consumo do Algarve. Abrange municípios do distrito de Faro.</p><p>Morada: Ninho de Empresas, Edifício ANJE, Estrada da Penha, 3.º andar, sala 26, 8000 Faro<br></br>Telefone: 289 823 135<br></br>Email: <mail>cimaal@mail.telepac.pt</mail><br></br>Site: <site>www.consumidoronline.pt</site></p><p>Está também disponível o Livro de Reclamações eletrónico em <site>www.livroreclamacoes.pt/inicio</site>.</p>"
+        },
+        "s11": {
+            "title": "11. Contacto",
+            "body": "Rioko, um serviço da Kapta (ABSOLUTEPIXEL UNIPESSOAL, LDA)<br></br>Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal<br></br>Email: <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
         }
     },
     "terms": {
         "back": "← Voltar",
         "title": "Termos de Serviço",
-        "lastUpdate": "Última atualização: 18 de maio de 2026",
+        "lastUpdate": "Última atualização: 10 de setembro de 2026",
         "s1": {
-            "title": "1. Aceitação",
-            "body": "Ao registar-te ou utilizar a Rioko, aceitas estes termos. Se não concordas, não uses o serviço."
+            "title": "1. Aceitação e âmbito",
+            "body": "Ao registares-te ou utilizares a Rioko, aceitas estes termos. Se não concordas, não uses o serviço.<p>A Rioko é um serviço operado pela <b>Kapta</b>, marca explorada pela <b>ABSOLUTEPIXEL UNIPESSOAL, LDA</b>, com sede em Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal.</p><p>Sempre que exista contrato, proposta ou condições específicas acordadas por escrito para a tua conta, esse documento prevalece sobre estes termos na parte em que os contrarie.</p>"
         },
         "s2": {
             "title": "2. O serviço",
-            "body": "A Rioko é uma ponte automática entre <b>Shopify</b> e <b>InvoiceXpress</b>. Ao receber webhooks de encomendas pagas ou reembolsos da tua loja Shopify, a Rioko emite no teu nome Faturas-Recibo, Faturas e Notas de Crédito na tua conta InvoiceXpress, com NIF, isenções IVA e identificação fiscal correctas."
+            "body": "A Rioko é uma ponte automática entre as tuas plataformas de venda e o teu programa de faturação. Ao receber eventos de vendas pagas e reembolsos das plataformas de origem (<b>Shopify</b>, <b>Stripe</b>, <b>Stripe Connect</b>, <b>Lodgify</b> e <b>EuPago</b>), a Rioko emite em teu nome, na tua conta de faturação (<b>InvoiceXpress</b>, <b>Moloni</b> ou <b>Vendus</b>), Faturas, Faturas-Recibo e Notas de Crédito, com NIF, taxas de IVA, códigos de isenção e identificação fiscal conforme a configuração que definires.<p>As plataformas suportadas e as funcionalidades disponíveis podem variar ao longo do tempo. A tua ligação concreta, o seu estado e as suas definições estão visíveis no painel.</p>"
         },
         "s3": {
-            "title": "3. Conta e credenciais",
-            "body": "<ul><li>Garantes que os dados de registo são verdadeiros e actualizados.</li><li>És responsável por manter as credenciais Shopify, InvoiceXpress e Rioko em segurança.</li><li>És responsável por toda a actividade na tua conta.</li></ul>"
+            "title": "3. Conta, credenciais e acessos",
+            "body": "<ul><li>Garantes que os dados de registo são verdadeiros e actualizados.</li><li>És responsável por manter em segurança as credenciais das plataformas ligadas e da própria Rioko.</li><li>És responsável por toda a actividade na tua conta.</li></ul><p>Não envies passwords, chaves API, tokens ou outros segredos através de formulários públicos, redes sociais ou email não solicitado. A autorização de acessos faz-se pelos fluxos próprios do painel ou por um canal seguro que te indicaremos.</p><p>Os acessos concedidos à Rioko devem obedecer ao princípio do menor privilégio e limitar-se ao necessário para a finalidade acordada. Informa-nos sem demora de suspeitas de acesso indevido, revogação de permissões, alterações de conta ou incidentes de segurança relevantes.</p>"
         },
         "s4": {
             "title": "4. Responsabilidade fiscal",
-            "body": "A Rioko é uma <b>ferramenta técnica</b>. A responsabilidade final pelo cumprimento das obrigações fiscais portuguesas (emissão correcta, AT, IVA, declarações) é <b>tua</b>. Recomendamos que valides periodicamente os documentos emitidos no InvoiceXpress e consultes o teu contabilista."
+            "body": "A Rioko é uma <b>ferramenta técnica</b>. A responsabilidade final pelo cumprimento das obrigações fiscais (emissão correcta, AT, IVA, séries, declarações) é <b>tua</b>.<p>És tu que defines e validas as regras aplicadas: séries documentais, tipo de documento, taxas de IVA, códigos de isenção, mapeamentos de produtos e que dados são sincronizados. A Rioko aplica a configuração que lhe deres.</p><p>Recomendamos que consultes o teu contabilista sempre que tenhas dúvidas sobre o enquadramento fiscal de uma operação.</p>"
         },
         "s5": {
-            "title": "5. Utilização aceitável",
-            "body": "Não podes:<ul><li>Usar a Rioko para emitir documentos fraudulentos ou para terceiros sem autorização.</li><li>Tentar contornar limites técnicos ou de segurança do serviço.</li><li>Fazer engenharia reversa, copiar ou revender o serviço.</li><li>Usar a Rioko de forma que prejudique a operação dos serviços externos (Shopify, InvoiceXpress).</li></ul>"
+            "title": "5. Monitorização e validação",
+            "body": "A Rioko envia alertas automáticos quando deteta falhas de emissão e faz uma reconciliação periódica das vendas por faturar. Estes alertas são um <b>auxílio de melhor esforço, não uma garantia</b>: podem falhar, atrasar-se, não cobrir todos os casos ou não detetar situações cuja origem esteja na plataforma externa, nas credenciais ou na configuração.<p>Independentemente dos alertas, cabe-te, de forma regular:</p><ul><li>Monitorizar a ligação, os dados recebidos, os documentos emitidos e os estados sincronizados.</li><li>Validar os resultados antes de activar em produção e depois de qualquer alteração de configuração.</li><li>Manter procedimentos próprios de controlo e reconciliação, incluindo a conferência periódica no teu programa de faturação.</li><li>Reportar-nos sem demora qualquer situação anómala, para análise e resolução no âmbito do suporte aplicável.</li></ul><p>A Rioko <b>não assume a obrigação de detetar autonomamente todas as falhas</b> nem de garantir funcionamento ininterrupto, e não responde por prejuízos decorrentes de falhas que os alertas não tenham detetado ou que não nos tenham sido reportadas em tempo útil. A integração não substitui os teus controlos operacionais, contabilísticos e de faturação.</p>"
         },
         "s6": {
-            "title": "6. Preço e pagamento",
-            "body": "Caso a tua subscrição seja paga, os termos de preço, ciclo de faturação e cancelamento estão indicados na página de planos ou no contrato assinado. Os pagamentos não são reembolsáveis salvo indicação legal em contrário."
+            "title": "6. Utilização aceitável",
+            "body": "Não podes:<ul><li>Usar a Rioko para emitir documentos fraudulentos ou para terceiros sem autorização.</li><li>Tentar contornar limites técnicos ou de segurança do serviço.</li><li>Fazer engenharia reversa, copiar ou revender o serviço.</li><li>Usar a Rioko de forma que prejudique a operação das plataformas ligadas.</li></ul>"
         },
         "s7": {
-            "title": "7. Disponibilidade",
-            "body": "Esforçamo-nos por manter o serviço disponível 24/7, mas não garantimos uptime absoluto. Pequenas janelas de manutenção podem ocorrer. Falhas em sistemas externos (Shopify, InvoiceXpress, Cloudflare, Clerk) podem afectar temporariamente a Rioko."
+            "title": "7. Preço e pagamento",
+            "body": "Caso a tua subscrição seja paga, os termos de preço, ciclo de faturação e cancelamento estão indicados na página de planos, no painel de faturação ou no contrato acordado. Os pagamentos não são reembolsáveis salvo indicação legal em contrário."
         },
         "s8": {
-            "title": "8. Limitação de responsabilidade",
-            "body": "Na máxima extensão permitida por lei, a Rioko (Kapta) não responde por:<ul><li>Perdas indirectas, lucros cessantes ou danos consequenciais.</li><li>Erros fiscais resultantes de configuração incorrecta pela tua parte (NIF, IVA, isenções, séries).</li><li>Indisponibilidade ou erro de serviços de terceiros (Shopify, InvoiceXpress, etc.).</li></ul><p>A responsabilidade agregada da Rioko, em qualquer caso, está limitada ao valor pago pelo cliente nos 3 meses anteriores ao evento.</p>"
+            "title": "8. Disponibilidade e sistemas externos",
+            "body": "Esforçamo-nos por manter o serviço disponível 24/7, mas não garantimos uptime absoluto. Podem ocorrer janelas de manutenção.<p>A Rioko depende da disponibilidade, documentação, limites técnicos, políticas e APIs de plataformas que não controlamos. Alterações a APIs, versões, permissões, preços, limites de utilização, webhooks ou políticas dessas plataformas podem exigir análise e alterações do nosso lado e afectar temporariamente o serviço. Sempre que possível, comunicamos o impacto identificado e a proposta de atuação.</p><p>Podem ocorrer atrasos, falhas de sincronização, documentos duplicados, indisponibilidades ou comportamentos dependentes de sistemas externos.</p>"
         },
         "s9": {
-            "title": "9. Suspensão e cancelamento",
-            "body": "Podemos suspender ou cancelar contas que violem estes termos. Podes cancelar a tua conta a qualquer momento eliminando-a através do dashboard ou por email a <mail>pedro@kapta.pt</mail>."
+            "title": "9. Limitação de responsabilidade",
+            "body": "Na máxima medida permitida pela lei aplicável, a Rioko não responde por falhas, interrupções, atrasos ou perda de dados que não lhe sejam directamente imputáveis, incluindo:<ul><li>Perdas indirectas, lucros cessantes ou danos consequenciais.</li><li>Erros fiscais resultantes de configuração incorrecta pela tua parte (NIF, IVA, isenções, séries, mapeamentos).</li><li>Indisponibilidade, alterações, decisões, actos ou omissões das plataformas externas.</li><li>Dados incorrectos, permissões insuficientes, credenciais revogadas ou configurações não validadas.</li><li>Falhas que os alertas não tenham detetado ou que não nos tenham sido reportadas em tempo útil, nos termos da cláusula 5.</li></ul><p>A responsabilidade agregada da Rioko, em qualquer caso, está limitada ao valor pago pelo cliente nos 3 meses anteriores ao evento.</p><p>Nada nestes termos exclui ou limita responsabilidades que não possam ser excluídas ou limitadas nos termos da lei aplicável.</p>"
         },
         "s10": {
-            "title": "10. Alterações aos termos",
-            "body": "Podemos actualizar estes termos. Mudanças materiais são comunicadas por email com 14 dias de antecedência. Uso continuado após a entrada em vigor implica aceitação."
+            "title": "10. Propriedade intelectual",
+            "body": "O software, middleware, documentação, metodologias e materiais da Rioko permanecem protegidos por direitos de propriedade intelectual e são titularidade da ABSOLUTEPIXEL UNIPESSOAL, LDA. A tua utilização limita-se ao previsto no plano subscrito ou no contrato aplicável.<p>Mantens a titularidade ou os direitos sobre os teus dados, marcas, conteúdos e sistemas, garantindo que a Rioko os pode utilizar na medida necessária para prestar o serviço.</p>"
         },
         "s11": {
-            "title": "11. Lei aplicável e jurisdição",
-            "body": "Estes termos regem-se pela lei portuguesa. Qualquer disputa fica sujeita ao foro do Tribunal Judicial da Comarca de Lisboa, com renúncia expressa a outro."
+            "title": "11. Suspensão e cancelamento",
+            "body": "Podemos suspender acessos ou cancelar contas que violem estes termos, ou quando seja necessário por razões de segurança, manutenção, cumprimento legal, prevenção de utilização indevida ou protecção dos sistemas envolvidos.<p>Podes cancelar a tua conta a qualquer momento eliminando-a através do painel ou por email para <mail>pedro@kapta.pt</mail>. Os documentos já emitidos permanecem na tua conta de faturação e sob a tua guarda.</p>"
         },
         "s12": {
-            "title": "12. Contacto",
-            "body": "Kapta — <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+            "title": "12. Alterações aos termos",
+            "body": "Podemos actualizar estes termos para reflectir alterações legais, técnicas ou operacionais. Mudanças materiais são comunicadas por email com 14 dias de antecedência. Uso continuado após a entrada em vigor implica aceitação."
+        },
+        "s13": {
+            "title": "13. Lei aplicável e resolução de litígios",
+            "body": "Estes termos regem-se pela lei portuguesa, sem prejuízo de normas imperativas aplicáveis. Qualquer disputa fica sujeita ao foro do Tribunal Judicial da Comarca de Lisboa, com renúncia expressa a outro.<p>Sendo o utilizador um consumidor, pode recorrer a uma Entidade de Resolução Alternativa de Litígios de consumo, nos termos do artigo 18.º da Lei n.º 144/2015. Os dados da entidade competente constam da secção <b>Informação ao consumidor</b> da Política de Privacidade. Está também disponível o Livro de Reclamações eletrónico em <site>www.livroreclamacoes.pt/inicio</site>.</p>"
+        },
+        "s14": {
+            "title": "14. Contacto",
+            "body": "Rioko, um serviço da Kapta (ABSOLUTEPIXEL UNIPESSOAL, LDA)<br></br>Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal<br></br>Email: <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
         }
     },
     "integrationsIndex": {

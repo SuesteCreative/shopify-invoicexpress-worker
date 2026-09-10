@@ -41,6 +41,10 @@ const LEGAL_RICH = {
     li: (chunks: React.ReactNode) => <li>{chunks}</li>,
 } as const;
 
+/** The footers link straight to the consumer/dispute-resolution section, so that
+ *  one needs a name that survives the sections being renumbered. */
+const ANCHORS: Record<string, string> = { s10: "litigios" };
+
 export default async function PrivacyPage({
     params,
 }: {
@@ -51,7 +55,7 @@ export default async function PrivacyPage({
     const t = await getTranslations("privacy");
 
     const sections = [
-        "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10",
+        "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11",
     ] as const;
 
     return (
@@ -77,7 +81,7 @@ export default async function PrivacyPage({
 
                 <div className="mt-10 space-y-8">
                     {sections.map((s) => (
-                        <section key={s}>
+                        <section key={s} id={ANCHORS[s] ?? s} className="scroll-mt-8">
                             <h2 className="text-xl font-bold text-fg">
                                 {t(`${s}.title`)}
                             </h2>

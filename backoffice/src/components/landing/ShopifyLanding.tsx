@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { LangToggle } from "./LangToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { LegalLinks } from "@/components/LegalLinks";
 
 // ─────────────────────────────────────────────────────────────
 // Tokens — Midnight Ledger
@@ -1762,18 +1763,13 @@ function FooterSlim() {
           </span>
         </div>
         <nav
-          className="flex items-center gap-6 text-[11px] uppercase tracking-[0.16em]"
+          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] uppercase tracking-[0.16em]"
           style={{ fontFamily: MONO }}
         >
           <Link href="/" style={{ color: FAINT }}>
             {tNav("hub")}
           </Link>
-          <Link href="/privacy" style={{ color: FAINT }}>
-            {t("privacy")}
-          </Link>
-          <Link href="/terms" style={{ color: FAINT }}>
-            {t("terms")}
-          </Link>
+          <LegalLinks style={{ color: FAINT }} />
         </nav>
       </div>
     </footer>

@@ -241,19 +241,22 @@ export default function SubscriptionCard(
 
                 {showCheckout && (
                     <div className="flex flex-col lg:flex-row gap-6 items-stretch">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
+                        {/* min-w-0 so the two plates can shrink instead of pushing
+                            their own price past the card's edge. */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1 min-w-0">
                             <button
                                 onClick={() => setSelectedPlan("monthly")}
                                 className={cn(
-                                    "relative rounded-2xl border-2 p-6 text-left transition-all transform active:scale-[0.98]",
+                                    "relative rounded-2xl border-2 p-5 sm:p-6 text-left transition-all transform active:scale-[0.98] min-w-0",
                                     selectedPlan === "monthly"
                                         ? "border-fg bg-fg/[0.07] shadow-xl"
                                         : "border-hairline bg-surface-2/30 hover:border-rule"
                                 )}
                             >
-                                <div className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] mb-2">{t("tabMonthly")}</div>
-                                <div className="flex items-baseline gap-1">
-                                    <span className="text-4xl font-medium text-fg tabular-nums">7,50€</span>
+                                {/* pr-8 keeps the label clear of the tick in the corner. */}
+                                <div className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] mb-2 pr-8">{t("tabMonthly")}</div>
+                                <div className="flex items-baseline gap-1 flex-wrap">
+                                    <span className="text-3xl sm:text-4xl font-medium text-fg tabular-nums">7,50€</span>
                                     <span className="text-sm text-fg-40 font-medium">{t("perMonth")}</span>
                                 </div>
                                 <div className="text-[11px] text-fg-40 font-medium mt-2">{t("vatMonthly")}</div>
@@ -267,18 +270,20 @@ export default function SubscriptionCard(
                             <button
                                 onClick={() => setSelectedPlan("annual")}
                                 className={cn(
-                                    "relative rounded-2xl border-2 p-6 text-left transition-all transform active:scale-[0.98]",
+                                    "relative rounded-2xl border-2 p-5 sm:p-6 text-left transition-all transform active:scale-[0.98] min-w-0",
                                     selectedPlan === "annual"
                                         ? "border-accent-hot bg-accent-hot/8"
                                         : "border-hairline bg-surface-2/30 hover:border-rule"
                                 )}
                             >
-                                <div className="flex items-center gap-2 mb-2">
+                                {/* The badge wraps under the label on a narrow plate
+                                    instead of sliding under the tick in the corner. */}
+                                <div className="flex items-center gap-2 mb-2 pr-8 flex-wrap">
                                     <span className="font-mono text-[10px] text-accent-hot uppercase tracking-[0.22em]">{t("tabAnnual")}</span>
-                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent-hot/18 text-accent-hot uppercase tracking-[0.22em]">{t("save17")}</span>
+                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent-hot/18 text-accent-hot uppercase tracking-[0.22em] whitespace-nowrap">{t("save17")}</span>
                                 </div>
-                                <div className="flex items-baseline gap-1">
-                                    <span className="text-4xl font-medium text-fg tabular-nums">75€</span>
+                                <div className="flex items-baseline gap-1 flex-wrap">
+                                    <span className="text-3xl sm:text-4xl font-medium text-fg tabular-nums">75€</span>
                                     <span className="text-sm text-fg-40 font-medium">{t("perYear")}</span>
                                 </div>
                                 <div className="text-[11px] text-fg-40 font-medium mt-2">{t("vatAnnual")}</div>
@@ -294,7 +299,10 @@ export default function SubscriptionCard(
                             disabled={acting}
                             onClick={startCheckout}
                             className={cn(
-                                "px-5 sm:px-8 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] transition-all transform active:scale-95 flex items-center justify-center gap-3 w-full lg:w-auto lg:min-w-[260px] lg:shrink-0",
+                                // self-center, or the row's stretch makes the button
+                                // as tall as the two plates beside it — which day
+                                // mode then rounds into a black ellipse.
+                                "px-6 py-3.5 rounded-2xl font-mono text-xs uppercase tracking-[0.18em] transition-all transform active:scale-95 flex items-center justify-center gap-2.5 w-full lg:w-auto lg:min-w-[190px] lg:shrink-0 lg:self-center",
                                 state === "blocked"
                                     ? "bg-destructive text-on-accent hover:bg-destructive/85"
                                     : state === "trialing_earlybird"

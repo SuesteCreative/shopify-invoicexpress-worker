@@ -10,6 +10,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import { moloniCallbackUri } from "@/lib/moloni-oauth";
+import { VAT_EXEMPTION_OPTIONS } from "@/lib/vat-exemptions";
 import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
 
@@ -31,20 +32,7 @@ const SOURCE_KIND = "stripe_connect";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
-const exemptionOptions = [
-    { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
-    { value: "M02", label: "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho" },
-    { value: "M04", label: "Isento artigo 13.º do CIVA" },
-    { value: "M05", label: "Isento artigo 14.º do CIVA" },
-    { value: "M06", label: "Isento artigo 15.º do CIVA" },
-    { value: "M07", label: "Isento artigo 9.º do CIVA" },
-    { value: "M09", label: "IVA – não confere direito a dedução" },
-    { value: "M10", label: "Regime especial de isenção artigo 53.º do CIVA" },
-    { value: "M11", label: "Regime particular do tabaco" },
-    { value: "M16", label: "Isento artigo 14.º do RITI" },
-    { value: "M20", label: "IVA - regime forfetário" },
-    { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
-];
+
 
 export default function StripeConnectMoloniIntegration() {
     const t = useTranslations("stripeConnectMoloniSetup");
@@ -564,7 +552,7 @@ export default function StripeConnectMoloniIntegration() {
                         <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-soon/10 rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{tShared("exemptionTitle")}</h3></div>
                         <p className="text-[10px] text-fg-40 font-medium uppercase tracking-wider leading-relaxed">{tShared("exemptionDesc")}</p>
                         <select value={exemptionReason} onChange={(e) => setExemptionReason(e.target.value)} className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-soon/20 focus:border-soon outline-none transition-all cursor-pointer text-fg">
-                            {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
+                            {VAT_EXEMPTION_OPTIONS.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
                         </select>
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">

@@ -83,10 +83,15 @@ export async function POST(req: NextRequest) {
                 lookupOrId = plan === "annual" ? getStripeEnv("STRIPE_PRICE_LODGIFY_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_LODGIFY_MONTHLY_LOOKUP");
                 break;
             case "stripe-moloni":
-            // The Connect wizard posts its own source string so the merchant returns
-            // to the page they left, but it bills the Stripe→Moloni price.
-            case "stripe-connect-moloni":
                 lookupOrId = plan === "annual" ? "stripe-moloni-yearly" : "stripe-moloni-monthly";
+                break;
+            // Connect has its own product, at the price the onboarding page
+            // advertises: 7,50 € a month and 75 € a year. It used to bill the
+            // Stripe→Moloni pair, where the monthly price does not exist at all
+            // (every click answered "Price not found") and the yearly one is an
+            // older 50 €.
+            case "stripe-connect-moloni":
+                lookupOrId = plan === "annual" ? "stripe-connect-moloni-yearly" : "stripe-connect-moloni-monthly";
                 break;
             case "stripe-ix":
             // Same product as Stripe Legacy → IX; only the connection differs.

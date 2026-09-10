@@ -20,6 +20,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { LangToggle } from "@/components/landing/LangToggle";
 import { RETURN_SLUG_ONBOARDING_CONNECT_MOLONI } from "@/lib/oauth-return";
 import { moloniCallbackUri } from "@/lib/moloni-oauth";
+import { VAT_EXEMPTION_OPTIONS } from "@/lib/vat-exemptions";
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -43,21 +44,7 @@ const SOURCE_KIND = "stripe_connect";
 const CONNECTION_KEY = "stripe_connect:moloni";
 const SUPPORT_EMAIL = "rioko@kapta.pt";
 
-/** The same list the dashboard wizards carry. Only reached when a line is 0%. */
-const EXEMPTION_OPTIONS = [
-    { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
-    { value: "M02", label: "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho" },
-    { value: "M04", label: "Isento artigo 13.º do CIVA" },
-    { value: "M05", label: "Isento artigo 14.º do CIVA" },
-    { value: "M06", label: "Isento artigo 15.º do CIVA" },
-    { value: "M07", label: "Isento artigo 9.º do CIVA" },
-    { value: "M09", label: "IVA – não confere direito a dedução" },
-    { value: "M10", label: "Regime especial de isenção artigo 53.º do CIVA" },
-    { value: "M11", label: "Regime particular do tabaco" },
-    { value: "M16", label: "Isento artigo 14.º do RITI" },
-    { value: "M20", label: "IVA - regime forfetário" },
-    { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
-];
+
 
 type StepId = "account" | "company" | "stripe" | "moloni" | "settings" | "subscribe";
 const STEP_IDS: StepId[] = ["account", "company", "stripe", "moloni", "settings", "subscribe"];
@@ -745,7 +732,7 @@ export default function ConnectMoloniOnboarding() {
 
                 <Field label={tSet("exemptionTitle")} hint={tSet("exemptionDesc")}>
                     <select className={INPUT_CLASS} value={exemptionReason} onChange={e => setExemptionReason(e.target.value)}>
-                        {EXEMPTION_OPTIONS.map(o => (
+                        {VAT_EXEMPTION_OPTIONS.map(o => (
                             <option key={o.value} value={o.value}>{o.value} · {o.label}</option>
                         ))}
                     </select>

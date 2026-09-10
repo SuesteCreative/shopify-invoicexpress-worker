@@ -102,10 +102,15 @@ export async function POST(req: NextRequest) {
             case "stripe-connect-moloni":
                 lookupOrId = plan === "annual" ? "stripe-connect-moloni-yearly" : "stripe-connect-moloni-monthly";
                 break;
+            // The older Stripe → InvoiceXpress pair keeps its own prices, 5 € a
+            // month and 50 € a year, which is what its merchants signed up on.
             case "stripe-ix":
-            // Same product as Stripe Legacy → IX; only the connection differs.
-            case "stripe-connect-ix":
                 lookupOrId = plan === "annual" ? "stripe-ix-yearly" : "stripe-ix-monthly";
+                break;
+            // Connect → InvoiceXpress has its own product, at the price the
+            // onboarding pages advertise: 7,50 € a month and 75 € a year.
+            case "stripe-connect-ix":
+                lookupOrId = plan === "annual" ? "stripe-connect-invoicexpress-yearly" : "stripe-connect-invoicexpress-monthly";
                 break;
             default:
                 return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });

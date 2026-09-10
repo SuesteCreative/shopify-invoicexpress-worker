@@ -369,6 +369,17 @@ export async function resolveConnectionContext(
     }
 
     // No connection row — fall back to the legacy Shopify integration by user.
+    //
+    // ONLY when the caller did not name a different integration. Asking for the
+    // Stripe connection of an account that has none and being handed its Shopify
+    // shop is not a fallback, it is a wrong answer: the caller goes on to issue,
+    // finalize or credit documents against an integration it never asked about.
+    // A caller that named one and cannot have it needs to hear "not_found".
+    const askedForSomethingElse =
+      (opts.source && opts.source !== "shopify")
+      || (opts.destination && opts.destination !== "invoicexpress");
+    if (askedForSomethingElse) return { ok: false, error: "not_found" };
+
     const appStorage = new AppStorage(env, null, opts.userId);
     const config = await appStorage.loadConfig();
     if (config?.shopify_domain) {

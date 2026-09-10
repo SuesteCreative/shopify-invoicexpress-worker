@@ -218,6 +218,23 @@ export function projectConnectionBehaviour(
     } else {
       c.ix_b2b_exemption_reason = null;
     }
+    // The series and the document type, the last two that still leaked.
+    //
+    // Two integrations of one account may file into the SAME InvoiceXpress
+    // account and must still use DIFFERENT series — Wim Hof Method files Shopify
+    // orders into WH-25-1 and Stripe sales into FR-ROW, in one IX account. That
+    // works only because the Stripe connection states its own; a connection that
+    // stated nothing inherited the shop's, which is another integration's fiscal
+    // identity and, for a series communicated to the AT, the wrong one.
+    //
+    // Absent now means absent: the destination applies its own default, which is
+    // this connection's own unstated choice rather than somebody else's stated
+    // one. Measured across the fleet before changing it — every live connection
+    // already states both, so nothing moves today.
+    for (const key of ["ix_sequence_name", "ix_document_type"] as const) {
+      const stated = destinationConfig?.[key];
+      c[key] = typeof stated === "string" && stated.trim() ? stated.trim() : null;
+    }
   }
 
   if (!destinationConfig) return config;

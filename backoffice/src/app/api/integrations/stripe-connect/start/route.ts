@@ -3,11 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
-import { isStripeConnectEnabled, resolveTargetUser } from "../route";
+import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
-
-export const STRIPE_CONNECT_REDIRECT_PATH = "/api/integrations/stripe-connect/callback";
 
 /**
  * Step 1 of the one-click Stripe connection: mint the consent URL.
@@ -62,7 +60,7 @@ export async function POST(request: NextRequest) {
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("scope", "read_only");
     url.searchParams.set("state", state);
-    url.searchParams.set("redirect_uri", `${RIOKO_CONFIG.appUrl}${STRIPE_CONNECT_REDIRECT_PATH}`);
+    url.searchParams.set("redirect_uri", stripeConnectRedirectUri());
 
     return NextResponse.json({ authorize_url: url.toString() });
 }

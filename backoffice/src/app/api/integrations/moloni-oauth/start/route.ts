@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
-import { isStripeConnectEnabled, resolveTargetUser } from "../../stripe-connect/route";
+import { isStripeConnectEnabled, resolveTargetUser, moloniRedirectUri } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 
@@ -14,20 +14,6 @@ const MOLONI_AUTHORIZE_URL = "https://www.moloni.pt/ac/root/oauth/";
  * The URL the merchant pastes into the *Redirect URI* field of their Moloni
  * developer app. One per connection, so the callback knows whose code it is
  * holding without trusting anything in the query string.
- */
-export function moloniRedirectUri(connectionId: string): string {
-    return `${RIOKO_CONFIG.appUrl}/api/integrations/moloni-oauth/callback/${connectionId}`;
-}
-
-/**
- * Saves the merchant's Moloni developer credentials and returns the consent URL.
- *
- * The credentials are still typed by hand because Moloni's documentation
- * describes the redirect flow for "plugins de instalação em vários sites" but
- * never states that one developer app may authorise third-party accounts. If it
- * turns out it can, MOLONI_APP_CLIENT_ID/_SECRET take over and this step becomes
- * one click too — the worker already reads the connection first and the
- * environment second.
  */
 export async function POST(request: NextRequest) {
     if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });

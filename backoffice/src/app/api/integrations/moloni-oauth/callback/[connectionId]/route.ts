@@ -1,8 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
-import { isStripeConnectEnabled, resolveTargetUser } from "../../../stripe-connect/route";
-import { moloniRedirectUri } from "../../start/route";
+import { isStripeConnectEnabled, resolveTargetUser, moloniRedirectUri } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 

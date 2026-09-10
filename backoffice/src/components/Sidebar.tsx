@@ -60,7 +60,7 @@ export function Sidebar({
             {/* Mobile top bar — only visible <md */}
             <div className="md:hidden sticky top-0 z-30 glass border-b border-hairline flex items-center justify-between px-4 py-3 shrink-0">
                 <Link href="/" className="flex items-center">
-                    <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={104} height={22} priority />
+                    <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-light2.svg" alt="Rioko 2.0" width={104} height={22} priority />
                 </Link>
                 <button
                     type="button"
@@ -105,7 +105,7 @@ export function Sidebar({
                 <div className="mb-14 flex flex-col items-start w-full">
                     <div className="flex items-center transition-transform hover:scale-[1.02]">
                         <Link href="/">
-                            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={140} height={29} priority />
+                            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-light2.svg" alt="Rioko 2.0" width={140} height={29} priority />
                         </Link>
                     </div>
 

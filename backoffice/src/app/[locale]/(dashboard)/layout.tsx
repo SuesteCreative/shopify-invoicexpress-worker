@@ -27,29 +27,34 @@ export default async function DashboardLayout({
     const t = await getTranslations("dashboardLayout");
 
     return (
-        <div className="flex flex-col md:flex-row h-screen overflow-hidden">
+        // The banner is a row of its own above the sidebar/content row, so it
+        // takes real height instead of floating over the page and hiding the
+        // first lines of it.
+        <div className="flex flex-col h-screen overflow-hidden">
             <ImpersonationBanner />
-            <Sidebar
-                canAccessAdmin={canAccessAdmin}
-                isHiperadmin={userIsHiperadmin}
-                version={RIOKO_CONFIG.version}
-                isStable={RIOKO_CONFIG.stableBuild}
-                strings={{
-                    developedBy: t("developedBy"),
-                    account: t("account"),
-                    connected: t("connected"),
-                    signOut: t("signOut"),
-                    rights: t("rights"),
-                    stableBuild: t("stableBuild"),
-                    previewBuild: t("previewBuild"),
-                    openMenu: t("openMenu"),
-                    closeMenu: t("closeMenu"),
-                }}
-            />
+            <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
+                <Sidebar
+                    canAccessAdmin={canAccessAdmin}
+                    isHiperadmin={userIsHiperadmin}
+                    version={RIOKO_CONFIG.version}
+                    isStable={RIOKO_CONFIG.stableBuild}
+                    strings={{
+                        developedBy: t("developedBy"),
+                        account: t("account"),
+                        connected: t("connected"),
+                        signOut: t("signOut"),
+                        rights: t("rights"),
+                        stableBuild: t("stableBuild"),
+                        previewBuild: t("previewBuild"),
+                        openMenu: t("openMenu"),
+                        closeMenu: t("closeMenu"),
+                    }}
+                />
 
-            <main className="flex-1 overflow-y-auto relative z-10 px-4 py-6 md:px-12 md:py-16">
-                {children}
-            </main>
+                <main className="flex-1 overflow-y-auto relative z-10 px-4 py-6 md:px-12 md:py-16">
+                    {children}
+                </main>
+            </div>
 
             <IntegrationSetupModal />
         </div>

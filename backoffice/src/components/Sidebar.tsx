@@ -86,7 +86,7 @@ export function Sidebar({
                 className={`
                     glass border-r border-hairline p-8 flex flex-col items-start shrink-0 overflow-y-auto scrollbar-hide
                     fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] transform transition-transform
-                    md:static md:transform-none md:transition-none md:w-72 md:max-w-none md:z-20 md:sticky md:top-0 md:h-screen
+                    md:static md:transform-none md:transition-none md:w-72 md:max-w-none md:z-20 md:sticky md:top-0 md:h-full
                     ${open ? "translate-x-0" : "-translate-x-full"} md:translate-x-0
                 `}
             >

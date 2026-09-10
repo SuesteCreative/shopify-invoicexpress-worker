@@ -7,6 +7,7 @@ import { Loader2, AlertTriangle, ArrowLeft, Trash2, Plus, Save, X } from "lucide
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import { kindLabel } from "@/lib/connection-kinds";
 
 type Sequence = { id: number; serie: string };
 
@@ -155,11 +156,7 @@ export default function TagRoutingPage() {
         return t("finalizeInherit");
     }
 
-    const srcLabel = sourceKind === "stripe" ? "Stripe"
-        : sourceKind === "stripe_connect" ? "Stripe Connect"
-        : sourceKind === "lodgify" ? "Lodgify"
-        : sourceKind === "eupago" ? "EuPago"
-        : "Shopify";
+    const srcLabel = kindLabel(sourceKind);
     const destShort = isMoloni ? "moloni" : "ix";
     const destLabel = isMoloni ? "Moloni" : "InvoiceXpress";
     const backHref = `/integrations/${sourceKind === "stripe_connect" ? "stripe-connect" : sourceKind}-${destShort}`;

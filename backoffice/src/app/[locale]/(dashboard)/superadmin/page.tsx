@@ -42,6 +42,9 @@ const RoleIcon = ({ role }: { role: Role }) => {
 const PLATFORM_PILL: Record<string, string> = {
     shopify: "bg-[rgba(149,191,71,0.14)] text-[var(--pill-shopify,#a3cc55)] border-[rgba(149,191,71,0.32)]",
     stripe: "bg-[rgba(168,85,247,0.16)] text-[var(--pill-stripe,#c084fc)] border-[rgba(168,85,247,0.36)]",
+    // Its own shade rather than the grey fallback: telling Legacy from Connect
+    // at a glance is the entire reason these pills exist.
+    stripe_connect: "bg-[rgba(99,102,241,0.16)] text-[var(--pill-stripe-connect,#818cf8)] border-[rgba(99,102,241,0.36)]",
     lodgify: "bg-accent/14 text-accent-ink border-accent/30",
     eupago: "bg-soon/14 text-soon border-soon/30",
     invoicexpress: "bg-[var(--pill-ix-bg,rgba(6,95,70,0.35))] text-[var(--pill-ix,#6ee7b7)] border-[rgba(6,95,70,0.70)]",

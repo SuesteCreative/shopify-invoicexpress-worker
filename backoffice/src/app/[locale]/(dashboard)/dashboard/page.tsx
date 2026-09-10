@@ -16,6 +16,7 @@ function cn(...inputs: ClassValue[]) {
 
 import { RegistrationForm } from "@/components/RegistrationForm";
 import SubscriptionCard from "@/components/SubscriptionCard";
+import { kindLabel } from "@/lib/connection-kinds";
 
 export default function WelcomeDashboard() {
   const t = useTranslations("dashboardHome");
@@ -87,12 +88,7 @@ export default function WelcomeDashboard() {
     kind === "invoicexpress" ? "InvoiceXpress"
     : kind === "moloni" ? "Moloni"
     : kind === "vendus" ? "Vendus"
-    : kind === "lodgify" ? "Lodgify"
-    : kind === "shopify" ? "Shopify"
-    : kind === "stripe" ? "Stripe"
-    : kind === "stripe_connect" ? "Stripe Connect"
-    : kind === "eupago" ? "EuPago"
-    : kind;
+    : kindLabel(kind);
 
   const connHref = (source: string, dest: string) => {
     const d = dest === "invoicexpress" ? "ix" : dest;

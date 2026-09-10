@@ -11,10 +11,21 @@ export const runtime = "edge";
  *   NEXT_PUBLIC_STRIPE_SOURCE_ENABLED=1 in the backoffice env
  * The worker has its own gate via STRIPE_SOURCE_ENABLED.
  *
- * Writes a `connections` row with source_kind='stripe' (drafts a connection
+ * Writes a `connections` row for a Stripe-shaped source (drafts a connection
  * pointing at IX as destination by default). Does NOT touch the legacy
  * `integrations` row — Stripe-source data lives only in `connections`.
+ *
+ * Serves both Stripe kinds. `stripe` is the legacy pasted-restricted-key
+ * integration; `stripe_connect` is OAuth, where the account id is written by the
+ * callback and the merchant types nothing. They are separate rows for the same
+ * user and must never write over each other, so the kind is a parameter of
+ * every query here rather than a literal.
  */
+
+/** Only the two Stripe kinds, and `stripe` unless asked otherwise. */
+function sourceKindOf(value: unknown): "stripe" | "stripe_connect" {
+    return value === "stripe_connect" ? "stripe_connect" : "stripe";
+}
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return { error: "Unauthorized", status: 401 as const };
@@ -38,9 +49,10 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
+    const sourceKind = sourceKindOf(new URL(request.url).searchParams.get("source_kind"));
     const row: any = await db
-        .prepare("SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1")
-        .bind(auth.targetUserId)
+        .prepare("SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at FROM connections WHERE user_id = ? AND source_kind = ? LIMIT 1")
+        .bind(auth.targetUserId, sourceKind)
         .first();
 
     if (!row) return NextResponse.json({ connection: null });
@@ -75,11 +87,15 @@ export async function POST(request: NextRequest) {
         webhook_secret?: string;
         restricted_key?: string;
         destination_kind?: string;
+        source_kind?: string;
         status?: string;
         fiscal?: Record<string, unknown>;
     };
 
-    if (!body.stripe_account_id || typeof body.stripe_account_id !== "string") {
+    const sourceKind = sourceKindOf(body.source_kind);
+    // Only the legacy flow types an account id. On Connect the OAuth callback
+    // writes it, and a settings save must neither carry it nor overwrite it.
+    if (sourceKind === "stripe" && (!body.stripe_account_id || typeof body.stripe_account_id !== "string")) {
         return NextResponse.json({ error: "Missing stripe_account_id" }, { status: 400 });
     }
     const destinationKind = body.destination_kind === "moloni" ? "moloni" : "invoicexpress";
@@ -100,7 +116,8 @@ export async function POST(request: NextRequest) {
     // but the webhook pair. A replace let the activate click erase the restricted
     // key and webhook secret saved seconds earlier, leaving an ACTIVE connection
     // with no credentials — no signature to verify against, so every event 404s.
-    const sourceConfig: Record<string, any> = { stripe_account_id: body.stripe_account_id };
+    const sourceConfig: Record<string, any> = {};
+    if (body.stripe_account_id) sourceConfig.stripe_account_id = body.stripe_account_id;
     if (body.webhook_secret) sourceConfig.webhook_secret = body.webhook_secret;
     if (body.restricted_key) sourceConfig.restricted_key = body.restricted_key;
 
@@ -116,7 +133,7 @@ export async function POST(request: NextRequest) {
     await db.prepare(
         `INSERT INTO connections
           (id, user_id, source_kind, destination_kind, source_config_json, destination_config_json, status, created_at, updated_at)
-         VALUES (?, ?, 'stripe', ?, ?, ?, COALESCE(?, 'draft'), ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 'draft'), ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
            source_config_json = json_patch(COALESCE(connections.source_config_json, '{}'), excluded.source_config_json),
            destination_config_json = CASE WHEN ? = 1
@@ -125,7 +142,7 @@ export async function POST(request: NextRequest) {
            status = COALESCE(?, connections.status),
            updated_at = excluded.updated_at`
     ).bind(
-        id, authResult.targetUserId, destinationKind, JSON.stringify(sourceConfig),
+        id, authResult.targetUserId, sourceKind, destinationKind, JSON.stringify(sourceConfig),
         hasFiscal ? JSON.stringify(fiscalPatch) : null, status, now, now,
         hasFiscal ? 1 : 0, status,
     ).run();

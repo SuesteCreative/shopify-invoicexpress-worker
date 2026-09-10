@@ -155,3 +155,60 @@ The new integration ships dark. It cannot run until **all** of these are true:
 With the flags at `0`, the route returns 404, the cron does not run, and the
 wizard renders as locked. Deploying is therefore safe on its own — the risky
 moment is flipping the flags, and step 1 above undoes that without a deploy.
+
+---
+
+## Test mode
+
+**Yes, Stripe Connect can be exercised against a sandbox.** Nothing about the
+protocol changes — it is entirely a question of credentials, and every one of
+them comes in a live/test pair. What blocked it was that this repo only ever
+held one of each.
+
+> **Never swap the live values for test ones.** `STRIPE_CONNECT_CLIENT_ID`,
+> `STRIPE_SECRET_KEY`, `STRIPE_PLATFORM_SECRET_KEY` and
+> `STRIPE_CONNECT_WEBHOOK_SECRET` are platform-wide. Replacing them in
+> production takes down every live Connect merchant at once — including the
+> ones belonging to the unrelated product that shares Rioko's Stripe account.
+> The test values are ADDED alongside, under `*_TEST` names, and when they are
+> unset nothing behaves differently.
+
+### What to set
+
+| Variable | Where | Where to get it |
+|---|---|---|
+| `STRIPE_CONNECT_CLIENT_ID_TEST` | Pages env | Settings → Connect → OAuth, with the dashboard in **test** mode (`ca_…`) |
+| `STRIPE_SECRET_KEY_TEST` | Pages env | the platform's own `sk_test_…`; used for the token exchange |
+| `STRIPE_PLATFORM_SECRET_KEY_TEST` | `wrangler secret put` | same `sk_test_…`; every read of a connected account |
+| `STRIPE_CONNECT_WEBHOOK_SECRET_TEST` | `wrangler secret put` | the **test-mode** Connect endpoint's own `whsec_…` — a different endpoint, a different secret |
+
+The redirect URI does not change and must be registered in the sandbox exactly
+as it is in live: `https://rioko.online/api/integrations/stripe-connect/callback`.
+
+### How to use it
+
+`POST /api/integrations/stripe-connect/start` with `{"mode":"test"}`. It is
+refused for anyone but a superadmin — a sandbox connection is an operator tool,
+not something a merchant should be able to reach for. The row records the mode
+so the callback exchanges the code with the matching secret key, and Stripe's
+own answer then overwrites it with the truth.
+
+### The two guards this needs, which are worth having anyway
+
+**An event's mode must match its connection's.** Until now nothing anywhere read
+`event.livemode` — the field was written into `source_config_json` by the OAuth
+callback and read by nothing, on either Stripe route. A test-mode event whose
+`account` matched an active row went straight through and became a real fiscal
+document, out of money that does not exist. Both routes now refuse a mismatch,
+and a connection that states no mode is treated as **live**, so silence is not
+an opening. Pinned by `src/services/livemode-guard.test.ts`.
+
+**A test connection never certifies.** `auto_finalize` is ignored for it: a
+finalized document is AT-communicated and cannot be unmade except by a credit
+note, and drafts are the entire point of a sandbox.
+
+### One thing that is still shared
+
+The token exchange authenticates with `STRIPE_SECRET_KEY`, which is also
+Rioko's own billing key, rather than with `STRIPE_PLATFORM_SECRET_KEY`. It
+works, and it is worth separating the day someone rotates one of them.

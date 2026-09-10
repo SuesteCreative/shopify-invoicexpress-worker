@@ -1,10 +1,10 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
-import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
 import { normalizeReturnSlug, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
-import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
+import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
+import { isSuperAdmin } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -24,22 +24,32 @@ export async function POST(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const clientId = getStripeEnvOptional("STRIPE_CONNECT_CLIENT_ID");
-    if (!clientId) {
-        return NextResponse.json({ error: "STRIPE_CONNECT_CLIENT_ID not configured" }, { status: 500 });
-    }
-
     const body = await request.json().catch(() => ({})) as {
-        destination_kind?: string; return_slug?: string; return_locale?: string;
+        destination_kind?: string; return_slug?: string; return_locale?: string; mode?: string;
     };
     const destinationKind = body.destination_kind === "invoicexpress" ? "invoicexpress" : "moloni";
 
     // Which page this round trip started on, so the callback can end it there.
-    // Always written, never inherited: the wizard sends no slug, and a row left
-    // over from a run that started on the onboarding page would otherwise send a
-    // wizard user somewhere they did not come from.
+    // Always written, never inherited: a row left over from a run that started
+    // on the onboarding page would otherwise send a wizard user somewhere they
+    // did not come from.
     const returnSlug = normalizeReturnSlug(body.return_slug) ?? RETURN_SLUG_WIZARD;
     const returnLocale = body.return_locale === "en" ? "en" : "pt";
+
+    // Test mode is an operator tool, not a merchant choice: a sandbox
+    // connection issues nothing certified and exists to exercise the flow.
+    const wantsTest = body.mode === "test";
+    if (wantsTest && !(await isSuperAdmin(authResult.userId))) {
+        return NextResponse.json({ error: "Test mode is restricted" }, { status: 403 });
+    }
+    const mode = wantsTest ? "test" as const : "live" as const;
+    const { clientId } = stripeConnectCredentials(mode);
+    if (!clientId) {
+        return NextResponse.json(
+            { error: mode === "test" ? "STRIPE_CONNECT_CLIENT_ID_TEST not configured" : "STRIPE_CONNECT_CLIENT_ID not configured" },
+            { status: 500 },
+        );
+    }
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -64,7 +74,11 @@ export async function POST(request: NextRequest) {
         crypto.randomUUID(), authResult.targetUserId, destinationKind,
         // Patched, not replaced, on an existing row: a reconnection must not drop
         // the account id this same column is holding.
-        JSON.stringify({ auth_mode: "connect", return_slug: returnSlug, return_locale: returnLocale }),
+        //
+        // `livemode` is provisional — the callback needs to know which secret key
+        // to exchange with BEFORE Stripe has told it anything, and Stripe's own
+        // answer overwrites it with the truth a moment later.
+        JSON.stringify({ auth_mode: "connect", return_slug: returnSlug, return_locale: returnLocale, livemode: mode === "live" }),
         state, expiresAt, now, now,
     ).run();
 

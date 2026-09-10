@@ -950,6 +950,18 @@
                 "label": "OSS",
                 "help": "Required alongside reverse charge for cross-border EU B2B handling."
             },
+            "ossEngine": {
+                "label": "Per-country VAT engine (OSS)",
+                "help": "Decides the rate from the buyer's country instead of taking it from the source: the member state's standard rate, 0% outside the EU. For B2C distance selling only — do NOT enable under a B2B reverse-charge regime, where an intra-EU sale must leave at 0%. Requires VAT-inclusive prices; otherwise the document is held as a draft with a notice."
+            },
+            "ossExportExemptionCode": {
+                "label": "Non-EU exemption code",
+                "help": "The code stamped when the engine zero-rates a sale outside the EU. Defaults to M40."
+            },
+            "ptRegionalRates": {
+                "label": "Portuguese regional rates (Madeira/Azores)",
+                "help": "Applies 22% in Madeira and 16% in the Azores instead of the mainland 23%, from the customer's postal code (DL 347/85: the rate follows the customer's domicile). Independent of the OSS engine — it can be switched on alone under a B2B reverse-charge regime. It only replaces the standard rate: a line already at 6% or 13% is left as it is."
+            },
             "b2bReverseCharge": {
                 "label": "B2B reverse charge",
                 "help": "Invoice qualifying EU B2B sales as reverse charge, after VIES confirms the buyer."
@@ -1468,7 +1480,7 @@
         "manageTagRouting": "Manage routing"
     },
     "stripeVendusSetup": {
-        "title": "Stripe + Vendus",
+        "title": "Stripe Legacy + Vendus",
         "subtitle": "Connect your Vendus account to issue certified invoices automatically when Stripe collects a payment.",
         "stripeMissingTitle": "Stripe is not connected yet.",
         "stripeMissingBody": "You need an active Stripe source connection before Vendus receives anything.",
@@ -1492,7 +1504,7 @@
         "errorMissingApiKey": "Vendus API Key missing.",
         "securityFooter": "The Vendus API Key is encrypted at rest and used only by the Rioko worker to authenticate requests against the Vendus API. Never shared with third parties or exposed to the browser.",
         "backToIntegrations": "Back to integrations",
-        "pageTitle": "Stripe + Vendus",
+        "pageTitle": "Stripe Legacy + Vendus",
         "engineSubtitle": "Tax automation setup.",
         "syncState": "Sync state",
         "realtimeOn": "Real-time ACTIVE",
@@ -1703,7 +1715,7 @@
         "sendEmailNeedsFinalize": "No effect while Auto-finalize is off: documents stay as drafts, and a draft is never sent to the customer."
     },
     "stripeMoloniSetup": {
-        "title": "Stripe + Moloni",
+        "title": "Stripe Legacy + Moloni",
         "subtitle": "Connect your Moloni account to issue invoices automatically when Stripe collects a payment.",
         "stripeMissingTitle": "Stripe is not connected yet.",
         "stripeMissingBody": "You need an active Stripe source connection before Moloni receives anything. Configure Stripe first, then come back.",
@@ -1740,7 +1752,7 @@
         "errorMissingPassword": "Moloni password missing.",
         "securityFooter": "All credentials are encrypted at rest. The Client Secret and password are used only by the Rioko worker to mint short-lived access tokens against the Moloni API — never shared with third parties or exposed to your browser.",
         "backToIntegrations": "Back to integrations",
-        "pageTitle": "Stripe + Moloni",
+        "pageTitle": "Stripe Legacy + Moloni",
         "engineSubtitle": "Tax automation setup.",
         "syncState": "Sync state",
         "realtimeOn": "Real-time ACTIVE",
@@ -1881,9 +1893,19 @@
         "moloniFailed": "The Moloni authorisation could not be completed.",
         "moloniConnectedBanner": "Moloni authorised"
     },
+    "stripeConnectIxSetup": {
+        "pageTitle": "Stripe Connect + InvoiceXpress",
+        "engineSubtitle": "Stripe payments by authorisation, invoiced in InvoiceXpress",
+        "step2Title": "InvoiceXpress",
+        "step2Desc": "The account that issues the documents, and this connection's fiscal identity",
+        "ixIntroTitle": "The credentials belong to the account, the fiscal identity to this connection",
+        "ixIntroBody": "The InvoiceXpress account name and API key are shared by every integration that files into it. The series, document type and exemption code belong to this connection: you can use one series here and a different one on another integration of the same account.",
+        "seqHint": "Leave empty to use whichever series the account already has set.",
+        "subscribeHint": "This connection bills on the same plan as Stripe Legacy + InvoiceXpress."
+    },
     "stripeIxSetup": {
         "backToIntegrations": "Back to integrations",
-        "pageTitle": "Stripe + InvoiceXpress",
+        "pageTitle": "Stripe Legacy + InvoiceXpress",
         "engineSubtitle": "Tax automation setup.",
         "syncState": "Sync state",
         "realtimeOn": "Real-time ACTIVE",

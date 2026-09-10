@@ -119,7 +119,7 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
  * connection that never stated one silently resume a paused account. They move
  * when the toggle moves with them.
  */
-const CONNECTION_FISCAL_IDENTITY = [
+export const CONNECTION_FISCAL_IDENTITY = [
   "ix_sequence_name",
   "ix_exemption_reason",
   "ix_document_type",
@@ -140,18 +140,18 @@ const CONNECTION_FISCAL_IDENTITY = [
  * CONNECTION and nowhere else: stated there, or neutral. Shopify keeps reading
  * the legacy row, which is its own.
  */
-const CONNECTION_FISCAL_RATES = [
+export const CONNECTION_FISCAL_RATES = [
   "force_tax_rate",
   "force_shipping_tax_rate",
 ] as const;
 
-const CONNECTION_FISCAL_TOGGLES = [
+export const CONNECTION_FISCAL_TOGGLES = [
   "b2b_reverse_charge",
   "oss_enabled",
   "vat_included",
 ] as const;
 
-const CONNECTION_FISCAL_FLAGS = [
+export const CONNECTION_FISCAL_FLAGS = [
   "ix_derive_exemption",
   "ix_adapter_safety_nets",
   "stripe_tax_from_source",
@@ -285,6 +285,41 @@ export function projectConnectionBehaviour(
     }
   }
   return config;
+}
+
+/**
+ * The connection a queued Stripe event belongs to.
+ *
+ * The destination is part of a connection's identity, not a detail of it: one
+ * account may run `stripe → invoicexpress` and `stripe → moloni` at the same
+ * time, into different series, with different exemption codes and different tax
+ * settings. The queue consumer used to ask only for "an active connection for
+ * this user and source", with no destination filter and no ORDER BY — so which
+ * of the two issued the document was decided by SQLite's row order.
+ *
+ * `destinationKind` is absent for a message enqueued before the webhook started
+ * stamping it. Then, and when the stated destination no longer has an active
+ * connection, this falls back to the OLDEST active one and says so: billing the
+ * sale against a defensible guess beats dropping it silently.
+ */
+export async function pickStripeConnection(
+  db: any,
+  userId: string,
+  sourceKind: string,
+  destinationKind?: string | null,
+): Promise<any | null> {
+  const SELECT = `SELECT destination_kind, destination_config_json, behavior_json, source_config_json
+     FROM connections WHERE user_id = ? AND source_kind = ? AND status = 'active'`;
+
+  if (destinationKind) {
+    const exact = await db.prepare(`${SELECT} AND destination_kind = ? LIMIT 1`)
+      .bind(userId, sourceKind, destinationKind).first();
+    if (exact) return exact;
+    console.warn(`[Stripe] ${userId}/${sourceKind} has no active connection into ${destinationKind}; falling back to the oldest`);
+  }
+
+  return await db.prepare(`${SELECT} ORDER BY created_at ASC LIMIT 1`)
+    .bind(userId, sourceKind).first();
 }
 
 /**

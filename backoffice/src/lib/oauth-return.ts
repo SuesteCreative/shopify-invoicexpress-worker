@@ -1,8 +1,9 @@
 /**
  * Where a guided OAuth round trip puts the merchant down.
  *
- * Two pages drive the same Stripe Connect → Moloni flow: the dashboard wizard,
- * and the public onboarding page a client is sent a link to. Both send the
+ * Several pages drive the same Stripe Connect flow: the dashboard wizards for
+ * Moloni and for InvoiceXpress, and the public onboarding page a client is sent
+ * a link to. Each sends the
  * merchant off to Stripe and to Moloni, and each must get them back on the page
  * they started on, so the start of the flow writes a SLUG on the connection row
  * and the callbacks resolve it here.
@@ -13,10 +14,12 @@
  */
 
 export const RETURN_SLUG_WIZARD = "wizard";
+export const RETURN_SLUG_WIZARD_IX = "wizard-ix";
 export const RETURN_SLUG_ONBOARDING_CONNECT_MOLONI = "onboarding-stripe-connect-moloni";
 
 const RETURN_PATHS: Record<string, string> = {
     [RETURN_SLUG_WIZARD]: "/integrations/stripe-connect-moloni",
+    [RETURN_SLUG_WIZARD_IX]: "/integrations/stripe-connect-ix",
     [RETURN_SLUG_ONBOARDING_CONNECT_MOLONI]: "/onboarding/stripe-connect-moloni",
 };
 

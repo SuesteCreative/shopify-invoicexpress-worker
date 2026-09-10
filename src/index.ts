@@ -54,9 +54,9 @@ import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-rev
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
-import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour } from "./services/connection-context";
+import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection } from "./services/connection-context";
 import { stampInvoicePaymentIntent } from "./services/stripe";
-import { resolveStripeAuth } from "./services/stripe-auth";
+import { resolveStripeAuth, livemodeMatches } from "./services/stripe-auth";
 import { buildAdapterCtx } from "./services/adapter-ctx";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
@@ -315,6 +315,14 @@ app.post("/webhooks/stripe", async (c) => {
 
   const event = JSON.parse(rawBody);
   const eventId: string = event.id ?? "";
+
+  // Same guard as the Connect route, for the same reason: nothing here has ever
+  // read `event.livemode`, so a test event that verified against a merchant's
+  // signing secret would have been invoiced for real.
+  if (!livemodeMatches(ownerRow.source_config_json, event.livemode)) {
+    console.warn(`[Stripe] Refusing ${event.livemode === false ? "test" : "live"} event ${eventId} for user ${ownerRow.user_id}: the connection is the other mode`);
+    return c.text("Event mode does not match the connection", 200);
+  }
   const canonical = stripeEventToCanonical(event.type ?? "");
   if (!canonical) {
     console.log(`[Stripe] Ignoring unhandled event type: ${event.type}`);
@@ -336,7 +344,7 @@ app.post("/webhooks/stripe", async (c) => {
   // silently lost events). Events larger than the Cloudflare Queues 128KB limit
   // are spilled to KV and passed by reference.
   try {
-    const queueMsg: StripeQueueMessage = { topic: canonical, eventId, userId: ownerRow.user_id, body: event };
+    const queueMsg: StripeQueueMessage = { topic: canonical, eventId, userId: ownerRow.user_id, body: event, destinationKind: ownerRow.destination_kind ?? undefined };
     if (rawBody.length > 110_000) {
       const kvKey = `stripe-evt:${eventId}`;
       await c.env.INVOICE_KV.put(kvKey, rawBody, { expirationTtl: 7 * 24 * 60 * 60 });
@@ -396,8 +404,14 @@ app.post("/webhooks/stripe/connect", async (c) => {
   const rawBody = await c.req.text();
   if (!sig) return c.text("Missing Stripe-Signature", 400);
 
-  const secret = c.env.STRIPE_CONNECT_WEBHOOK_SECRET;
-  if (!secret) {
+  // Live first, then test. Stripe's test-mode Connect endpoint is a separate
+  // endpoint with its own signing secret, so a sandbox needs a second one — and
+  // it is ADDED, never swapped in: swapping would silence every live merchant.
+  // The test secret is normally unset, in which case this is exactly the single
+  // -secret check it replaces.
+  const secrets = [c.env.STRIPE_CONNECT_WEBHOOK_SECRET, c.env.STRIPE_CONNECT_WEBHOOK_SECRET_TEST]
+    .filter((x): x is string => !!x);
+  if (secrets.length === 0) {
     console.error("[StripeConnect] STRIPE_CONNECT_WEBHOOK_SECRET is not set");
     return c.text("Secret not configured", 500);
   }
@@ -417,7 +431,11 @@ app.post("/webhooks/stripe/connect", async (c) => {
   // reason to look anything up in order to verify, and an unverified body must
   // not be allowed to make us query.
   const adapter = getSourceAdapter("stripe_connect");
-  if (!await adapter.verifyWebhook(rawBody, sig, secret)) {
+  let verified = false;
+  for (const candidate of secrets) {
+    if (await adapter.verifyWebhook(rawBody, sig, candidate)) { verified = true; break; }
+  }
+  if (!verified) {
     console.error("[StripeConnect] Invalid signature");
     return c.text("Invalid signature", 401);
   }
@@ -445,6 +463,22 @@ app.post("/webhooks/stripe/connect", async (c) => {
     // daily digest in other people's payments.
     console.log(`[StripeConnect] Ignoring event ${eventId} for unknown account ${account}`);
     return c.text("No connection for this account", 200);
+  }
+
+  // A test event must not invoice a live connection.
+  //
+  // `event.livemode` was written into `source_config_json` by the OAuth callback
+  // and then never read — by anything, on either Stripe route. So an event from
+  // Stripe's test mode whose `account` matched an active row passed straight
+  // through to Moloni or InvoiceXpress and became a real fiscal document, out of
+  // money that does not exist.
+  //
+  // A connection that states nothing is treated as live, because every one of
+  // them is: the field only started being written when Connect shipped. That
+  // makes the guard closed by default rather than open.
+  if (!livemodeMatches(ownerRow.source_config_json, event.livemode)) {
+    console.warn(`[StripeConnect] Refusing ${event.livemode === false ? "test" : "live"} event ${eventId} for account ${account}: the connection is the other mode`);
+    return c.text("Event mode does not match the connection", 200);
   }
 
   // A merchant disconnecting Rioko in their own Stripe dashboard. Stripe tells
@@ -491,6 +525,7 @@ app.post("/webhooks/stripe/connect", async (c) => {
       userId: ownerRow.user_id,
       body: event,
       sourceKind: "stripe_connect",
+      destinationKind: ownerRow.destination_kind ?? undefined,
     };
     if (rawBody.length > 110_000) {
       const kvKey = `stripe-evt:${eventId}`;
@@ -869,7 +904,7 @@ app.post("/admin/stripe/replay", async (c) => {
       // Reset dedup so the success-defense re-marks cleanly; the consumer's
       // processed_orders idempotency still blocks a duplicate invoice.
       await appStorage.resetWebhookInfo(event.id, `stripe/${canonical}`);
-      await c.env.STRIPE_QUEUE.send({ topic: canonical, eventId: event.id, userId: body.userId, body: event } satisfies StripeQueueMessage);
+      await c.env.STRIPE_QUEUE.send({ topic: canonical, eventId: event.id, userId: body.userId, body: event, destinationKind: conn.destinationKind ?? undefined } satisfies StripeQueueMessage);
       queued.push(event.id);
     }
     return c.json({ ok: true, queued_count: queued.length, queued, skipped });
@@ -2974,10 +3009,7 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       // Stripe-source connection drives config + destination choice. We also
       // pull source_config_json so the adapter can use the restricted_key to
       // expand Customer.tax_ids for B2B native VAT collection.
-      const connRow: any = await env.DB.prepare(
-        `SELECT destination_kind, destination_config_json, behavior_json, source_config_json
-         FROM connections WHERE user_id = ? AND source_kind = ? AND status = 'active' LIMIT 1`
-      ).bind(userId, sourceKind).first();
+      const connRow: any = await pickStripeConnection(env.DB, userId, sourceKind, message.body.destinationKind);
 
       if (!connRow) {
         console.error(`[Stripe] No active connection for user ${userId}, acking`);

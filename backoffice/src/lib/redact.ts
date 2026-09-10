@@ -32,6 +32,35 @@ export const FISCAL_CONFIG_KEYS = [
   "stripe_metadata_map",
   "ix_multicurrency",
   "stripe_routing_hints",
+  // Tax behaviour. `projectConnectionBehaviour` isolates these per connection
+  // (CONNECTION_FISCAL_RATES / _TOGGLES) — and until now nothing could write
+  // them there. The console offered the fields, wrote them to the legacy row,
+  // and the worker stopped reading that row for any non-Shopify source: so
+  // turning OSS on for a Stripe connection changed nothing and said nothing.
+  "oss_enabled",
+  "b2b_reverse_charge",
+  "force_tax_rate",
+  "force_shipping_tax_rate",
+  // Decide the rate from the buyer's country instead of taking it from the
+  // source. Off unless stated, which is what keeps the legacy Shopify fleet
+  // — with `oss_enabled` defaulted to 1 since 0002 — out of it entirely.
+  "oss_engine",
+  "oss_export_exemption_code",
+  // Portugal's regional rates, which follow the CUSTOMER's domicile. Its own
+  // key because the merchants who need it — B2B reverse charge — are exactly
+  // the ones who must never have the OSS engine.
+  "pt_regional_rates",
+  // The fiscal identity of the documents this connection issues.
+  //
+  // `exemption_reason` above is Moloni's name for the same idea, and it is NOT
+  // interchangeable: the isolation guard accepts either spelling as "stated",
+  // but the identity override only copies from `ix_exemption_reason`. Setting
+  // only the Moloni spelling on an IX connection therefore neither sets a code
+  // nor clears one — the document silently inherits the account's.
+  "ix_sequence_name",
+  "ix_document_type",
+  "ix_exemption_reason",
+  "ix_b2b_exemption_reason",
   // Moloni
   "moloni_company_id",
   "moloni_company_name",
@@ -44,6 +73,12 @@ export const FISCAL_CONFIG_KEYS = [
   "moloni_category_id",
   "moloni_maturity_date_id",
   "moloni_payment_method",
+  // Partial / instalment invoicing. Offered by the console and read by the
+  // worker (lodgify-amounts.ts, moloni-destination.ts) but missing here, so
+  // saving any of the three answered "Not editable".
+  "moloni_partial_mode",
+  "moloni_receipt_document_set_name",
+  "moloni_receipt_series_map",
   // Vendus
   "vendus_register_id",
   "vendus_series_id",

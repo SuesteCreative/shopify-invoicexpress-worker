@@ -4,7 +4,7 @@ import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { isValidOAuthState } from "@/lib/oauth-state";
 import { resolveReturnPath, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
-import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
+import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 
@@ -57,7 +57,8 @@ export async function GET(request: NextRequest) {
 
     if (!row) return backToWizard("error", "Ligação não encontrada. Recomece o passo do Stripe.");
 
-    const startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {};
+    let startedOn: Record<string, any> = {};
+    try { startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {}; } catch { startedOn = {}; }
     returnPath = resolveReturnPath(startedOn.return_slug, startedOn.return_locale);
 
     // CSRF. Without this check anyone could hand a logged-in merchant a link that
@@ -66,8 +67,12 @@ export async function GET(request: NextRequest) {
         return backToWizard("error", "Pedido inválido ou expirado. Recomece o passo do Stripe.");
     }
 
-    const platformKey = getStripeEnvOptional("STRIPE_SECRET_KEY");
-    if (!platformKey) return backToWizard("error", "STRIPE_SECRET_KEY not configured");
+    // Which mode the merchant left in, recorded by /start on the same blob that
+    // carries the return slug. A test client_id exchanged with the live secret
+    // key is rejected outright.
+    const mode = startedOn.livemode === false ? "test" as const : "live" as const;
+    const { secretKey: platformKey } = stripeConnectCredentials(mode);
+    if (!platformKey) return backToWizard("error", `STRIPE_SECRET_KEY${mode === "test" ? "_TEST" : ""} not configured`);
 
     let tokenBody: any;
     try {

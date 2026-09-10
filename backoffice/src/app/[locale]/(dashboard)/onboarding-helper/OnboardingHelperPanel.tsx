@@ -29,7 +29,7 @@ function cleanShop(raw: string) {
 type Accent = "sky" | "emerald" | "amber" | "rose";
 
 const ACCENT_TEXT: Record<Accent, string> = {
-    sky: "text-accent",
+    sky: "text-accent-ink",
     emerald: "text-accent-hot",
     amber: "text-soon",
     rose: "text-destructive",
@@ -53,7 +53,7 @@ function Section({ id, icon, title, eyebrow, accent = "sky", children }: {
                     {eyebrow && (
                         <div className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{eyebrow}</div>
                     )}
-                    <h2 className="text-2xl font-black text-white">{title}</h2>
+                    <h2 className="text-2xl font-black text-fg">{title}</h2>
                 </div>
             </div>
             <div className="ml-0 sm:ml-16 space-y-5">{children}</div>
@@ -63,16 +63,16 @@ function Section({ id, icon, title, eyebrow, accent = "sky", children }: {
 
 function InfoBox({ children }: { children: React.ReactNode }) {
     return (
-        <div className="bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl p-4 flex items-start gap-3">
-            <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
-            <div className="text-accent text-sm leading-relaxed">{children}</div>
+        <div className="bg-accent/5 border border-accent/20 rounded-2xl p-4 flex items-start gap-3">
+            <Info className="w-5 h-5 text-accent-ink shrink-0 mt-0.5" />
+            <div className="text-accent-ink text-sm leading-relaxed">{children}</div>
         </div>
     );
 }
 
 function WarnBox({ children }: { children: React.ReactNode }) {
     return (
-        <div className="bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] rounded-2xl p-4 flex items-start gap-3">
+        <div className="bg-soon/5 border border-soon/20 rounded-2xl p-4 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" />
             <div className="text-soon text-sm leading-relaxed">{children}</div>
         </div>
@@ -81,7 +81,7 @@ function WarnBox({ children }: { children: React.ReactNode }) {
 
 function DangerBox({ children }: { children: React.ReactNode }) {
     return (
-        <div className="bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] rounded-2xl p-4 flex items-start gap-3">
+        <div className="bg-destructive/5 border border-destructive/20 rounded-2xl p-4 flex items-start gap-3">
             <ShieldAlert className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
             <div className="text-destructive text-sm leading-relaxed">{children}</div>
         </div>
@@ -157,7 +157,7 @@ function CopyButton({ copied, onClick, disabled, small }: { copied: boolean; onC
             disabled={disabled}
             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed ${
                 copied
-                    ? "border-[rgba(94,234,212,0.40)] text-accent-hot bg-[rgba(94,234,212,0.08)]"
+                    ? "border-accent-hot/40 text-accent-hot bg-accent-hot/8"
                     : "border-hairline bg-surface-2 text-fg-60 hover:text-fg hover:border-accent/40"
             } ${small ? "px-2 py-1" : ""}`}
         >
@@ -298,7 +298,7 @@ export function OnboardingHelperPanel() {
             {/* Parte A */}
             <Section id="parte-a" icon={<Settings2 className="w-5 h-5" />} title="Criar App no Shopify Dev Dashboard" eyebrow="Parte A" accent="sky">
                 <p className="text-sm text-fg-60">
-                    Aceder a <a href="https://partners.shopify.com/" target="_blank" rel="noopener noreferrer" className="text-accent underline">partners.shopify.com</a> → <strong>Apps</strong> → <strong>Create app</strong> → manualmente.
+                    Aceder a <a href="https://partners.shopify.com/" target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">partners.shopify.com</a> → <strong>Apps</strong> → <strong>Create app</strong> → manualmente.
                 </p>
                 <DataTable
                     headers={["Campo", "Valor"]}
@@ -314,7 +314,7 @@ export function OnboardingHelperPanel() {
                     Os scopes <Code>write_webhooks</Code> / <Code>read_webhooks</Code> <strong>não são pedidos</strong> — webhooks serão criados manualmente no Passo 2 do integrador.
                 </WarnBox>
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-2">Versão e Release</h3>
+                    <h3 className="text-sm font-bold text-fg mb-2">Versão e Release</h3>
                     <ol className="space-y-2 text-sm text-fg-60 list-decimal list-inside">
                         <li>Sempre que alterares scopes ou redirect URLs, criar <strong className="text-fg">nova versão</strong> e fazer <strong className="text-fg">Release</strong>.</li>
                         <li>Versão tem de estar <strong className="text-fg">Active</strong>.</li>
@@ -353,7 +353,7 @@ export function OnboardingHelperPanel() {
                         type="button"
                         disabled={!authorizeUrl}
                         onClick={() => window.open(authorizeUrl, "_blank", "noopener")}
-                        className="inline-flex items-center gap-2 rounded-xl bg-accent text-white px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide hover:bg-accent/85 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="inline-flex items-center gap-2 rounded-xl bg-accent text-on-accent px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide hover:bg-accent/85 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                         <ExternalLink className="w-4 h-4" /> Abrir em nova tab
                     </button>
@@ -392,7 +392,7 @@ export function OnboardingHelperPanel() {
                 </InfoBox>
 
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-2">Verificar token (recomendado)</h3>
+                    <h3 className="text-sm font-bold text-fg mb-2">Verificar token (recomendado)</h3>
                     <p className="text-sm text-fg-60 mb-3">Confirmar que o token responde <strong className="text-fg">HTTP 200</strong> antes de o introduzir no integrador. Interpretar o resultado:</p>
                     <DataTable
                         headers={["Resposta", "Significa", "Ação"]}
@@ -428,11 +428,11 @@ export function OnboardingHelperPanel() {
             {/* Parte E */}
             <Section id="parte-e" icon={<Settings2 className="w-5 h-5" />} title="Configurar o Integrador Rioko (4 Passos)" eyebrow="Parte E" accent="sky">
                 <p className="text-sm text-fg-60">
-                    Abrir <a href="https://rioko.online/integrations/shopify-ix" target="_blank" rel="noopener noreferrer" className="text-accent underline">rioko.online/integrations/shopify-ix</a> com a conta do cliente.
+                    Abrir <a href="https://rioko.online/integrations/shopify-ix" target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">rioko.online/integrations/shopify-ix</a> com a conta do cliente.
                 </p>
 
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-2">1 · Ligação Shopify</h3>
+                    <h3 className="text-sm font-bold text-fg mb-2">1 · Ligação Shopify</h3>
                     <DataTable
                         headers={["Campo", "Valor"]}
                         rows={[
@@ -445,7 +445,7 @@ export function OnboardingHelperPanel() {
                 </div>
 
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-2">2 · Webhooks (instalação manual)</h3>
+                    <h3 className="text-sm font-bold text-fg mb-2">2 · Webhooks (instalação manual)</h3>
                     <p className="text-sm text-fg-60 mb-2"><strong className="text-fg">2.1 — Criar os 4 webhooks no Shopify Admin do cliente:</strong></p>
                     <ol className="space-y-1 text-sm text-fg-60 list-decimal list-inside mb-3">
                         <li>Shopify Admin → Settings → Notifications → secção Webhooks → Create webhook.</li>
@@ -491,7 +491,7 @@ export function OnboardingHelperPanel() {
                 </div>
 
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-2">3 · Conexão InvoiceXpress</h3>
+                    <h3 className="text-sm font-bold text-fg mb-2">3 · Conexão InvoiceXpress</h3>
                     <DataTable
                         headers={["Campo", "Valor"]}
                         rows={[
@@ -503,7 +503,7 @@ export function OnboardingHelperPanel() {
                 </div>
 
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-2">4 · Definições de Integração</h3>
+                    <h3 className="text-sm font-bold text-fg mb-2">4 · Definições de Integração</h3>
                     <DataTable
                         headers={["Definição", "Descrição"]}
                         rows={[
@@ -535,7 +535,7 @@ export function OnboardingHelperPanel() {
                 </ul>
 
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-2">Checklist resumido</h3>
+                    <h3 className="text-sm font-bold text-fg mb-2">Checklist resumido</h3>
                     <ul className="space-y-1.5 text-sm text-fg-60 list-disc list-inside">
                         <li>App criada no Dev Dashboard, versão Active.</li>
                         <li>Scopes correctos e mínimos.</li>
@@ -553,7 +553,7 @@ export function OnboardingHelperPanel() {
             {/* Parte G */}
             <Section id="parte-g" icon={<LifeBuoy className="w-5 h-5" />} title="Troubleshooting" eyebrow="Parte G" accent="amber">
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-1.5">Sem code no redirect</h3>
+                    <h3 className="text-sm font-bold text-fg mb-1.5">Sem code no redirect</h3>
                     <ul className="space-y-1 text-sm text-fg-60 list-disc list-inside">
                         <li>Redirect URI aponta para servidor que força login → usar <Code>https://example.com/</Code>.</li>
                         <li><strong className="text-fg">Embed app in Shopify admin</strong> activo consome o code → desligar.</li>
@@ -561,7 +561,7 @@ export function OnboardingHelperPanel() {
                     </ul>
                 </div>
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-1.5">Erro ao trocar code por token</h3>
+                    <h3 className="text-sm font-bold text-fg mb-1.5">Erro ao trocar code por token</h3>
                     <ul className="space-y-1 text-sm text-fg-60 list-disc list-inside">
                         <li><Code>code expirado</Code> → repetir Parte B para obter novo.</li>
                         <li><Code>code já usado</Code> → cada code só pode ser trocado uma vez.</li>
@@ -569,7 +569,7 @@ export function OnboardingHelperPanel() {
                     </ul>
                 </div>
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-1.5">Token parece inválido no integrador, mas funciona no curl</h3>
+                    <h3 className="text-sm font-bold text-fg mb-1.5">Token parece inválido no integrador, mas funciona no curl</h3>
                     <ul className="space-y-1 text-sm text-fg-60 list-disc list-inside">
                         <li>Header tem de ser <Code>X-Shopify-Access-Token</Code> (Admin API).</li>
                         <li>Host tem de ser <Code>{"{shop}"}.myshopify.com</Code>.</li>
@@ -577,7 +577,7 @@ export function OnboardingHelperPanel() {
                     </ul>
                 </div>
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-1.5"><Code>{`404 {"errors":"Not Found"}`}</Code> numa loja e token corretos</h3>
+                    <h3 className="text-sm font-bold text-fg mb-1.5"><Code>{`404 {"errors":"Not Found"}`}</Code> numa loja e token corretos</h3>
                     <ul className="space-y-1 text-sm text-fg-60 list-disc list-inside">
                         <li>Causa habitual: a versão da API no URL foi retirada (suporte ~12 meses). Não é a loja nem o token.</li>
                         <li>Trocar a versão (ex: <Code>/admin/api/2024-04/</Code> → <Code>/admin/api/{API_VERSION}/</Code>) no teste, no integrador e nos webhooks.</li>
@@ -585,7 +585,7 @@ export function OnboardingHelperPanel() {
                     </ul>
                 </div>
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-1.5"><Code>401 [API] Invalid API key or access token</Code></h3>
+                    <h3 className="text-sm font-bold text-fg mb-1.5"><Code>401 [API] Invalid API key or access token</Code></h3>
                     <ul className="space-y-1 text-sm text-fg-60 list-disc list-inside">
                         <li>Token revogado ou inválido: app desinstalada/reinstalada, credenciais rotacionadas, ou token de outra loja.</li>
                         <li>Re-emitir: repetir Partes B–C para um novo <Code>shpat_…</Code> e atualizar onde o token está guardado.</li>
@@ -593,7 +593,7 @@ export function OnboardingHelperPanel() {
                     </ul>
                 </div>
                 <div>
-                    <h3 className="text-sm font-bold text-white mb-1.5">Webhooks não disparam</h3>
+                    <h3 className="text-sm font-bold text-fg mb-1.5">Webhooks não disparam</h3>
                     <ul className="space-y-1 text-sm text-fg-60 list-disc list-inside">
                         <li>Confirmar que os 4 webhooks estão criados em Settings → Notifications → Webhooks.</li>
                         <li>Confirmar Format = JSON.</li>

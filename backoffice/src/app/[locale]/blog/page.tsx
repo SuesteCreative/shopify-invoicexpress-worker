@@ -57,7 +57,7 @@ export default async function BlogIndexPage({ params }: Props) {
                         >
                             <div className="flex items-start justify-between gap-4 mb-3">
                                 {article.category && (
-                                    <span className="font-mono text-[10px] text-accent uppercase tracking-[0.22em] px-2 py-1 rounded-md border border-[rgba(2,141,196,0.30)] bg-[rgba(2,141,196,0.05)]">
+                                    <span className="font-mono text-[10px] text-accent-ink uppercase tracking-[0.22em] px-2 py-1 rounded-md border border-accent/30 bg-accent/5">
                                         {article.category}
                                     </span>
                                 )}

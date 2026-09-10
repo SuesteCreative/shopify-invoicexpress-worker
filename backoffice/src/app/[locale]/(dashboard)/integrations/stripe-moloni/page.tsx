@@ -391,8 +391,8 @@ export default function StripeMoloniIntegration() {
     if (!STRIPE_ENABLED) {
         return (
             <div className="max-w-3xl mx-auto py-24 space-y-8">
-                <Link href="/integrations" className="text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-2"><ChevronRight className="w-3 h-3 rotate-180" /> {t("backToIntegrations")}</Link>
-                <div className="glass rounded-[2.5rem] p-12 border-[rgba(245,158,11,0.20)] bg-[rgba(245,158,11,0.04)] text-center">
+                <Link href="/integrations" className="text-[10px] font-black text-accent-ink uppercase tracking-widest flex items-center gap-2"><ChevronRight className="w-3 h-3 rotate-180" /> {t("backToIntegrations")}</Link>
+                <div className="glass rounded-[2.5rem] p-12 border-soon/20 bg-soon/4 text-center">
                     <h1 className="text-2xl font-black tracking-tight mb-2">{t("disabledTitle")}</h1>
                     <p className="text-fg-60 text-sm">{t("disabledBody")}</p>
                 </div>
@@ -403,7 +403,7 @@ export default function StripeMoloniIntegration() {
     if (loading) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center">
-                <Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" />
+                <Loader2 className="w-12 h-12 text-accent-ink animate-spin opacity-50" />
             </div>
         );
     }
@@ -434,10 +434,10 @@ export default function StripeMoloniIntegration() {
             errorMsg: stripeError || installError,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
-                    <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl px-6 py-4">
-                        <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
+                    <div className="md:col-span-2 flex items-start gap-4 bg-accent/5 border border-accent/20 rounded-2xl px-6 py-4">
+                        <Info className="w-5 h-5 text-accent-ink shrink-0 mt-0.5" />
                         <div>
-                            <p className="text-sm font-bold text-accent">{t("restrictedKeyHowTitle")}</p>
+                            <p className="text-sm font-bold text-accent-ink">{t("restrictedKeyHowTitle")}</p>
                             <ol className="text-[11px] text-fg-60 mt-2 leading-relaxed list-decimal pl-4 space-y-1">
                                 <li>{t("restrictedKeyStep1")}</li>
                                 <li>{t("restrictedKeyStep2")}</li>
@@ -455,7 +455,7 @@ export default function StripeMoloniIntegration() {
                         <input type="password" value={restrictedKey} onChange={(e) => setRestrictedKey(e.target.value)} placeholder={t("restrictedKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                     </div>
                     <div className="md:col-span-2 pt-4">
-                        <button onClick={handleStripeStep} disabled={saving || !stripeAccountId.trim() || !restrictedKey.trim()} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                        <button onClick={handleStripeStep} disabled={saving || !stripeAccountId.trim() || !restrictedKey.trim()} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                             {saving ? <><Loader2 className="w-5 h-5 animate-spin" /> {t("installingWebhook")}</> : <><Webhook className="w-4 h-4" /> {t("connectStripe")}</>}
                         </button>
                         {installError && <p className="text-[11px] text-destructive font-bold text-center mt-4">{installError}</p>}
@@ -463,7 +463,7 @@ export default function StripeMoloniIntegration() {
                     <AnimatePresence>
                         {showManualFallback && (
                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="md:col-span-2 overflow-hidden">
-                                <div className="mt-4 p-6 rounded-2xl bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] space-y-4">
+                                <div className="mt-4 p-6 rounded-2xl bg-soon/5 border border-soon/20 space-y-4">
                                     <div className="flex items-start gap-3">
                                         <AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" />
                                         <div>
@@ -474,8 +474,8 @@ export default function StripeMoloniIntegration() {
                                     <div className="space-y-2">
                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] ml-1">{t("endpointUrl")}</label>
                                         <div className="flex gap-3">
-                                            <input type="text" readOnly value={WEBHOOK_URL} className="flex-1 bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-mono text-accent outline-none" onClick={(e) => (e.target as HTMLInputElement).select()} />
-                                            <button onClick={copyWebhookUrl} className="px-4 py-3 rounded-2xl bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] hover:bg-[rgba(2,141,196,0.20)] transition-all font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
+                                            <input type="text" readOnly value={WEBHOOK_URL} className="flex-1 bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-mono text-accent-ink outline-none" onClick={(e) => (e.target as HTMLInputElement).select()} />
+                                            <button onClick={copyWebhookUrl} className="px-4 py-3 rounded-2xl bg-accent/10 text-accent-ink border border-accent/20 hover:bg-accent/20 transition-all font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
                                                 {copied ? <><Check className="w-3 h-3" />{t("copied")}</> : <><Copy className="w-3 h-3" />{t("copy")}</>}
                                             </button>
                                         </div>
@@ -483,9 +483,9 @@ export default function StripeMoloniIntegration() {
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] ml-1">{t("signingSecret")}</label>
-                                        <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder={t("signingSecretPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-medium focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all placeholder:text-fg-40" />
+                                        <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder={t("signingSecretPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-medium focus:ring-2 focus:ring-soon/20 focus:border-soon outline-none transition-all placeholder:text-fg-40" />
                                     </div>
-                                    <button onClick={handleManualSecret} disabled={saving || !webhookSecret.trim()} className="w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 bg-[rgba(245,158,11,0.10)] text-soon border border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.20)] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                    <button onClick={handleManualSecret} disabled={saving || !webhookSecret.trim()} className="w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 bg-soon/10 text-soon border border-soon/20 hover:bg-soon/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                                         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
                                         {t("saveSigningSecret")}
                                     </button>
@@ -507,7 +507,7 @@ export default function StripeMoloniIntegration() {
             errorMsg: moloniError,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
-                    <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] rounded-2xl px-6 py-4">
+                    <div className="md:col-span-2 flex items-start gap-4 bg-soon/5 border border-soon/20 rounded-2xl px-6 py-4">
                         <Info className="w-5 h-5 text-soon shrink-0 mt-0.5" />
                         <div className="min-w-0 flex-1">
                             <p className="text-sm font-bold text-soon">{t("moloniCallbackTitle")}</p>
@@ -542,13 +542,13 @@ export default function StripeMoloniIntegration() {
                     <div className="md:col-span-2 space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("environmentLabel")}</label>
                         <div className="flex gap-3">
-                            <button type="button" onClick={() => setEnvironment("production")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envProduction")}</button>
-                            <button type="button" onClick={() => setEnvironment("sandbox")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envSandbox")}</button>
+                            <button type="button" onClick={() => setEnvironment("production")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envProduction")}</button>
+                            <button type="button" onClick={() => setEnvironment("sandbox")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envSandbox")}</button>
                         </div>
                     </div>
                     <div className="md:col-span-2 pt-4 flex items-center gap-4">
                         <button onClick={() => setStep(1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
-                        <button onClick={handleMoloniStep} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                        <button onClick={handleMoloniStep} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t("saveMoloni")} <ChevronRight className="w-4 h-4" /></>}
                         </button>
                     </div>
@@ -586,14 +586,14 @@ export default function StripeMoloniIntegration() {
                             <h3 className="font-bold text-sm">{t("vatIncluded")}</h3>
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{vatIncluded ? t("vatIncludedOn") : t("vatIncludedOff")}</p>
                         </div>
-                        <button onClick={() => setVatIncluded(!vatIncluded)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${vatIncluded ? "bg-accent-hot" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${vatIncluded ? "left-7" : "left-1"}`} /></button>
+                        <button onClick={() => setVatIncluded(!vatIncluded)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-sunken ${vatIncluded ? "bg-accent-hot" : "bg-track-off"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${vatIncluded ? "left-7" : "left-1"}`} /></button>
                     </div>
                     <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
                         <div>
                             <h3 className="font-bold text-sm">{t("autoFinalize")}</h3>
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                         </div>
-                        <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${autoFinalize ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} /></button>
+                        <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-sunken ${autoFinalize ? "bg-accent" : "bg-track-off"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} /></button>
                     </div>
                     <div className="glass p-6 rounded-2xl flex flex-col gap-3 border-hairline">
                         <div className="flex items-center justify-between">
@@ -601,10 +601,10 @@ export default function StripeMoloniIntegration() {
                                 <h3 className="font-bold text-sm">{t("sendEmail")}</h3>
                                 <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{sendEmail ? t("sendEmailOn") : t("sendEmailOff")}</p>
                             </div>
-                            <button onClick={() => setSendEmail(!sendEmail)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 shrink-0 ${sendEmail ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${sendEmail ? "left-7" : "left-1"}`} /></button>
+                            <button onClick={() => setSendEmail(!sendEmail)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-sunken shrink-0 ${sendEmail ? "bg-accent" : "bg-track-off"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${sendEmail ? "left-7" : "left-1"}`} /></button>
                         </div>
                         {sendEmail && !autoFinalize && (
-                            <p className="text-[10px] leading-relaxed font-medium text-amber-300/90 border-l-2 border-amber-500/40 pl-3">{t("sendEmailNeedsFinalize")}</p>
+                            <p className="text-[10px] leading-relaxed font-medium text-soon/90 border-l-2 border-soon/40 pl-3">{t("sendEmailNeedsFinalize")}</p>
                         )}
                     </div>
                     <div className="glass p-6 rounded-2xl flex items-center justify-between border-hairline">
@@ -615,7 +615,7 @@ export default function StripeMoloniIntegration() {
                             </div>
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{partialInvoicing ? t("partialInvoicingOn") : t("partialInvoicingOff")}</p>
                         </div>
-                        <button onClick={() => setPartialInvoicing(!partialInvoicing)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${partialInvoicing ? "bg-accent" : "bg-surface-2"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${partialInvoicing ? "left-7" : "left-1"}`} /></button>
+                        <button onClick={() => setPartialInvoicing(!partialInvoicing)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-sunken ${partialInvoicing ? "bg-accent" : "bg-track-off"}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${partialInvoicing ? "left-7" : "left-1"}`} /></button>
                     </div>
                     <div className="md:col-span-2 glass p-6 rounded-2xl border-hairline space-y-3">
                         <h3 className="font-bold text-sm">{t("documentTypeTitle")}</h3>
@@ -629,15 +629,15 @@ export default function StripeMoloniIntegration() {
                         </div>
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-8 rounded-[2rem] border-hairline space-y-4">
-                        <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3></div>
+                        <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-soon/10 rounded-xl"><Info className="w-4 h-4 text-soon" /></div><h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3></div>
                         <p className="text-[10px] text-fg-40 font-medium uppercase tracking-wider leading-relaxed">{t("exemptionDesc")}</p>
-                        <select value={exemptionReason} onChange={(e) => setExemptionReason(e.target.value)} className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all cursor-pointer text-fg">
+                        <select value={exemptionReason} onChange={(e) => setExemptionReason(e.target.value)} className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-soon/20 focus:border-soon outline-none transition-all cursor-pointer text-fg">
                             {exemptionOptions.map((opt) => (<option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>))}
                         </select>
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className="p-2 bg-[rgba(2,141,196,0.10)] rounded-xl shrink-0"><Building2 className="w-4 h-4 text-accent" /></div>
+                            <div className="p-2 bg-accent/10 rounded-xl shrink-0"><Building2 className="w-4 h-4 text-accent-ink" /></div>
                             <div className="min-w-0">
                                 <h3 className="font-bold text-sm">{t("productMappingsTitle")}</h3>
                                 <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("productMappingsDesc")}</p>
@@ -647,7 +647,7 @@ export default function StripeMoloniIntegration() {
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className="p-2 bg-[rgba(2,141,196,0.10)] rounded-xl shrink-0"><Zap className="w-4 h-4 text-accent" /></div>
+                            <div className="p-2 bg-accent/10 rounded-xl shrink-0"><Zap className="w-4 h-4 text-accent-ink" /></div>
                             <div className="min-w-0">
                                 <h3 className="font-bold text-sm">{t("tagRoutingTitle")}</h3>
                                 <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("tagRoutingDesc")}</p>
@@ -657,7 +657,7 @@ export default function StripeMoloniIntegration() {
                     </div>
                     <div className="md:col-span-2 pt-4 flex items-center gap-4">
                         <button onClick={() => setStep(2)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
-                        <button onClick={handleSaveSettings} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                        <button onClick={handleSaveSettings} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {t("saveSettings")}</>}
                         </button>
                     </div>
@@ -673,18 +673,18 @@ export default function StripeMoloniIntegration() {
             body: (
                 <div className="space-y-8">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><CreditCard className="w-4 h-4 text-accent-hot" /></div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><CreditCard className="w-4 h-4 text-accent-hot" /></div>
                             <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("stripeLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("configured")}</p></div>
                             <Check className="w-4 h-4 text-accent-hot ml-auto" />
                         </div>
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Building2 className="w-4 h-4 text-accent-hot" /></div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><Building2 className="w-4 h-4 text-accent-hot" /></div>
                             <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("moloniLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("statusAuthorized")}</p></div>
                             <Check className="w-4 h-4 text-accent-hot ml-auto" />
                         </div>
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Settings2 className="w-4 h-4 text-accent-hot" /></div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><Settings2 className="w-4 h-4 text-accent-hot" /></div>
                             <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("settingsLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("configured")}</p></div>
                             <Check className="w-4 h-4 text-accent-hot ml-auto" />
                         </div>
@@ -693,7 +693,7 @@ export default function StripeMoloniIntegration() {
                         <AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" />
                         <p className="text-[11px] text-fg-60 leading-relaxed">{t("activateWarning")}</p>
                     </div>
-                    <button onClick={handleActivate} disabled={saving || connectionStatus === "active"} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                    <button onClick={handleActivate} disabled={saving || connectionStatus === "active"} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                         {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {connectionStatus === "active" ? t("currentlyActive") : t("markAsActive")}</>}
                     </button>
                     {globalError && <p className="text-[11px] text-destructive font-bold text-center">{globalError}</p>}
@@ -705,7 +705,7 @@ export default function StripeMoloniIntegration() {
     return (
         <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
             {stripeResult === "success" && (
-                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.30)] text-accent-hot">
+                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-accent-hot/12 border border-accent-hot/30 text-accent-hot">
                     <CheckCheck className="w-5 h-5 shrink-0" />
                     <p className="font-mono text-xs uppercase tracking-[0.18em]">{tB("stripeSuccess")}</p>
                 </motion.div>
@@ -717,17 +717,17 @@ export default function StripeMoloniIntegration() {
                     {hasActiveSub ? (
                         <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-[rgba(94,234,212,0.15)] ring-1 ring-[rgba(94,234,212,0.30)] flex items-center justify-center">
+                                <div className="w-12 h-12 rounded-2xl bg-accent-hot/15 ring-1 ring-accent-hot/30 flex items-center justify-center">
                                     <CreditCard className="w-5 h-5 text-accent-hot" />
                                 </div>
                                 <div>
                                     <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("subscribeHeading")}</p>
-                                    <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
+                                    <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-accent-hot/10 text-accent-hot border-accent-hot/20">
                                         {tB("statusActive")}
                                     </span>
                                 </div>
                             </div>
-                            <Link href="/faturacao" className="px-5 py-3 rounded-2xl bg-white/5 border border-hairline text-fg font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-white/10 transition-all flex items-center gap-2">
+                            <Link href="/faturacao" className="px-5 py-3 rounded-2xl bg-veil border border-hairline text-fg font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-fg/10 transition-all flex items-center gap-2">
                                 <CreditCard className="w-4 h-4" />
                                 {tB("changeCard")}
                             </Link>
@@ -742,16 +742,16 @@ export default function StripeMoloniIntegration() {
                                         <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("monthlyPlan")}</p>
                                         <p className="text-2xl font-medium tracking-tight">{t("monthlyPrice")}</p>
                                     </div>
-                                    <button onClick={() => handleSubscribe("monthly")} disabled={!!subscribing} className="w-full py-3 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] bg-white/5 border border-hairline hover:border-rule hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                                    <button onClick={() => handleSubscribe("monthly")} disabled={!!subscribing} className="w-full py-3 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] bg-veil border border-hairline hover:border-rule hover:bg-fg/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                                         {subscribing === "monthly" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                                         {tB("btnSubscribeMonthly")}
                                     </button>
                                 </div>
-                                <div className="rounded-2xl p-5 flex flex-col gap-4 border border-accent/30 bg-[rgba(2,141,196,0.04)]">
+                                <div className="rounded-2xl p-5 flex flex-col gap-4 border border-accent/30 bg-accent/4">
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
                                             <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{tB("annualPlan")}</p>
-                                            <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-[rgba(94,234,212,0.15)] text-accent-hot border border-[rgba(94,234,212,0.25)]">{tB("annualSaving")}</span>
+                                            <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-accent-hot/15 text-accent-hot border border-accent-hot/25">{tB("annualSaving")}</span>
                                         </div>
                                         <p className="text-2xl font-medium tracking-tight">{t("annualPrice")}</p>
                                     </div>
@@ -793,14 +793,14 @@ export default function StripeMoloniIntegration() {
             />
 
             {allComplete && (
-                <motion.div initial={{ opacity: 0, y: 20, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6 }} className="rounded-[2.5rem] p-1 shadow-2xl bg-[rgba(94,234,212,0.10)]">
-                    <div className="bg-surface rounded-[2.3rem] p-6 sm:p-10 flex flex-col gap-8 border border-white/5">
+                <motion.div initial={{ opacity: 0, y: 20, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6 }} className="rounded-[2.5rem] p-1 shadow-2xl bg-accent-hot/10">
+                    <div className="bg-surface rounded-[2.3rem] p-6 sm:p-10 flex flex-col gap-8 border border-veil">
                         <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                             <div className="flex items-center gap-8">
-                                <div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-[rgba(94,234,212,0.18)] ring-2 ring-accent-hot ring-offset-4 ring-offset-surface"><ShieldCheck className="w-10 h-10 text-accent-hot" /></div>
+                                <div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-accent-hot/18 ring-2 ring-accent-hot ring-offset-4 ring-offset-surface"><ShieldCheck className="w-10 h-10 text-accent-hot" /></div>
                                 <div className="space-y-1"><h3 className="text-2xl font-black tracking-tight">{t("integrationDoneTitle")}</h3><p className="text-fg-40 font-bold uppercase tracking-widest text-[10px]">{t("integrationDoneSub")}</p></div>
                             </div>
-                            <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]">{t("onlineRealtime")}</div>
+                            <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-accent-hot/10 text-accent-hot border-accent-hot/30">{t("onlineRealtime")}</div>
                         </div>
                     </div>
                 </motion.div>

@@ -6,10 +6,15 @@ import { usePathname, useRouter } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
 
 type Props = {
+  /**
+   * Kept so existing call sites keep compiling. The pill now paints itself from
+   * the active theme's variables, so it is legible on either skin without the
+   * caller having to know which one is on.
+   */
   variant?: "dark" | "light";
 };
 
-export function LangToggle({ variant = "dark" }: Props) {
+export function LangToggle(_props: Props = {}) {
   const t = useTranslations("lang");
   const locale = useLocale();
   const router = useRouter();
@@ -21,21 +26,11 @@ export function LangToggle({ variant = "dark" }: Props) {
     router.replace(pathname as any, { locale: next });
   }
 
-  const isDark = variant === "dark";
-  const bg = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
-  const border = isDark
-    ? "1px solid rgba(255,255,255,0.10)"
-    : "1px solid rgba(0,0,0,0.10)";
-  const activeBg = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
-  const activeFg = isDark ? "#F0F0F0" : "#14181F";
-  const inactiveFg = isDark ? "rgba(240,240,240,0.55)" : "rgba(20,24,31,0.55)";
-
   return (
     <div
       role="group"
       aria-label={t("switchTo")}
-      className="inline-flex items-center gap-0.5 rounded-full p-0.5"
-      style={{ background: bg, border }}
+      className="inline-flex items-center gap-0.5 rounded-full p-0.5 border border-hairline bg-veil"
     >
       {routing.locales.map((l) => {
         const active = l === locale;
@@ -45,12 +40,7 @@ export function LangToggle({ variant = "dark" }: Props) {
             type="button"
             onClick={() => switchTo(l)}
             aria-pressed={active}
-            className="font-mono text-[10px] uppercase tracking-[0.18em] rounded-full px-2.5 py-1 transition-colors duration-300"
-            style={{
-              background: active ? activeBg : "transparent",
-              color: active ? activeFg : inactiveFg,
-              cursor: active ? "default" : "pointer",
-            }}
+            className="seg font-mono text-[10px] uppercase tracking-[0.18em] rounded-full px-2.5 py-1 transition-colors duration-300"
           >
             {t(l as "pt" | "en")}
           </button>

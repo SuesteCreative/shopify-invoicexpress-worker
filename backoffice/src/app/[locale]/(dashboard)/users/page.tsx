@@ -205,7 +205,7 @@ export default function UsersPage() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                <Loader2 className="w-8 h-8 text-accent-ink animate-spin" />
             </div>
         );
     }
@@ -238,8 +238,8 @@ export default function UsersPage() {
                 <div className={cn(
                     "flex items-start gap-3 px-5 py-4 rounded-2xl border text-[12px]",
                     notice.kind === "ok"
-                        ? "border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.08)] text-accent-hot"
-                        : "border-[rgba(244,63,94,0.30)] bg-[rgba(244,63,94,0.08)] text-destructive"
+                        ? "border-accent-hot/30 bg-accent-hot/8 text-accent-hot"
+                        : "border-destructive/30 bg-destructive/8 text-destructive"
                 )}>
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <p>{notice.text}</p>
@@ -250,7 +250,7 @@ export default function UsersPage() {
             {canManage && freeSeats > 0 && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8 space-y-5">
                     <div className="flex items-center gap-2">
-                        <UserPlus className="w-4 h-4 text-accent" />
+                        <UserPlus className="w-4 h-4 text-accent-ink" />
                         <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("inviteTitle")}</span>
                     </div>
 
@@ -275,8 +275,8 @@ export default function UsersPage() {
                                     className={cn(
                                         "px-4 py-3 rounded-2xl border font-mono text-[10px] uppercase tracking-[0.18em] transition-all flex items-center gap-2",
                                         role === r
-                                            ? "bg-accent/15 border-accent/30 text-accent"
-                                            : "bg-white/5 border-hairline text-fg-60 hover:text-fg"
+                                            ? "bg-accent/15 border-accent/30 text-accent-ink"
+                                            : "bg-veil border-hairline text-fg-60 hover:text-fg"
                                     )}
                                 >
                                     {r === "admin" ? <ShieldCheck className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -287,7 +287,7 @@ export default function UsersPage() {
                         <button
                             onClick={handleInvite}
                             disabled={!!acting || !email.trim()}
-                            className="px-6 py-3 rounded-2xl bg-accent/15 border border-accent/30 text-accent font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            className="px-6 py-3 rounded-2xl bg-accent/15 border border-accent/30 text-accent-ink font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                         >
                             {acting === "invite" ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                             {t("inviteButton")}
@@ -313,14 +313,14 @@ export default function UsersPage() {
                 <div className="space-y-3">
                     {/* Seat 1: the owner, included */}
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-hairline bg-surface-2/30">
-                        <div className="w-9 h-9 shrink-0 rounded-xl bg-[rgba(2,141,196,0.15)] ring-1 ring-[rgba(2,141,196,0.30)] grid place-items-center">
-                            <Crown className="w-4 h-4 text-accent" />
+                        <div className="w-9 h-9 shrink-0 rounded-xl bg-accent/15 ring-1 ring-accent/30 grid place-items-center">
+                            <Crown className="w-4 h-4 text-accent-ink" />
                         </div>
                         <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">{data?.owner.label}</p>
                             {data?.owner.email && <p className="text-[11px] text-fg-40 truncate">{data.owner.email}</p>}
                         </div>
-                        <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
+                        <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit bg-accent-hot/10 text-accent-hot border-accent-hot/20">
                             {t("ownerBadge")}
                         </span>
                     </div>
@@ -339,8 +339,8 @@ export default function UsersPage() {
                             <span className={cn(
                                 "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit",
                                 m.status === "active"
-                                    ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
-                                    : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                                    ? "bg-accent-hot/10 text-accent-hot border-accent-hot/20"
+                                    : "bg-soon/10 text-soon border-soon/20"
                             )}>
                                 {m.status === "active" ? t("statusActive") : t("statusPending")}
                             </span>
@@ -355,8 +355,8 @@ export default function UsersPage() {
                                             className={cn(
                                                 "px-3 py-2 rounded-xl border font-mono text-[10px] uppercase tracking-[0.18em] transition-all disabled:opacity-40",
                                                 m.role === r
-                                                    ? "bg-accent/15 border-accent/30 text-accent"
-                                                    : "bg-white/5 border-hairline text-fg-60 hover:text-fg"
+                                                    ? "bg-accent/15 border-accent/30 text-accent-ink"
+                                                    : "bg-veil border-hairline text-fg-60 hover:text-fg"
                                             )}
                                         >
                                             {roleTag(r)}
@@ -366,7 +366,7 @@ export default function UsersPage() {
                                         onClick={() => handleRemove(m)}
                                         disabled={acting === m.id}
                                         title={t("remove")}
-                                        className="p-2 rounded-xl bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] text-destructive hover:bg-[rgba(244,63,94,0.18)] transition-all disabled:opacity-40"
+                                        className="p-2 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive hover:bg-destructive/18 transition-all disabled:opacity-40"
                                     >
                                         {acting === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                     </button>
@@ -381,21 +381,21 @@ export default function UsersPage() {
                     {Array.from({ length: freeSeats }).map((_, i) => {
                         const isIncluded = i < includedOpen;
                         return (
-                            <div key={`free-${i}`} className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.05)]">
-                                <div className="w-9 h-9 shrink-0 rounded-xl bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.20)] grid place-items-center">
+                            <div key={`free-${i}`} className="flex flex-col sm:flex-row sm:items-center gap-4 px-4 py-4 rounded-2xl border border-dashed border-accent-hot/30 bg-accent-hot/5">
+                                <div className="w-9 h-9 shrink-0 rounded-xl bg-accent-hot/10 border border-accent-hot/20 grid place-items-center">
                                     <UserPlus className="w-4 h-4 text-accent-hot" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                     <p className="text-sm font-medium text-accent-hot">{t("seatFree")}</p>
                                     <p className="text-[11px] text-fg-40">{isIncluded ? t("seatIncludedHint") : t("seatFreeHint")}</p>
                                 </div>
-                                <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]">
+                                <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border w-fit bg-accent-hot/10 text-accent-hot border-accent-hot/20">
                                     {isIncluded ? t("badgeIncluded") : t("badgePaid")}
                                 </span>
                                 {canManage && (
                                     <button
                                         onClick={() => emailRef.current?.focus()}
-                                        className="px-4 py-2 rounded-xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.28)] text-accent-hot font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(94,234,212,0.20)] transition-all"
+                                        className="px-4 py-2 rounded-xl bg-accent-hot/12 border border-accent-hot/28 text-accent-hot font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent-hot/20 transition-all"
                                     >
                                         {t("inviteButton")}
                                     </button>
@@ -419,7 +419,7 @@ export default function UsersPage() {
                             <button
                                 onClick={handleUnlock}
                                 disabled={!!acting || !data?.can_unlock}
-                                className="px-5 py-2.5 rounded-xl bg-[rgba(245,158,11,0.15)] border border-[rgba(245,158,11,0.30)] text-soon font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(245,158,11,0.25)] transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                                className="px-5 py-2.5 rounded-xl bg-soon/15 border border-soon/30 text-soon font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-soon/25 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                                 {acting === "unlock" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
                                 {t("unlockButton", { amount: priceLabel })}

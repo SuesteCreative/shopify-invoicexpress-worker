@@ -16,8 +16,8 @@ const ROLE_ORDER: Record<Role, number> = { hiperadmin: 3, superadmin: 2, user: 1
 
 const RoleBadge = ({ role, t }: { role: Role; t: (k: string) => string }) => {
     const styles: Record<Role, string> = {
-        hiperadmin: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.20)]",
-        superadmin: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]",
+        hiperadmin: "bg-accent/10 text-accent-ink border-accent/20",
+        superadmin: "bg-destructive/10 text-destructive border-destructive/20",
         user: "bg-surface-2 text-fg-40 border-hairline",
     };
     const labels: Record<Role, string> = { hiperadmin: t("roleHiperadmin"), superadmin: t("roleSuperadmin"), user: t("roleUser") };
@@ -29,7 +29,7 @@ const RoleBadge = ({ role, t }: { role: Role; t: (k: string) => string }) => {
 };
 
 const RoleIcon = ({ role }: { role: Role }) => {
-    if (role === "hiperadmin") return <Crown className="w-8 h-8 text-accent" />;
+    if (role === "hiperadmin") return <Crown className="w-8 h-8 text-accent-ink" />;
     if (role === "superadmin") return <ShieldCheck className="w-8 h-8 text-destructive" />;
     return <User className="w-8 h-8 text-fg-40" />;
 };
@@ -40,13 +40,13 @@ const RoleIcon = ({ role }: { role: Role }) => {
  * at a glance — which is how one used to be mistaken for the other.
  */
 const PLATFORM_PILL: Record<string, string> = {
-    shopify: "bg-[rgba(149,191,71,0.14)] text-[#a3cc55] border-[rgba(149,191,71,0.32)]",
-    stripe: "bg-[rgba(168,85,247,0.16)] text-purple-400 border-[rgba(168,85,247,0.36)]",
-    lodgify: "bg-[rgba(2,141,196,0.14)] text-accent border-[rgba(2,141,196,0.30)]",
-    eupago: "bg-[rgba(245,158,11,0.14)] text-soon border-[rgba(245,158,11,0.30)]",
-    invoicexpress: "bg-[rgba(6,95,70,0.35)] text-emerald-300 border-[rgba(6,95,70,0.70)]",
-    moloni: "bg-[rgba(59,130,246,0.14)] text-blue-400 border-[rgba(59,130,246,0.32)]",
-    vendus: "bg-[rgba(236,72,153,0.14)] text-pink-400 border-[rgba(236,72,153,0.32)]",
+    shopify: "bg-[rgba(149,191,71,0.14)] text-[var(--pill-shopify,#a3cc55)] border-[rgba(149,191,71,0.32)]",
+    stripe: "bg-[rgba(168,85,247,0.16)] text-[var(--pill-stripe,#c084fc)] border-[rgba(168,85,247,0.36)]",
+    lodgify: "bg-accent/14 text-accent-ink border-accent/30",
+    eupago: "bg-soon/14 text-soon border-soon/30",
+    invoicexpress: "bg-[var(--pill-ix-bg,rgba(6,95,70,0.35))] text-[var(--pill-ix,#6ee7b7)] border-[rgba(6,95,70,0.70)]",
+    moloni: "bg-[rgba(59,130,246,0.14)] text-[var(--pill-moloni,#60a5fa)] border-[rgba(59,130,246,0.32)]",
+    vendus: "bg-[rgba(236,72,153,0.14)] text-[var(--pill-vendus,#f472b6)] border-[rgba(236,72,153,0.32)]",
 };
 
 const SHORT_LABEL: Record<string, string> = { invoicexpress: "IX" };
@@ -97,10 +97,10 @@ function subBucket(state?: string): Exclude<SubBucket, "all"> {
 function SubBadge({ state, t }: { state?: string; t: any }) {
     const bucket = subBucket(state);
     const style = {
-        active: "bg-[rgba(16,185,129,0.15)] text-emerald-400 border-[rgba(16,185,129,0.30)]",
-        trialing: "bg-[rgba(234,179,8,0.15)] text-yellow-400 border-[rgba(234,179,8,0.30)]",
-        blocked: "bg-[rgba(244,63,94,0.15)] text-destructive border-[rgba(244,63,94,0.30)]",
-        exempt: "bg-[rgba(168,85,247,0.15)] text-purple-400 border-[rgba(168,85,247,0.30)]",
+        active: "bg-accent-hot/15 text-accent-hot border-accent-hot/30",
+        trialing: "bg-soon/15 text-soon border-soon/30",
+        blocked: "bg-destructive/15 text-destructive border-destructive/30",
+        exempt: "bg-accent/15 text-accent-ink border-accent/30",
     }[bucket];
     const label = {
         active: t("subActive"), trialing: t("subTrial"),
@@ -429,7 +429,7 @@ export default function SuperadminPage() {
                                         placeholder={t("storeLabelPlaceholder")}
                                         className="bg-surface-2/60 border border-hairline rounded-lg px-2.5 py-1 text-lg font-bold w-56 focus:outline-none focus:border-accent transition-all"
                                     />
-                                    <button onClick={() => handleLabelSave(user)} disabled={acting !== null} className="p-1.5 rounded-md bg-[rgba(2,141,196,0.15)] text-accent hover:bg-[rgba(2,141,196,0.25)] transition-all disabled:opacity-30">
+                                    <button onClick={() => handleLabelSave(user)} disabled={acting !== null} className="p-1.5 rounded-md bg-accent/15 text-accent-ink hover:bg-accent/25 transition-all disabled:opacity-30">
                                         {acting === user.entry_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                                     </button>
                                     <button onClick={() => setLabelEditing(null)} className="p-1.5 rounded-md bg-surface-2 text-fg-40 hover:text-fg transition-all"><X className="w-3.5 h-3.5" /></button>
@@ -440,8 +440,8 @@ export default function SuperadminPage() {
                                     title={t("storeLabelEdit")}
                                     className="group/lbl flex items-center gap-2 transition-all"
                                 >
-                                    <h2 className="text-xl font-bold group-hover/lbl:text-accent transition-colors">{label || user.name}</h2>
-                                    <Pencil className="w-3.5 h-3.5 text-fg-40 opacity-40 group-hover/lbl:opacity-100 group-hover/lbl:text-accent transition-all" />
+                                    <h2 className="text-xl font-bold group-hover/lbl:text-accent-ink transition-colors">{label || user.name}</h2>
+                                    <Pencil className="w-3.5 h-3.5 text-fg-40 opacity-40 group-hover/lbl:opacity-100 group-hover/lbl:text-accent-ink transition-all" />
                                 </button>
                             )}
                             <RoleBadge role={targetRole} t={t} />
@@ -458,12 +458,12 @@ export default function SuperadminPage() {
                                 say whose account they work in, so the missing
                                 subscription does not read as a broken shop. */}
                             {user.member_of_label && (
-                                <span className="px-2 py-0.5 rounded-md bg-[rgba(2,141,196,0.12)] text-accent text-[10px] font-black uppercase tracking-widest border border-[rgba(2,141,196,0.28)]">
+                                <span className="px-2 py-0.5 rounded-md bg-accent/12 text-accent-ink text-[10px] font-black uppercase tracking-widest border border-accent/28">
                                     {user.member_role === "admin" ? "admin" : "read-only"} · {user.member_of_label}
                                 </span>
                             )}
                             {isSpectated && (
-                                <span className="px-2 py-0.5 rounded-md bg-[rgba(168,85,247,0.15)] text-purple-400 text-[10px] font-black uppercase tracking-widest border border-[rgba(168,85,247,0.30)] flex items-center gap-1">
+                                <span className="px-2 py-0.5 rounded-md bg-accent/15 text-accent-ink text-[10px] font-black uppercase tracking-widest border border-accent/30 flex items-center gap-1">
                                     <Eye className="w-2.5 h-2.5" /> {t("spectating")}
                                 </span>
                             )}
@@ -492,7 +492,7 @@ export default function SuperadminPage() {
                         {user.registration_completed ? (
                             <div className="space-y-1">
                                 <p className="text-xs font-bold text-fg flex items-center gap-2">
-                                    <ShieldCheck className="w-3 h-3 text-accent" /> {user.nif}
+                                    <ShieldCheck className="w-3 h-3 text-accent-ink" /> {user.nif}
                                 </p>
                                 {user.company_name && (
                                     <p className="text-[10px] text-fg-40 font-bold uppercase truncate max-w-[150px]">{user.company_name}</p>
@@ -554,7 +554,7 @@ export default function SuperadminPage() {
                     <div className="flex items-center gap-2 flex-wrap justify-center">
                         {canImpersonate && (
                             <button onClick={() => handleImpersonate(user.id)} disabled={acting !== null}
-                                className="bg-white text-black px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-fg transition-all duration-300 active:scale-95 disabled:opacity-30">
+                                className="bg-fg text-surface px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-on-accent transition-all duration-300 active:scale-95 disabled:opacity-30">
                                 {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
                                 {t("impersonate")}
                             </button>
@@ -562,7 +562,7 @@ export default function SuperadminPage() {
 
                         {!isSelf && (
                             <Link href={`/superadmin/users/${user.id}/dev-mode`}
-                                className="bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(2,141,196,0.18)] transition-all active:scale-95">
+                                className="bg-accent/10 text-accent-ink border border-accent/20 px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent/18 transition-all active:scale-95">
                                 <Wrench className="w-3 h-3" /> {t("devMode")}
                             </Link>
                         )}
@@ -571,7 +571,7 @@ export default function SuperadminPage() {
                         {promoteOptions.map(opt => (
                             <button key={opt.role} onClick={() => handleRoleChange(user.id, opt.role)}
                                 disabled={acting !== null}
-                                className="px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-[rgba(245,158,11,0.10)] text-soon border border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.18)] transition-all disabled:opacity-30">
+                                className="px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-soon/10 text-soon border border-soon/20 hover:bg-soon/18 transition-all disabled:opacity-30">
                                 {acting === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : opt.icon}
                                 {opt.label}
                             </button>
@@ -580,7 +580,7 @@ export default function SuperadminPage() {
                         {/* Delete — the ACCOUNT, with every pipe on it */}
                         {canDelete && (
                             impact ? (
-                                <div className="flex flex-col gap-2 bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.30)] rounded-2xl px-4 py-3 max-w-[280px]">
+                                <div className="flex flex-col gap-2 bg-destructive/10 border border-destructive/30 rounded-2xl px-4 py-3 max-w-[280px]">
                                     <span className="text-[10px] font-black text-destructive uppercase tracking-wider leading-relaxed">
                                         {t("deleteAccountImpact", {
                                             label: label || user.name,
@@ -590,22 +590,22 @@ export default function SuperadminPage() {
                                     </span>
                                     <div className="flex items-center gap-2">
                                         <button onClick={() => handleDelete(user, true)} disabled={acting !== null}
-                                            className="flex-1 px-3 py-2 rounded-xl bg-destructive text-white text-[10px] font-black uppercase tracking-widest hover:bg-destructive/85 transition-all disabled:opacity-30">
+                                            className="flex-1 px-3 py-2 rounded-xl bg-destructive text-on-accent text-[10px] font-black uppercase tracking-widest hover:bg-destructive/85 transition-all disabled:opacity-30">
                                             {t("deleteAccountForce")}
                                         </button>
                                         <button onClick={() => setDeleteImpact(null)} className="p-2 rounded-xl bg-surface-2 text-fg-60 hover:bg-surface-2/70 transition-all"><X className="w-3 h-3" /></button>
                                     </div>
                                 </div>
                             ) : deleteConfirm === user.entry_id ? (
-                                <div className="flex items-center gap-2 bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] rounded-2xl px-4 py-2">
+                                <div className="flex items-center gap-2 bg-destructive/10 border border-destructive/20 rounded-2xl px-4 py-2">
                                     <span className="text-[10px] font-black text-destructive uppercase tracking-wider">{t("deleteAccountQuestion")}</span>
-                                    <button onClick={() => handleDelete(user)} className="p-1 rounded-lg bg-destructive text-white hover:bg-destructive/85 transition-all"><Check className="w-3 h-3" /></button>
+                                    <button onClick={() => handleDelete(user)} className="p-1 rounded-lg bg-destructive text-on-accent hover:bg-destructive/85 transition-all"><Check className="w-3 h-3" /></button>
                                     <button onClick={() => setDeleteConfirm(null)} className="p-1 rounded-lg bg-surface-2 text-fg-60 hover:bg-surface-2/70 transition-all"><X className="w-3 h-3" /></button>
                                 </div>
                             ) : (
                                 <button onClick={() => setDeleteConfirm(user.entry_id)} disabled={acting !== null}
                                     title={t("deleteAccountTitle")}
-                                    className="px-3 py-3 rounded-2xl flex items-center gap-2 bg-[rgba(244,63,94,0.05)] text-destructive/50 border border-[rgba(244,63,94,0.10)] hover:bg-[rgba(244,63,94,0.10)] hover:text-destructive hover:border-[rgba(244,63,94,0.20)] transition-all disabled:opacity-30">
+                                    className="px-3 py-3 rounded-2xl flex items-center gap-2 bg-destructive/5 text-destructive/50 border border-destructive/10 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20 transition-all disabled:opacity-30">
                                     <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                             )
@@ -625,9 +625,9 @@ export default function SuperadminPage() {
         const store = accountNames.get(inv.account_id) ?? inv.account_id;
         const platforms = accountPlatforms.get(inv.account_id) ?? [];
         const statusStyle = {
-            active: "bg-[rgba(16,185,129,0.15)] text-emerald-400 border-[rgba(16,185,129,0.30)]",
-            pending: "bg-[rgba(234,179,8,0.15)] text-yellow-400 border-[rgba(234,179,8,0.30)]",
-            revoked: "bg-[rgba(244,63,94,0.15)] text-destructive border-[rgba(244,63,94,0.30)]",
+            active: "bg-accent-hot/15 text-accent-hot border-accent-hot/30",
+            pending: "bg-soon/15 text-soon border-soon/30",
+            revoked: "bg-destructive/15 text-destructive border-destructive/30",
         }[inv.status as string] ?? "bg-surface-2 text-fg-40 border-hairline";
         const paid = !!inv.seat_paid_at;
 
@@ -650,17 +650,17 @@ export default function SuperadminPage() {
                             <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${statusStyle}`}>
                                 {t(`inviteStatus_${inv.status}` as any)}
                             </span>
-                            <span className="px-2 py-0.5 rounded-md bg-[rgba(2,141,196,0.12)] text-accent text-[10px] font-black uppercase tracking-widest border border-[rgba(2,141,196,0.28)]">
+                            <span className="px-2 py-0.5 rounded-md bg-accent/12 text-accent-ink text-[10px] font-black uppercase tracking-widest border border-accent/28">
                                 {inv.role === "admin" ? t("inviteRoleAdmin") : t("inviteRoleViewer")}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${paid ? "bg-[rgba(16,185,129,0.15)] text-emerald-400 border-[rgba(16,185,129,0.30)]" : "bg-surface-2 text-fg-40 border-hairline"}`}>
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${paid ? "bg-accent-hot/15 text-accent-hot border-accent-hot/30" : "bg-surface-2 text-fg-40 border-hairline"}`}>
                                 {paid
                                     ? t("seatPaid", { amount: ((inv.seat_amount_cents ?? 0) / 100).toFixed(2) })
                                     : t("seatFree")}
                             </span>
                             {platforms.map((k: string) => <PlatformPill key={k} kind={k} />)}
                         </div>
-                        <p className="text-base font-bold text-accent">{store}</p>
+                        <p className="text-base font-bold text-accent-ink">{store}</p>
                         <p className="text-fg-40 text-sm font-medium">{inv.email}</p>
                     </div>
 
@@ -690,13 +690,13 @@ export default function SuperadminPage() {
                             an extra user owns none. */}
                         {inv.member_user_id && inv.member_user_id !== (clerkUser?.id ?? viewerId) && (
                             <button onClick={() => handleImpersonate(inv.member_user_id)} disabled={acting !== null}
-                                className="bg-white text-black px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-fg transition-all duration-300 active:scale-95 disabled:opacity-30">
+                                className="bg-fg text-surface px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-destructive hover:text-on-accent transition-all duration-300 active:scale-95 disabled:opacity-30">
                                 {acting === inv.member_user_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCog className="w-3 h-3" />}
                                 {t("impersonate")}
                             </button>
                         )}
                         <Link href={`/superadmin/users/${inv.account_id}/dev-mode`}
-                            className="bg-[rgba(2,141,196,0.10)] text-accent border border-[rgba(2,141,196,0.20)] px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(2,141,196,0.18)] transition-all active:scale-95">
+                            className="bg-accent/10 text-accent-ink border border-accent/20 px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent/18 transition-all active:scale-95">
                             <Wrench className="w-3 h-3" /> {t("devMode")}
                         </Link>
                     </div>
@@ -711,7 +711,7 @@ export default function SuperadminPage() {
         </div>
     );
 
-    const selectClass = "bg-surface-2/50 border border-hairline rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-fg focus:outline-none focus:border-[rgba(244,63,94,0.40)] transition-all";
+    const selectClass = "bg-surface-2/50 border border-hairline rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-fg focus:outline-none focus:border-destructive/40 transition-all";
 
     return (
         <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -734,7 +734,7 @@ export default function SuperadminPage() {
                         <input
                             type="text" placeholder={t("searchPlaceholder")}
                             value={search} onChange={e => setSearch(e.target.value)}
-                            className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] focus:border-[rgba(244,63,94,0.40)] w-full lg:w-80 transition-all"
+                            className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-destructive/20 focus:border-destructive/40 w-full lg:w-80 transition-all"
                         />
                     </div>
                     <div className="flex items-center gap-1.5 bg-surface-2/50 border border-hairline rounded-2xl p-1.5">
@@ -800,7 +800,7 @@ export default function SuperadminPage() {
                     { key: "integrated", label: t("groupIntegrated"), icon: <Link2 className="w-4 h-4 text-accent-hot" />, list: groups.integrated, invite: false },
                     { key: "pending", label: t("groupPending"), icon: <Link2Off className="w-4 h-4 text-soon" />, list: groups.pending, invite: false },
                     { key: "inactive", label: t("groupInactive"), icon: <Moon className="w-4 h-4 text-fg-40" />, list: groups.inactive, invite: false },
-                    { key: "invited", label: t("groupInvited"), icon: <Mail className="w-4 h-4 text-accent" />, list: visibleInvites, invite: true },
+                    { key: "invited", label: t("groupInvited"), icon: <Mail className="w-4 h-4 text-accent-ink" />, list: visibleInvites, invite: true },
                 ] as const).map(sec => {
                     const isOpen = !collapsed[sec.key];
                     return (
@@ -846,7 +846,7 @@ export default function SuperadminPage() {
 
             <div className="pt-10 flex justify-center">
                 <button onClick={() => handleImpersonate(null)}
-                    className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-[0.2em] transition-all py-4 px-5 sm:px-8 border border-hairline rounded-2xl hover:bg-white/5">
+                    className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-[0.2em] transition-all py-4 px-5 sm:px-8 border border-hairline rounded-2xl hover:bg-veil">
                     <LogOut className="w-4 h-4" />
                     {t("clearImpersonation")}
                 </button>

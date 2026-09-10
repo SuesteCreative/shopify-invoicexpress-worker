@@ -16,9 +16,9 @@ export default function SuspendedBanner() {
         <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-start gap-4 px-6 py-5 rounded-2xl border border-[rgba(244,63,94,0.40)] bg-[rgba(244,63,94,0.05)]"
+            className="flex items-start gap-4 px-6 py-5 rounded-2xl border border-destructive/40 bg-destructive/5"
         >
-            <span className="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-[rgba(244,63,94,0.15)] text-destructive ring-1 ring-[rgba(244,63,94,0.30)]">
+            <span className="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-destructive/15 text-destructive ring-1 ring-destructive/30">
                 <AlertTriangle className="w-5 h-5" />
             </span>
             <div className="min-w-0">

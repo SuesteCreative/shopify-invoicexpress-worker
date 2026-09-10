@@ -46,7 +46,7 @@ export default function InvoicesPage() {
                     <div>
                         <div className="flex items-center gap-3 mb-1">
                             <div className="p-2 bg-surface-2 rounded-xl border border-hairline">
-                                <ClipboardList className="w-5 h-5 text-accent" />
+                                <ClipboardList className="w-5 h-5 text-accent-ink" />
                             </div>
                             <h1 className="text-2xl font-medium tracking-tight text-fg">{t("title")}</h1>
                         </div>
@@ -55,11 +55,11 @@ export default function InvoicesPage() {
 
                     <div className="flex flex-wrap items-center gap-4">
                         <div className="relative group">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             <input
                                 type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                                 placeholder={t("searchPlaceholder")}
-                                className="bg-surface-2 border border-hairline rounded-2xl pl-12 pr-4 py-3 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] outline-none w-full md:w-80 transition-all placeholder:text-fg-40"
+                                className="bg-surface-2 border border-hairline rounded-2xl pl-12 pr-4 py-3 text-sm font-medium text-fg focus:ring-2 focus:ring-accent/20 focus:border-accent/50 outline-none w-full md:w-80 transition-all placeholder:text-fg-40"
                             />
                         </div>
                         <div className="flex bg-surface-2/80 p-1 rounded-xl border border-hairline">
@@ -75,8 +75,8 @@ export default function InvoicesPage() {
                 {loading ? (
                     <div className="flex flex-col items-center justify-center py-32 space-y-4">
                         <div className="relative">
-                            <Loader2 className="w-12 h-12 text-accent animate-spin" />
-                            <div className="absolute inset-0 bg-[rgba(2,141,196,0.20)] blur-2xl animate-pulse" />
+                            <Loader2 className="w-12 h-12 text-accent-ink animate-spin" />
+                            <div className="absolute inset-0 bg-accent/20 blur-2xl animate-pulse" />
                         </div>
                         <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] animate-pulse">{t("syncing")}</p>
                     </div>
@@ -129,7 +129,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
             exit={{ opacity: 0, scale: 0.95 }}
             className={cn(
                 "glass group rounded-[2.5rem] transition-all duration-500 overflow-hidden",
-                expanded ? "ring-2 ring-[rgba(2,141,196,0.20)] border-[rgba(2,141,196,0.30)]" : "hover:bg-white/[0.01]"
+                expanded ? "ring-2 ring-accent/20 border-accent/30" : "hover:bg-fg/[0.01]"
             )}
         >
             <div
@@ -139,7 +139,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                 <div className="flex items-center gap-6">
                     <div className={cn(
                         "w-16 h-16 rounded-[1.5rem] flex items-center justify-center transition-all duration-500 relative",
-                        isCredit ? "bg-[rgba(244,63,94,0.10)] text-destructive group-hover:bg-[rgba(244,63,94,0.18)]" : "bg-[rgba(2,141,196,0.10)] text-accent group-hover:bg-[rgba(2,141,196,0.18)]"
+                        isCredit ? "bg-destructive/10 text-destructive group-hover:bg-destructive/18" : "bg-accent/10 text-accent-ink group-hover:bg-accent/18"
                     )}>
                         {isCredit ? <Split className="w-8 h-8" /> : <Receipt className="w-8 h-8" />}
                     </div>
@@ -148,12 +148,12 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                         <div className="flex items-center gap-2">
                             <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{typeLabel}</span>
                             {isFinalized ? (
-                                <div className="flex items-center gap-1.5 bg-[rgba(94,234,212,0.10)] px-2 py-0.5 rounded-full border border-[rgba(94,234,212,0.20)]">
+                                <div className="flex items-center gap-1.5 bg-accent-hot/10 px-2 py-0.5 rounded-full border border-accent-hot/20">
                                     <div className="w-1 h-1 rounded-full bg-accent-hot animate-pulse" />
                                     <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-accent-hot">{t("issued")}</span>
                                 </div>
                             ) : (
-                                <div className="flex items-center gap-1.5 bg-[rgba(245,158,11,0.10)] px-2 py-0.5 rounded-full border border-[rgba(245,158,11,0.20)]">
+                                <div className="flex items-center gap-1.5 bg-soon/10 px-2 py-0.5 rounded-full border border-soon/20">
                                     <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-soon">{invoice.status}</span>
                                 </div>
                             )}
@@ -183,7 +183,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                         <a
                             href={shopifyOrderUrl} target="_blank" rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="p-4 bg-surface-2 hover:bg-[rgba(94,234,212,0.10)] text-fg-60 hover:text-accent-hot rounded-[1.25rem] border border-hairline hover:border-[rgba(94,234,212,0.30)] transition-all active:scale-90"
+                            className="p-4 bg-surface-2 hover:bg-accent-hot/10 text-fg-60 hover:text-accent-hot rounded-[1.25rem] border border-hairline hover:border-accent-hot/30 transition-all active:scale-90"
                             title={t("openInShopify")}
                         >
                             <ShoppingBag className="w-5 h-5" />
@@ -202,15 +202,15 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                 <div className="p-5 sm:p-8 grid lg:grid-cols-2 gap-8">
                     <div className="space-y-6">
                         <div className="flex items-center gap-3">
-                            <Zap className="w-4 h-4 text-accent" />
+                            <Zap className="w-4 h-4 text-accent-ink" />
                             <h4 className="font-mono text-[10px] uppercase text-fg-40 tracking-[0.25em]">{t("transactionPath")}</h4>
                         </div>
 
-                        <div className="relative pl-6 space-y-6 before:absolute before:left-1 before:top-2 before:bottom-0 before:w-px before:bg-gradient-to-b before:from-[rgba(2,141,196,0.50)] before:to-transparent">
+                        <div className="relative pl-6 space-y-6 before:absolute before:left-1 before:top-2 before:bottom-0 before:w-px before:bg-gradient-to-b before:from-accent/50 before:to-transparent">
                             {invoice.logs?.length > 0 ? (
                                 invoice.logs.map((log: any) => (
                                     <div key={log.id} className="relative group">
-                                        <div className="absolute -left-[24px] top-1.5 w-2 h-2 rounded-full bg-surface ring-2 ring-accent shadow-[0_0_10px_rgba(2,141,196,0.50)] z-10" />
+                                        <div className="absolute -left-[24px] top-1.5 w-2 h-2 rounded-full bg-surface ring-2 ring-accent shadow-[0_0_10px_color-mix(in_srgb,var(--accent)_50%,transparent)] z-10" />
                                         <div className="space-y-1">
                                             <p className="text-[11px] font-medium text-fg flex items-center gap-2">
                                                 {log.topic === "orders/paid" ? t("shopifyPayment") : (log.topic === "refunds/create" ? t("refundRequested") : log.topic)}
@@ -230,9 +230,9 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                     </div>
 
                     <div className="p-5 sm:p-8 rounded-[2rem] border border-hairline flex flex-col justify-center items-center text-center space-y-6 relative overflow-hidden group/pdf">
-                        <div className="absolute inset-0 bg-[rgba(2,141,196,0.05)] opacity-0 group-hover/pdf:opacity-100 transition-opacity" />
+                        <div className="absolute inset-0 bg-accent/5 opacity-0 group-hover/pdf:opacity-100 transition-opacity" />
                         <div className="bg-surface-2 p-6 rounded-3xl border border-hairline relative z-10">
-                            <FileText className="w-12 h-12 text-accent" />
+                            <FileText className="w-12 h-12 text-accent-ink" />
                         </div>
                         <div className="space-y-1 z-10">
                             <h5 className="font-medium text-fg">{t("documentPreview")}</h5>
@@ -241,7 +241,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                         <div className="flex gap-3 z-10">
                             <a
                                 href={pdfUrl}
-                                className="px-6 py-3 bg-fg text-surface hover:bg-accent-hot rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] transition-all shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)] active:scale-95 flex items-center gap-2"
+                                className="px-6 py-3 bg-fg text-surface hover:bg-accent-hot rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] transition-all shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--accent)_45%,transparent)] active:scale-95 flex items-center gap-2"
                             >
                                 <Download className="w-3.5 h-3.5" /> {t("downloadPdf")}
                             </a>

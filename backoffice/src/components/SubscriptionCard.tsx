@@ -110,7 +110,7 @@ export default function SubscriptionCard(
     if (loading) {
         return (
             <div className="glass rounded-[2rem] p-5 sm:p-8 flex items-center justify-center min-h-[180px]">
-                <Loader2 className="w-6 h-6 text-accent animate-spin" />
+                <Loader2 className="w-6 h-6 text-accent-ink animate-spin" />
             </div>
         );
     }
@@ -121,12 +121,12 @@ export default function SubscriptionCard(
     if (state === "exempt") {
         return (
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-                className="glass rounded-[2rem] border-2 border-[rgba(244,63,94,0.30)] bg-[rgba(244,63,94,0.04)] p-6 flex items-center gap-5">
-                <div className="w-12 h-12 rounded-2xl bg-[rgba(244,63,94,0.15)] ring-1 ring-[rgba(244,63,94,0.30)] flex items-center justify-center shrink-0">
+                className="glass rounded-[2rem] border-2 border-destructive/30 bg-destructive/4 p-6 flex items-center gap-5">
+                <div className="w-12 h-12 rounded-2xl bg-destructive/15 ring-1 ring-destructive/30 flex items-center justify-center shrink-0">
                     <ShieldCheck className="w-6 h-6 text-destructive" />
                 </div>
                 <div>
-                    <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]">
+                    <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border bg-destructive/10 text-destructive border-destructive/20">
                         {t("admin")}
                     </span>
                     <h3 className="text-lg font-medium tracking-tight text-fg mt-1">{t("exemptTitle")}</h3>
@@ -138,33 +138,33 @@ export default function SubscriptionCard(
 
     const config = {
         active: {
-            ring: "border-[rgba(94,234,212,0.40)] bg-[rgba(94,234,212,0.04)]",
-            iconBg: "bg-[rgba(94,234,212,0.15)] text-accent-hot ring-[rgba(94,234,212,0.30)]",
-            badge: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]",
+            ring: "border-accent-hot/40 bg-accent-hot/4",
+            iconBg: "bg-accent-hot/15 text-accent-hot ring-accent-hot/30",
+            badge: "bg-accent-hot/10 text-accent-hot border-accent-hot/20",
             badgeText: t("badgeActive"),
             title: t("titleActive"),
             icon: Check,
         },
         trialing_earlybird: {
-            ring: "border-[rgba(245,158,11,0.40)] bg-[rgba(245,158,11,0.04)]",
-            iconBg: "bg-[rgba(245,158,11,0.15)] text-soon ring-[rgba(245,158,11,0.30)]",
-            badge: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]",
+            ring: "border-soon/40 bg-soon/4",
+            iconBg: "bg-soon/15 text-soon ring-soon/30",
+            badge: "bg-soon/10 text-soon border-soon/20",
             badgeText: t("badgeEarlyBird"),
             title: t("titleEarlyBird"),
             icon: Sparkles,
         },
         trialing: {
-            ring: "border-[rgba(2,141,196,0.40)] bg-[rgba(2,141,196,0.04)]",
-            iconBg: "bg-[rgba(2,141,196,0.15)] text-accent ring-[rgba(2,141,196,0.30)]",
-            badge: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.20)]",
+            ring: "border-accent/40 bg-accent/4",
+            iconBg: "bg-accent/15 text-accent-ink ring-accent/30",
+            badge: "bg-accent/10 text-accent-ink border-accent/20",
             badgeText: t("badgeTrial"),
             title: t("titleTrial"),
             icon: Clock,
         },
         blocked: {
-            ring: "border-[rgba(244,63,94,0.40)] bg-[rgba(244,63,94,0.05)]",
-            iconBg: "bg-[rgba(244,63,94,0.15)] text-destructive ring-[rgba(244,63,94,0.30)]",
-            badge: "bg-[rgba(244,63,94,0.15)] text-destructive border-[rgba(244,63,94,0.30)]",
+            ring: "border-destructive/40 bg-destructive/5",
+            iconBg: "bg-destructive/15 text-destructive ring-destructive/30",
+            badge: "bg-destructive/15 text-destructive border-destructive/30",
             badgeText: t("badgeBlocked"),
             title: t("titleBlocked"),
             icon: AlertTriangle,
@@ -190,7 +190,7 @@ export default function SubscriptionCard(
             className={cn("glass rounded-[2rem] border-2 p-5 sm:p-8 relative overflow-hidden", config.ring)}
         >
             {onSuccess && (
-                <motion.div initial={{ y: -40 }} animate={{ y: 0 }} className="absolute top-0 left-0 right-0 bg-[rgba(94,234,212,0.18)] text-accent-hot text-center py-2 font-mono text-xs uppercase tracking-[0.22em]">
+                <motion.div initial={{ y: -40 }} animate={{ y: 0 }} className="absolute top-0 left-0 right-0 bg-accent-hot/18 text-accent-hot text-center py-2 font-mono text-xs uppercase tracking-[0.22em]">
                     {t("success")}
                 </motion.div>
             )}
@@ -212,7 +212,7 @@ export default function SubscriptionCard(
                                 </span>
                             )}
                             {sub?.cancel_at_period_end === 1 && (
-                                <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]">
+                                <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border bg-destructive/10 text-destructive border-destructive/20">
                                     {t("cancels", { date: formatDate(sub.current_period_end) })}
                                 </span>
                             )}
@@ -232,7 +232,7 @@ export default function SubscriptionCard(
                     {state === "active" && (
                         <Link
                             href="/faturacao"
-                            className="px-6 py-3 rounded-2xl bg-white/5 border border-hairline text-fg font-mono text-xs uppercase tracking-[0.18em] hover:bg-white/10 transition-all flex items-center gap-3 shrink-0"
+                            className="px-6 py-3 rounded-2xl bg-veil border border-hairline text-fg font-mono text-xs uppercase tracking-[0.18em] hover:bg-fg/10 transition-all flex items-center gap-3 shrink-0"
                         >
                             {t("manageBilling")} <ArrowRight className="w-4 h-4" />
                         </Link>
@@ -247,7 +247,7 @@ export default function SubscriptionCard(
                                 className={cn(
                                     "relative rounded-2xl border-2 p-6 text-left transition-all transform active:scale-[0.98]",
                                     selectedPlan === "monthly"
-                                        ? "border-fg bg-white/[0.07] shadow-xl"
+                                        ? "border-fg bg-fg/[0.07] shadow-xl"
                                         : "border-hairline bg-surface-2/30 hover:border-rule"
                                 )}
                             >
@@ -269,13 +269,13 @@ export default function SubscriptionCard(
                                 className={cn(
                                     "relative rounded-2xl border-2 p-6 text-left transition-all transform active:scale-[0.98]",
                                     selectedPlan === "annual"
-                                        ? "border-accent-hot bg-[rgba(94,234,212,0.08)]"
+                                        ? "border-accent-hot bg-accent-hot/8"
                                         : "border-hairline bg-surface-2/30 hover:border-rule"
                                 )}
                             >
                                 <div className="flex items-center gap-2 mb-2">
                                     <span className="font-mono text-[10px] text-accent-hot uppercase tracking-[0.22em]">{t("tabAnnual")}</span>
-                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(94,234,212,0.18)] text-accent-hot uppercase tracking-[0.22em]">{t("save17")}</span>
+                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent-hot/18 text-accent-hot uppercase tracking-[0.22em]">{t("save17")}</span>
                                 </div>
                                 <div className="flex items-baseline gap-1">
                                     <span className="text-4xl font-medium text-fg tabular-nums">75€</span>
@@ -296,10 +296,10 @@ export default function SubscriptionCard(
                             className={cn(
                                 "px-5 sm:px-8 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] transition-all transform active:scale-95 flex items-center justify-center gap-3 w-full lg:w-auto lg:min-w-[260px] lg:shrink-0",
                                 state === "blocked"
-                                    ? "bg-destructive text-white hover:bg-destructive/85"
+                                    ? "bg-destructive text-on-accent hover:bg-destructive/85"
                                     : state === "trialing_earlybird"
                                         ? "bg-soon text-surface hover:bg-soon/85"
-                                        : "bg-fg text-surface hover:bg-accent-hot shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]",
+                                        : "bg-fg text-surface hover:bg-accent-hot shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--accent)_45%,transparent)]",
                                 acting && "opacity-50 cursor-not-allowed"
                             )}
                         >

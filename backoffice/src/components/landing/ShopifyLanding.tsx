@@ -16,6 +16,7 @@
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { ThemedLogo } from "@/components/ThemedLogo";
 import { motion, AnimatePresence, useReducedMotion, animate } from "framer-motion";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -27,24 +28,28 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { LangToggle } from "./LangToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 // ─────────────────────────────────────────────────────────────
 // Tokens — Midnight Ledger
 // ─────────────────────────────────────────────────────────────
-const BG = "#07090C";
-const PANEL = "#0D1117";
-const FG = "#EDEFF2";
-const DIM = "rgba(237,239,242,0.58)";
-const FAINT = "rgba(237,239,242,0.34)";
-const LINE = "rgba(237,239,242,0.10)";
-const LINE_SOFT = "rgba(237,239,242,0.06)";
+const BG = "var(--background)";
+const PANEL = "var(--surface-2)";
+const FG = "var(--foreground)";
+const DIM = "var(--fg-60)";
+const FAINT = "var(--fg-40)";
+const LINE = "var(--rule)";
+const LINE_SOFT = "var(--hairline)";
 
-const CYAN = "#2FB9F0"; // electric read of the brand cyan on near-black
-const CYAN_DEEP = "#028DC4"; // brand
-const MINT = "#5EEAD4"; // stamp / success only
+const CYAN = "var(--accent-ink)"; // accent as TYPE / thin strokes
+const CYAN_DEEP = "var(--accent)"; // brand plate
+const MINT = "var(--accent-hot)"; // stamp / success only
 
-const PAPER = "#F4F1EA";
-const PAPER_EDGE = "rgba(24,28,34,0.10)";
+// The "paper" artifact (live invoice + receipt cards) is a light plate by
+// design in BOTH themes — ink on cream. It deliberately does not follow the
+// theme ramp: at night --foreground is light, which would erase the ink.
+const PAPER = "var(--paper, #F4F1EA)";
+const PAPER_EDGE = "var(--paper-edge, rgba(24,28,34,0.10))";
 const INK = "#181C22";
 const INK_DIM = "rgba(24,28,34,0.60)";
 const INK_FAINT = "rgba(24,28,34,0.38)";
@@ -65,7 +70,7 @@ const RICH = {
     <span
       style={{
         color: FG,
-        boxShadow: `inset 0 -0.45em 0 rgba(2,141,196,0.32)`,
+        boxShadow: `inset 0 -0.45em 0 color-mix(in srgb, var(--accent) 32%, transparent)`,
       }}
     >
       {chunks}
@@ -140,8 +145,8 @@ export default function ShopifyLanding() {
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0"
         style={{
-          backgroundImage: `radial-gradient(50% 38% at 82% 0%, rgba(2,141,196,0.13), transparent 65%),
-                            radial-gradient(40% 30% at 0% 30%, rgba(2,141,196,0.06), transparent 60%)`,
+          backgroundImage: `radial-gradient(50% 38% at 82% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 65%),
+                            radial-gradient(40% 30% at 0% 30%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%)`,
         }}
       />
 
@@ -184,14 +189,7 @@ function TopBar() {
       <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4 px-4 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <Link href="/" aria-label="Rioko">
-            <Image
-              src="/images/rioko2-logo.svg"
-              alt="Rioko"
-              width={104}
-              height={22}
-              priority
-              className="h-auto w-[92px] sm:w-[104px]"
-            />
+            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko" width={104} height={22} className="h-auto w-[92px] sm:w-[104px]" priority />
           </Link>
           <span
             className="hidden items-center gap-2 sm:inline-flex"
@@ -209,7 +207,7 @@ function TopBar() {
             <a
               key={l.href}
               href={l.href}
-              className="text-[11px] uppercase tracking-[0.18em] transition-colors duration-300 hover:text-[#EDEFF2]"
+              className="text-[11px] uppercase tracking-[0.18em] transition-colors duration-300 hover:text-fg"
               style={{ color: DIM, fontFamily: MONO }}
             >
               {l.label}
@@ -225,8 +223,9 @@ function TopBar() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <div className="hidden sm:inline-flex">
-            <LangToggle variant="dark" />
+          <div className="hidden sm:inline-flex items-center gap-2">
+            <ThemeToggle />
+            <LangToggle />
           </div>
           <Link
             href="/sign-in"
@@ -240,7 +239,7 @@ function TopBar() {
             className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-[13px] font-medium transition-transform duration-300 active:scale-[0.97]"
             style={{
               background: CYAN_DEEP,
-              color: "#FFFFFF",
+              color: "var(--on-accent)",
               boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
             }}
           >
@@ -320,7 +319,7 @@ function Hero() {
               className="group inline-flex items-center gap-3 px-6 py-3.5 text-[14px] font-medium transition-transform duration-300 active:scale-[0.97]"
               style={{
                 background: FG,
-                color: INK,
+                color: BG,
                 boxShadow: "0 18px 40px -18px rgba(0,0,0,0.8)",
               }}
             >
@@ -337,7 +336,7 @@ function Hero() {
             >
               <span
                 className="border-b pb-0.5"
-                style={{ borderColor: "rgba(47,185,240,0.4)" }}
+                style={{ borderColor: "color-mix(in srgb, var(--accent-ink) 40%, transparent)" }}
               >
                 {t("ctaSee")}
               </span>
@@ -777,7 +776,7 @@ function Ticker() {
           >
             {item}
           </span>
-          <span aria-hidden style={{ color: "rgba(47,185,240,0.45)" }}>
+          <span aria-hidden style={{ color: "color-mix(in srgb, var(--accent-ink) 45%, transparent)" }}>
             ·
           </span>
         </span>
@@ -789,7 +788,10 @@ function Ticker() {
     <div
       aria-hidden
       className="relative z-10 mt-20 overflow-hidden border-y py-3 md:mt-28"
-      style={{ borderColor: LINE_SOFT, background: "rgba(13,17,23,0.6)" }}
+      style={{
+        borderColor: LINE_SOFT,
+        background: "color-mix(in srgb, var(--surface-2) 60%, transparent)",
+      }}
     >
       <div
         className="rl-marquee-track flex w-max"
@@ -937,7 +939,7 @@ function RouterDiagram({ active }: { active: number }) {
             key={i}
             d={`M 280 8 C 280 60, ${x} 50, ${x} 112`}
             fill="none"
-            stroke={active === i ? CYAN : "rgba(237,239,242,0.14)"}
+            stroke={active === i ? CYAN : "var(--hairline-strong)"}
             strokeWidth={active === i ? 1.75 : 1.25}
             strokeDasharray={active === i ? "5 9" : "none"}
             style={
@@ -965,7 +967,7 @@ function RouterDiagram({ active }: { active: number }) {
               background: PAPER,
               boxShadow:
                 active === i
-                  ? `0 0 0 1.5px ${CYAN_DEEP}, 0 18px 36px -18px rgba(2,141,196,0.5)`
+                  ? `0 0 0 1.5px ${CYAN_DEEP}, 0 18px 36px -18px color-mix(in srgb, var(--accent) 50%, transparent)`
                   : "0 10px 24px -16px rgba(0,0,0,0.6)",
             }}
           >
@@ -1226,7 +1228,9 @@ function CodeLine({
   return (
     <div
       className="whitespace-pre-wrap py-0.5 text-[12px] leading-[1.7]"
-      style={{ color: color ?? "rgba(237,239,242,0.75)" }}
+      style={{
+        color: color ?? "color-mix(in srgb, var(--foreground) 75%, transparent)",
+      }}
     >
       {children}
     </div>
@@ -1281,7 +1285,8 @@ function LedgerRows() {
                   <span
                     className="transition-opacity duration-500 group-hover:opacity-0"
                     style={{
-                      WebkitTextStroke: "1.25px rgba(237,239,242,0.28)",
+                      WebkitTextStroke:
+                        "1.25px color-mix(in srgb, var(--foreground) 28%, transparent)",
                       color: "transparent",
                     }}
                   >
@@ -1416,10 +1421,10 @@ function ReceiptCard({
       className="group mt-6 flex w-full items-center justify-center gap-2 py-3 text-[12px] font-semibold uppercase tracking-[0.14em] transition-transform duration-300 active:scale-[0.98]"
       style={{
         background: tier.highlight ? CYAN_DEEP : INK,
-        color: "#FFFFFF",
+        color: "var(--on-accent)",
         fontFamily: MONO,
         boxShadow: tier.highlight
-          ? "inset 0 1px 0 rgba(255,255,255,0.2), 0 14px 30px -12px rgba(2,141,196,0.55)"
+          ? "inset 0 1px 0 rgba(255,255,255,0.2), 0 14px 30px -12px color-mix(in srgb, var(--accent) 55%, transparent)"
           : "inset 0 1px 0 rgba(255,255,255,0.12)",
       }}
     >
@@ -1441,7 +1446,7 @@ function ReceiptCard({
       className="relative mx-auto w-full max-w-[360px]"
       style={{
         filter: tier.highlight
-          ? "drop-shadow(0 40px 60px rgba(2,141,196,0.25))"
+          ? "drop-shadow(0 40px 60px color-mix(in srgb, var(--accent) 25%, transparent))"
           : "drop-shadow(0 32px 50px rgba(0,0,0,0.55))",
         zIndex: tier.highlight ? 10 : 1,
       }}
@@ -1664,7 +1669,7 @@ function StampCTA() {
         className="mx-auto w-full max-w-[1200px] border px-6 py-16 text-center sm:py-20 md:py-24"
         style={{
           borderColor: LINE,
-          background: `radial-gradient(60% 80% at 50% 0%, rgba(2,141,196,0.12), transparent 70%), ${PANEL}`,
+          background: `radial-gradient(60% 80% at 50% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%), ${PANEL}`,
         }}
       >
         <div
@@ -1707,7 +1712,7 @@ function StampCTA() {
                 fontFamily: DISPLAY,
                 borderColor: CYAN,
                 color: CYAN,
-                background: "rgba(47,185,240,0.05)",
+                background: "color-mix(in srgb, var(--accent-ink) 5%, transparent)",
               }}
             >
               {t("start")}
@@ -1747,12 +1752,7 @@ function FooterSlim() {
       >
         <div className="flex items-center gap-3">
           <Link href="/" aria-label="Rioko">
-            <Image
-              src="/images/rioko2-logo.svg"
-              alt="Rioko"
-              width={96}
-              height={20}
-            />
+            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko" width={96} height={20} />
           </Link>
           <span
             className="text-[10px] uppercase tracking-[0.18em]"

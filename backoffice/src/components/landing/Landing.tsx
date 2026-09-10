@@ -4,6 +4,7 @@ import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
+import { ThemedLogo } from "@/components/ThemedLogo";
 import { useEffect, useState, memo } from "react";
 import { useTranslations } from "next-intl";
 import {
@@ -23,22 +24,23 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { LangToggle } from "./LangToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 // ─────────────────────────────────────────────────────────────
 // Design tokens
 // ─────────────────────────────────────────────────────────────
-const SURFACE = "#0E1116";
-const SURFACE_2 = "#14181F";
-const FG = "#F0F0F0";
-const FG_60 = "rgba(240,240,240,0.62)";
-const FG_40 = "rgba(240,240,240,0.40)";
-const RULE = "rgba(255,255,255,0.08)";
-const HAIRLINE = "rgba(255,255,255,0.06)";
-const ACCENT = "#028DC4";
-const ACCENT_HOT = "#5EEAD4";
+const SURFACE = "var(--background)";
+const SURFACE_2 = "var(--surface-2)";
+const FG = "var(--foreground)";
+const FG_60 = "var(--fg-60)";
+const FG_40 = "var(--fg-40)";
+const RULE = "var(--rule)";
+const HAIRLINE = "var(--hairline)";
+const ACCENT = "var(--accent)";
+const ACCENT_HOT = "var(--accent-hot)";
 
-const PAPER = "#EAEAE4";
-const PAPER_RULE = "rgba(0,0,0,0.06)";
+const PAPER = "var(--paper, #EAEAE4)";
+const PAPER_RULE = "var(--paper-edge, rgba(0,0,0,0.06))";
 const INK = "#14181F";
 const INK_60 = "rgba(20,24,31,0.62)";
 const INK_40 = "rgba(20,24,31,0.42)";
@@ -46,12 +48,11 @@ const INK_40 = "rgba(20,24,31,0.42)";
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
 const GLASS = {
-  background: "rgba(255,255,255,0.03)",
-  border: `1px solid ${HAIRLINE}`,
-  backdropFilter: "blur(20px)",
-  WebkitBackdropFilter: "blur(20px)",
-  boxShadow:
-    "inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 48px -28px rgba(0,0,0,0.6)",
+  background: "var(--glass-bg)",
+  border: "1px solid var(--glass-border)",
+  backdropFilter: "blur(var(--glass-blur))",
+  WebkitBackdropFilter: "blur(var(--glass-blur))",
+  boxShadow: "inset 0 1px 0 var(--glass-inset), var(--glass-shadow)",
 } as const;
 
 // ─────────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ function Mono({
 }
 
 const HEADLINE_GRADIENT =
-  "linear-gradient(135deg, #06B6D4 0%, #028DC4 55%, #0369A1 100%)";
+  "linear-gradient(135deg, var(--headline-1) 0%, var(--headline-2) 55%, var(--headline-3) 100%)";
 
 function Gradient({ children }: { children: React.ReactNode }) {
   return (
@@ -191,12 +192,6 @@ export default function Landing() {
       style={{
         backgroundColor: SURFACE,
         color: FG,
-        "--surface": SURFACE,
-        "--surface-2": SURFACE_2,
-        "--fg": FG,
-        "--rule": RULE,
-        "--hairline": HAIRLINE,
-        "--accent": ACCENT,
       } as React.CSSProperties}
     >
       <style>{`
@@ -215,8 +210,8 @@ export default function Landing() {
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0"
         style={{
-          backgroundImage: `radial-gradient(60% 40% at 8% 0%, rgba(2,141,196,0.10), transparent 60%),
-                            radial-gradient(50% 35% at 100% 100%, rgba(94,234,212,0.06), transparent 60%)`,
+          backgroundImage: `radial-gradient(60% 40% at 8% 0%, color-mix(in srgb, ${ACCENT} 10%, transparent), transparent 60%),
+                            radial-gradient(50% 35% at 100% 100%, color-mix(in srgb, ${ACCENT_HOT} 6%, transparent), transparent 60%)`,
         }}
       />
 
@@ -225,7 +220,7 @@ export default function Landing() {
         className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[900px]"
         style={{
           backgroundImage:
-            "radial-gradient(60% 50% at 50% 0%, rgba(255,255,255,0.04), transparent 70%)",
+            "radial-gradient(60% 50% at 50% 0%, color-mix(in srgb, var(--foreground) 4%, transparent), transparent 70%)",
         }}
       />
 
@@ -261,18 +256,11 @@ function Nav() {
         className="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-3 sm:gap-4 rounded-full px-1.5 sm:px-2 py-2"
         style={{
           ...GLASS,
-          background: "rgba(20,24,31,0.62)",
+          background: `color-mix(in srgb, ${SURFACE_2} 62%, transparent)`,
         }}
       >
         <div className="flex items-center gap-3 pl-3 md:pl-8">
-          <Image
-            src="/images/rioko2-logo.svg"
-            alt="Rioko 2.0"
-            width={132}
-            height={27}
-            priority
-            className="w-[100px] h-auto sm:w-[132px]"
-          />
+          <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={132} height={27} className="w-[100px] h-auto sm:w-[132px]" priority />
           <span
             className="hidden font-mono text-[10px] uppercase tracking-[0.18em] sm:inline-block"
             style={{ color: FG_40 }}
@@ -300,8 +288,9 @@ function Nav() {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="hidden sm:inline-flex">
-            <LangToggle variant="dark" />
+          <div className="hidden sm:inline-flex items-center gap-2">
+            <ThemeToggle />
+            <LangToggle />
           </div>
           <Link
             href="/sign-in"
@@ -312,7 +301,7 @@ function Nav() {
           </Link>
           <button
             className="flex h-9 w-9 items-center justify-center rounded-full md:hidden"
-            style={{ background: "rgba(255,255,255,0.06)", color: FG }}
+            style={{ background: "color-mix(in srgb, var(--foreground) 6%, transparent)", color: FG }}
             onClick={() => setMenuOpen((v) => !v)}
             aria-label={menuOpen ? t("closeMenu") : t("openMenu")}
             aria-expanded={menuOpen}
@@ -330,7 +319,7 @@ function Nav() {
               background: FG,
               color: SURFACE,
               boxShadow:
-                "0 1px 0 rgba(0,0,0,0.08) inset, 0 8px 20px -10px rgba(0,0,0,0.6)",
+                "0 1px 0 color-mix(in srgb, var(--background) 8%, transparent) inset, 0 8px 20px -10px rgba(0,0,0,0.6)",
               transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
             }}
           >
@@ -338,7 +327,7 @@ function Nav() {
             <span
               className="flex h-7 w-7 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
               style={{
-                background: "rgba(0,0,0,0.08)",
+                background: "color-mix(in srgb, var(--background) 8%, transparent)",
                 transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
               }}
             >
@@ -357,7 +346,7 @@ function Nav() {
             transition={{ duration: 0.22, ease: EASE }}
             className="mx-auto mt-2 w-full max-w-[1280px] overflow-hidden rounded-2xl md:hidden"
             style={{
-              background: "rgba(20,24,31,0.96)",
+              background: `color-mix(in srgb, ${SURFACE_2} 96%, transparent)`,
               border: `1px solid ${HAIRLINE}`,
               backdropFilter: "blur(24px)",
               WebkitBackdropFilter: "blur(24px)",
@@ -390,8 +379,9 @@ function Nav() {
                 >
                   {t("signIn")}
                 </Link>
-                <div className="px-4 py-3">
-                  <LangToggle variant="dark" />
+                <div className="px-4 py-3 flex items-center gap-2">
+                  <ThemeToggle />
+                  <LangToggle />
                 </div>
               </div>
             </nav>
@@ -419,7 +409,7 @@ function Hero() {
             className="mb-7 inline-flex items-center gap-2 rounded-full px-3 py-1.5"
             style={{
               border: `1px solid ${RULE}`,
-              background: "rgba(255,255,255,0.03)",
+              background: "color-mix(in srgb, var(--foreground) 3%, transparent)",
             }}
           >
             <LiveDot />
@@ -472,14 +462,14 @@ function Hero() {
                 color: SURFACE,
                 transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 boxShadow:
-                  "0 1px 0 rgba(0,0,0,0.08) inset, 0 14px 30px -16px rgba(0,0,0,0.6)",
+                  "0 1px 0 color-mix(in srgb, var(--background) 8%, transparent) inset, 0 14px 30px -16px rgba(0,0,0,0.6)",
               }}
             >
               {t("ctaCreate")}
               <span
                 className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                 style={{
-                  background: "rgba(0,0,0,0.08)",
+                  background: "color-mix(in srgb, var(--background) 8%, transparent)",
                   transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 }}
               >
@@ -494,7 +484,7 @@ function Hero() {
             >
               <span
                 className="border-b transition-[border-color]"
-                style={{ borderColor: "rgba(255,255,255,0.16)" }}
+                style={{ borderColor: "color-mix(in srgb, var(--foreground) 16%, transparent)" }}
               >
                 {t("ctaSee")}
               </span>
@@ -599,13 +589,13 @@ function HeroShowcase() {
     >
       <div
         className="rounded-[1.75rem] p-1.5"
-        style={{ background: "rgba(255,255,255,0.04)" }}
+        style={{ background: "color-mix(in srgb, var(--foreground) 4%, transparent)" }}
       >
         <div
           className="overflow-hidden rounded-[calc(1.75rem-0.375rem)] p-6"
           style={{
             ...GLASS,
-            background: "rgba(20,24,31,0.7)",
+            background: `color-mix(in srgb, ${SURFACE_2} 70%, transparent)`,
           }}
         >
           <RotatingFlowCard
@@ -652,7 +642,7 @@ function HeroShowcase() {
           className="inline-flex items-center gap-2 rounded-full px-4 py-2"
           style={{
             border: `1px solid ${RULE}`,
-            background: "rgba(255,255,255,0.03)",
+            background: "color-mix(in srgb, var(--foreground) 3%, transparent)",
             color: ACCENT_HOT,
           }}
         >
@@ -720,7 +710,7 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
                   className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
                   style={{
                     background: "rgba(2,141,196,0.12)",
-                    color: "#0369A1",
+                    color: "var(--live-ink, #0369A1)",
                   }}
                 >
                   <Check className="h-2.5 w-2.5" strokeWidth={2.4} />
@@ -741,7 +731,10 @@ const RotatingFlowCard = memo(function RotatingFlowCard({
             className="h-1 rounded-full transition-all duration-500"
             style={{
               width: i === idx ? 12 : 4,
-              background: i === idx ? ACCENT : "rgba(255,255,255,0.16)",
+              background:
+                i === idx
+                  ? ACCENT
+                  : "color-mix(in srgb, var(--foreground) 16%, transparent)",
               transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
             }}
           />
@@ -841,17 +834,17 @@ function EngineCard({ destIdx }: { destIdx: number }) {
       transition={{ duration: 0.6, ease: EASE, delay: 0.9 }}
       className="relative rounded-2xl p-4"
       style={{
-        background: "linear-gradient(135deg, #028DC4 0%, #0369A1 100%)",
-        color: "#FFFFFF",
+        background: `linear-gradient(135deg, ${ACCENT} 0%, color-mix(in srgb, ${ACCENT} 78%, black) 100%)`,
+        color: "var(--on-accent)",
         boxShadow:
-          "inset 0 1px 0 rgba(255,255,255,0.15), 0 0 40px -10px rgba(2,141,196,0.55), 0 12px 30px -16px rgba(0,0,0,0.6)",
+          "inset 0 1px 0 color-mix(in srgb, var(--on-accent) 15%, transparent), 0 0 40px -10px color-mix(in srgb, var(--accent) 55%, transparent), 0 12px 30px -16px rgba(0,0,0,0.6)",
       }}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-            style={{ background: "rgba(255,255,255,0.14)" }}
+            style={{ background: "color-mix(in srgb, var(--on-accent) 14%, transparent)" }}
           >
             <Workflow className="h-4 w-4" strokeWidth={1.5} />
           </div>
@@ -861,7 +854,7 @@ function EngineCard({ destIdx }: { destIdx: number }) {
             </div>
             <div
               className="font-mono text-[10px] uppercase tracking-[0.18em]"
-              style={{ color: "rgba(255,255,255,0.72)" }}
+              style={{ color: "color-mix(in srgb, var(--on-accent) 72%, transparent)" }}
             >
               {t("engineSub")}
             </div>
@@ -869,7 +862,7 @@ function EngineCard({ destIdx }: { destIdx: number }) {
         </div>
         <div
           className="shrink-0 font-mono text-[10px] tabular-nums"
-          style={{ color: "rgba(255,255,255,0.85)" }}
+          style={{ color: "color-mix(in srgb, var(--on-accent) 85%, transparent)" }}
         >
           347 ms
         </div>
@@ -888,16 +881,16 @@ function EngineCard({ destIdx }: { destIdx: number }) {
               delay: i * 0.07,
             }}
             className="flex items-center gap-1.5 rounded-md px-2 py-1"
-            style={{ background: "rgba(255,255,255,0.14)" }}
+            style={{ background: "color-mix(in srgb, var(--on-accent) 14%, transparent)" }}
           >
             <Check
               className="h-3 w-3"
-              style={{ color: ACCENT_HOT }}
+              style={{ color: "var(--on-accent)" }}
               strokeWidth={2.4}
             />
             <span
               className="font-mono text-[10px]"
-              style={{ color: "rgba(255,255,255,0.95)" }}
+              style={{ color: "color-mix(in srgb, var(--on-accent) 95%, transparent)" }}
             >
               {step}
             </span>
@@ -989,7 +982,7 @@ function IntegrationMatrix() {
           >
             <span
               className="border-b"
-              style={{ borderColor: "rgba(255,255,255,0.16)" }}
+              style={{ borderColor: "color-mix(in srgb, var(--foreground) 16%, transparent)" }}
             >
               {t("missingCta")}
             </span>
@@ -1076,14 +1069,14 @@ function IntegrationCard({ item }: { item: Integration }) {
           aria-hidden
           className="pointer-events-none absolute inset-0 rounded-[1.25rem] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
           style={{
-            boxShadow: `inset 0 0 0 1px rgba(2,141,196,0.55)`,
+            boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${ACCENT} 55%, transparent)`,
             transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
           }}
         />
         <div
           aria-hidden
           className="pointer-events-none absolute -inset-px rounded-[1.25rem] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-          style={{ boxShadow: "0 18px 50px -20px rgba(2,141,196,0.35)" }}
+          style={{ boxShadow: "0 18px 50px -20px color-mix(in srgb, var(--accent) 35%, transparent)" }}
         />
 
         <div className="relative flex items-start justify-between gap-3">
@@ -1135,7 +1128,7 @@ function IntegrationCard({ item }: { item: Integration }) {
 function StatusBadge({ status }: { status: Status }) {
   const t = useTranslations("landing.status");
   const styles: Record<Status, React.CSSProperties> = {
-    live: { background: "rgba(2,141,196,0.12)", color: "#0369A1" },
+    live: { background: "rgba(2,141,196,0.12)", color: "var(--live-ink, #0369A1)" },
     soon: { background: "rgba(154,106,31,0.14)", color: "#7C4A0F" },
     planned: { background: "rgba(20,24,31,0.08)", color: INK_60 },
   };
@@ -1147,7 +1140,7 @@ function StatusBadge({ status }: { status: Status }) {
       {status === "live" && (
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ background: "#0369A1" }}
+          style={{ background: "var(--live-ink, #0369A1)" }}
         />
       )}
       {t(status)}
@@ -1299,17 +1292,17 @@ function Step({
       <div className={"md:col-span-6 " + (flip ? "md:order-1" : "")}>
         <div
           className="rounded-[1.75rem] p-1.5"
-          style={{ background: "rgba(255,255,255,0.04)" }}
+          style={{ background: "color-mix(in srgb, var(--foreground) 4%, transparent)" }}
         >
           <div
             className="overflow-hidden rounded-[calc(1.75rem-0.375rem)] p-6"
-            style={{ ...GLASS, background: "rgba(20,24,31,0.7)" }}
+            style={{ ...GLASS, background: `color-mix(in srgb, ${SURFACE_2} 70%, transparent)` }}
           >
             <div className="flex items-center justify-between">
               <div
                 className="flex h-10 w-10 items-center justify-center rounded-xl"
                 style={{
-                  background: "rgba(255,255,255,0.04)",
+                  background: "color-mix(in srgb, var(--foreground) 4%, transparent)",
                   border: `1px solid ${HAIRLINE}`,
                   color: FG,
                 }}
@@ -1329,15 +1322,15 @@ function Step({
                 <div
                   className="flex items-center justify-between rounded-t-xl px-3 py-2"
                   style={{
-                    background: "rgba(0,0,0,0.4)",
+                    background: "color-mix(in srgb, var(--background) 40%, transparent)",
                     border: `1px solid ${HAIRLINE}`,
                     borderBottom: "none",
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full" style={{ background: "rgba(255,255,255,0.18)" }} />
-                    <span className="h-2 w-2 rounded-full" style={{ background: "rgba(255,255,255,0.18)" }} />
-                    <span className="h-2 w-2 rounded-full" style={{ background: "rgba(255,255,255,0.18)" }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "color-mix(in srgb, var(--foreground) 18%, transparent)" }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "color-mix(in srgb, var(--foreground) 18%, transparent)" }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "color-mix(in srgb, var(--foreground) 18%, transparent)" }} />
                   </div>
                   <span
                     className="font-mono text-[10px] uppercase tracking-[0.18em]"
@@ -1350,7 +1343,7 @@ function Step({
                 <pre
                   className="overflow-x-auto rounded-b-xl p-4 font-mono text-[11px] leading-[1.6] sm:text-[12px]"
                   style={{
-                    background: "rgba(0,0,0,0.5)",
+                    background: "color-mix(in srgb, var(--background) 50%, transparent)",
                     border: `1px solid ${HAIRLINE}`,
                     borderTop: "none",
                     color: FG,
@@ -1362,10 +1355,10 @@ function Step({
                       style={{
                         color:
                           i === 0
-                            ? ACCENT
+                            ? "var(--accent-ink)"
                             : i === step.code!.length - 1
                             ? ACCENT_HOT
-                            : "rgba(240,240,240,0.85)",
+                            : "color-mix(in srgb, var(--foreground) 85%, transparent)",
                       }}
                     >
                       {line}
@@ -1383,7 +1376,7 @@ function Step({
                     className="rounded-full px-3 py-1.5 text-[12px] font-mono"
                     style={{
                       border: `1px solid ${HAIRLINE}`,
-                      background: "rgba(255,255,255,0.03)",
+                      background: "color-mix(in srgb, var(--foreground) 3%, transparent)",
                       color: FG,
                     }}
                   >
@@ -1409,11 +1402,11 @@ function Step({
                     style={{
                       background:
                         i === 0
-                          ? "rgba(2,141,196,0.10)"
-                          : "rgba(255,255,255,0.03)",
+                          ? "color-mix(in srgb, var(--accent) 10%, transparent)"
+                          : "color-mix(in srgb, var(--foreground) 3%, transparent)",
                       border:
                         i === 0
-                          ? `1px solid rgba(2,141,196,0.35)`
+                          ? `1px solid color-mix(in srgb, ${ACCENT} 35%, transparent)`
                           : `1px solid ${HAIRLINE}`,
                     }}
                   >
@@ -1624,8 +1617,9 @@ function PricingCard({
           className="absolute -top-3 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.22em]"
           style={{
             background: ACCENT,
-            color: "#FFFFFF",
-            boxShadow: "0 10px 24px -10px rgba(2,141,196,0.6)",
+            color: "var(--on-accent)",
+            boxShadow:
+              "0 10px 24px -10px color-mix(in srgb, var(--accent) 60%, transparent)",
           }}
         >
           {recommendedLabel}
@@ -1637,15 +1631,14 @@ function PricingCard({
         style={
           isHighlight
             ? {
-                background:
-                  "linear-gradient(180deg, rgba(2,141,196,0.10) 0%, rgba(2,141,196,0.02) 100%)",
-                border: `1px solid rgba(2,141,196,0.35)`,
+                background: `linear-gradient(180deg, color-mix(in srgb, ${ACCENT} 10%, transparent) 0%, color-mix(in srgb, ${ACCENT} 2%, transparent) 100%)`,
+                border: `1px solid color-mix(in srgb, ${ACCENT} 35%, transparent)`,
                 boxShadow:
-                  "inset 0 1px 0 rgba(255,255,255,0.08), 0 24px 60px -24px rgba(2,141,196,0.45)",
+                  "inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent), 0 24px 60px -24px color-mix(in srgb, var(--accent) 45%, transparent)",
               }
             : {
                 ...GLASS,
-                background: "rgba(20,24,31,0.55)",
+                background: `color-mix(in srgb, ${SURFACE_2} 55%, transparent)`,
               }
         }
       >
@@ -1691,7 +1684,7 @@ function PricingCard({
           <div
             className="mt-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1"
             style={{
-              background: "rgba(94,234,212,0.10)",
+              background: `color-mix(in srgb, ${ACCENT_HOT} 10%, transparent)`,
               color: ACCENT_HOT,
             }}
           >
@@ -1735,10 +1728,10 @@ function PricingCard({
               className="group inline-flex w-full items-center justify-between gap-2 rounded-full py-3 pl-5 pr-2 text-[13px] font-medium transition-transform duration-500 active:scale-[0.98]"
               style={{
                 background: isHighlight ? ACCENT : FG,
-                color: isHighlight ? "#FFFFFF" : SURFACE,
+                color: isHighlight ? "var(--on-accent)" : SURFACE,
                 transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 boxShadow: isHighlight
-                  ? "0 14px 30px -10px rgba(2,141,196,0.55)"
+                  ? "0 14px 30px -10px color-mix(in srgb, var(--accent) 55%, transparent)"
                   : "0 14px 30px -16px rgba(0,0,0,0.5)",
               }}
             >
@@ -1747,8 +1740,8 @@ function PricingCard({
                 className="flex h-7 w-7 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                 style={{
                   background: isHighlight
-                    ? "rgba(255,255,255,0.18)"
-                    : "rgba(0,0,0,0.08)",
+                    ? "color-mix(in srgb, var(--on-accent) 18%, transparent)"
+                    : "color-mix(in srgb, var(--background) 8%, transparent)",
                   transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 }}
               >
@@ -1761,10 +1754,10 @@ function PricingCard({
               className="group inline-flex w-full items-center justify-between gap-2 rounded-full py-3 pl-5 pr-2 text-[13px] font-medium transition-transform duration-500 active:scale-[0.98]"
               style={{
                 background: isHighlight ? ACCENT : FG,
-                color: isHighlight ? "#FFFFFF" : SURFACE,
+                color: isHighlight ? "var(--on-accent)" : SURFACE,
                 transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 boxShadow: isHighlight
-                  ? "0 14px 30px -10px rgba(2,141,196,0.55)"
+                  ? "0 14px 30px -10px color-mix(in srgb, var(--accent) 55%, transparent)"
                   : "0 14px 30px -16px rgba(0,0,0,0.5)",
               }}
             >
@@ -1773,8 +1766,8 @@ function PricingCard({
                 className="flex h-7 w-7 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                 style={{
                   background: isHighlight
-                    ? "rgba(255,255,255,0.18)"
-                    : "rgba(0,0,0,0.08)",
+                    ? "color-mix(in srgb, var(--on-accent) 18%, transparent)"
+                    : "color-mix(in srgb, var(--background) 8%, transparent)",
                   transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
                 }}
               >
@@ -1877,16 +1870,17 @@ function FinalCTA() {
       <div className="mx-auto w-full max-w-[1280px]">
         <div
           className="relative overflow-hidden rounded-[2rem] p-1.5"
-          style={{ background: "rgba(2,141,196,0.18)" }}
+          style={{
+            background: `color-mix(in srgb, ${ACCENT} 18%, transparent)`,
+          }}
         >
           <div
             className="relative overflow-hidden rounded-[calc(2rem-0.375rem)] px-6 py-12 sm:px-8 sm:py-16 md:px-16 md:py-24"
             style={{
-              background:
-                "linear-gradient(135deg, #0A0A0A 0%, #14181F 60%, #0A2540 100%)",
+              background: `linear-gradient(135deg, ${SURFACE} 0%, ${SURFACE_2} 60%, color-mix(in srgb, ${ACCENT} 22%, ${SURFACE_2}) 100%)`,
               color: FG,
               boxShadow:
-                "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 0 1px rgba(2,141,196,0.18)",
+                "inset 0 1px 0 var(--glass-inset), inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent)",
             }}
           >
             <div
@@ -1894,7 +1888,7 @@ function FinalCTA() {
               className="pointer-events-none absolute inset-0"
               style={{
                 backgroundImage:
-                  "radial-gradient(50% 60% at 20% 0%, rgba(2,141,196,0.18), transparent 60%), radial-gradient(40% 50% at 90% 100%, rgba(94,234,212,0.10), transparent 60%)",
+                  `radial-gradient(50% 60% at 20% 0%, color-mix(in srgb, ${ACCENT} 18%, transparent), transparent 60%), radial-gradient(40% 50% at 90% 100%, color-mix(in srgb, ${ACCENT_HOT} 10%, transparent), transparent 60%)`,
               }}
             />
 
@@ -1902,7 +1896,7 @@ function FinalCTA() {
               <div className="md:col-span-7">
                 <span
                   className="font-mono text-[10px] uppercase tracking-[0.22em]"
-                  style={{ color: "rgba(240,240,240,0.55)" }}
+                  style={{ color: "color-mix(in srgb, var(--foreground) 55%, transparent)" }}
                 >
                   {t("eyebrow")}
                 </span>
@@ -1922,7 +1916,7 @@ function FinalCTA() {
               <div className="md:col-span-5">
                 <p
                   className="mb-7 max-w-[40ch] text-[15px] leading-[1.55]"
-                  style={{ color: "rgba(240,240,240,0.7)" }}
+                  style={{ color: "color-mix(in srgb, var(--foreground) 70%, transparent)" }}
                 >
                   {t("body")}
                 </p>
@@ -1932,18 +1926,18 @@ function FinalCTA() {
                     className="group inline-flex items-center gap-2 rounded-full py-3 pl-6 pr-2 text-[14px] font-medium transition-transform duration-500 active:scale-[0.98]"
                     style={{
                       background: ACCENT,
-                      color: "#FFFFFF",
+                      color: "var(--on-accent)",
                       transitionTimingFunction:
                         "cubic-bezier(0.32,0.72,0,1)",
                       boxShadow:
-                        "0 1px 0 rgba(255,255,255,0.18) inset, 0 14px 30px -10px rgba(2,141,196,0.55)",
+                        "0 1px 0 color-mix(in srgb, var(--on-accent) 18%, transparent) inset, 0 14px 30px -10px color-mix(in srgb, var(--accent) 55%, transparent)",
                     }}
                   >
                     {t("start")}
                     <span
                       className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-500 group-hover:translate-x-[2px] group-hover:-translate-y-[1px]"
                       style={{
-                        background: "rgba(255,255,255,0.16)",
+                        background: "color-mix(in srgb, var(--on-accent) 16%, transparent)",
                         transitionTimingFunction:
                           "cubic-bezier(0.32,0.72,0,1)",
                       }}
@@ -1954,11 +1948,11 @@ function FinalCTA() {
                   <Link
                     href="/sign-in"
                     className="text-[14px]"
-                    style={{ color: "rgba(240,240,240,0.8)" }}
+                    style={{ color: "color-mix(in srgb, var(--foreground) 80%, transparent)" }}
                   >
                     <span
                       className="border-b"
-                      style={{ borderColor: "rgba(240,240,240,0.25)" }}
+                      style={{ borderColor: "color-mix(in srgb, var(--foreground) 25%, transparent)" }}
                     >
                       {t("signIn")}
                     </span>
@@ -1985,12 +1979,7 @@ function Footer() {
     >
       <div className="mx-auto flex w-full max-w-[1280px] flex-col items-center gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
-          <Image
-            src="/images/rioko2-logo.svg"
-            alt="Rioko 2.0"
-            width={110}
-            height={23}
-          />
+          <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={110} height={23} />
           <span
             className="font-mono text-[10px] uppercase tracking-[0.2em]"
             style={{ color: FG_40 }}
@@ -2038,13 +2027,7 @@ function Footer() {
               transitionTimingFunction: "cubic-bezier(0.32,0.72,0,1)",
             }}
           >
-            <Image
-              src="/images/logo-kapta-white.webp"
-              alt="Kapta"
-              width={80}
-              height={22}
-              className="opacity-80 transition-opacity duration-500 hover:opacity-100"
-            />
+            <ThemedLogo nightSrc="/images/logo-kapta-white.webp" daySrc="/images/logo-kapta-black.webp" alt="Kapta" width={80} height={22} className="opacity-80 transition-opacity duration-500 hover:opacity-100" />
           </a>
         </div>
       </div>
@@ -2072,7 +2055,7 @@ function SectionHead({
           style={{
             border: `1px solid ${RULE}`,
             color: FG_60,
-            background: "rgba(255,255,255,0.02)",
+            background: "color-mix(in srgb, var(--foreground) 2%, transparent)",
           }}
         >
           <span

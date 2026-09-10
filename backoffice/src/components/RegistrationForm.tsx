@@ -67,11 +67,11 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
         <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="glass p-6 sm:p-12 rounded-[3.5rem] relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-6 sm:p-12 opacity-5 pointer-events-none">
-                    <ShieldCheck className="w-64 h-64 text-accent" />
+                    <ShieldCheck className="w-64 h-64 text-accent-ink" />
                 </div>
 
                 <div className="space-y-2 mb-10 text-center relative z-10">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(2,141,196,0.10)] border border-[rgba(2,141,196,0.20)] text-accent font-mono text-[10px] uppercase tracking-[0.22em] mb-4">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent-ink font-mono text-[10px] uppercase tracking-[0.22em] mb-4">
                         <ShieldCheck className="w-3 h-3" /> {t("chip")}
                     </div>
                     <h2 className="text-4xl font-medium tracking-tight text-fg mb-4">{t("title")}</h2>
@@ -85,13 +85,13 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     <div className="space-y-2 md:col-span-2">
                         <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("nifLabel")}</label>
                         <div className="relative group">
-                            <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                            <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             <input
                                 required
                                 type="text"
                                 maxLength={9}
                                 placeholder={t("nifPlaceholder")}
-                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
+                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-accent/20 focus:border-accent/50 transition-all outline-none"
                                 value={formData.nif}
                                 onChange={(e) => setFormData({ ...formData, nif: e.target.value })}
                             />
@@ -105,15 +105,15 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                         </label>
                         <div className="relative group">
                             {isCompany(formData.nif) ? (
-                                <Building2 className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                                <Building2 className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             ) : (
-                                <User className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                                <User className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             )}
                             <input
                                 required
                                 type="text"
                                 placeholder={isCompany(formData.nif) ? t("companyNamePlaceholder") : t("personNamePlaceholder")}
-                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
+                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-accent/20 focus:border-accent/50 transition-all outline-none"
                                 value={isCompany(formData.nif) ? formData.company_name : formData.name}
                                 onChange={(e) => {
                                     if (isCompany(formData.nif)) {
@@ -130,12 +130,12 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     <div className="space-y-2 md:col-span-2">
                         <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("addressLabel")}</label>
                         <div className="relative group">
-                            <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                            <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             <input
                                 required
                                 type="text"
                                 placeholder={t("addressPlaceholder")}
-                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
+                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-accent/20 focus:border-accent/50 transition-all outline-none"
                                 value={formData.fiscal_address}
                                 onChange={(e) => setFormData({ ...formData, fiscal_address: e.target.value })}
                             />
@@ -146,11 +146,11 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     <div className="space-y-2">
                         <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("emailLabel")}</label>
                         <div className="relative group">
-                            <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                            <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             <input
                                 required
                                 type="email"
-                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
+                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-accent/20 focus:border-accent/50 transition-all outline-none"
                                 value={formData.email}
                                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                             />
@@ -161,10 +161,10 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     <div className="space-y-2">
                         <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("phoneLabel")}</label>
                         <div className="relative group">
-                            <Phone className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                            <Phone className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             <input
                                 type="tel"
-                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
+                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-accent/20 focus:border-accent/50 transition-all outline-none"
                                 value={formData.phone}
                                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                             />
@@ -175,11 +175,11 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     <div className="space-y-2 md:col-span-2">
                         <label className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-4">{t("websiteLabel")}</label>
                         <div className="relative group">
-                            <Globe className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent transition-colors" />
+                            <Globe className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40 group-focus-within:text-accent-ink transition-colors" />
                             <input
                                 type="url"
                                 placeholder={t("websitePlaceholder")}
-                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.50)] transition-all outline-none"
+                                className="w-full bg-surface-2 border border-hairline rounded-2xl py-4 pl-14 pr-6 text-sm font-medium text-fg focus:ring-2 focus:ring-accent/20 focus:border-accent/50 transition-all outline-none"
                                 value={formData.website}
                                 onChange={(e) => setFormData({ ...formData, website: e.target.value })}
                             />
@@ -197,8 +197,8 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                                     checked={formData.privacy_policy_accepted}
                                     onChange={(e) => setFormData({ ...formData, privacy_policy_accepted: e.target.checked })}
                                 />
-                                <div className="w-6 h-6 border-2 border-hairline rounded-lg bg-surface-2 group-hover:border-[rgba(2,141,196,0.50)] peer-checked:bg-accent peer-checked:border-accent transition-all flex items-center justify-center">
-                                    <CheckCircle2 className="w-4 h-4 text-fg opacity-0 peer-checked:opacity-100 transition-opacity" />
+                                <div className="w-6 h-6 border-2 border-hairline rounded-lg bg-surface-2 group-hover:border-accent/50 peer-checked:bg-accent peer-checked:border-accent transition-all flex items-center justify-center">
+                                    <CheckCircle2 className="w-4 h-4 text-on-accent opacity-0 peer-checked:opacity-100 transition-opacity" />
                                 </div>
                             </div>
                             <span className="text-sm font-medium text-fg-60 group-hover:text-fg transition-colors">
@@ -208,7 +208,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                     </div>
 
                     {saveError && (
-                        <div className="md:col-span-2 rounded-2xl border border-[rgba(220,38,38,0.35)] bg-[rgba(220,38,38,0.08)] px-5 py-4 text-sm font-medium text-[#f87171]">
+                        <div className="md:col-span-2 rounded-2xl border border-destructive/35 bg-destructive/8 px-5 py-4 text-sm font-medium text-destructive">
                             {t("saveError")}
                         </div>
                     )}
@@ -218,7 +218,7 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
                         disabled={loading}
                         type="submit"
                         className={cn(
-                            "md:col-span-2 mt-4 bg-fg text-surface font-mono uppercase tracking-[0.18em] py-5 rounded-3xl hover:bg-accent-hot transition-all transform active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+                            "md:col-span-2 mt-4 bg-fg text-surface font-mono uppercase tracking-[0.18em] py-5 rounded-3xl hover:bg-accent-hot transition-all transform active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
                         )}
                     >
                         {loading ? t("saving") : t("submit")} <ArrowRight className="w-5 h-5" />

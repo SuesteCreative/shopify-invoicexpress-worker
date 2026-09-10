@@ -143,10 +143,10 @@ export default function ShopifyMoloniIntegration() {
             <header className="space-y-4">
                 <div className="flex items-center gap-4">
                     <div className="flex -space-x-3">
-                        <div className="w-14 h-14 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface p-3">
+                        <div className="w-14 h-14 rounded-2xl bg-veil border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface p-3">
                             <Image src="/images/shopify-logo.webp" alt="Shopify" width={32} height={32} className="object-contain" />
                         </div>
-                        <div className="w-14 h-14 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface p-3">
+                        <div className="w-14 h-14 rounded-2xl bg-veil border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface p-3">
                             <Image src="/images/moloni-logo.svg" alt="Moloni" width={30} height={30} className="object-contain" />
                         </div>
                     </div>
@@ -157,7 +157,7 @@ export default function ShopifyMoloniIntegration() {
                 </div>
             </header>
 
-            <div className="glass p-5 sm:p-6 rounded-2xl border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.05)] flex items-start gap-3 sm:gap-4">
+            <div className="glass p-5 sm:p-6 rounded-2xl border border-soon/30 bg-soon/5 flex items-start gap-3 sm:gap-4">
                 <Info className="w-5 h-5 text-soon flex-shrink-0 mt-0.5" />
                 <div className="space-y-2 min-w-0">
                     <p className="text-sm font-medium text-fg">{t("limitationsTitle")}</p>
@@ -166,7 +166,7 @@ export default function ShopifyMoloniIntegration() {
             </div>
 
             {!shopifyConnected && (
-                <div className="glass p-5 sm:p-6 rounded-2xl border border-[rgba(244,63,94,0.30)] bg-[rgba(244,63,94,0.05)] flex items-start gap-4">
+                <div className="glass p-5 sm:p-6 rounded-2xl border border-destructive/30 bg-destructive/5 flex items-start gap-4">
                     <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
                     <div className="space-y-3">
                         <p className="text-sm text-fg">{t("shopifyMissingTitle")}</p>
@@ -247,14 +247,14 @@ export default function ShopifyMoloniIntegration() {
                         <button
                             type="button"
                             onClick={() => setEnvironment("production")}
-                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}
+                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}
                         >
                             {t("envProduction")}
                         </button>
                         <button
                             type="button"
                             onClick={() => setEnvironment("sandbox")}
-                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-[rgba(2,141,196,0.10)] text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}
+                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}
                         >
                             {t("envSandbox")}
                         </button>
@@ -263,14 +263,14 @@ export default function ShopifyMoloniIntegration() {
             </section>
 
             {error && (
-                <div className="glass p-4 rounded-xl border border-[rgba(239,68,68,0.30)] bg-[rgba(239,68,68,0.05)] flex items-start gap-3">
-                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-400">{error}</p>
+                <div className="glass p-4 rounded-xl border border-destructive/30 bg-destructive/5 flex items-start gap-3">
+                    <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">{error}</p>
                 </div>
             )}
 
             {success && (
-                <div className="glass p-4 rounded-xl border border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.05)] flex items-start gap-3">
+                <div className="glass p-4 rounded-xl border border-accent-hot/30 bg-accent-hot/5 flex items-start gap-3">
                     <Check className="w-4 h-4 text-accent-hot flex-shrink-0 mt-0.5" />
                     <p className="text-sm text-accent-hot">{t("savedOk")}</p>
                 </div>

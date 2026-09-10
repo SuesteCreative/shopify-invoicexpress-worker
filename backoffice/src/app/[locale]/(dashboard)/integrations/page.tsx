@@ -169,11 +169,11 @@ export default function IntegrationsPage() {
             </div>
 
             {pendingDelete && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-                    <div className="glass rounded-[2rem] max-w-lg w-full p-8 space-y-6 border border-[rgba(239,68,68,0.25)]">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-scrim backdrop-blur-sm">
+                    <div className="glass rounded-[2rem] max-w-lg w-full p-8 space-y-6 border border-destructive/25">
                         <div className="flex items-start gap-4">
-                            <div className="p-3 rounded-2xl bg-[rgba(239,68,68,0.10)] shrink-0">
-                                <AlertTriangle className="w-6 h-6 text-[rgb(239,68,68)]" />
+                            <div className="p-3 rounded-2xl bg-destructive/10 shrink-0">
+                                <AlertTriangle className="w-6 h-6 text-destructive" />
                             </div>
                             <div className="space-y-2">
                                 <h3 className="text-xl font-medium tracking-tight">{t("deleteTitle")}</h3>
@@ -196,11 +196,11 @@ export default function IntegrationsPage() {
                                 autoComplete="off"
                                 spellCheck={false}
                                 placeholder={confirmPhrase}
-                                className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-[rgba(239,68,68,0.20)] focus:border-[rgba(239,68,68,0.45)] outline-none transition-all placeholder:text-fg-40"
+                                className="w-full bg-surface-2/50 border border-hairline rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-destructive/20 focus:border-destructive/45 outline-none transition-all placeholder:text-fg-40"
                             />
                         </div>
 
-                        {deleteError && <p className="text-[11px] text-[rgb(239,68,68)] font-bold">{deleteError}</p>}
+                        {deleteError && <p className="text-[11px] text-destructive font-bold">{deleteError}</p>}
 
                         <div className="flex items-center gap-3 pt-2">
                             <button
@@ -212,7 +212,7 @@ export default function IntegrationsPage() {
                             <button
                                 onClick={handleDelete}
                                 disabled={deleting || typed.trim() !== confirmPhrase}
-                                className="flex-1 py-4 rounded-2xl bg-[rgb(239,68,68)] text-white text-[10px] font-black uppercase tracking-[0.18em] transition-all disabled:opacity-25 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="flex-1 py-4 rounded-2xl bg-destructive text-on-accent text-[10px] font-black uppercase tracking-[0.18em] transition-all disabled:opacity-25 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                 {t("deleteConfirm")}
@@ -240,11 +240,11 @@ export default function IntegrationsPage() {
                                     <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
                                         <div className="flex items-center gap-8">
                                             <div className="flex -space-x-4">
-                                                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
-                                                    {payP?.logo ? <Image src={payP.logo} alt={payP.name} width={36} height={36} className="object-contain" /> : <PayIcon className="w-8 h-8 text-fg" />}
+                                                <div className="w-16 h-16 rounded-2xl bg-veil border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
+                                                    {payP?.logo ? <Image src={payP.logo} alt={payP.name} width={36} height={36} className={cn("object-contain", payP.logo.includes("-white") && "logo-adaptive")} /> : <PayIcon className="w-8 h-8 text-fg" />}
                                                 </div>
-                                                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
-                                                    {invP?.logo ? <Image src={invP.logo} alt={invP.name} width={36} height={36} className="object-contain" /> : <InvIcon className="w-8 h-8 text-fg" />}
+                                                <div className="w-16 h-16 rounded-2xl bg-veil border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
+                                                    {invP?.logo ? <Image src={invP.logo} alt={invP.name} width={36} height={36} className={cn("object-contain", invP.logo.includes("-white") && "logo-adaptive")} /> : <InvIcon className="w-8 h-8 text-fg" />}
                                                 </div>
                                             </div>
                                             <div className="space-y-1">
@@ -253,8 +253,8 @@ export default function IntegrationsPage() {
                                                     <span className={cn(
                                                         "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border",
                                                         !subBlocked && ai.status === "authorized"
-                                                            ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
-                                                            : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                                                            ? "bg-accent-hot/10 text-accent-hot border-accent-hot/20"
+                                                            : "bg-soon/10 text-soon border-soon/20"
                                                     )}>
                                                         {ai.status === "draft"
                                                             ? t("statusPending")
@@ -267,7 +267,7 @@ export default function IntegrationsPage() {
                                         <div className="flex items-center gap-3">
                                             <Link
                                                 href={ai.href}
-                                                className="px-5 sm:px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+                                                className="px-5 sm:px-8 py-4 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
                                             >
                                                 {ai.status === "draft" ? t("resumeSetup") : t("manageSettings")} <ArrowRight className="w-4 h-4" />
                                             </Link>
@@ -276,7 +276,7 @@ export default function IntegrationsPage() {
                                                     onClick={() => { setPendingDelete(ai); setTyped(""); setDeleteError(""); }}
                                                     title={t("deleteIntegration")}
                                                     aria-label={t("deleteIntegration")}
-                                                    className="p-4 rounded-2xl border border-[rgba(239,68,68,0.25)] text-[rgb(239,68,68)] hover:bg-[rgba(239,68,68,0.10)] hover:border-[rgba(239,68,68,0.45)] transition-all"
+                                                    className="p-4 rounded-2xl border border-destructive/25 text-destructive hover:bg-destructive/10 hover:border-destructive/45 transition-all"
                                                 >
                                                     <Trash2 className="w-4 h-4" />
                                                 </button>
@@ -304,15 +304,15 @@ export default function IntegrationsPage() {
                                     className={cn(
                                         "glass p-6 rounded-[2rem] border transition-all flex items-center justify-between group",
                                         !p.active ? "opacity-40 grayscale cursor-not-allowed border-hairline" :
-                                            selectedPayment === p.id ? "border-[rgba(2,141,196,0.40)] bg-[rgba(2,141,196,0.04)]" : "border-hairline hover:border-rule"
+                                            selectedPayment === p.id ? "border-accent/40 bg-accent/4" : "border-hairline hover:border-rule"
                                     )}
                                 >
                                     <div className="flex items-center gap-5">
                                         <div className={cn(
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
-                                            selectedPayment === p.id ? "bg-[rgba(2,141,196,0.18)] text-accent" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
+                                            selectedPayment === p.id ? "bg-accent/18 text-accent-ink" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
                                         )}>
-                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className="object-contain" /> : <Icon className="w-6 h-6" />}
+                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className={cn("object-contain", p.logo.includes("-white") && "logo-adaptive")} /> : <Icon className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
                                             <p className="font-medium text-lg text-fg">{p.name}</p>
@@ -342,15 +342,15 @@ export default function IntegrationsPage() {
                                     className={cn(
                                         "glass p-6 rounded-[2rem] border transition-all flex items-center justify-between group",
                                         !p.active ? "opacity-40 grayscale cursor-not-allowed border-hairline" :
-                                            selectedInvoicing === p.id ? "border-[rgba(2,141,196,0.40)] bg-[rgba(2,141,196,0.04)]" : "border-hairline hover:border-rule"
+                                            selectedInvoicing === p.id ? "border-accent/40 bg-accent/4" : "border-hairline hover:border-rule"
                                     )}
                                 >
                                     <div className="flex items-center gap-5">
                                         <div className={cn(
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
-                                            selectedInvoicing === p.id ? "bg-[rgba(2,141,196,0.18)] text-accent" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
+                                            selectedInvoicing === p.id ? "bg-accent/18 text-accent-ink" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
                                         )}>
-                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className="object-contain" /> : <Icon className="w-6 h-6" />}
+                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className={cn("object-contain", p.logo.includes("-white") && "logo-adaptive")} /> : <Icon className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
                                             <p className="font-medium text-lg text-fg">{p.name}</p>
@@ -377,21 +377,21 @@ export default function IntegrationsPage() {
                                 <div
                                     className={cn(
                                         "p-6 sm:p-10 rounded-[2.5rem] flex flex-col items-center gap-8 text-center",
-                                        canConnect ? "text-white" : "bg-surface-2 border border-hairline"
+                                        canConnect ? "text-on-accent" : "bg-surface-2 border border-hairline"
                                     )}
                                     style={
                                         canConnect
                                             ? {
                                                   background:
-                                                      "linear-gradient(135deg, #028DC4 0%, #0369A1 100%)",
+                                                      "linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 80%, black) 100%)",
                                                   boxShadow:
-                                                      "inset 0 1px 0 rgba(255,255,255,0.15), 0 0 40px -10px rgba(2,141,196,0.55), 0 12px 30px -16px rgba(0,0,0,0.6)",
+                                                      "inset 0 1px 0 color-mix(in srgb, var(--on-accent) 15%, transparent), 0 0 40px -10px color-mix(in srgb, var(--accent) 55%, transparent), 0 12px 30px -16px var(--scrim)",
                                               }
                                             : undefined
                                     }
                                 >
                                     <div className="flex -space-x-4">
-                                        <div className="w-20 h-20 rounded-[1.8rem] bg-white text-surface flex items-center justify-center ring-8 ring-surface p-3">
+                                        <div className="w-20 h-20 rounded-[1.8rem] bg-media-plate text-on-media flex items-center justify-center ring-8 ring-surface p-3">
                                             {selectedPayment === "shopify" ? <Store className="w-10 h-10" />
                                                 : selectedPayment === "lodgify" ? <Image src="/images/lodgify-logo-black.svg" alt="Lodgify" width={56} height={15} className="object-contain" />
                                                 : selectedPayment === "eupago" ? <Image src="/images/eupago-logo.svg" alt="EuPago" width={40} height={40} className="object-contain" />
@@ -406,14 +406,14 @@ export default function IntegrationsPage() {
                                     </div>
                                     <div className="space-y-2">
                                         <h3 className="text-2xl font-medium">{t("readyToConnect")}</h3>
-                                        <p className={cn("text-sm max-w-xs mx-auto", canConnect ? "text-white/80" : "text-fg-60")}>
+                                        <p className={cn("text-sm max-w-xs mx-auto", canConnect ? "text-on-accent/80" : "text-fg-60")}>
                                             {t("readyBody")}
                                         </p>
                                     </div>
                                     {canConnect ? (
                                         <Link
                                             href={configuratorHref}
-                                            className="w-full py-5 rounded-3xl bg-white text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95"
+                                            className="w-full py-5 rounded-3xl bg-fg text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95"
                                         >
                                             {t("configureNow")}
                                         </Link>

@@ -86,8 +86,8 @@ export function IntegrationStepper({ steps, step, setStep, userRole, onForceAuth
                     onClick={(e) => { e.stopPropagation(); setOpenDiagnostic(isOpen ? null : stepId); setShowConfirm(false); }}
                     className={cn(
                         "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.15em] border flex items-center gap-2 transition-all active:scale-95",
-                        isAuthorized ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]" : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)] hover:bg-[rgba(245,158,11,0.20)]",
-                        isOpen && "ring-2 ring-[rgba(245,158,11,0.30)]"
+                        isAuthorized ? "bg-accent-hot/10 text-accent-hot border-accent-hot/20" : "bg-soon/10 text-soon border-soon/20 hover:bg-soon/20",
+                        isOpen && "ring-2 ring-soon/30"
                     )}
                 >
                     {isAuthorized ? labels.statusAuthorized : labels.statusPending}
@@ -97,31 +97,31 @@ export function IntegrationStepper({ steps, step, setStep, userRole, onForceAuth
                     {!isAuthorized && showPanel && (
                         <motion.div
                             initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-[90vw] max-w-[20rem] p-6 bg-surface-2 border-2 border-[rgba(245,158,11,0.20)] rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[100] backdrop-blur-3xl pointer-events-auto"
+                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-[90vw] max-w-[20rem] p-6 bg-surface-2 border-2 border-soon/20 rounded-[2rem] shadow-[var(--shadow-lift)] z-[100] backdrop-blur-3xl pointer-events-auto"
                         >
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-3 text-soon">
-                                    <div className="bg-[rgba(245,158,11,0.10)] p-2 rounded-xl ring-1 ring-[rgba(245,158,11,0.20)]"><Info className="w-5 h-5" /></div>
+                                    <div className="bg-soon/10 p-2 rounded-xl ring-1 ring-soon/20"><Info className="w-5 h-5" /></div>
                                     <div className="flex flex-col text-left">
                                         <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">{labels.diagnostic}</p>
                                         <p className="text-[10px] font-bold text-soon/60 uppercase mt-1">{labels.diagnosticSub}</p>
                                     </div>
                                 </div>
-                                {isOpen && <button onClick={() => setOpenDiagnostic(null)} className="p-1 hover:bg-white/5 rounded-lg text-fg-40 transition-colors"><X className="w-4 h-4" /></button>}
+                                {isOpen && <button onClick={() => setOpenDiagnostic(null)} className="p-1 hover:bg-fg/5 rounded-lg text-fg-40 transition-colors"><X className="w-4 h-4" /></button>}
                             </div>
-                            <div className="bg-black/40 rounded-[1.25rem] p-4 border border-white/5 mb-4">
+                            <div className="bg-sunken rounded-[1.25rem] p-4 border border-veil mb-4">
                                 <p className="text-[13px] text-fg font-bold leading-relaxed text-left">{errorMsg || labels.diagnosticDefault}</p>
                             </div>
                             {isHiper && isOpen && flagName && onForceAuth && (
                                 <div className="space-y-2">
-                                    <button onClick={handleManualForce} disabled={forcing || saving} className={cn("w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2", showConfirm ? "bg-destructive text-white hover:bg-destructive/85 animate-pulse" : "bg-soon text-surface hover:bg-soon/85")}>
+                                    <button onClick={handleManualForce} disabled={forcing || saving} className={cn("w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2", showConfirm ? "bg-destructive text-on-accent hover:bg-destructive/85 animate-pulse" : "bg-soon text-surface hover:bg-soon/85")}>
                                         {forcing ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
                                         {showConfirm ? labels.areYouSure : labels.forceAuth}
                                     </button>
                                     {showConfirm && <button onClick={() => setShowConfirm(false)} className="w-full text-[10px] font-bold text-fg-40 uppercase tracking-widest hover:text-fg transition-colors py-1">{labels.cancelAction}</button>}
                                 </div>
                             )}
-                            <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-surface-2 rotate-45 border-r-2 border-b-2 border-[rgba(245,158,11,0.10)]" />
+                            <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-surface-2 rotate-45 border-r-2 border-b-2 border-soon/10" />
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -139,16 +139,16 @@ export function IntegrationStepper({ steps, step, setStep, userRole, onForceAuth
                 return (
                     <motion.div key={s.id} initial={false} animate={{ scale: isActive ? 1.01 : 1, opacity: isLocked ? 0.35 : 1, y: isActive ? -4 : 0 }}
                         className={cn("glass rounded-[2rem] overflow-visible relative group transition-all duration-700",
-                            isActive && "border-accent/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_30px_rgba(2,141,196,0.10)]",
-                            isComplete && s.isAuthorized && "border-[rgba(94,234,212,0.30)] bg-[rgba(94,234,212,0.04)]",
-                            isComplete && !s.isAuthorized && "border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.04)]",
+                            isActive && "border-accent/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_30px_color-mix(in_srgb,var(--accent)_10%,transparent)]",
+                            isComplete && s.isAuthorized && "border-accent-hot/30 bg-accent-hot/4",
+                            isComplete && !s.isAuthorized && "border-soon/30 bg-soon/4",
                             isLocked && "grayscale scale-[0.98] !overflow-hidden"
                         )}
                     >
                         <div className="p-6 sm:p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
                             <div className={cn("w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner p-1",
-                                isActive ? "bg-accent/20 text-accent ring-1 ring-accent/30"
-                                    : isComplete ? (s.isAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot ring-1 ring-[rgba(94,234,212,0.30)]" : "bg-[rgba(245,158,11,0.10)] text-soon ring-1 ring-[rgba(245,158,11,0.30)]")
+                                isActive ? "bg-accent/20 text-accent-ink ring-1 ring-accent/30"
+                                    : isComplete ? (s.isAuthorized ? "bg-accent-hot/18 text-accent-hot ring-1 ring-accent-hot/30" : "bg-soon/10 text-soon ring-1 ring-soon/30")
                                         : "bg-surface-2/50 text-fg-40 ring-1 ring-hairline"
                             )}>
                                 {isComplete
@@ -167,7 +167,7 @@ export function IntegrationStepper({ steps, step, setStep, userRole, onForceAuth
                                 <p className="text-fg-60 font-medium leading-relaxed max-w-xl">{s.description}</p>
                             </div>
                             <div className="flex items-center gap-10 w-full lg:w-auto">
-                                {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" /></div>}
+                                {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className={cn("object-contain", s.logo.includes("-white") && "logo-adaptive")} /></div>}
                                 {s.hasGearLogo && <div className={cn("hidden xl:block transition-all duration-700", isActive ? "opacity-100" : "opacity-20")}><Settings2 className="w-16 h-16 text-fg-60 stroke-[1]" /></div>}
                                 {isComplete && <button onClick={() => setStep(s.id)} className="ml-auto bg-surface-2 hover:bg-surface-2 text-fg px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-hairline/50">{labels.update}</button>}
                             </div>
@@ -202,7 +202,7 @@ export function StepperHeader({
     return (
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
             <div className="space-y-2">
-                <Link href={backHref} className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
+                <Link href={backHref} className="text-[10px] font-black text-accent-ink uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
                     <ArrowLeft className="w-3 h-3" /> {backLabel}
                 </Link>
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">{title}</h1>
@@ -214,7 +214,7 @@ export function StepperHeader({
                 <div className="flex -space-x-2.5">
                     {providers.map((p, i) => {
                         const I = p.icon;
-                        const colorClass = p.color === "accentHot" ? "text-accent-hot bg-[rgba(94,234,212,0.10)] border-[rgba(94,234,212,0.30)]" : "text-accent bg-[rgba(2,141,196,0.10)] border-[rgba(2,141,196,0.30)]";
+                        const colorClass = p.color === "accentHot" ? "text-accent-hot bg-accent-hot/10 border-accent-hot/30" : "text-accent-ink bg-accent/10 border-accent/30";
                         return (
                             <div key={i} className={cn("h-9 w-9 rounded-full ring-4 ring-surface flex items-center justify-center border", p.authorized ? colorClass : "bg-surface-2 border-hairline")}>
                                 <I className={cn("w-4 h-4", p.authorized ? "" : "text-fg-40")} />

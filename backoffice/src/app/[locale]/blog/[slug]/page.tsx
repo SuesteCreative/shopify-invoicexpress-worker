@@ -73,7 +73,7 @@ export default async function BlogArticlePage({ params }: Props) {
                 <header className="mb-10">
                     <div className="flex flex-wrap items-center gap-3 mb-4">
                         {article.category && (
-                            <span className="font-mono text-[10px] text-accent uppercase tracking-[0.22em] px-2 py-1 rounded-md border border-[rgba(2,141,196,0.30)] bg-[rgba(2,141,196,0.05)]">
+                            <span className="font-mono text-[10px] text-accent-ink uppercase tracking-[0.22em] px-2 py-1 rounded-md border border-accent/30 bg-accent/5">
                                 {article.category}
                             </span>
                         )}
@@ -121,7 +121,7 @@ export default async function BlogArticlePage({ params }: Props) {
                             <ExternalLink className="w-3 h-3 mt-0.5 shrink-0" />
                             <span>
                                 Fonte original:{" "}
-                                <a href={article.source} target="_blank" rel="noopener noreferrer" className="text-fg-60 hover:text-accent underline decoration-1 underline-offset-2">
+                                <a href={article.source} target="_blank" rel="noopener noreferrer" className="text-fg-60 hover:text-accent-ink underline decoration-1 underline-offset-2">
                                     {new URL(article.source).hostname}
                                 </a>
                             </span>

@@ -22,13 +22,13 @@ export default function TrialBanner({ trialEnd }: { trialEnd?: string | null }) 
         <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-start gap-4 px-6 py-5 rounded-2xl border border-[rgba(2,141,196,0.35)] bg-[rgba(2,141,196,0.05)]"
+            className="flex items-start gap-4 px-6 py-5 rounded-2xl border border-accent/35 bg-accent/5"
         >
-            <span className="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-[rgba(2,141,196,0.15)] text-accent ring-1 ring-[rgba(2,141,196,0.30)]">
+            <span className="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-accent/15 text-accent-ink ring-1 ring-accent/30">
                 <Sparkles className="w-5 h-5" />
             </span>
             <div className="min-w-0">
-                <p className="text-sm font-black text-accent uppercase tracking-[0.14em]">{t("trialActiveTitle")}</p>
+                <p className="text-sm font-black text-accent-ink uppercase tracking-[0.14em]">{t("trialActiveTitle")}</p>
                 <p className="text-[12px] text-fg-60 mt-1.5 leading-relaxed">
                     {label ? t("trialActiveBody", { date: label }) : t("trialActiveBodyNoDate")}
                 </p>

@@ -101,7 +101,7 @@ export default function ConsentBanner() {
                     {t("message")}{" "}
                     <a
                         href={`/${locale}/privacy`}
-                        className="text-[#028dc4] underline underline-offset-2 hover:text-[#3aa9d8] transition-colors"
+                        className="text-accent-ink underline underline-offset-2 hover:text-accent-hover transition-colors"
                     >
                         {t("learnMore")}
                     </a>
@@ -116,7 +116,7 @@ export default function ConsentBanner() {
                     </button>
                     <button
                         onClick={() => choose("granted")}
-                        className="px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest bg-[#028dc4] text-white hover:bg-[#028dc4]/85 transition-colors"
+                        className="px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest bg-accent text-on-accent hover:bg-accent/85 transition-colors"
                     >
                         {t("accept")}
                     </button>

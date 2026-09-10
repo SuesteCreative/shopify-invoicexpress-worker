@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useTranslations } from "next-intl";
 import { Moon, Sun } from "lucide-react";
-import { THEMES, THEME_STORAGE_KEY, type Theme } from "@/lib/theme";
+import { readStoredTheme, THEMES, THEME_STORAGE_KEY, type Theme } from "@/lib/theme";
 
 /**
  * Sibling of <LangToggle>: same pill, same mono caps, same rhythm — this one
@@ -18,25 +18,56 @@ export function ThemeToggle() {
   const t = useTranslations("theme");
   const [theme, setTheme] = React.useState<Theme | null>(null);
 
+  // Switching language navigates across the [locale] segment, which re-renders
+  // <html> from the server. The server never sends `data-theme` — only the
+  // bootstrap script writes it, and that runs on a full page load — so Next
+  // drops the attribute on the way through, the page falls back to night, and
+  // the language toggle looks like it changed the skin.
+  //
+  // Watching the attribute is what makes the two toggles independent: whatever
+  // removes it, it goes straight back to the stored choice, and the pill is
+  // driven by what is actually painted rather than by a one-off read at mount.
   React.useEffect(() => {
-    const current = document.documentElement.getAttribute("data-theme");
-    setTheme(current === "night" ? "night" : "day");
+    const root = document.documentElement;
+
+    function sync() {
+      const current = root.getAttribute("data-theme");
+      if (current === "day" || current === "night") {
+        setTheme(current);
+        return;
+      }
+      // Missing or garbage: put the stored choice back. Setting it re-enters
+      // this callback once with a valid value, which takes the branch above,
+      // so there is no loop.
+      const wanted = readStoredTheme();
+      root.setAttribute("data-theme", wanted);
+      setTheme(wanted);
+    }
+
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
   }, []);
 
   function switchTo(next: Theme) {
     const root = document.documentElement;
     if (root.getAttribute("data-theme") === next) return;
 
-    // Suppress every transition for one frame, so the repaint is a cut and not
-    // a few hundred elements each easing to a new colour at their own pace.
-    root.setAttribute("data-theme-switching", "");
-    root.setAttribute("data-theme", next);
-    setTheme(next);
+    // Stored before the attribute is touched: that is what the watcher above
+    // reads, so if anything strips `data-theme` right after this it comes back
+    // as the choice just made and not as the default.
     try {
       localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
       // Site data blocked — the theme still applies, it just won't be remembered.
     }
+
+    // Suppress every transition for one frame, so the repaint is a cut and not
+    // a few hundred elements each easing to a new colour at their own pace.
+    root.setAttribute("data-theme-switching", "");
+    root.setAttribute("data-theme", next);
+    setTheme(next);
 
     // Tell the server, so the emails we send this account are dressed the same
     // way. Deliberately not awaited and deliberately silent: the page never

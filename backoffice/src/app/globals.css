@@ -90,6 +90,11 @@
   --shadow-cta: 0 16px 34px rgba(0, 0, 0, 0.5);
 }
 
+/* `html:not([data-theme])` outranks the `:root` above on specificity, so the
+   moments when the attribute is missing paint day — DEFAULT_THEME — instead
+   of falling through to night. ThemeToggle puts the attribute back, but this
+   keeps the frames before it does from flashing the wrong skin. */
+html:not([data-theme]),
 [data-theme="day"] {
   color-scheme: light;
 

@@ -20,8 +20,18 @@ export function LangToggle(_props: Props = {}) {
   const router = useRouter();
   const pathname = usePathname();
 
+  // The locale only changes once the server has answered, and the pages are
+  // force-dynamic, so the pill would sit unchanged for a beat after a click.
+  // Showing the pending choice straight away stops that pause reading as
+  // "nothing happened", and stops the real move from landing later, next to
+  // whatever the user pressed in the meantime.
+  const [pending, setPending] = React.useState<string | null>(null);
+  React.useEffect(() => setPending(null), [locale]);
+  const shown = pending ?? locale;
+
   function switchTo(next: string) {
     if (next === locale) return;
+    setPending(next);
     // usePathname() already resolves dynamic segments, so pass as-is
     router.replace(pathname as any, { locale: next });
   }
@@ -33,7 +43,7 @@ export function LangToggle(_props: Props = {}) {
       className="inline-flex items-center gap-0.5 rounded-full p-0.5 border border-hairline bg-veil"
     >
       {routing.locales.map((l) => {
-        const active = l === locale;
+        const active = l === shown;
         return (
           <button
             key={l}

@@ -9,6 +9,7 @@ import { CreditCard, Loader2, Check, CheckCheck, AlertTriangle, ChevronRight, Se
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
+import { moloniCallbackUri } from "@/lib/moloni-oauth";
 import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
 
@@ -73,7 +74,6 @@ export default function StripeConnectMoloniIntegration() {
     const [stripeError, setStripeError] = useState("");
 
     // Moloni (OAuth). The app credentials are still typed; the password is not.
-    const [connectionId, setConnectionId] = useState("");
     const [clientId, setClientId] = useState("");
     const [clientSecret, setClientSecret] = useState("");
     const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
@@ -98,12 +98,12 @@ export default function StripeConnectMoloniIntegration() {
     const settingsSaved = !!companyName;
     const allComplete = connectionStatus === "active";
 
-    // The redirect URI the merchant pastes into their Moloni developer app. It
-    // carries the connection id, so it only exists once Stripe has been connected
-    // and the row has been created.
-    const moloniRedirectUri = connectionId
-        ? `${typeof window !== "undefined" ? window.location.origin : "https://rioko.online"}/api/integrations/moloni-oauth/callback/${connectionId}`
-        : "";
+    // The redirect URI the merchant pastes into their Moloni developer app. The
+    // same one for everybody and it never changes: a Moloni app holds exactly one
+    // callback, so a URI carrying the connection id stopped matching as soon as a
+    // second connection existed. Which connection a code belongs to is decided in
+    // the callback instead.
+    const moloniRedirectUri = moloniCallbackUri();
 
     const load = useCallback(async () => {
         const [integ, connect, moloni] = await Promise.all([
@@ -119,7 +119,6 @@ export default function StripeConnectMoloniIntegration() {
         const sConnected = !!conn?.stripe?.connected;
         setStripeConnected(sConnected);
         setStripeAccountId(conn?.stripe?.stripe_account_id ?? "");
-        setConnectionId(conn?.id ?? "");
         setMoloniAuthorized(!!conn?.moloni?.authorized);
         setMoloniExpiresAt(conn?.moloni?.refresh_expires_at ?? null);
         if (conn?.moloni?.error) setMoloniError(String(conn.moloni.error));
@@ -432,7 +431,7 @@ export default function StripeConnectMoloniIntegration() {
                         <p className="text-[10px] text-fg-40 leading-relaxed">{t("redirectUriBody")}</p>
                         <div className="flex items-center gap-3">
                             <code className="flex-1 bg-surface-2/60 border border-hairline rounded-xl px-4 py-3 text-[11px] font-mono break-all">
-                                {moloniRedirectUri || t("redirectUriPending")}
+                                {moloniRedirectUri}
                             </code>
                             <button onClick={copyRedirectUri} disabled={!moloniRedirectUri} className="px-4 py-3 rounded-xl border border-hairline hover:border-rule text-[10px] font-black uppercase tracking-[0.18em] transition-colors shrink-0 flex items-center gap-2 disabled:opacity-30">
                                 {redirectCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}

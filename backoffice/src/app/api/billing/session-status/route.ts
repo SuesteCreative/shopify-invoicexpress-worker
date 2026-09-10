@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, EMBEDDED_CHECKOUT_API_VERSION } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
 
 export const runtime = "edge";
@@ -26,7 +26,10 @@ export async function GET(req: NextRequest) {
     const targetUserId = await resolveAccountUser(req, userId);
 
     try {
-        const session = await getStripe().checkout.sessions.retrieve(sessionId);
+        // Read it back on the version it was created with (see the create call).
+        const session = await getStripe().checkout.sessions.retrieve(sessionId, {
+            apiVersion: EMBEDDED_CHECKOUT_API_VERSION,
+        });
         if (session.client_reference_id && session.client_reference_id !== targetUserId) {
             return NextResponse.json({ error: "Not found" }, { status: 404 });
         }

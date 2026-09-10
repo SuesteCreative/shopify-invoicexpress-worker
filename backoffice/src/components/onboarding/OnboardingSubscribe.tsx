@@ -108,6 +108,25 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
         [publishableKey],
     );
 
+    // Whether the form actually appeared.
+    //
+    // Everything can succeed — a session created, a client secret returned,
+    // Stripe.js loaded — and the frame still come up empty: a blocked script, or
+    // a session made for a different generation of the mount API. It stayed
+    // silent, and a blank rectangle is the one failure a merchant cannot report
+    // usefully. So the container is checked for the iframe Stripe injects, and
+    // if it is not there the hosted page is offered instead.
+    const frameRef = useRef<HTMLDivElement | null>(null);
+    const [frameEmpty, setFrameEmpty] = useState(false);
+    useEffect(() => {
+        if (!clientSecret || !stripePromise) return;
+        setFrameEmpty(false);
+        const timer = setTimeout(() => {
+            setFrameEmpty(!frameRef.current?.querySelector("iframe"));
+        }, 8000);
+        return () => clearTimeout(timer);
+    }, [clientSecret, stripePromise]);
+
     // Back from Stripe: say what happened, then wait for the webhook to write the
     // row. Without this the step would read "no subscription" for the few seconds
     // between the card being charged and the event landing.
@@ -269,12 +288,26 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                 </div>
             )}
 
+            {frameEmpty && !error && (
+                <div className="rounded-2xl border border-soon/30 bg-soon/8 px-5 py-4 text-[12px] leading-relaxed space-y-2">
+                    <p className="font-medium text-fg">{t("frameEmptyTitle")}</p>
+                    <p className="text-fg-60">{t("frameEmptyBody")}</p>
+                    <button
+                        onClick={openHosted}
+                        disabled={openingHosted}
+                        className="mt-1 rounded-xl border border-hairline px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors hover:border-rule disabled:opacity-40"
+                    >
+                        {openingHosted ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : t("openHosted")}
+                    </button>
+                </div>
+            )}
+
             {!loading && !error && clientSecret && stripePromise && (
                 // No plate of our own behind it: the iframe paints its own
                 // surface from the Stripe branding settings, and a white card
                 // under a dark one is what made it read as a box dropped on the
                 // page. The hairline is all that frames it.
-                <div className="rounded-2xl border border-hairline overflow-hidden">
+                <div ref={frameRef} className="rounded-2xl border border-hairline overflow-hidden">
                     {/* Keyed by plan: a plan change is a different session, and the
                         form has to be built again rather than updated. */}
                     <EmbeddedCheckoutProvider key={plan} stripe={stripePromise} options={{ clientSecret }}>

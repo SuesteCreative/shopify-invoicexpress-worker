@@ -2722,6 +2722,8 @@
         "preparing": "A preparar o pagamento seguro…",
         "errorTitle": "Não foi possível abrir o pagamento aqui.",
         "openHosted": "Pagar na página do Stripe",
+        "frameEmptyTitle": "O formulário de pagamento não abriu aqui.",
+        "frameEmptyBody": "Pode ser uma extensão do navegador a bloquear o Stripe. Pague na página do Stripe, que é o mesmo pagamento e a mesma subscrição.",
         "secure": "O pagamento é processado pelo Stripe, dentro desta página. Os dados do cartão nunca passam pelo Rioko.",
         "confirmingTitle": "Pagamento recebido",
         "confirmingBody": "A activar a subscrição. Demora poucos segundos.",

@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { newOAuthState } from "@/lib/oauth-state";
+import { normalizeReturnSlug, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
 import { isSuperAdmin } from "@/lib/admin";
 
@@ -23,8 +24,17 @@ export async function POST(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const body = await request.json().catch(() => ({})) as { destination_kind?: string; mode?: string };
+    const body = await request.json().catch(() => ({})) as {
+        destination_kind?: string; return_slug?: string; return_locale?: string; mode?: string;
+    };
     const destinationKind = body.destination_kind === "invoicexpress" ? "invoicexpress" : "moloni";
+
+    // Which page this round trip started on, so the callback can end it there.
+    // Always written, never inherited: a row left over from a run that started
+    // on the onboarding page would otherwise send a wizard user somewhere they
+    // did not come from.
+    const returnSlug = normalizeReturnSlug(body.return_slug) ?? RETURN_SLUG_WIZARD;
+    const returnLocale = body.return_locale === "en" ? "en" : "pt";
 
     // Test mode is an operator tool, not a merchant choice: a sandbox
     // connection issues nothing certified and exists to exercise the flow.
@@ -56,15 +66,19 @@ export async function POST(request: NextRequest) {
            (id, user_id, source_kind, destination_kind, source_config_json, status, oauth_state, oauth_state_expires_at, created_at, updated_at)
          VALUES (?, ?, 'stripe_connect', ?, ?, 'draft', ?, ?, ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
+           source_config_json = json_patch(COALESCE(connections.source_config_json, '{}'), excluded.source_config_json),
            oauth_state = excluded.oauth_state,
            oauth_state_expires_at = excluded.oauth_state_expires_at,
            updated_at = excluded.updated_at`
     ).bind(
         crypto.randomUUID(), authResult.targetUserId, destinationKind,
-        // Provisional: the callback needs to know which secret key to exchange
-        // with BEFORE Stripe has told it anything. Stripe's own answer
-        // overwrites this with the truth a moment later.
-        JSON.stringify({ auth_mode: "connect", livemode: mode === "live" }),
+        // Patched, not replaced, on an existing row: a reconnection must not drop
+        // the account id this same column is holding.
+        //
+        // `livemode` is provisional — the callback needs to know which secret key
+        // to exchange with BEFORE Stripe has told it anything, and Stripe's own
+        // answer overwrites it with the truth a moment later.
+        JSON.stringify({ auth_mode: "connect", return_slug: returnSlug, return_locale: returnLocale, livemode: mode === "live" }),
         state, expiresAt, now, now,
     ).run();
 

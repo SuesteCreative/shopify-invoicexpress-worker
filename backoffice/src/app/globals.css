@@ -490,3 +490,13 @@ body {
   background: var(--surface-3);
   color: var(--foreground);
 }
+
+/* Gradient headlines paint their colour through the glyphs, which means the
+   paint stops where the element's box stops. Tailwind's display sizes ship a
+   line-height of 1, so a descender falls outside that box and the tail of a
+   "g" or the cedilla of a "ç" is cut off. This affects both skins and always
+   has. A sliver of padding puts the descenders back inside the painted area;
+   on the inline spans the landings use it costs no layout at all. */
+.bg-clip-text {
+  padding-bottom: 0.16em;
+}

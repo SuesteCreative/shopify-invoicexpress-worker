@@ -2,18 +2,11 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { isStripeConnectEnabled, resolveTargetUser, moloniRedirectUri } from "@/lib/stripe-connect";
+import { resolveReturnPath, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 
 export const runtime = "edge";
 
-const WIZARD_PATH = "/pt/integrations/stripe-connect-moloni";
 const REFRESH_TOKEN_TTL_DAYS = 14;
-
-function backToWizard(status: string, detail?: string) {
-    const url = new URL(`${RIOKO_CONFIG.appUrl}${WIZARD_PATH}`);
-    url.searchParams.set("moloni", status);
-    if (detail) url.searchParams.set("detail", detail.slice(0, 200));
-    return NextResponse.redirect(url.toString(), 302);
-}
 
 /**
  * Moloni sends the merchant back here with a one-time code.
@@ -28,6 +21,19 @@ function backToWizard(status: string, detail?: string) {
  */
 export async function GET(request: NextRequest, context: { params: Promise<{ connectionId: string }> }) {
     if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });
+
+    // Whether this merchant is walking the dashboard wizard or the guided
+    // onboarding page is written on the connection row by the Stripe step, so it
+    // is known only once the row is read. Request-local: a module variable would
+    // leak one merchant's page into the next request's redirect.
+    let returnPath = resolveReturnPath(RETURN_SLUG_WIZARD, "pt");
+
+    const backToWizard = (status: string, detail?: string) => {
+        const url = new URL(`${RIOKO_CONFIG.appUrl}${returnPath}`);
+        url.searchParams.set("moloni", status);
+        if (detail) url.searchParams.set("detail", detail.slice(0, 200));
+        return NextResponse.redirect(url.toString(), 302);
+    };
 
     const { connectionId } = await context.params;
     const params = request.nextUrl.searchParams;
@@ -48,11 +54,14 @@ export async function GET(request: NextRequest, context: { params: Promise<{ con
     // pasted into a third-party console, so it must not be enough on its own to
     // write to somebody else's connection.
     const row: any = await db
-        .prepare(`SELECT id, destination_config_json FROM connections
+        .prepare(`SELECT id, destination_config_json, source_config_json FROM connections
                    WHERE id = ? AND user_id = ? AND source_kind = 'stripe_connect' LIMIT 1`)
         .bind(connectionId, authResult.targetUserId)
         .first();
     if (!row) return backToWizard("error", "Ligação não encontrada.");
+
+    const startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {};
+    returnPath = resolveReturnPath(startedOn.return_slug, startedOn.return_locale);
 
     const cfg = row.destination_config_json ? JSON.parse(row.destination_config_json) : {};
     const clientId = cfg.moloni_client_id;

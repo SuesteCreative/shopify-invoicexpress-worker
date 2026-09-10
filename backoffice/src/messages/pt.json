@@ -2631,5 +2631,71 @@
         "driftsTitle": "Divergências e recusas, últimos 7 dias ({count})",
         "driftsHelp": "Documentos que voltaram diferentes do que foi enviado, e aqueles que o destino recusou de todo. Uma divergência é um veredicto; uma pista fica por confirmar até ser verificada.",
         "noDrifts": "Sem divergências nem recusas nos últimos 7 dias."
+    },
+    "connectOnboarding": {
+        "meta": {
+            "title": "Onboarding Stripe e Moloni | Rioko",
+            "description": "Ligue o Stripe ao Moloni em seis passos: conta, dados da empresa, autorização do Stripe, autorização do Moloni, definições de facturação e subscrição."
+        },
+        "eyebrow": "Ligação guiada",
+        "title": "As suas vendas no Stripe, facturadas no Moloni",
+        "subtitle": "Seis passos, uma vez só. Não há chaves para criar nem passwords para nos dar: autoriza o Stripe e o Moloni em nome da sua empresa, e retira a autorização quando quiser.",
+        "trust1": "Acesso só de leitura ao Stripe",
+        "trust2": "Autorização que retira quando quiser",
+        "trust3": "Nenhuma password guardada por nós",
+        "progress": "Passo {current} de {total}",
+        "allDone": "Tudo pronto",
+        "statusDone": "Concluído",
+        "statusNow": "A fazer agora",
+        "statusLocked": "Por desbloquear",
+        "continue": "Continuar",
+        "privacy": "Privacidade",
+        "terms": "Termos",
+        "help": {
+            "body": "Alguma dúvida num dos passos? Responda ao email que recebeu, ou escreva para"
+        },
+        "finished": {
+            "title": "Está tudo ligado",
+            "body": "As próximas vendas no Stripe passam a dar origem a documentos no Moloni. No painel acompanha cada um, e é lá que ficam também as facturas do serviço.",
+            "cta": "Abrir o painel"
+        },
+        "account": {
+            "title": "Criar a sua conta",
+            "desc": "Email e password, ou a sua conta Google",
+            "body": "A conta é sua: é onde vê a ligação, os documentos emitidos e as facturas do serviço. Depois de a criar, voltamos a esta página no passo seguinte.",
+            "create": "Criar conta",
+            "haveAccount": "Já tem conta?",
+            "signIn": "Entrar",
+            "signedInAs": "Sessão iniciada como {email}",
+            "signedInBody": "Está dentro. Pode avançar para os dados da empresa."
+        },
+        "company": {
+            "title": "Dados da empresa",
+            "desc": "Quem é o titular da conta",
+            "body": "Servem para a sua conta Rioko e para as facturas do serviço. Quem compra na sua loja é identificado pelos dados que o Stripe recolhe no pagamento, não por estes.",
+            "privacyLink": "Política de Privacidade",
+            "update": "Gravar alterações"
+        },
+        "stripe": {
+            "title": "Ligar o Stripe",
+            "desc": "Um clique, na página do próprio Stripe"
+        },
+        "moloni": {
+            "title": "Autorizar o Moloni",
+            "desc": "OAuth v2, com a aplicação da sua conta Moloni",
+            "authorizedBody": "A autorização renova-se sozinha. Pode retirá-la no Moloni quando quiser."
+        },
+        "settings": {
+            "title": "Definições de facturação",
+            "desc": "Empresa, série, tipo de documento e IVA",
+            "body": "Pode mudar tudo isto mais tarde no painel. Com o Auto Finalizar desligado, os documentos ficam em rascunho no Moloni para os rever antes de emitir.",
+            "finish": "Concluir a ligação"
+        },
+        "subscribe": {
+            "title": "Subscrever",
+            "desc": "7,50 € por mês, ou 75 € por ano",
+            "body": "O pagamento é feito na página segura do Stripe. A ligação já está montada: a subscrição é o que a mantém a emitir.",
+            "note": "Preços sem IVA, acrescido à taxa legal. Cancela quando quiser, a partir do painel, sem período mínimo."
+        }
     }
 }

@@ -11,6 +11,7 @@ import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
+import { RETURN_SLUG_WIZARD_IX } from "@/lib/oauth-return";
 
 /**
  * Stripe Connect → InvoiceXpress.
@@ -155,7 +156,7 @@ export default function StripeConnectIxIntegration() {
             const res = await fetch("/api/integrations/stripe-connect/start", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ destination_kind: DESTINATION_KIND }),
+                body: JSON.stringify({ destination_kind: DESTINATION_KIND, return_slug: RETURN_SLUG_WIZARD_IX }),
             });
             const json: any = await res.json();
             if (!res.ok || !json.authorize_url) {

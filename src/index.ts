@@ -2603,18 +2603,22 @@ app.post("/admin/account-invite-email", async (c) => {
   const body = await c.req.json<{
     to: string; account: string; role?: "admin" | "viewer"; has_login?: boolean;
     dashboard_url?: string; invite_url?: string;
+    /** Whose skin to dress this in. `theme` wins; otherwise the account's own. */
+    theme?: "day" | "night"; user_id?: string;
   }>();
   if (!body.to || !body.account) return c.json({ error: "Missing to/account" }, 400);
 
-  const { renderAccountInviteEmail } = await import("./services/email-templates");
-  const { subject, html } = renderAccountInviteEmail({
+  const { renderAccountInviteEmail, renderInTheme } = await import("./services/email-templates");
+  const { getUserTheme } = await import("./services/user-theme");
+  const theme = body.theme ?? await getUserTheme(c.env, body.user_id);
+  const { subject, html } = renderInTheme(theme, () => renderAccountInviteEmail({
     accountLabel: body.account,
     email: body.to,
     role: body.role === "admin" ? "admin" : "viewer",
     hasLogin: !!body.has_login,
     inviteUrl: body.invite_url,
     dashboardUrl: body.dashboard_url,
-  });
+  }));
 
   const res = await sendEmailDirect(c.env, { to: [body.to], subject, html, fromName: "Rioko" });
   return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
@@ -2631,14 +2635,17 @@ app.post("/admin/payment-failed-email", async (c) => {
     to: string | string[]; cc?: string[]; account: string; update_url: string;
     invoice_url?: string; amount_label?: string; next_attempt_label?: string;
     final_attempt?: boolean; dashboard_url?: string;
+    theme?: "day" | "night"; user_id?: string;
   }>();
   const to = Array.isArray(body.to) ? body.to : [body.to];
   if (to.length === 0 || !body.account || !body.update_url) {
     return c.json({ error: "Missing to/account/update_url" }, 400);
   }
 
-  const { renderPaymentFailedEmail } = await import("./services/email-templates");
-  const { subject, html } = renderPaymentFailedEmail({
+  const { renderPaymentFailedEmail, renderInTheme } = await import("./services/email-templates");
+  const { getUserTheme } = await import("./services/user-theme");
+  const theme = body.theme ?? await getUserTheme(c.env, body.user_id);
+  const { subject, html } = renderInTheme(theme, () => renderPaymentFailedEmail({
     accountLabel: body.account,
     updateUrl: body.update_url,
     invoiceUrl: body.invoice_url,
@@ -2646,7 +2653,7 @@ app.post("/admin/payment-failed-email", async (c) => {
     nextAttemptLabel: body.next_attempt_label,
     finalAttempt: !!body.final_attempt,
     dashboardUrl: body.dashboard_url,
-  });
+  }));
 
   // A client who hits "Reply" here is asking us about their own money; that has
   // to land in a mailbox somebody reads.
@@ -2659,17 +2666,17 @@ app.post("/admin/payment-failed-email", async (c) => {
 app.post("/admin/test-quota-email", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ recipient: string; kind?: "warning" | "reached"; merchantName?: string; ixAccount?: string }>();
+  const body = await c.req.json<{ recipient: string; kind?: "warning" | "reached"; merchantName?: string; ixAccount?: string; theme?: "day" | "night" }>();
   if (!body.recipient) return c.json({ error: "Missing recipient" }, 400);
-  const { renderQuotaEmail } = await import("./services/email-templates");
+  const { renderQuotaEmail, renderInTheme } = await import("./services/email-templates");
   const { sendEmail } = await import("./services/email");
-  const tpl = renderQuotaEmail({
+  const tpl = renderInTheme(body.theme ?? "day", () => renderQuotaEmail({
     kind: body.kind === "warning" ? "warning" : "reached",
     merchantName: body.merchantName ?? "Zoo de Lagos",
     ixAccount: body.ixAccount ?? "pelicanzooparquez",
     periodStart: "30/05/2026",
     periodEnd: "30/06/2026",
-  });
+  }));
   const res = await sendEmail(c.env, { to: body.recipient, subject: `[TEST] ${tpl.subject}`, html: tpl.html });
   return c.json({ ok: res.ok, provider: res.provider, id: res.id, kind: body.kind ?? "reached" }, res.ok ? 200 : 500);
 })

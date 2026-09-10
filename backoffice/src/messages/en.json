@@ -2670,7 +2670,8 @@
             "haveAccount": "Already have an account?",
             "signIn": "Sign in",
             "signedInAs": "Signed in as {email}",
-            "signedInBody": "You are in. Carry on to the company details."
+            "signedInBody": "You are in. Carry on to the company details.",
+            "signOut": "Sign out and use another email"
         },
         "company": {
             "title": "Company details",

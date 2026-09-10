@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useClerk, useUser } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import {
     AlertTriangle, ArrowRight, Building2, Check, ChevronDown, Copy, CreditCard,
-    Globe, Loader2, Lock, MapPin, Phone, Settings2, ShieldCheck, Sparkles, User,
+    Globe, Loader2, Lock, LogOut, MapPin, Phone, Settings2, ShieldCheck, Sparkles, User,
     UserPlus,
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
@@ -135,6 +135,7 @@ export default function ConnectMoloniOnboarding() {
     const tSub = useTranslations("onboardingSubscribe");
     const locale = useLocale();
     const { isLoaded: clerkLoaded, isSignedIn, user } = useUser();
+    const { signOut } = useClerk();
     const params = useSearchParams();
 
     const [loading, setLoading] = useState(true);
@@ -414,6 +415,17 @@ export default function ConnectMoloniOnboarding() {
                 <PrimaryButton onClick={() => setOpenStep("company")}>
                     {t("continue")} <ArrowRight className="w-4 h-4" />
                 </PrimaryButton>
+                {/* The way out of the wrong account. Everything on this page is
+                    written against whoever is signed in, so a merchant who
+                    arrived with another email — a personal one, a colleague's
+                    session on a shared browser — has no other way back. */}
+                <button
+                    type="button"
+                    onClick={() => signOut({ redirectUrl: window.location.pathname })}
+                    className="w-full py-3.5 rounded-2xl border border-hairline text-fg-60 font-mono text-[10px] uppercase tracking-[0.18em] flex items-center justify-center gap-2 transition-colors hover:border-rule hover:text-fg"
+                >
+                    <LogOut className="w-3.5 h-3.5" /> {t("account.signOut")}
+                </button>
             </div>
         ) : (
             <div className="space-y-5">

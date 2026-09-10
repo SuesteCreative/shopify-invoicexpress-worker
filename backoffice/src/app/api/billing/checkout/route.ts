@@ -89,6 +89,8 @@ export async function POST(req: NextRequest) {
                 lookupOrId = plan === "annual" ? "stripe-moloni-yearly" : "stripe-moloni-monthly";
                 break;
             case "stripe-ix":
+            // Same product as Stripe Legacy → IX; only the connection differs.
+            case "stripe-connect-ix":
                 lookupOrId = plan === "annual" ? "stripe-ix-yearly" : "stripe-ix-monthly";
                 break;
             default:
@@ -131,6 +133,7 @@ export async function POST(req: NextRequest) {
             "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
             "stripe-moloni":  { ok: "/integrations/stripe-moloni?stripe=success",  cancel: "/integrations/stripe-moloni?stripe=cancel" },
             "stripe-connect-moloni": { ok: "/integrations/stripe-connect-moloni?stripe=success", cancel: "/integrations/stripe-connect-moloni?stripe=cancel" },
+            "stripe-connect-ix": { ok: "/integrations/stripe-connect-ix?stripe=success", cancel: "/integrations/stripe-connect-ix?stripe=cancel" },
             "lodgify-ix":     { ok: "/integrations/lodgify-ix?stripe=success",     cancel: "/integrations/lodgify-ix?stripe=cancel" },
             "faturacao":      { ok: "/faturacao?stripe=success",                   cancel: "/faturacao?stripe=cancel" },
             "dashboard":      { ok: "/dashboard?stripe=success",                   cancel: "/dashboard?stripe=cancel" },

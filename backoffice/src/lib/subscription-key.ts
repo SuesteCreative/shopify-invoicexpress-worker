@@ -28,6 +28,9 @@ export const SOURCE_TO_CONNECTION_KEY: Record<string, string> = {
     // The Connect wizard is its own page and its own connection, but the same
     // product at the same price. Only the key differs.
     "stripe-connect-moloni": "stripe_connect:moloni",
+    // Connect into InvoiceXpress. Its own connection and its own wizard, on the
+    // Stripe→IX product: without a key here the subscribe button answers 400.
+    "stripe-connect-ix": "stripe_connect:invoicexpress",
     "lodgify-moloni": "lodgify:moloni",
 };
 
@@ -38,6 +41,7 @@ export const CONNECTION_KEY_TO_SOURCE: Record<string, string> = {
     "lodgify:invoicexpress": "lodgify-ix",
     "stripe:moloni": "stripe-moloni",
     "stripe_connect:moloni": "stripe-connect-moloni",
+    "stripe_connect:invoicexpress": "stripe-connect-ix",
     "lodgify:moloni": "lodgify-moloni",
 };
 

@@ -7,11 +7,26 @@ import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } f
 
 export const runtime = "edge";
 
-const WIZARD_PATH = "/pt/integrations/stripe-connect-moloni";
+/**
+ * The wizard this connection belongs to.
+ *
+ * Was hardcoded to the Moloni page, with the locale in it too, so a merchant
+ * connecting Stripe to InvoiceXpress landed on someone else's wizard. The
+ * destination is on the row the callback already reads; before that row is in
+ * hand, Moloni is the older and far commoner pair.
+ *
+ * Not module state: a Worker isolate serves many requests, and one merchant's
+ * destination must never decide another's redirect.
+ */
+function wizardPath(destination?: string | null) {
+    return destination === "invoicexpress"
+        ? "/pt/integrations/stripe-connect-ix"
+        : "/pt/integrations/stripe-connect-moloni";
+}
 
 /** Back to the wizard with a message it can render, never a bare JSON error. */
-function backToWizard(status: string, detail?: string) {
-    const url = new URL(`${RIOKO_CONFIG.appUrl}${WIZARD_PATH}`);
+function backToWizard(status: string, detail?: string, destination?: string | null) {
+    const url = new URL(`${RIOKO_CONFIG.appUrl}${wizardPath(destination)}`);
     url.searchParams.set("stripe", status);
     if (detail) url.searchParams.set("detail", detail.slice(0, 200));
     return NextResponse.redirect(url.toString(), 302);
@@ -44,7 +59,7 @@ export async function GET(request: NextRequest) {
     if (!db) return backToWizard("error", "Database binding missing");
 
     const row: any = await db
-        .prepare(`SELECT id, oauth_state, oauth_state_expires_at, source_config_json
+        .prepare(`SELECT id, oauth_state, oauth_state_expires_at, source_config_json, destination_kind
                     FROM connections WHERE user_id = ? AND source_kind = 'stripe_connect' LIMIT 1`)
         .bind(authResult.targetUserId)
         .first();
@@ -54,11 +69,11 @@ export async function GET(request: NextRequest) {
     // CSRF. Without this check anyone could hand a logged-in merchant a link that
     // attaches THEIR Stripe account to the merchant's Rioko connection.
     if (!isValidOAuthState(row.oauth_state, row.oauth_state_expires_at, state)) {
-        return backToWizard("error", "Pedido inválido ou expirado. Recomece o passo do Stripe.");
+        return backToWizard("error", "Pedido inválido ou expirado. Recomece o passo do Stripe.", row.destination_kind);
     }
 
     const platformKey = getStripeEnvOptional("STRIPE_SECRET_KEY");
-    if (!platformKey) return backToWizard("error", "STRIPE_SECRET_KEY not configured");
+    if (!platformKey) return backToWizard("error", "STRIPE_SECRET_KEY not configured", row.destination_kind);
 
     let tokenBody: any;
     try {
@@ -78,14 +93,14 @@ export async function GET(request: NextRequest) {
         });
         tokenBody = await res.json();
         if (!res.ok) {
-            return backToWizard("error", String(tokenBody?.error_description ?? tokenBody?.error ?? `Stripe ${res.status}`));
+            return backToWizard("error", String(tokenBody?.error_description ?? tokenBody?.error ?? `Stripe ${res.status}`), row.destination_kind);
         }
     } catch (e: any) {
-        return backToWizard("error", `Não foi possível falar com o Stripe: ${e?.message ?? e}`);
+        return backToWizard("error", `Não foi possível falar com o Stripe: ${e?.message ?? e}`, row.destination_kind);
     }
 
     const stripeAccountId = tokenBody?.stripe_user_id;
-    if (!stripeAccountId) return backToWizard("error", "O Stripe não devolveu a conta ligada");
+    if (!stripeAccountId) return backToWizard("error", "O Stripe não devolveu a conta ligada", row.destination_kind);
 
     const now = new Date().toISOString();
     // The state is cleared in the same statement that stores the account: a code
@@ -108,5 +123,5 @@ export async function GET(request: NextRequest) {
         now, row.id,
     ).run();
 
-    return backToWizard("connected");
+    return backToWizard("connected", undefined, row.destination_kind);
 }

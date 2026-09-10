@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyOssRates, ossRateFor, ossCountry, EU_STANDARD_VAT_RATES } from "./oss";
+import { applyResolvedRates, ossRateFor, ossCountry, ptRegionalRate, EU_STANDARD_VAT_RATES } from "./tax-rates";
 import { computeExpectedGross } from "./reconcile";
 import type { AdapterCtx } from "./types";
 
@@ -44,6 +44,16 @@ function ctx(over: { engine?: boolean; gross?: boolean; dest?: any; overrides?: 
   } as any;
 }
 
+/** A Portuguese order, with the customer's postal code where the rule reads it. */
+function ptOrder(zip: string, items: any[] = [line()]) {
+  const n = normalized("PT", items);
+  n.order.billing_address.zip = zip;
+  return n;
+}
+
+/** The regional regime alone, as MeetFrank must have it: OSS off. */
+const regionalOnly = (extra: any = {}) => ctx({ engine: false, dest: { pt_regional_rates: true, ...extra } });
+
 /** What the reconciliation guard will compute from these lines. */
 const grossOf = (items: any[]) => computeExpectedGross(items.map((i) => ({
   quantity: i.quantity,
@@ -60,7 +70,7 @@ describe("the money does not move when the rate does", () => {
     const paid = grossOf(n.order.items);
     expect(paid).toBe(100);
 
-    const out = applyOssRates(n, ctx(), "invoicexpress");
+    const out = applyResolvedRates(n, ctx(), "invoicexpress");
 
     expect(out.changed).toBe(1);
     expect(out.country).toBe("FR");
@@ -86,7 +96,7 @@ describe("the money does not move when the rate does", () => {
     })]);
     const paid = grossOf(n.order.items);
 
-    applyOssRates(n, ctx(), "invoicexpress");
+    applyResolvedRates(n, ctx(), "invoicexpress");
 
     expect(n.order.items[0].tax.value).toBe(19);
     // Both discounts are folded into the one percentage IX honours: it ignores
@@ -104,7 +114,7 @@ describe("the money does not move when the rate does", () => {
     const paid = grossOf(n.order.items);
     expect(paid).toBe(180);
 
-    applyOssRates(n, ctx(), "invoicexpress");
+    applyResolvedRates(n, ctx(), "invoicexpress");
 
     expect(n.order.items[0].tax.value).toBe(23);
     expect(Number.isInteger(n.order.items[0].unit_price * 100)).toBe(true);
@@ -116,7 +126,7 @@ describe("the money does not move when the rate does", () => {
     const paid = grossOf(n.order.items);
     const c = ctx();
 
-    const out = applyOssRates(n, c, "invoicexpress");
+    const out = applyResolvedRates(n, c, "invoicexpress");
 
     expect(n.order.items[0].tax.value).toBe(0);
     expect(n.order.items[0].tax.unit_amount).toBe(0);
@@ -128,14 +138,14 @@ describe("the money does not move when the rate does", () => {
   it("uses the connection's own export exemption code when it states one", () => {
     const n = normalized("CH");
     const c = ctx({ dest: { oss_export_exemption_code: "M05" } });
-    expect(applyOssRates(n, c, "invoicexpress").exemptionCode).toBe("M05");
+    expect(applyResolvedRates(n, c, "invoicexpress").exemptionCode).toBe("M05");
   });
 });
 
 describe("what the engine refuses to touch", () => {
   it("does nothing at all when the connection has not opted in", () => {
     const n = normalized("FR");
-    const out = applyOssRates(n, ctx({ engine: false }), "invoicexpress");
+    const out = applyResolvedRates(n, ctx({ engine: false }), "invoicexpress");
     expect(out.enabled).toBe(false);
     expect(n.order.items[0].tax.value).toBe(0);
     expect(n.order.items[0].unit_price).toBe(100);
@@ -143,7 +153,7 @@ describe("what the engine refuses to touch", () => {
 
   it("leaves the source's rate alone when the country is unknown", () => {
     const n = normalized("");
-    applyOssRates(n, ctx(), "invoicexpress");
+    applyResolvedRates(n, ctx(), "invoicexpress");
     expect(n.order.items[0].tax.value).toBe(0);
     expect(n.order.items[0].unit_price).toBe(100);
   });
@@ -152,20 +162,20 @@ describe("what the engine refuses to touch", () => {
     // A Portuguese sale at 6% is a book or a hotel night. Re-rating it to the
     // standard 23% would break a correct invoice.
     const n = normalized("PT", [line({ tax: { name: "VAT", value: 6, unit_amount: 5.66 } })]);
-    applyOssRates(n, ctx(), "invoicexpress");
+    applyResolvedRates(n, ctx(), "invoicexpress");
     expect(n.order.items[0].tax.value).toBe(6);
   });
 
   it("does fill in a domestic rate the source never charged", () => {
     const n = normalized("PT");
-    applyOssRates(n, ctx(), "invoicexpress");
+    applyResolvedRates(n, ctx(), "invoicexpress");
     expect(n.order.items[0].tax.value).toBe(23);
   });
 
   it("yields to a per-SKU override, which is a decision and not a gap", () => {
     const n = normalized("FR", [line({ sku: "BOOK-1" })]);
     const overrides = new Map([["BOOK-1", { tax_rate: 6 }]]);
-    applyOssRates(n, ctx({ overrides }), "invoicexpress");
+    applyResolvedRates(n, ctx({ overrides }), "invoicexpress");
     expect(n.order.items[0].tax.value).toBe(0); // untouched — the override decides downstream
     expect(n.order.items[0].unit_price).toBe(100);
   });
@@ -173,7 +183,7 @@ describe("what the engine refuses to touch", () => {
   it("yields to the bookseller's ISBN rule without a per-title entry", () => {
     const n = normalized("FR", [line({ sku: "9781234567897" })]);
     const overrides = new Map([["RIOKO-ISBN-BOOK", { tax_rate: 6 }]]);
-    applyOssRates(n, ctx({ overrides }), "invoicexpress");
+    applyResolvedRates(n, ctx({ overrides }), "invoicexpress");
     expect(n.order.items[0].unit_price).toBe(100);
   });
 
@@ -183,7 +193,7 @@ describe("what the engine refuses to touch", () => {
     // then refuses the sale outright.
     const n = normalized("FR", [line({ sku: "price_abc" })]);
     const mappings = new Map([["price_abc", 4242]]);
-    applyOssRates(n, ctx({ mappings }), "moloni");
+    applyResolvedRates(n, ctx({ mappings }), "moloni");
     expect(n.order.items[0].unit_price).toBe(100);
   });
 });
@@ -194,7 +204,7 @@ describe("when the rate cannot be applied, it holds instead of guessing", () => 
     // change would grow the total past what was paid. The document goes out at
     // the rate actually charged, as a draft, with a notice.
     const n = normalized("FR");
-    const out = applyOssRates(n, ctx({ gross: false }), "invoicexpress");
+    const out = applyResolvedRates(n, ctx({ gross: false }), "invoicexpress");
 
     expect(out.changed).toBe(0);
     expect(n.order.items[0].unit_price).toBe(100);
@@ -206,14 +216,14 @@ describe("when the rate cannot be applied, it holds instead of guessing", () => 
     // Vendus maps a rate to one of four Portuguese codes and computes the VAT
     // from the code. 20% becomes "OUT": right total, wrong breakdown, no error.
     const n = normalized("FR");
-    const out = applyOssRates(n, ctx(), "vendus");
+    const out = applyResolvedRates(n, ctx(), "vendus");
     expect(out.changed).toBe(0);
     expect(out.holdReason).toContain("Vendus");
   });
 
   it("still serves Vendus the rates it can express", () => {
     const n = normalized("US", [line({ tax: { name: "VAT", value: 23, unit_amount: 18.7 } })]);
-    const out = applyOssRates(n, ctx(), "vendus");
+    const out = applyResolvedRates(n, ctx(), "vendus");
     expect(out.changed).toBe(1);
     expect(n.order.items[0].tax.value).toBe(0);
   });
@@ -239,5 +249,80 @@ describe("the rate table and the country rule", () => {
     expect(ossRateFor("FR", 0)).toBe(20);
     expect(ossRateFor("US", 23)).toBe(0);
     expect(ossRateFor("PT", 6)).toBeNull();
+  });
+});
+
+describe("Portugal's regional rates, which follow the customer's domicile", () => {
+  it("bills a Madeira customer at 22% WITHOUT the OSS engine", () => {
+    // The whole reason this is its own flag. MeetFrank's regime is B2B reverse
+    // charge; enabling OSS for them would put foreign VAT on an invoice that
+    // must carry none. They still need 22% and 16%.
+    const n = ptOrder("9000-063", [line({ tax: { name: "VAT", value: 23, unit_amount: 18.7 } })]);
+    const paid = grossOf(n.order.items);
+
+    const out = applyResolvedRates(n, regionalOnly(), "invoicexpress");
+
+    expect(out.enabled).toBe(true);
+    expect(n.order.items[0].tax.value).toBe(22);
+    expect(grossOf(n.order.items)).toBeCloseTo(paid, 2);
+  });
+
+  it("bills an Azores customer at 16%, the case that had to be issued by hand", () => {
+    // Carlos Arruda, 299,00 €, 08/09/2026: no path through the worker could
+    // produce 16%, so the document was written straight against the API.
+    const n = ptOrder("9500-100", [line({ unit_price: 299, unit_price_calculated: 299 })]);
+    const paid = grossOf(n.order.items);
+    expect(paid).toBe(299);
+
+    applyResolvedRates(n, regionalOnly(), "invoicexpress");
+
+    expect(n.order.items[0].tax.value).toBe(16);
+    expect(grossOf(n.order.items)).toBe(299);
+  });
+
+  it("leaves the mainland alone", () => {
+    const n = ptOrder("1000-001", [line({ tax: { name: "VAT", value: 23, unit_amount: 18.7 } })]);
+    applyResolvedRates(n, regionalOnly(), "invoicexpress");
+    expect(n.order.items[0].tax.value).toBe(23);
+  });
+
+  it("does not touch a reduced band it has no regional value for", () => {
+    // Madeira's reduced rates are 5% and 12%, which this does not carry. A line
+    // already at 6% is left exactly as it is rather than guessed at 22%.
+    const n = ptOrder("9000-063", [line({ tax: { name: "VAT", value: 6, unit_amount: 5.66 } })]);
+    applyResolvedRates(n, regionalOnly(), "invoicexpress");
+    expect(n.order.items[0].tax.value).toBe(6);
+  });
+
+  it("does nothing when the connection has not asked for it", () => {
+    const n = ptOrder("9500-100");
+    const out = applyResolvedRates(n, ctx({ engine: false }), "invoicexpress");
+    expect(out.enabled).toBe(false);
+    expect(n.order.items[0].tax.value).toBe(0);
+  });
+
+  it("reads the billing address, where the customer IS — not where goods go", () => {
+    // The opposite of the OSS rule on purpose: a distance sale of goods is
+    // taxed where they GO, a supply of services where the customer IS.
+    const n = ptOrder("9700-100");
+    n.order.shipping_address.zip = "1000-001";
+    applyResolvedRates(n, regionalOnly(), "invoicexpress");
+    expect(n.order.items[0].tax.value).toBe(16);
+  });
+
+  it("maps the postal ranges, including Porto Santo", () => {
+    expect(ptRegionalRate("9000-063")).toBe(22);
+    expect(ptRegionalRate("9400-100")).toBe(22); // Porto Santo, part of Madeira
+    expect(ptRegionalRate("9500-100")).toBe(16);
+    expect(ptRegionalRate("9900-000")).toBe(16); // Horta
+    expect(ptRegionalRate("8999-999")).toBeNull();
+    expect(ptRegionalRate("")).toBeNull();
+    expect(ptRegionalRate("900")).toBeNull();
+  });
+
+  it("still lets the OSS engine decide the foreign countries when both are on", () => {
+    const n = normalized("FR");
+    applyResolvedRates(n, ctx({ dest: { pt_regional_rates: true } }), "invoicexpress");
+    expect(n.order.items[0].tax.value).toBe(20);
   });
 });

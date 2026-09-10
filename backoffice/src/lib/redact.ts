@@ -46,6 +46,10 @@ export const FISCAL_CONFIG_KEYS = [
   // — with `oss_enabled` defaulted to 1 since 0002 — out of it entirely.
   "oss_engine",
   "oss_export_exemption_code",
+  // Portugal's regional rates, which follow the CUSTOMER's domicile. Its own
+  // key because the merchants who need it — B2B reverse charge — are exactly
+  // the ones who must never have the OSS engine.
+  "pt_regional_rates",
   // The fiscal identity of the documents this connection issues.
   //
   // `exemption_reason` above is Moloni's name for the same idea, and it is NOT

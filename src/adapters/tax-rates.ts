@@ -14,7 +14,15 @@
  * rewrites the line so that no money moves: the customer paid what they paid,
  * and the reconciliation guard still has to agree.
  *
- * It is OFF unless the connection sets `oss_engine`. The legacy `integrations`
+ * A second, independent regime lives here too: Portugal's regional rates.
+ * Madeira is 22 % and the Azores 16 %, and under Decreto-Lei 347/85 the rate
+ * follows the CUSTOMER's domicile, not the seller's. MeetFrank's accountant
+ * confirmed it on 08/09/2026, and their Azores sale had to be issued by hand
+ * because no path through the worker could produce 16 %. It has its own flag
+ * because the merchants who need it are precisely the ones who must never have
+ * the OSS engine: theirs is a B2B reverse-charge regime.
+ *
+ * The OSS half is OFF unless the connection sets `oss_engine`. The legacy `integrations`
  * row has no `destination_config_json`, so the entire Shopify fleet — where
  * `oss_enabled` has defaulted to 1 since migration 0002 without ever selecting
  * a rate — is excluded by construction, with no migration and no new column.
@@ -134,6 +142,55 @@ export function ossRateFor(country: string, sourceCharged: number): number | nul
   return EU_STANDARD_VAT_RATES[country] ?? null;
 }
 
+/**
+ * Portugal's autonomous regions, by the customer's postal code.
+ *
+ * 9000-9499 is Madeira (9400-9499 being Porto Santo, part of the same region)
+ * and 9500-9999 the Azores. Mainland codes are 1000-8999, so a four-digit
+ * prefix is the whole test.
+ *
+ * ponytail: STANDARD regional rates only, and only as a replacement for the
+ * mainland standard. Madeira and the Azores have their own reduced rates too
+ * (5 % / 12 % and 4 % / 9 %); a line the source already taxed at a reduced
+ * rate is left exactly as it is rather than guessed at. Upgrade path is a
+ * (region, band) table, worth writing when a merchant actually sells
+ * reduced-rate goods into the islands.
+ *
+ * ponytail: the 9500 boundary is the calibration knob. It matches the postal
+ * ranges as published, but it is the one number here that a Portuguese
+ * accountant should confirm before this is turned on for a real merchant.
+ */
+export const PT_REGIONAL_VAT_RATES = { madeira: 22, azores: 16 } as const;
+
+export function ptRegionalRate(postalCode: string | null | undefined): number | null {
+  const digits = String(postalCode ?? "").replace(/\D/g, "");
+  if (digits.length < 4) return null;
+  const prefix = Number(digits.slice(0, 4));
+  if (prefix >= 9000 && prefix <= 9499) return PT_REGIONAL_VAT_RATES.madeira;
+  if (prefix >= 9500 && prefix <= 9999) return PT_REGIONAL_VAT_RATES.azores;
+  return null;
+}
+
+/**
+ * Where the customer is domiciled, for the regional rate.
+ *
+ * Billing first here, and shipping first for OSS. That is not an inconsistency:
+ * a distance sale of goods is taxed where the goods GO, and a supply of
+ * services under the regional rule is taxed where the customer IS.
+ */
+export function ptDomicilePostalCode(order: Normalized["order"]): string {
+  const candidates = [
+    order.billing_address?.zip,
+    order.shipping_address?.zip,
+    (order.customer as any)?.default_address?.zip,
+  ];
+  for (const z of candidates) {
+    const zip = String(z ?? "").trim();
+    if (zip) return zip;
+  }
+  return "";
+}
+
 /** An ISBN-13 SKU, for the bookseller rule that outranks this engine. */
 const isIsbn13 = (sku: string) => /^(978|979)\d{10}$/.test(sku.replace(/[\s-]/g, ""));
 
@@ -177,15 +234,23 @@ function isExplicitlyPriced(ctx: AdapterCtx, item: Normalized["order"]["items"][
  * A monetary allocation is folded into that percentage rather than scaled: it
  * is already inside the line's gross, which is the quantity being preserved.
  */
-export function applyOssRates(
+export function applyResolvedRates(
   normalized: Normalized,
   ctx: AdapterCtx,
   destination: DestinationKind,
 ): OssOutcome {
-  const flag = (ctx.destinationConfig as any)?.oss_engine;
-  if (flag !== true && Number(flag) !== 1) return OFF;
+  const on = (key: string) => {
+    const v = (ctx.destinationConfig as any)?.[key];
+    return v === true || Number(v) === 1;
+  };
+  const ossOn = on("oss_engine");
+  const regionalOn = on("pt_regional_rates");
+  if (!ossOn && !regionalOn) return OFF;
 
   const country = ossCountry(normalized.order);
+  const regionalRate = regionalOn && country === SELLER_COUNTRY
+    ? ptRegionalRate(ptDomicilePostalCode(normalized.order))
+    : null;
   const items = normalized.order.items ?? [];
   // Prices already contain the tax. Only then can a rate change be absorbed
   // without altering what the customer paid.
@@ -199,7 +264,14 @@ export function applyOssRates(
     if (isExplicitlyPriced(ctx, item)) continue;
 
     const r0 = Number(item.tax?.unit_amount) === 0 ? 0 : Number(item.tax?.value ?? 0);
-    const r1 = ossRateFor(country, r0);
+
+    // A regional rate stands in for the mainland standard and for nothing else.
+    // A line already taxed at 6 % or 13 % is on a reduced band, which has its
+    // own regional values this does not carry — so it is left exactly as it is.
+    const mainland = EU_STANDARD_VAT_RATES[SELLER_COUNTRY];
+    const r1 = regionalRate != null && (r0 === 0 || r0 === mainland)
+      ? regionalRate
+      : (ossOn ? ossRateFor(country, r0) : null);
     if (r1 == null) continue;
 
     // A sale outside the EU is zero-rated as an export, and the engine names

@@ -958,6 +958,10 @@
                 "label": "Non-EU exemption code",
                 "help": "The code stamped when the engine zero-rates a sale outside the EU. Defaults to M40."
             },
+            "ptRegionalRates": {
+                "label": "Portuguese regional rates (Madeira/Azores)",
+                "help": "Applies 22% in Madeira and 16% in the Azores instead of the mainland 23%, from the customer's postal code (DL 347/85: the rate follows the customer's domicile). Independent of the OSS engine — it can be switched on alone under a B2B reverse-charge regime. It only replaces the standard rate: a line already at 6% or 13% is left as it is."
+            },
             "b2bReverseCharge": {
                 "label": "B2B reverse charge",
                 "help": "Invoice qualifying EU B2B sales as reverse charge, after VIES confirms the buyer."

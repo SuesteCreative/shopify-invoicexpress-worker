@@ -4,7 +4,7 @@ import { AppStorage } from "../storage";
 import { getSourceAdapter, getDestinationAdapter } from "../adapters/registry";
 import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
-import { applyOssRates } from "../adapters/oss";
+import { applyResolvedRates } from "../adapters/tax-rates";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 import { destinationHandlesForeignCurrency } from "../services/currency-guard";
@@ -392,7 +392,7 @@ async function runPipelineCore(
       // `unit_price` is the one contract all three read — Vendus reads nothing
       // else — and because a rewrite of the normalized order reaches the credit
       // note by the same path. Off unless the connection sets `oss_engine`.
-      const ossOutcome = applyOssRates(normalized, ctx, destination);
+      const ossOutcome = applyResolvedRates(normalized, ctx, destination);
       if (ossOutcome.changed > 0) {
         console.log(`[Pipeline] ${externalId}: ${ossOutcome.changed} line(s) re-rated for ${ossOutcome.country}`);
       }
@@ -767,7 +767,7 @@ async function runPipelineCore(
 
       // The credit note corrects a document whose lines were re-rated, so it
       // has to be built from the same rates. Same call, same connection flag.
-      applyOssRates(normalized, ctx, destination);
+      applyResolvedRates(normalized, ctx, destination);
 
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for refund of ${externalId}`);

@@ -958,6 +958,10 @@
                 "label": "Código de isenção fora da UE",
                 "help": "O código carimbado quando o motor põe uma venda fora da UE a 0%. Por omissão M40."
             },
+            "ptRegionalRates": {
+                "label": "Taxas regionais de PT (Madeira/Açores)",
+                "help": "Aplica 22% na Madeira e 16% nos Açores em vez dos 23% do continente, pelo código postal do cliente (DL 347/85: a taxa segue o domicílio do adquirente). Independente do motor de OSS — pode ligar-se sozinha num regime de autoliquidação B2B. Só substitui a taxa normal: uma linha já a 6% ou 13% fica como está."
+            },
             "b2bReverseCharge": {
                 "label": "Autoliquidação B2B",
                 "help": "Fatura as vendas B2B da UE elegíveis com autoliquidação, depois de o VIES confirmar o comprador."

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getDB } from "@/lib/stripe";
 import { isAdmin } from "@/lib/admin";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
-import { primaryConnectionKey } from "@/lib/stripe";
+import { primaryConnectionKey, listAccountConnections } from "@/lib/stripe";
 import { keyFromRequest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
@@ -52,23 +52,33 @@ export async function POST(req: NextRequest) {
         const priceId = item?.price?.id || null;
         const plan = (sub.metadata?.plan as string) || (item?.price?.recurring?.interval === "year" ? "annual" : "monthly");
 
-        // Stamp our user_id so future renewal/cancel webhooks resolve to this account.
+        // Which connection this Stripe subscription pays for (0044). An admin
+        // naming one by hand wins. The subscription's own metadata is trusted
+        // only when it names a connection the account actually HAS: a checkout
+        // started from a generic page used to stamp `shopify:invoicexpress` on
+        // every account, so linking by metadata alone filed the payment against
+        // a connection that does not exist and left the real one reading
+        // "inactive" (Farracemota, 10/09/2026).
+        const accountKeys = (await listAccountConnections(db, targetUserId)).map((c) => c.key);
+        const metaKey = sub.metadata?.connection_key ? keyFromRequest(sub.metadata.connection_key as string, null) : null;
+        const connectionKey = body.connection_key
+            ? keyFromRequest(body.connection_key, null)
+            : metaKey && accountKeys.includes(metaKey)
+                ? metaKey
+                : await primaryConnectionKey(db, targetUserId);
+
+        // Stamp our user_id so future renewal/cancel webhooks resolve to this
+        // account, and the resolved key so they file the row on the same
+        // connection this link just chose.
         try {
             await stripe.subscriptions.update(subscriptionId, {
-                metadata: { ...(sub.metadata || {}), app: "rioko", user_id: targetUserId },
+                metadata: { ...(sub.metadata || {}), app: "rioko", user_id: targetUserId, connection_key: connectionKey },
             });
         } catch (e: any) {
             console.warn("[link-subscription] metadata stamp failed:", e?.message ?? e);
         }
 
         // Upsert the Rioko subscription row. early_bird is preserved (DB owns it).
-        // Which connection this Stripe subscription pays for (0044). The
-        // subscription's own metadata wins; an admin linking by hand can name it;
-        // otherwise it lands on the account's oldest connection.
-        const named = (sub.metadata?.connection_key as string) ?? body.connection_key;
-        const connectionKey = named
-            ? keyFromRequest(named, null)
-            : await primaryConnectionKey(db, targetUserId);
 
         await db.prepare(`
             INSERT INTO subscriptions (user_id, connection_key, stripe_customer_id, stripe_subscription_id, status,

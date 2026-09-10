@@ -1,6 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe, getStripeEnv, getStripeEnvOptional, getDB } from "@/lib/stripe";
+import { getStripe, getStripeEnv, getStripeEnvOptional, getDB, primaryConnectionKey } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
 import { CONNECTION_KEY_TO_SOURCE, keyFromRequest } from "@/lib/subscription-key";
 
@@ -53,7 +53,18 @@ export async function POST(req: NextRequest) {
         // subscription's own metadata so the webhook can file the row against
         // the right one — a customer can now hold several, and the events for
         // them are indistinguishable otherwise.
-        const connectionKey = keyFromRequest(body.connection_key, source);
+        // A generic page (Billing, dashboard) cannot name a connection, and the
+        // static map answers "shopify:invoicexpress" for all of them. On an
+        // account whose only connection is another pair that key names nothing:
+        // the payment is filed against a connection that does not exist and the
+        // billing page keeps reading "inactive" for the one that does. Resolve
+        // it from the account instead. An explicit key still wins.
+        const GENERIC_SOURCES = new Set(["", "faturacao", "dashboard"]);
+        const connectionKey = body.connection_key
+            ? keyFromRequest(body.connection_key, null)
+            : GENERIC_SOURCES.has(rawSource)
+                ? await primaryConnectionKey(db, targetUserId)
+                : keyFromRequest(null, source);
 
         // Each integration bills its OWN price. Explicit source → lookup mapping;
         // an unknown source is rejected (400) rather than silently defaulting to the
@@ -63,6 +74,9 @@ export async function POST(req: NextRequest) {
         switch (source) {
             case "":
             case "faturacao":
+            // Lodgify->IX bills the same product at the same price as Shopify->IX.
+            // Only the connection it pays for differs.
+            case "lodgify-ix":
                 lookupOrId = plan === "annual" ? getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP");
                 break;
             case "lodgify-moloni":
@@ -117,6 +131,7 @@ export async function POST(req: NextRequest) {
             "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
             "stripe-moloni":  { ok: "/integrations/stripe-moloni?stripe=success",  cancel: "/integrations/stripe-moloni?stripe=cancel" },
             "stripe-connect-moloni": { ok: "/integrations/stripe-connect-moloni?stripe=success", cancel: "/integrations/stripe-connect-moloni?stripe=cancel" },
+            "lodgify-ix":     { ok: "/integrations/lodgify-ix?stripe=success",     cancel: "/integrations/lodgify-ix?stripe=cancel" },
             "faturacao":      { ok: "/faturacao?stripe=success",                   cancel: "/faturacao?stripe=cancel" },
             "dashboard":      { ok: "/dashboard?stripe=success",                   cancel: "/dashboard?stripe=cancel" },
         };

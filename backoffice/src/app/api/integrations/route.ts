@@ -135,24 +135,39 @@ export async function POST(request: NextRequest) {
           SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, ix_send_email = ?, ix_email_subject = ?, ix_email_body = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
+                // ABSENT MEANS UNCHANGED.
+                //
+                // This UPDATE writes all 21 columns every time, and the row is
+                // shared: it is the Shopify integration's config AND the place a
+                // Stripe->InvoiceXpress connection's credentials live. Four
+                // wizards POST here with partial bodies, so saving one erased the
+                // others' fields — `shopify_domain` and `shopify_token` to NULL,
+                // the IX credentials to NULL, `ix_sequence_name` to NULL, the
+                // exemption code back to M01. A merchant who saved the Stripe
+                // wizard lost their shop's series and their webhook secret, and
+                // nothing said so.
+                //
+                // Every value below now falls back to what is already stored.
+                // `shopify_authorized` and `webhooks_active` already did this;
+                // the rest did not.
                 .bind(
-                    clean_shopify_domain,
-                    shopify_token || null,
-                    shopify_webhook_secret || null,
-                    shopify_api_version || "2026-01",
-                    ix_account_name || null,
-                    ix_api_key || null,
-                    ix_environment || "production",
-                    ix_exemption_reason || "M01",
-                    vat_included !== undefined ? (vat_included ? 1 : 0) : 1,
-                    auto_finalize !== undefined ? (auto_finalize ? 1 : 0) : 0,
+                    shopify_domain !== undefined ? clean_shopify_domain : existing.shopify_domain,
+                    shopify_token !== undefined ? (shopify_token || null) : existing.shopify_token,
+                    shopify_webhook_secret !== undefined ? (shopify_webhook_secret || null) : existing.shopify_webhook_secret,
+                    shopify_api_version !== undefined ? (shopify_api_version || "2026-01") : (existing.shopify_api_version ?? "2026-01"),
+                    ix_account_name !== undefined ? (ix_account_name || null) : existing.ix_account_name,
+                    ix_api_key !== undefined ? (ix_api_key || null) : existing.ix_api_key,
+                    ix_environment !== undefined ? (ix_environment || "production") : (existing.ix_environment ?? "production"),
+                    ix_exemption_reason !== undefined ? (ix_exemption_reason || "M01") : (existing.ix_exemption_reason ?? "M01"),
+                    vat_included !== undefined ? (vat_included ? 1 : 0) : (existing.vat_included ?? 1),
+                    auto_finalize !== undefined ? (auto_finalize ? 1 : 0) : (existing.auto_finalize ?? 0),
                     final_shopify_authorized,
                     final_webhooks_active,
-                    ix_document_type || "invoice_receipt",
-                    ix_payment_term !== undefined ? parseInt(String(ix_payment_term)) : 0,
-                    ix_sequence_name || null,
-                    retentionEnabledBit,
-                    retentionValue,
+                    ix_document_type !== undefined ? (ix_document_type || "invoice_receipt") : (existing.ix_document_type ?? "invoice_receipt"),
+                    ix_payment_term !== undefined ? parseInt(String(ix_payment_term)) : (existing.ix_payment_term ?? 0),
+                    ix_sequence_name !== undefined ? (ix_sequence_name || null) : existing.ix_sequence_name,
+                    ix_retention_enabled !== undefined ? retentionEnabledBit : (existing.ix_retention_enabled ?? 0),
+                    ix_retention !== undefined ? retentionValue : (existing.ix_retention ?? null),
                     only_invoice_when_paid !== undefined ? (only_invoice_when_paid ? 1 : 0) : (existing.only_invoice_when_paid ?? 0),
                     sendEmailBit ?? (existing.ix_send_email ?? 0),
                     emailSubject !== undefined ? emailSubject : (existing.ix_email_subject ?? null),

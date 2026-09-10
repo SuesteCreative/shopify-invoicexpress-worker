@@ -204,18 +204,20 @@ export async function POST(request: NextRequest) {
 
     const env_ = (merged.moloni_environment ?? body.moloni_environment) === "sandbox" ? "sandbox" : "production";
 
-    // Everything already stored, THEN the wizard's own fields over the top.
+    // The wizard's own fields, and ONLY those: this object is a merge patch, not
+    // a replacement. Everything already stored and not named here survives
+    // untouched, which is what a re-save must do — on 03/09/2026 a merchant asked
+    // for auto_finalize to be turned on, and saving that one toggle dropped their
+    // OTA invoicing rule, payment method, article category, maturity terms and
+    // extras VAT rate, and left the connection in draft.
     //
-    // This used to be an allow-list, with one field ("moloni_default_tax_id")
-    // explicitly carried across and a comment promising that a re-save never
-    // erases what the UI does not round-trip. It erased everything else: on
-    // 03/09/2026 a merchant asked for auto_finalize to be turned on, and saving
-    // that one toggle dropped their OTA invoicing rule, payment method, article
-    // category, maturity terms and extras VAT rate, and left the connection in
-    // draft. An enumerated list goes stale the day someone adds a setting, which
-    // is every week; a spread cannot.
+    // It used to spread `previousCfg` in here and write the result whole. That
+    // fixed the erasure but left a narrower hole: a Moloni token rotation landing
+    // between the SELECT above and the write below was overwritten with the pair
+    // this request had read, and the connection died an hour later with nothing
+    // in the logs. Reading a blob to write it back always races; naming only what
+    // changed does not.
     const destinationConfig: Record<string, unknown> = {
-        ...previousCfg,
         moloni_client_id: merged.moloni_client_id ? String(merged.moloni_client_id) : undefined,
         moloni_client_secret: merged.moloni_client_secret ? String(merged.moloni_client_secret) : undefined,
         moloni_username: merged.moloni_username ? String(merged.moloni_username) : undefined,
@@ -254,15 +256,14 @@ export async function POST(request: NextRequest) {
                 : previousCfg.default_vat_rate),
     };
 
-    // With the spread above, an `undefined` value no longer removes a key — the
-    // stored one shows through. Clearing therefore has to be said, not implied:
-    // "" / null on default_vat_rate means exempt, and dropping the key is how
-    // that is stored.
+    // In a merge patch, an absent key means "leave it alone" and a null means
+    // "delete it" — and JSON.stringify drops `undefined` for us, so every field
+    // above that resolves to undefined is left alone rather than erased.
+    //
+    // Clearing therefore has to be said out loud: "" / null on default_vat_rate
+    // means exempt, and a null is how that reaches json_patch.
     if (body.default_vat_rate === "" || body.default_vat_rate === null) {
-        delete destinationConfig.default_vat_rate;
-    }
-    for (const key of Object.keys(destinationConfig)) {
-        if (destinationConfig[key] === undefined) delete destinationConfig[key];
+        destinationConfig.default_vat_rate = null;
     }
 
     const id = crypto.randomUUID();
@@ -273,7 +274,10 @@ export async function POST(request: NextRequest) {
           (id, user_id, source_kind, destination_kind, destination_config_json, status, created_at, updated_at)
          VALUES (?, ?, ?, 'moloni', ?, ?, ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
-           destination_config_json = excluded.destination_config_json,
+           destination_config_json = json_patch(
+             CASE WHEN json_valid(connections.destination_config_json)
+                  THEN connections.destination_config_json ELSE '{}' END,
+             excluded.destination_config_json),
            status = excluded.status,
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, sourceKind, JSON.stringify(destinationConfig), status, now, now).run();

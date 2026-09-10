@@ -54,7 +54,12 @@ export async function buildAdapterCtx(
     destination === "moloni" && config.user_id
       ? loadProductMappings(env, config.user_id, source)
       : Promise.resolve(undefined),
-    destination === "invoicexpress" && config.user_id
+    // Loaded for every destination, not just InvoiceXpress. `product_overrides`
+    // is already keyed by destination_kind and the backoffice already writes
+    // moloni/vendus rows — they were simply never read. The tax decision treats
+    // an override as "the merchant already decided this line", which has to be
+    // true wherever the document is issued.
+    config.user_id
       ? loadProductOverrides(env, config.user_id, source, destination)
       : Promise.resolve(undefined),
     (destination === "invoicexpress" || destination === "moloni") && config.user_id
@@ -62,9 +67,16 @@ export async function buildAdapterCtx(
       : Promise.resolve([]),
   ]);
 
-  // Built once per run when reverse-charge is enabled. Without it, B2B EU
-  // customers with valid VAT IDs get B2C invoices on the adapter path.
-  const viesChecker = config.b2b_reverse_charge === 1 ? makeViesChecker(env.INVOICE_KV) : undefined;
+  // Built once per run when anything might ask whether a buyer is a registered
+  // business: the legacy Shopify reverse charge (`b2b_reverse_charge`), the
+  // pipeline's own registration, or a connection that asked for the regime to be
+  // named. Without it an EU VAT number classifies as unverified, which holds a
+  // draft rather than certifying a regime nobody checked.
+  const wantsVies = config.b2b_reverse_charge === 1
+    || config.ix_derive_exemption === 1
+    || input.destinationConfig?.b2b_reverse_charge_pipeline === true
+    || Number(input.destinationConfig?.b2b_reverse_charge_pipeline) === 1;
+  const viesChecker = wantsVies ? makeViesChecker(env.INVOICE_KV) : undefined;
 
   return {
     ctx: {

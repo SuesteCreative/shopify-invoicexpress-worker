@@ -1,44 +1,66 @@
 /**
- * Which VAT rate a line carries, when the merchant asks us to decide it.
+ * Which regime a sale was made under, and what VAT follows from it.
  *
- * Normally the rate is transported, not computed: Shopify works it out, Stripe
- * Tax works it out, and every destination adapter reads `item.tax` and passes
- * it on. That breaks down when the source charges no VAT at all. Wim Hof Method
- * sells courses across the EU through raw PaymentIntents with `automatic_tax`
- * disabled — measured 10/09/2026, there is no tax on the PaymentIntent, none on
- * the charge, and the Stripe invoice named in the metadata is `void` and
- * untaxed. A French consumer paying 181,35 € produced a document at 0 % VAT
- * stamped as an export.
+ * ONE decision, in ONE place, before any destination sees the order. It used to
+ * be five, and they interacted in ways nobody could hold in their head: the rate
+ * was decided here from the shipping country, the exemption code was decided
+ * later inside the InvoiceXpress adapter from the BILLING country, reverse
+ * charge lived in the legacy Shopify builder and reached no other destination at
+ * all, and the export article was named by a third module. That is how Wim Hof
+ * Method stamped M40 — the export/autoliquidação article — on a French
+ * CONSUMER: the naming half and the money half never met.
  *
- * So this module decides the rate from the buyer's country instead, and
- * rewrites the line so that no money moves: the customer paid what they paid,
- * and the reconciliation guard still has to agree.
+ * THE REGIME IS A FACT, NOT A PREFERENCE. It follows from the buyer: which
+ * country, whether they are a registered business, and whether VIES says so.
+ * What the CONNECTION declares is not rules but REGISTRATIONS — "I am
+ * registered for OSS", "I supply services under art. 6.º n.º 6 / art. 196.º",
+ * "I invoice into the islands". A merchant authoring "country = FR then 20 %"
+ * would be encoding tax law, and owning the error when it is wrong.
  *
- * A second, independent regime lives here too: Portugal's regional rates.
- * Madeira is 22 % and the Azores 16 %, and under Decreto-Lei 347/85 the rate
- * follows the CUSTOMER's domicile, not the seller's. MeetFrank's accountant
- * confirmed it on 08/09/2026, and their Azores sale had to be issued by hand
- * because no path through the worker could produce 16 %. It has its own flag
- * because the merchants who need it are precisely the ones who must never have
- * the OSS engine: theirs is a B2B reverse-charge regime.
+ * Each registration authorises exactly one rung's effect on MONEY, and
+ * `ix_derive_exemption` authorises only the NAMING. That split is what makes
+ * "nothing changes for a merchant who changed no config" true rung by rung
+ * rather than as a hope — and it is pinned by a test that diffs the whole order.
  *
- * The OSS half is OFF unless the connection sets `oss_engine`. The legacy `integrations`
- * row has no `destination_config_json`, so the entire Shopify fleet — where
- * `oss_enabled` has defaulted to 1 since migration 0002 without ever selecting
- * a rate — is excluded by construction, with no migration and no new column.
+ * Rates are normally transported, not computed: Shopify works one out, Stripe
+ * Tax works one out, and every destination reads `item.tax`. This module only
+ * has to decide when the source charged nothing — measured on WHM, 10/09/2026:
+ * `automatic_tax` disabled, no tax on the PaymentIntent, none on the charge, and
+ * the Stripe invoice named in the metadata `void` and untaxed. When it does
+ * decide, it rewrites the line so no money moves: the customer paid what they
+ * paid, and the reconciliation guard still has to agree.
  *
- * WHAT THIS IS NOT: it is not reverse charge. A B2B supply of services to a
- * VAT-registered business in another member state is taxed in the buyer's
- * country under art. 6.º n.º 6 a) CIVA and leaves here at 0 % with an
- * autoliquidação mention. That is `b2b_reverse_charge` + VIES, and it runs
- * after this, in the IX builder. Turning this on for such a merchant would put
- * French VAT on an invoice that must carry none. MeetFrank is exactly that
- * merchant: 731 documents, all correct, none of them OSS.
+ * OFF unless a registration is declared. All of them live in
+ * `connections.destination_config_json`, which the legacy `integrations` row
+ * does not have — so the whole Shopify fleet, where `oss_enabled` has defaulted
+ * to 1 since migration 0002 without ever selecting a rate, is excluded by
+ * construction. No migration, no new column, no flag day.
+ *
+ * ponytail: the legacy Shopify→InvoiceXpress path does NOT come through here.
+ * It keeps its own reverse charge, its own `pending_reverse_charge` deferral and
+ * its own precondition list. Two mechanisms, deliberately: that path is the only
+ * one that already HAS reverse charge, and routing the fleet through this ladder
+ * would re-rate it on a setting nobody chose. Upgrade path is the day
+ * `DESTINATION_VIA_ADAPTER=1` becomes the default, and the migration belongs to
+ * that flip.
+ *
+ * ponytail: the legal mention reaches InvoiceXpress only. Moloni and Vendus
+ * render their own text from the SAF-T code, so only the code is stamped for
+ * them. Upgrade path is Moloni's header note, worth writing the day an
+ * accountant asks for the article on a Moloni document.
+ *
+ * ponytail: being a business is proved by a VIES-confirmed VAT number and
+ * nothing else. The legacy path also demands a non-empty billing company, which
+ * is deliberately not carried over: it rejects a real GmbH that supplied a VAT
+ * number through a Stripe checkout with no company field. Upgrade path is a real
+ * `is_business` signal on Normalized, if a source ever provides one.
  */
 import type { Normalized } from "../api/normalize-shopify";
 import type { AdapterCtx, DestinationKind } from "./types";
 import { EU_COUNTRIES, SELLER_COUNTRY } from "../ix/eu-countries";
 import { deriveProductReference } from "./destinations/moloni-destination";
+import { classifyExemption, type FiscalClassification } from "../ix/fiscal-classification";
+import { IxBuilder } from "../ix/builder";
 
 /**
  * Standard VAT rates, EU-27, verified against the European Commission's
@@ -75,15 +97,42 @@ export const EU_STANDARD_VAT_RATES: Readonly<Record<string, number>> = {
  */
 const VENDUS_EXPRESSIBLE_RATES = new Set([0, 6, 13, 23]);
 
-export interface OssOutcome {
-  /** Whether the engine was on for this connection at all. */
+/**
+ * Which regime the sale was made under. One per sale, decided from facts about
+ * the buyer, never from a merchant's preference.
+ */
+export type VatRegime =
+  | "off"                        // no registration: nothing was decided
+  | "domestic"                   // seller's own country
+  | "pt_regional"                // Madeira / Azores, by the customer's domicile
+  | "oss"                        // intra-EU distance selling to a consumer
+  | "reverse_charge"             // intra-EU supply to a VIES-confirmed business
+  | "reverse_charge_unverified"  // the buyer claims one and VIES did not answer
+  | "export";                    // outside the EU
+
+export interface VatDecision {
+  /** Whether any registration was declared, i.e. whether anything was decided. */
   enabled: boolean;
+  /** What the sale turned out to be. */
+  regime: VatRegime;
   /** The country the decision was made from. Empty when unknown. */
   country: string;
   /** How many lines had their rate changed. */
   changed: number;
-  /** The exemption code stamped, when the sale was zero-rated as an export. */
+  /** The exemption code stamped on the document, if any. */
   exemptionCode: string | null;
+  /**
+   * The full classification, for InvoiceXpress, which also wants the legal
+   * mention and the basis. Moloni and Vendus need neither: they render the text
+   * from the SAF-T code themselves.
+   */
+  fiscal: FiscalClassification | null;
+  /**
+   * The buyer gave an EU VAT number and VIES did not answer. The money is right
+   * either way, but a certified document would declare a regime nobody
+   * verified, so it is held as a draft.
+   */
+  hold: string | null;
   /**
    * Set when a rate SHOULD have changed and could not. The pipeline turns this
    * into a draft and one notice, rather than a wrong document or a sale that
@@ -92,7 +141,10 @@ export interface OssOutcome {
   holdReason: string | null;
 }
 
-const OFF: OssOutcome = { enabled: false, country: "", changed: 0, exemptionCode: null, holdReason: null };
+const OFF: VatDecision = {
+  enabled: false, regime: "off", country: "", changed: 0,
+  exemptionCode: null, fiscal: null, hold: null, holdReason: null,
+};
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -234,52 +286,129 @@ function isExplicitlyPriced(ctx: AdapterCtx, item: Normalized["order"]["items"][
  * A monetary allocation is folded into that percentage rather than scaled: it
  * is already inside the line's gross, which is the quantity being preserved.
  */
-export function applyResolvedRates(
+/**
+ * Which regime this sale was made under, from facts about the buyer alone.
+ *
+ * Export first: a business outside the EU is an export, not a reverse charge,
+ * and getting that order wrong is the mirror of the failure this whole module
+ * exists for — an EU consumer stamped with the export article.
+ */
+function resolveRegime(
+  country: string,
+  fiscal: FiscalClassification | null,
+  regionalRate: number | null,
+): VatRegime {
+  if (!country) return "off";
+  if (!EU_COUNTRIES.has(country)) return "export";
+  if (fiscal?.basis === "intra_eu_b2b") return "reverse_charge";
+  if (fiscal?.basis === "intra_eu_b2b_unverified") return "reverse_charge_unverified";
+  if (country === SELLER_COUNTRY) return regionalRate != null ? "pt_regional" : "domestic";
+  return "oss";
+}
+
+export async function decideVat(
   normalized: Normalized,
   ctx: AdapterCtx,
   destination: DestinationKind,
-): OssOutcome {
+): Promise<VatDecision> {
   const on = (key: string) => {
     const v = (ctx.destinationConfig as any)?.[key];
     return v === true || Number(v) === 1;
   };
   const ossOn = on("oss_engine");
   const regionalOn = on("pt_regional_rates");
-  if (!ossOn && !regionalOn) return OFF;
+  const rcOn = on("b2b_reverse_charge_pipeline");
+  // Reads `config`, not the blob: it is one of CONNECTION_FISCAL_FLAGS, which
+  // projectConnectionBehaviour already copies off the connection.
+  const deriveOn = Number((ctx.config as any)?.ix_derive_exemption) === 1;
+  if (!ossOn && !regionalOn && !rcOn && !deriveOn) return OFF;
 
   const country = ossCountry(normalized.order);
+
+  // ONE classification, from ONE country, so the code and the rate can never
+  // disagree. Until now the rate was decided here from the shipping country and
+  // the code was decided later, inside the InvoiceXpress adapter, from the
+  // billing country — two answers to one question, and only one of them ever
+  // reached Moloni or Vendus.
+  let fiscal: FiscalClassification | null = null;
+  if (country && (rcOn || deriveOn)) {
+    fiscal = await classifyExemption({
+      buyerCountryCode: country,
+      // ponytail: reuses IxBuilder's extractor rather than moving it out. It is
+      // the only implementation, it is well covered, and lifting it is a bigger
+      // diff than the whole of this change. Upgrade path: give it its own module
+      // the day a second caller wants it without constructing a builder.
+      euVatCandidates: new IxBuilder(ctx.config).extractEuVatCandidates(normalized),
+      config: ctx.config,
+      viesChecker: ctx.viesChecker,
+    });
+  }
+
   const regionalRate = regionalOn && country === SELLER_COUNTRY
     ? ptRegionalRate(ptDomicilePostalCode(normalized.order))
     : null;
+  const regime = resolveRegime(country, fiscal, regionalRate);
+  const mainland = EU_STANDARD_VAT_RATES[SELLER_COUNTRY];
+
+  /**
+   * The rate this regime imposes, or null to leave the source's alone.
+   *
+   * Every branch is gated on its OWN registration, which is what makes "nothing
+   * changes for a merchant who changed no config" true rung by rung rather than
+   * as a hope: naming a regime (`ix_derive_exemption`) never moves money on its
+   * own, and each money rung needs the merchant to have declared it.
+   */
+  const rateFor = (r0: number): number | null => {
+    switch (regime) {
+      case "export":
+        return ossOn ? 0 : null;
+      case "reverse_charge":
+        return rcOn ? 0 : null;
+      // Deliberately never re-rated. The two candidate answers here are 0% and
+      // the destination's full rate, and choosing wrong declares a regime nobody
+      // verified. The document keeps what was charged and is held as a draft.
+      case "reverse_charge_unverified":
+        return null;
+      case "pt_regional":
+        return regionalRate != null && (r0 === 0 || r0 === mainland) ? regionalRate : null;
+      case "oss":
+        return ossOn ? (EU_STANDARD_VAT_RATES[country] ?? null) : null;
+      case "domestic":
+        return ossOn ? ossRateFor(country, r0) : null;
+      default:
+        return null;
+    }
+  };
+
   const items = normalized.order.items ?? [];
   // Prices already contain the tax. Only then can a rate change be absorbed
   // without altering what the customer paid.
   const gross = Number((ctx.config as any)?.vat_included) === 1;
 
   let changed = 0;
-  let zeroRatedExport = false;
+  let hasZeroRatedLine = false;
   const blocked: string[] = [];
 
   for (const item of items) {
-    if (isExplicitlyPriced(ctx, item)) continue;
-
     const r0 = Number(item.tax?.unit_amount) === 0 ? 0 : Number(item.tax?.value ?? 0);
+
+    // A line the merchant priced by hand keeps its rate — but it still counts
+    // towards whether the DOCUMENT is exempt, because InvoiceXpress asks for an
+    // exemption code the moment any single line sits at 0%.
+    if (isExplicitlyPriced(ctx, item)) {
+      if (r0 === 0) hasZeroRatedLine = true;
+      continue;
+    }
 
     // A regional rate stands in for the mainland standard and for nothing else.
     // A line already taxed at 6 % or 13 % is on a reduced band, which has its
     // own regional values this does not carry — so it is left exactly as it is.
-    const mainland = EU_STANDARD_VAT_RATES[SELLER_COUNTRY];
-    const r1 = regionalRate != null && (r0 === 0 || r0 === mainland)
-      ? regionalRate
-      : (ossOn ? ossRateFor(country, r0) : null);
-    if (r1 == null) continue;
-
-    // A sale outside the EU is zero-rated as an export, and the engine names
-    // the code whether or not it had to change the rate to get there. A line
-    // that already arrived at 0% is still an export, and leaving the code to
-    // whatever the connection happens to carry is how a French consumer sale
-    // ended up stamped as one.
-    if (r1 === 0) zeroRatedExport = true;
+    const r1 = rateFor(r0);
+    if (r1 == null) {
+      if (r0 === 0) hasZeroRatedLine = true;
+      continue;
+    }
+    if (r1 === 0) hasZeroRatedLine = true;
 
     if (r1 === r0) continue;
 
@@ -319,14 +448,34 @@ export function applyResolvedRates(
       unit_amount: r1 === 0 ? 0 : round2(targetNet * r1 / 100),
     };
     changed++;
-    if (r1 === 0) zeroRatedExport = true;
   }
 
-  const exemptionCode = zeroRatedExport ? ossExemptionCode(ctx) : null;
+  // A code is only ever stamped on a document that HAS an exempt line. Asking
+  // for one on a fully taxed document is how a shop ends up declaring an
+  // exemption it never had — the same rule IxBuilder applies at
+  // shouldRequestTaxExemptionReason.
+  //
+  // Precedence: what the merchant explicitly stated for exports, then the
+  // article the classification named, then the connection's own default.
+  const statedExportCode = String((ctx.destinationConfig as any)?.oss_export_exemption_code ?? "").trim();
+  const classifiedCode = (fiscal?.exemptionCode ?? "").trim() || null;
+  const exemptionCode = !hasZeroRatedLine
+    ? null
+    : (regime === "export" && statedExportCode)
+      ? statedExportCode
+      : (classifiedCode ?? (regime === "export" ? ossExemptionCode(ctx) : null));
+
   if (exemptionCode) {
     // Stamped onto the two per-run config objects the three destinations already
-    // read, rather than threaded through three adapter signatures. Both are
-    // parsed fresh per pipeline run, so this cannot leak into another sale.
+    // read, rather than threaded through three adapter signatures. This is also
+    // how a reverse-charge code reaches Moloni and Vendus, which is what makes
+    // the regime reach them at all.
+    //
+    // Written only when there IS a code: `config.ix_exemption_reason` is the
+    // merchant's own setting and the fallback for a domestic exempt line, so
+    // clearing it here would destroy a configured value to prevent a leak that
+    // needs a reused ctx — and buildAdapterCtx builds one per pipeline run.
+    //
     // ponytail: give createDraft an explicit exemptionCode argument if a fourth
     // destination ever needs it.
     (ctx.config as any).ix_exemption_reason = exemptionCode;
@@ -335,9 +484,12 @@ export function applyResolvedRates(
 
   return {
     enabled: true,
+    regime,
     country,
     changed,
     exemptionCode,
+    fiscal,
+    hold: fiscal?.hold ?? null,
     holdReason: blocked.length
       ? `a taxa do país do comprador não pôde ser aplicada: ${blocked.join("; ")}`
       : null,

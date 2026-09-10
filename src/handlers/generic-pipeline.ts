@@ -2,9 +2,10 @@ import type { Env } from "../env";
 import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
 import { getSourceAdapter, getDestinationAdapter } from "../adapters/registry";
+import type { AdapterCtx } from "../adapters/types";
 import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
-import { applyResolvedRates } from "../adapters/tax-rates";
+import { decideVat } from "../adapters/tax-rates";
 import { reportIncident, type Severity } from "../services/incidents";
 import type { IncidentKind } from "../services/email-templates";
 import { destinationHandlesForeignCurrency } from "../services/currency-guard";
@@ -364,7 +365,11 @@ async function runPipelineCore(
   destAdapter: ReturnType<typeof getDestinationAdapter>,
   externalId: string,
   appStorage: AppStorage,
-  ctx: { apiKey: string; config: IRequestConfig; sourceConfig?: Record<string, any>; destinationConfig?: Record<string, any> },
+  // The real thing, not a structural subset of it. The narrow shape predates
+  // `ctx` carrying anything a destination reads back — the VAT decision is
+  // written here and read in the InvoiceXpress adapter — and a subset type
+  // silently drops whatever it does not name.
+  ctx: AdapterCtx,
   logTopic: string,
   connectionLabel: string,
   tagRoutingRules: import("../services/tag-routing").TagRoutingRule[],
@@ -391,10 +396,19 @@ async function runPipelineCore(
       // Here, and not in the destination adapters, because `item.tax` +
       // `unit_price` is the one contract all three read — Vendus reads nothing
       // else — and because a rewrite of the normalized order reaches the credit
-      // note by the same path. Off unless the connection sets `oss_engine`.
-      const ossOutcome = applyResolvedRates(normalized, ctx, destination);
-      if (ossOutcome.changed > 0) {
-        console.log(`[Pipeline] ${externalId}: ${ossOutcome.changed} line(s) re-rated for ${ossOutcome.country}`);
+      // note by the same path.
+      //
+      // This is also the ONE place the regime is decided. It used to be two:
+      // the rate here, from the shipping country, and the exemption code later
+      // inside the InvoiceXpress adapter, from the billing country — which meant
+      // the two could disagree, and that neither reverse charge nor a named
+      // regime ever reached Moloni or Vendus at all.
+      //
+      // Silent unless the connection declared a registration.
+      const vat = await decideVat(normalized, ctx, destination);
+      ctx.vat = vat;
+      if (vat.changed > 0 || vat.regime === "reverse_charge" || vat.regime === "export") {
+        console.log(`[Pipeline] ${externalId}: ${vat.regime} (${vat.country}), ${vat.changed} line(s) re-rated`);
       }
 
       // Defense in depth: does the destination already hold this sale?
@@ -569,7 +583,7 @@ async function runPipelineCore(
       // Emitting it certified would put a rate we know to be wrong on a fiscal
       // document; refusing it outright would leave a paid sale unbilled with a
       // message that names neither cause.
-      const holdReason = [draftHold, ossOutcome.holdReason].filter(Boolean).join(" · ") || null;
+      const holdReason = [draftHold, vat.holdReason].filter(Boolean).join(" · ") || null;
       await appStorage.saveProcessedInvoice(externalId, invoiceId, {
         sourceKind: source,
         destinationKind: destination,
@@ -772,7 +786,11 @@ async function runPipelineCore(
 
       // The credit note corrects a document whose lines were re-rated, so it
       // has to be built from the same rates. Same call, same connection flag.
-      applyResolvedRates(normalized, ctx, destination);
+      // The credit note corrects a document whose lines were re-rated, so it is
+      // built from the same decision — including the exemption code, which on
+      // this path used to be discarded and left the note carrying the
+      // connection's standing code instead of the invoice's.
+      ctx.vat = await decideVat(normalized, ctx, destination);
 
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for refund of ${externalId}`);

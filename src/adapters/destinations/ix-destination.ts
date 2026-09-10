@@ -15,7 +15,7 @@ import { parseIxDate } from "../../ix/date";
 import { resolveExemptionCode } from "../../ix/exemption";
 import { resolveIxSequenceId } from "../../ix/sequences";
 import { restateOrderInEur } from "../../ix/foreign-currency";
-import { classifyExemption, type FiscalClassification } from "../../ix/fiscal-classification";
+import type { FiscalClassification } from "../../ix/fiscal-classification";
 import { createIxInvoiceWithFallback, ixExpectedTotals } from "../../ix/create-invoice";
 import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
 import type { Normalized } from "../../api/normalize-shopify";
@@ -533,25 +533,15 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
     const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides);
 
-    // Per-sale fiscal classification. Off by default: with the flag at 0 this
-    // whole block is skipped and the build is what it always was, stamping the
-    // shop-wide exemption code. On, the document names the regime the sale was
-    // actually made under — an export, an intra-Community supply, or the shop's
-    // own reason — which is the difference between a globally-selling merchant
-    // being compliant and merely being invoiced. Note this reads the VIES
-    // checker directly rather than through `viesChecker` above: reverse charge
-    // was never evaluated on this path at all, so the checker was built and
-    // then never used.
-    let fiscal: FiscalClassification | null = null;
-    if (ctx.config.ix_derive_exemption === 1) {
-      fiscal = await classifyExemption({
-        buyerCountryCode: normalized.order.billing_address?.country_code
-          ?? normalized.order.shipping_address?.country_code,
-        euVatCandidates: builder.extractEuVatCandidates(normalized),
-        config: ctx.config,
-        viesChecker: ctx.viesChecker,
-      });
-    }
+    // The per-sale classification, decided once by the pipeline before any
+    // destination saw the order, and read here rather than re-derived.
+    //
+    // It used to be computed in this block — which meant it happened only for
+    // InvoiceXpress, from a different country than the rate decision used, and
+    // after the lines had already been re-rated. Deciding it in one place is
+    // what lets the same regime reach Moloni and Vendus, and it also removes a
+    // second VIES round trip per document.
+    const fiscal: FiscalClassification | null = ctx.vat?.fiscal ?? null;
 
     const { invoice, nifHold, requestTaxExemptionReason } =
       builder.createInvoiceFromNormalizedOrder(normalized, fiscal ? { fiscal } : undefined);
@@ -559,7 +549,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     // The hold only means anything on a document that ended up exempt. A sale
     // where the buyer paid VAT needs no exemption confirmed, so an unverifiable
     // VAT number on it is not a reason to withhold a correct invoice.
-    const fiscalHold = fiscal && requestTaxExemptionReason ? fiscal.hold : null;
+    const fiscalHold = requestTaxExemptionReason ? (ctx.vat?.hold ?? null) : null;
 
     // IxBuilder reconciles internally on the raw_order path. For non-raw
     // sources (Stripe, EuPago) raw_order is absent, so we reconcile here

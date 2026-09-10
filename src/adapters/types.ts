@@ -1,4 +1,5 @@
 import type { Normalized } from "../api/normalize-shopify";
+import type { VatDecision } from "./tax-rates";
 import type { IRequestConfig } from "../storage";
 import type { LodgifyGateway } from "../services/lodgify-api";
 import type { StripeAuth } from "../services/stripe-auth";
@@ -48,9 +49,18 @@ export interface AdapterCtx {
     name_override?: string;
   }>;
   // VIES checker for B2B EU reverse-charge classification. Built once per
-  // pipeline run when `config.b2b_reverse_charge === 1` so IxBuilder can
-  // decide whether to apply M16/M40 exemptions on EU cross-border orders.
+  // pipeline run when the connection declared reverse charge or asked for the
+  // regime to be named, so the decision can tell a real intra-Community supply
+  // from a buyer who typed something VAT-shaped.
   viesChecker?: (countryCode: string, vatNumber: string) => Promise<boolean | null>;
+  // What regime this sale was decided to be under, and what follows from it.
+  //
+  // Written ONCE by the pipeline, before any destination sees the order, and
+  // read only by the InvoiceXpress adapter — which also wants the legal mention.
+  // Moloni and Vendus receive the same decision through the lines themselves and
+  // the stamped exemption code, which is why reverse charge reaches them without
+  // either adapter changing.
+  vat?: VatDecision;
   // Where Lodgify calls leave from. Resolved once per run by buildAdapterCtx
   // (Lodgify connections only) because Lodgify allowlists us by IP address and
   // the Worker has no fixed egress: a call that does not go through the relay

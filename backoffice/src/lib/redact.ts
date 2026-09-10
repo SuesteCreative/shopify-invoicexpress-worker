@@ -50,6 +50,11 @@ export const FISCAL_CONFIG_KEYS = [
   // key because the merchants who need it — B2B reverse charge — are exactly
   // the ones who must never have the OSS engine.
   "pt_regional_rates",
+  // "I supply services under art. 6.º n.º 6 / art. 196.º". Its own key rather
+  // than the legacy `b2b_reverse_charge`, which on the adapter pipeline builds
+  // a VIES checker and never consults it — reusing it would turn a no-op into
+  // a money-mover for everyone who has it, on the day of the merge.
+  "b2b_reverse_charge_pipeline",
   // The fiscal identity of the documents this connection issues.
   //
   // `exemption_reason` above is Moloni's name for the same idea, and it is NOT

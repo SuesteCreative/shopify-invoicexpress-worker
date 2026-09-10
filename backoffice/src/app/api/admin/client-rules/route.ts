@@ -47,6 +47,7 @@ const DANGEROUS_FIELDS = new Set([
   "ix_exemption_reason", "ix_b2b_exemption_reason",
   "oss_enabled", "b2b_reverse_charge", "vat_included",
   "oss_engine", "oss_export_exemption_code", "pt_regional_rates",
+  "b2b_reverse_charge_pipeline",
   "exemption_reason", "default_vat_rate", "moloni_default_tax_id",
   // These three decide what a document declares, not merely how it is produced:
   // which legal exemption is named, what VAT the lines carry, and in which

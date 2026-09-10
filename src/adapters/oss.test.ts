@@ -65,16 +65,20 @@ describe("the money does not move when the rate does", () => {
     expect(out.changed).toBe(1);
     expect(out.country).toBe("FR");
     expect(n.order.items[0].tax.value).toBe(20);
-    expect(n.order.items[0].unit_price).toBeCloseTo(83.3333, 4);
+    // The exact net is 83,3333, which two decimals cannot hold. The line is
+    // therefore expressed as IX accepts one: the net CEILED to 2dp, plus the
+    // discount percentage that brings the subtotal back to the exact target.
+    expect(n.order.items[0].unit_price).toBe(83.34);
+    expect(n.order.items[0].discount.percent).toBeGreaterThan(0);
     expect(n.order.items[0].tax.unit_amount).toBeCloseTo(16.67, 2);
     // The whole point.
     expect(grossOf(n.order.items)).toBe(paid);
   });
 
   it("holds the total through a monetary allocation and a percentage discount at once", () => {
-    // A monetary allocation is NOT scale-invariant and has to be scaled by the
-    // same k; a percentage discount is, and must be left alone. Getting either
-    // wrong shows up here and nowhere else.
+    // Two discounts of different kinds on one line, both already inside the
+    // gross being preserved. Getting either of them wrong shows up here and
+    // nowhere else.
     const n = normalized("DE", [line({
       quantity: 3, unit_price: 40, unit_price_calculated: 40,
       discount_allocation_amount: 12, discount: { name: "promo", percent: 5 },
@@ -85,8 +89,26 @@ describe("the money does not move when the rate does", () => {
     applyOssRates(n, ctx(), "invoicexpress");
 
     expect(n.order.items[0].tax.value).toBe(19);
-    expect(n.order.items[0].discount.percent).toBe(5);
+    // Both discounts are folded into the one percentage IX honours: it ignores
+    // `discount_amount` on POST, so scaling that field would have billed the
+    // line at full price.
+    expect(n.order.items[0].discount_allocation_amount).toBe(0);
+    expect(n.order.items[0].discount.percent).toBeGreaterThan(0);
     expect(grossOf(n.order.items)).toBeCloseTo(paid, 2);
+  });
+
+  it("survives a quantity greater than one, where 2dp rounding bites hardest", () => {
+    // 3 x 60,00 at 0% re-rated to Ireland's 23%: the exact net per unit is
+    // 48,7805, and three of those have to still add up to 180,00.
+    const n = normalized("IE", [line({ quantity: 3, unit_price: 60, unit_price_calculated: 60 })]);
+    const paid = grossOf(n.order.items);
+    expect(paid).toBe(180);
+
+    applyOssRates(n, ctx(), "invoicexpress");
+
+    expect(n.order.items[0].tax.value).toBe(23);
+    expect(Number.isInteger(n.order.items[0].unit_price * 100)).toBe(true);
+    expect(grossOf(n.order.items)).toBe(paid);
   });
 
   it("zero-rates a sale outside the EU and names the exemption", () => {

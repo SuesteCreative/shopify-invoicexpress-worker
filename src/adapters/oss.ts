@@ -88,6 +88,7 @@ const OFF: OssOutcome = { enabled: false, country: "", changed: 0, exemptionCode
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
+const ceil2 = (n: number) => Math.ceil(n * 100) / 100;
 
 /**
  * The country whose VAT applies, by the place-of-supply rule for distance
@@ -160,17 +161,21 @@ function isExplicitlyPriced(ctx: AdapterCtx, item: Normalized["order"]["items"][
  *
  *     gross' = k · net · (1 + r1/100) = net · (1 + r0/100) = gross
  *
- * exactly, before any rounding. That is what keeps `computeExpectedGross`
- * landing on the amount the customer paid, and `reconcileTotalOrThrow` green
- * without being touched. A monetary discount allocation has to be scaled by the
- * same k; a percentage discount must NOT be, being scale-invariant already.
+ * exactly, before any rounding.
  *
- * ponytail: nets are kept to 4dp. InvoiceXpress stores `unit_price` at 2, so a
- * line with quantity > 1 can drift by up to half a cent per unit there — at
- * which point the pre-flight reconcile and IX's own read-back refuse the
- * document rather than mis-issue it. Every line this has been measured on is
- * quantity 1. Upgrade path is IxBuilder.buildLine's ceil2 + solve-for-discount
- * trick, if a real merchant ever hits it.
+ * Rounding is the hard half. InvoiceXpress stores `unit_price` at two decimals
+ * and, on POST, silently ignores `items[*].discount_amount` — the only per-line
+ * discount it honours is the percentage. Wim Hof Method's French sale is the
+ * worked example: 181,35 € at 20 % is a net of 151,125, and no two-decimal net
+ * reaches it (151,13 × 1,2 = 181,36; 151,12 × 1,2 = 181,34). So the line is
+ * expressed the way `IxBuilder.buildLine` already expresses one — the net
+ * CEILED to 2dp, plus the discount percentage that brings the subtotal back
+ * down to the exact target — rather than with a 4dp net that IX would round and
+ * a `discount_amount` it would drop. Moloni and Vendus read the same
+ * percentage.
+ *
+ * A monetary allocation is folded into that percentage rather than scaled: it
+ * is already inside the line's gross, which is the quantity being preserved.
  */
 export function applyOssRates(
   normalized: Normalized,
@@ -215,20 +220,31 @@ export function applyOssRates(
       continue;
     }
 
-    const k = (100 + r0) / (100 + r1);
-    item.unit_price = round4(Number(item.unit_price) * k);
-    item.unit_price_calculated = round4(Number(item.unit_price_calculated ?? item.unit_price) * k);
-    if (typeof item.discount_allocation_amount === "number" && item.discount_allocation_amount > 0) {
-      item.discount_allocation_amount = round4(item.discount_allocation_amount * k);
-    }
-    const net = (item.unit_price * (Number(item.quantity) || 0) - (item.discount_allocation_amount ?? 0))
+    const qty = Number(item.quantity) || 0;
+    if (qty <= 0) continue;
+
+    // The line's gross is the invariant: it is what the customer paid.
+    const net0 = (Number(item.unit_price) * qty - (Number(item.discount_allocation_amount) || 0))
       * (1 - (Number(item.discount?.percent) || 0) / 100);
+    const lineGross = net0 * (1 + r0 / 100);
+    const targetNet = lineGross / (1 + r1 / 100);
+    if (!(targetNet > 0)) continue;
+
+    // Ceil, so what is left over is a POSITIVE discount — IX rejects a negative
+    // one — and then solve for the percentage that lands on the target exactly.
+    const unit = ceil2(targetNet / qty);
+    const percent = round4(Math.max(0, (1 - targetNet / (unit * qty)) * 100));
+
+    item.unit_price = unit;
+    item.unit_price_calculated = unit;
+    item.discount = { name: item.discount?.name ?? "", percent };
+    item.discount_allocation_amount = 0;
     item.tax = {
       name: item.tax?.name || "VAT",
       value: r1,
       // Zero EXACTLY when the rate is zero: three destinations read this field
       // as "was any tax collected", not as an amount.
-      unit_amount: r1 === 0 ? 0 : round2(net * r1 / 100),
+      unit_amount: r1 === 0 ? 0 : round2(targetNet * r1 / 100),
     };
     changed++;
     if (r1 === 0) zeroRatedExport = true;

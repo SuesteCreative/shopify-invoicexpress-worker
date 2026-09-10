@@ -14,7 +14,7 @@ import {
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { Link } from "@/i18n/navigation";
-import SubscriptionCard from "@/components/SubscriptionCard";
+import OnboardingSubscribe from "@/components/onboarding/OnboardingSubscribe";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LangToggle } from "@/components/landing/LangToggle";
@@ -132,6 +132,7 @@ export default function ConnectMoloniOnboarding() {
     const tReg = useTranslations("registrationForm");
     const tWiz = useTranslations("stripeConnectMoloniSetup");
     const tSet = useTranslations("stripeMoloniSetup");
+    const tSub = useTranslations("onboardingSubscribe");
     const locale = useLocale();
     const { isLoaded: clerkLoaded, isSignedIn, user } = useUser();
     const params = useSearchParams();
@@ -746,10 +747,22 @@ export default function ConnectMoloniOnboarding() {
             </div>
         ),
 
-        subscribe: (
+        subscribe: subActive ? (
+            // Nothing to pay: an account that is already subscribed must not be
+            // handed a payment form that would open a second subscription.
+            <Notice tone="good">
+                <p className="font-medium text-fg">{tSub("doneTitle")}</p>
+                <p>{tSub("doneBody")}</p>
+            </Notice>
+        ) : (
             <div className="space-y-5">
                 <Notice tone="info"><p>{t("subscribe.body")}</p></Notice>
-                <SubscriptionCard source="stripe-connect-moloni" connectionKey={CONNECTION_KEY} />
+                <OnboardingSubscribe
+                    source="stripe-connect-moloni"
+                    connectionKey={CONNECTION_KEY}
+                    returnSlug={RETURN_SLUG_ONBOARDING_CONNECT_MOLONI}
+                    onSubscribed={() => setSubActive(true)}
+                />
                 <p className="text-[11px] leading-relaxed text-fg-40">{t("subscribe.note")}</p>
             </div>
         ),

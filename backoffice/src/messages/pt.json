@@ -2702,5 +2702,18 @@
             "body": "O pagamento é feito na página segura do Stripe. A ligação já está montada: a subscrição é o que a mantém a emitir.",
             "note": "Preços sem IVA, acrescido à taxa legal. Cancela quando quiser, a partir do painel, sem período mínimo."
         }
+    },
+    "onboardingSubscribe": {
+        "preparing": "A preparar o pagamento seguro…",
+        "errorTitle": "Não foi possível abrir o pagamento aqui.",
+        "openHosted": "Pagar na página do Stripe",
+        "secure": "O pagamento é processado pelo Stripe, dentro desta página. Os dados do cartão nunca passam pelo Rioko.",
+        "confirmingTitle": "Pagamento recebido",
+        "confirmingBody": "A activar a subscrição. Demora poucos segundos.",
+        "doneTitle": "Subscrição activa",
+        "doneBody": "Está tudo pago e ligado. Pode fechar esta página.",
+        "failedTitle": "O pagamento não foi concluído",
+        "failedBody": "Nada foi cobrado. Pode tentar outra vez.",
+        "retry": "Tentar outra vez"
     }
 }

@@ -304,11 +304,22 @@ export default function StripeIXIntegration() {
                 if (!fiscalRes.ok) { alert(t("alertSaveError")); return; }
             }
 
+            // What this wizard may write on the ACCOUNT's legacy row.
+            //
+            // That row is the Shopify integration's config, and it is also the
+            // only place InvoiceXpress credentials live for the whole account.
+            // When the account has a shop, the credentials are the ONLY thing
+            // this wizard has any business writing there: the series, the
+            // exemption code, the document type, the VAT and finalize toggles,
+            // the payment term and the retention all belong to the shop, and
+            // this connection's own copies live on the connection.
+            //
+            // Sending them anyway is how saving the Stripe wizard rewrote the
+            // shop's settings. Omitted keys are now left untouched by the route.
             const legacyBody = ownedByShopify && stripeAccountId ? legacyFiscal : fiscal;
-            const saveRes = await fetch("/api/integrations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+            const accountBody: Record<string, unknown> = ownedByShopify && stripeAccountId
+                ? { ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment }
+                : {
                     shopify_domain: shopifyDomain, shopify_token: shopifyToken,
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
@@ -317,8 +328,12 @@ export default function StripeIXIntegration() {
                     ix_exemption_reason: legacyBody.ix_exemption_reason,
                     ix_document_type: legacyBody.ix_document_type,
                     ix_sequence_name: legacyBody.ix_sequence_name,
-                    ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
-                })
+                    ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention,
+                };
+            const saveRes = await fetch("/api/integrations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(accountBody)
             });
             if (!saveRes.ok) { alert(t("alertSaveError")); return; }
 

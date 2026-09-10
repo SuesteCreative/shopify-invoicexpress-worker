@@ -547,8 +547,14 @@ export class AppStorage {
 
   async getLastProcessedDate(): Promise<string | null> {
     try {
+      // Shopify rows only, for the reason spelled out in listProcessedInvoices:
+      // a connection-based sale of an account that also has a shop carries that
+      // shop's domain. This date starts the `since_last_processed` catch-up
+      // window, so live Stripe traffic was hiding a dead Shopify webhook and the
+      // catch-up reported nothing to create.
       const row: any = await this.db.prepare(
-        "SELECT MAX(created_at) as last FROM processed_orders WHERE shopify_domain = ?"
+        `SELECT MAX(created_at) as last FROM processed_orders
+          WHERE shopify_domain = ? AND (source_kind IS NULL OR source_kind = 'shopify')`
       ).bind(this.shopDomain).first();
       return row?.last ?? null;
     } catch (e) {
@@ -577,7 +583,21 @@ export class AppStorage {
 
   async listProcessedInvoices(limit = 500, order: "asc" | "desc" = "desc"): Promise<Array<{ id: string; invoice_id: string; created_at: string | null; hold_reason: string | null }>> {
     try {
-      const sql = `SELECT id, invoice_id, created_at, hold_reason FROM processed_orders WHERE shopify_domain = ? ORDER BY rowid ${order === "asc" ? "ASC" : "DESC"} LIMIT ?`;
+      // Shopify rows ONLY.
+      //
+      // A connection-based sale of an account that ALSO has a shop is stamped
+      // with that shop's domain, because the pipeline hands the legacy row in as
+      // config. Without the source filter this returned them, and the caller
+      // that matters is the Shopify finalize run: it would have certified
+      // another integration's drafts into the SHOP's series — Wim Hof Method has
+      // 15 Stripe rows carrying `0ucwai-gh.myshopify.com` today, and its Stripe
+      // sales belong in FR-ROW, not WH-25-1. A certified document is AT-hashed;
+      // only a credit note undoes it.
+      //
+      // NULL is Shopify: it predates the source_kind column (252 rows).
+      const sql = `SELECT id, invoice_id, created_at, hold_reason FROM processed_orders
+                    WHERE shopify_domain = ? AND (source_kind IS NULL OR source_kind = 'shopify')
+                    ORDER BY rowid ${order === "asc" ? "ASC" : "DESC"} LIMIT ?`;
       const result = await this.db.prepare(sql).bind(this.shopDomain, limit).all();
       return (result.results as any[]).map(r => ({ id: String(r.id), invoice_id: String(r.invoice_id), created_at: r.created_at ?? null, hold_reason: r.hold_reason ?? null }));
     } catch (e) {

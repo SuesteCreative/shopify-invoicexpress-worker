@@ -259,28 +259,29 @@ describe("which rows a shop-scoped query owns", () => {
   };
 
   it("returns the Stripe payment to a Shopify-scoped draft listing", async () => {
-    // DEFECT (audit T-01). This listing feeds Dev Mode's "finalize drafts" for
-    // the Shopify connection. A Stripe draft in it gets certified under the
-    // shop's settings, irreversibly, with the paid-total guard inert because the
-    // id is not a Shopify order number. Invert once the query filters by source.
+    // FIXED. This listing feeds Dev Mode's "finalize drafts" for the Shopify
+    // connection, and a Stripe draft in it would be certified under the shop's
+    // settings, irreversibly, with the paid-total guard inert because the id is
+    // not a Shopify order number. Wim Hof Method had 15 such rows in production.
+    // The query now filters by source; NULL counts as Shopify because it
+    // predates the column.
     const h = await db(withRows);
     if (!h) return;
     try {
       const rows = await new AppStorage(h.env, "loja.myshopify.com", "user_X").listProcessedInvoices(100);
-      expect(rows.map((r) => r.id)).toContain("pi_3TxAbcDefGhiJkl");
+      expect(rows.map((r) => r.id)).not.toContain("pi_3TxAbcDefGhiJkl");
     } finally { h.close(); }
   });
 
   it("dates the shop's last activity from a Stripe payment", async () => {
-    // DEFECT (audit T-02). `since_last_processed` starts its window here, so a
-    // dead Shopify webhook is hidden by live Stripe traffic and the catch-up run
-    // reports zero to create. Invert once the lookup filters by source: it should
-    // then return the Shopify row's 09-01 date, not the Stripe row's 09-04.
+    // FIXED. `since_last_processed` starts its window here, so a dead Shopify
+    // webhook was hidden by live Stripe traffic and the catch-up run reported
+    // zero to create. It now reads the shop's own last row.
     const h = await db(withRows);
     if (!h) return;
     try {
       const storage = new AppStorage(h.env, "loja.myshopify.com", "user_X");
-      expect(await storage.getLastProcessedDate()).toBe("2026-09-04T10:00:00Z");
+      expect(await storage.getLastProcessedDate()).toBe("2026-09-01T10:00:00Z");
       // The source-aware lookup already exists and gives the right answer; the
       // Shopify caller simply does not use it.
       expect(await storage.getLastProcessedDateByUser("user_X", "shopify")).toBe("2026-09-01T10:00:00Z");

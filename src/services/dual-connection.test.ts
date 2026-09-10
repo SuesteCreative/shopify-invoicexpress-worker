@@ -146,11 +146,34 @@ describe("resolving which connection an operation acts on", () => {
       expect(r.ctx.config.force_tax_rate).toBeNull();
       expect(r.ctx.config.oss_enabled).toBe(0);
 
-      // Still inherited, deliberately: `ix_sequence_name` moves with the series
-      // work, and `auto_finalize` is behaviour the connection projects when it
-      // states one. Neither is part of this change.
-      expect(r.ctx.config.ix_sequence_name).toBe("LOJA");
+      // The series too, now. Two integrations of one account may file into the
+      // SAME InvoiceXpress account and must still use different series — Wim Hof
+      // Method files Shopify orders into WH-25-1 and Stripe sales into FR-ROW.
+      // A connection that states none gets none, and the destination applies its
+      // own default, rather than silently filing into the shop's AT-communicated
+      // series.
+      expect(r.ctx.config.ix_sequence_name).toBeNull();
+      expect(r.ctx.config.ix_document_type).toBeNull();
+
+      // Still inherited, deliberately: auto_finalize is behaviour the connection
+      // projects when it states one, not fiscal identity.
       expect(r.ctx.config.auto_finalize).toBe(1);
+    } finally { h.close(); }
+  });
+
+  it("gives a connection the series IT states, over the shop's", async () => {
+    // The WHM shape: one InvoiceXpress account, two integrations, two series.
+    const h = await db((exec) => {
+      DUAL(exec);
+      exec(`UPDATE connections SET destination_config_json = '{"ix_sequence_name":"FR-ROW","ix_document_type":"invoice"}' WHERE id = 'c1'`);
+    });
+    if (!h) return;
+    try {
+      const r = await resolveConnectionContext(h.env, { userId: "user_X", source: "stripe" });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.ctx.config.ix_sequence_name).toBe("FR-ROW");
+      expect(r.ctx.config.ix_document_type).toBe("invoice");
     } finally { h.close(); }
   });
 

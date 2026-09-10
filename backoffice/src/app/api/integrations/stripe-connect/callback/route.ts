@@ -3,8 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { isValidOAuthState } from "@/lib/oauth-state";
-import { isStripeConnectEnabled, resolveTargetUser } from "../route";
-import { STRIPE_CONNECT_REDIRECT_PATH } from "../start/route";
+import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 
@@ -74,7 +73,7 @@ export async function GET(request: NextRequest) {
                 code,
                 // Sent back for the exchange as well, or Stripe rejects the code
                 // when the platform has more than one registered redirect URI.
-                redirect_uri: `${RIOKO_CONFIG.appUrl}${STRIPE_CONNECT_REDIRECT_PATH}`,
+                redirect_uri: stripeConnectRedirectUri(),
             }).toString(),
         });
         tokenBody = await res.json();

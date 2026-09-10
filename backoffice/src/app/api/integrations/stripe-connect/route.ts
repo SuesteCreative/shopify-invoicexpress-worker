@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { getStripeEnvOptional } from "@/lib/stripe";
+import { isStripeConnectEnabled, resolveTargetUser } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 
@@ -17,20 +18,6 @@ export const runtime = "edge";
  * GET    — connection state for the wizard.
  * DELETE — revoke at Stripe and drop the connection's credentials.
  */
-
-export function isStripeConnectEnabled() {
-    // NEXT_PUBLIC_ is inlined at build time; the other spelling is a Cloudflare
-    // var, which only `getStripeEnvOptional` can see.
-    return process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED === "1"
-        || getStripeEnvOptional("STRIPE_CONNECT_ENABLED") === "1";
-}
-
-export async function resolveTargetUser(request: NextRequest) {
-    const { userId } = await auth();
-    if (!userId) return { error: "Unauthorized", status: 401 as const };
-    const targetUserId = await resolveAccountUser(request, userId);
-    return { userId, targetUserId };
-}
 
 export async function GET(request: NextRequest) {
     if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });

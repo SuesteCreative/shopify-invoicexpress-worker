@@ -44,7 +44,7 @@ export function ImpersonationBanner() {
             <motion.div
                 initial={{ y: -50 }}
                 animate={{ y: 0 }}
-                className="fixed top-0 left-0 right-0 z-[100] bg-soon/95 border-b border-veil-strong py-2.5 px-6 shadow-2xl flex items-center justify-between"
+                className="shrink-0 relative z-[100] bg-soon/95 border-b border-veil-strong py-2.5 px-6 shadow-2xl flex items-center justify-between"
             >
                 <div className="flex items-center gap-4">
                     <div className="bg-white/20 p-2 rounded-xl ring-1 ring-white/30">

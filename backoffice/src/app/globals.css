@@ -138,7 +138,14 @@
   --glass-shadow: 0 1px 2px rgba(17, 17, 17, 0.04);
   --glass-blur: 22px;
 
-  --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  /* Two layers: a short contact shadow that anchors the card to the cream,
+     and a wide, very soft one that gives it air. Kapta's own shadow-kapta
+     (0 30px 80px) is the diffuse half; the 1px line is what keeps the edge
+     from looking printed on. */
+  --shadow-card:
+    0 1px 2px rgba(17, 17, 17, 0.04),
+    0 10px 24px -12px rgba(17, 17, 17, 0.16),
+    0 30px 60px -30px rgba(17, 17, 17, 0.18);
   --shadow-lift: 0 30px 80px rgba(17, 17, 17, 0.12);
 
   /* Kapta's dashboard has no glow — barely-there warmth only */

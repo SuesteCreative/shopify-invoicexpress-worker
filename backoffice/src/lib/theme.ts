@@ -7,7 +7,7 @@
 export const THEMES = ["day", "night"] as const;
 export type Theme = (typeof THEMES)[number];
 
-export const DEFAULT_THEME: Theme = "night";
+export const DEFAULT_THEME: Theme = "day";
 export const THEME_STORAGE_KEY = "rioko-theme";
 
 /**

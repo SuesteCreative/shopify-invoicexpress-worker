@@ -11,13 +11,14 @@ import Script from "next/script";
 
 const GA_ID = "G-VJBW01N7DM";
 
-import { sansDisplay, monoFont } from "../fonts";
+import { sansDisplay, monoFont, generalSans, satoshi } from "../fonts";
 import InactivityLogout from "@/components/InactivityLogout";
 import ConsentBanner from "@/components/ConsentBanner";
 import AttributionCapture from "@/components/AttributionCapture";
 import JsonLd from "@/components/JsonLd";
 import { organizationSchema, websiteSchema } from "@/lib/schema";
 import { routing } from "@/i18n/routing";
+import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
 
 export async function generateMetadata({
   params,
@@ -72,14 +73,20 @@ export default async function LocaleLayout({
     <ClerkProvider localization={clerkLocalization}>
       <html
         lang={locale}
-        className={`${sansDisplay.variable} ${monoFont.variable}`}
+        className={`${sansDisplay.variable} ${monoFont.variable} ${generalSans.variable} ${satoshi.variable}`}
+        suppressHydrationWarning
       >
+        <head>
+          {/* Paints the chosen skin onto <html> before the first frame, so the
+              page never flashes the other palette. Cosmetic only. */}
+          <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
+        </head>
         <body
           className="antialiased min-h-screen overflow-x-hidden"
           style={{
             backgroundColor: "var(--background)",
             color: "var(--foreground)",
-            fontFamily: "var(--font-sans-display), system-ui, sans-serif",
+            fontFamily: "var(--app-font-sans), system-ui, sans-serif",
           }}
         >
           <JsonLd data={organizationSchema(locale)} />

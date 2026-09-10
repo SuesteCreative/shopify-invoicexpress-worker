@@ -63,6 +63,11 @@
         "body": "The page you're looking for doesn't exist or has been moved.",
         "cta": "Back to home"
     },
+    "theme": {
+        "switchTo": "Switch appearance",
+        "day": "Day",
+        "night": "Night"
+    },
     "lang": {
         "pt": "PT",
         "en": "EN",

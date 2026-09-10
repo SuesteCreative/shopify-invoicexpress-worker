@@ -233,7 +233,7 @@ export default function LodgifyIxIntegration() {
     if (loading) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center">
-                <Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" />
+                <Loader2 className="w-12 h-12 text-accent-ink animate-spin opacity-50" />
             </div>
         );
     }
@@ -264,7 +264,7 @@ export default function LodgifyIxIntegration() {
             errorMsg: lodgifyError,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
-                    <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] rounded-2xl px-6 py-4">
+                    <div className="md:col-span-2 flex items-start gap-4 bg-soon/5 border border-soon/20 rounded-2xl px-6 py-4">
                         <Info className="w-5 h-5 text-soon shrink-0 mt-0.5" />
                         <div>
                             <p className="text-sm font-bold text-soon">{t("noteTitle")}</p>
@@ -295,7 +295,7 @@ export default function LodgifyIxIntegration() {
                                 </button>
                             </div>
                             {webhookManual && (
-                                <p className="text-[10px] text-amber-400 ml-1 mt-1">{t("webhookManualNote")}</p>
+                                <p className="text-[10px] text-soon ml-1 mt-1">{t("webhookManualNote")}</p>
                             )}
                         </div>
                     )}
@@ -303,7 +303,7 @@ export default function LodgifyIxIntegration() {
                         <button
                             onClick={handleLodgifyStep}
                             disabled={saving}
-                            className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                            className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-on-accent disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                         >
                             {saving
                                 ? <Loader2 className="w-5 h-5 animate-spin" />
@@ -368,7 +368,7 @@ export default function LodgifyIxIntegration() {
                         <button
                             onClick={handleIxStep}
                             disabled={saving}
-                            className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                            className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-on-accent disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                         >
                             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t("verifyConnection")} <ChevronRight className="w-4 h-4" /></>}
                         </button>
@@ -387,7 +387,7 @@ export default function LodgifyIxIntegration() {
             isAuthorized: settingsSaved,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
-                    <div className="md:col-span-2 flex items-start gap-4 bg-[rgba(94,234,212,0.05)] border border-[rgba(94,234,212,0.15)] rounded-2xl px-6 py-4">
+                    <div className="md:col-span-2 flex items-start gap-4 bg-accent-hot/5 border border-accent-hot/15 rounded-2xl px-6 py-4">
                         <Info className="w-5 h-5 text-accent-hot shrink-0 mt-0.5" />
                         <p className="text-[11px] text-fg-60 leading-relaxed">{t("vatNote")}</p>
                     </div>
@@ -409,7 +409,7 @@ export default function LodgifyIxIntegration() {
                             <h3 className="font-bold text-sm">{t("vatIncluded")}</h3>
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{vatIncluded ? t("vatIncludedOn") : t("vatIncludedOff")}</p>
                         </div>
-                        <button onClick={() => setVatIncluded(!vatIncluded)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${vatIncluded ? "bg-accent-hot" : "bg-surface-2"}`}>
+                        <button onClick={() => setVatIncluded(!vatIncluded)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-sunken ${vatIncluded ? "bg-accent-hot" : "bg-track-off"}`}>
                             <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${vatIncluded ? "left-7" : "left-1"}`} />
                         </button>
                     </div>
@@ -418,7 +418,7 @@ export default function LodgifyIxIntegration() {
                             <h3 className="font-bold text-sm">{t("autoFinalize")}</h3>
                             <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{t("autoFinalizeDesc")}</p>
                         </div>
-                        <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-black/20 ${autoFinalize ? "bg-accent" : "bg-surface-2"}`}>
+                        <button onClick={() => setAutoFinalize(!autoFinalize)} className={`w-12 h-6 rounded-full transition-all duration-500 relative ring-1 ring-inset ring-sunken ${autoFinalize ? "bg-accent" : "bg-track-off"}`}>
                             <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-500 ${autoFinalize ? "left-7" : "left-1"}`} />
                         </button>
                     </div>
@@ -429,8 +429,8 @@ export default function LodgifyIxIntegration() {
                                 <p className="text-[10px] text-fg-40 font-medium mt-1 uppercase tracking-wider">{ixDocumentType === "invoice_receipt" ? t("docTypeReceipt") : t("docTypeInvoice")}</p>
                             </div>
                             <div className="flex bg-surface-2/80 p-1 rounded-xl border border-hairline">
-                                <button onClick={() => setIxDocumentType("invoice_receipt")} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${ixDocumentType === "invoice_receipt" ? "bg-white text-black shadow-lg" : "text-fg-40 hover:text-fg"}`}>{t("docTypeReceiptShort")}</button>
-                                <button onClick={() => setIxDocumentType("invoice")} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${ixDocumentType === "invoice" ? "bg-white text-black shadow-lg" : "text-fg-40 hover:text-fg"}`}>{t("docTypeInvoiceShort")}</button>
+                                <button onClick={() => setIxDocumentType("invoice_receipt")} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${ixDocumentType === "invoice_receipt" ? "bg-fg text-surface shadow-lg" : "text-fg-40 hover:text-fg"}`}>{t("docTypeReceiptShort")}</button>
+                                <button onClick={() => setIxDocumentType("invoice")} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${ixDocumentType === "invoice" ? "bg-fg text-surface shadow-lg" : "text-fg-40 hover:text-fg"}`}>{t("docTypeInvoiceShort")}</button>
                             </div>
                         </div>
                         {ixDocumentType === "invoice" && (
@@ -442,14 +442,14 @@ export default function LodgifyIxIntegration() {
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-8 rounded-[2rem] border-hairline space-y-4">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-[rgba(245,158,11,0.10)] rounded-xl"><Info className="w-4 h-4 text-soon" /></div>
+                            <div className="p-2 bg-soon/10 rounded-xl"><Info className="w-4 h-4 text-soon" /></div>
                             <h3 className="font-bold text-sm tracking-tight">{t("exemptionTitle")}</h3>
                         </div>
                         <p className="text-[10px] text-fg-40 font-medium uppercase tracking-wider leading-relaxed">{t("exemptionDesc")}</p>
                         <select
                             value={exemptionReason}
                             onChange={(e) => setExemptionReason(e.target.value)}
-                            className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all cursor-pointer text-fg"
+                            className="w-full bg-surface-2/80 border border-hairline rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-soon/20 focus:border-soon outline-none transition-all cursor-pointer text-fg"
                         >
                             {exemptionOptions.map((opt) => (
                                 <option key={opt.value} value={opt.value} className="bg-surface-2">{opt.value} - {opt.label}</option>
@@ -458,7 +458,7 @@ export default function LodgifyIxIntegration() {
                     </div>
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className="p-2 bg-[rgba(2,141,196,0.10)] rounded-xl shrink-0"><Zap className="w-4 h-4 text-accent" /></div>
+                            <div className="p-2 bg-accent/10 rounded-xl shrink-0"><Zap className="w-4 h-4 text-accent-ink" /></div>
                             <div className="min-w-0">
                                 <h3 className="font-bold text-sm">{t("tagRoutingTitle")}</h3>
                                 <p className="text-[10px] text-fg-40 font-medium mt-0.5 uppercase tracking-wider truncate">{t("tagRoutingDesc")}</p>
@@ -471,7 +471,7 @@ export default function LodgifyIxIntegration() {
                         <button
                             onClick={handleSaveSettings}
                             disabled={saving}
-                            className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-white text-black hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
+                            className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
                         >
                             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {t("saveSettings")}</>}
                         </button>
@@ -489,23 +489,23 @@ export default function LodgifyIxIntegration() {
             body: (
                 <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Hotel className="w-4 h-4 text-accent-hot" /></div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><Hotel className="w-4 h-4 text-accent-hot" /></div>
                             <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">Lodgify</p><p className="text-xs font-bold text-accent-hot">{t("configured")}</p></div>
                             <Check className="w-4 h-4 text-accent-hot ml-auto" />
                         </div>
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><ClipboardList className="w-4 h-4 text-accent-hot" /></div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><ClipboardList className="w-4 h-4 text-accent-hot" /></div>
                             <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("ixLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("statusAuthorized")}</p></div>
                             <Check className="w-4 h-4 text-accent-hot ml-auto" />
                         </div>
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-[rgba(94,234,212,0.05)] border-[rgba(94,234,212,0.20)]">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-[rgba(94,234,212,0.10)]"><Settings2 className="w-4 h-4 text-accent-hot" /></div>
+                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><Settings2 className="w-4 h-4 text-accent-hot" /></div>
                             <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{t("settingsLabel")}</p><p className="text-xs font-bold text-accent-hot">{t("configured")}</p></div>
                             <Check className="w-4 h-4 text-accent-hot ml-auto" />
                         </div>
                     </div>
-                    <div className="flex items-start gap-4 bg-[rgba(94,234,212,0.05)] border border-[rgba(94,234,212,0.20)] rounded-2xl px-6 py-4">
+                    <div className="flex items-start gap-4 bg-accent-hot/5 border border-accent-hot/20 rounded-2xl px-6 py-4">
                         <AlertTriangle className="w-5 h-5 text-accent-hot shrink-0 mt-0.5" />
                         <p className="text-[11px] text-fg-60 leading-relaxed">{t("doneWarning")}</p>
                     </div>
@@ -563,12 +563,12 @@ export default function LodgifyIxIntegration() {
                     initial={{ opacity: 0, y: 20, scale: 0.98 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ duration: 0.6 }}
-                    className="rounded-[2.5rem] p-1 shadow-2xl bg-[rgba(94,234,212,0.10)]"
+                    className="rounded-[2.5rem] p-1 shadow-2xl bg-accent-hot/10"
                 >
-                    <div className="bg-surface rounded-[2.3rem] p-6 sm:p-10 flex flex-col gap-8 border border-white/5">
+                    <div className="bg-surface rounded-[2.3rem] p-6 sm:p-10 flex flex-col gap-8 border border-veil">
                         <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                             <div className="flex items-center gap-8">
-                                <div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-[rgba(94,234,212,0.18)] ring-2 ring-accent-hot ring-offset-4 ring-offset-surface">
+                                <div className="w-20 h-20 rounded-[1.8rem] flex items-center justify-center bg-accent-hot/18 ring-2 ring-accent-hot ring-offset-4 ring-offset-surface">
                                     <ShieldCheck className="w-10 h-10 text-accent-hot" />
                                 </div>
                                 <div className="space-y-1">
@@ -576,7 +576,7 @@ export default function LodgifyIxIntegration() {
                                     <p className="text-fg-40 font-bold uppercase tracking-widest text-[10px]">{t("integrationDoneSub")}</p>
                                 </div>
                             </div>
-                            <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]">
+                            <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border bg-accent-hot/10 text-accent-hot border-accent-hot/30">
                                 {t("onlineRealtime")}
                             </div>
                         </div>

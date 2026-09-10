@@ -2,6 +2,7 @@ import * as React from "react";
 import { setRequestLocale, getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { LangToggle } from "@/components/landing/LangToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const runtime = "edge";
 
@@ -18,7 +19,7 @@ export async function generateMetadata({
 const LEGAL_RICH = {
     b: (chunks: React.ReactNode) => <strong>{chunks}</strong>,
     mail: (chunks: React.ReactNode) => (
-        <a href={`mailto:${String(chunks)}`} className="text-sky-400 underline">
+        <a href={`mailto:${String(chunks)}`} className="text-accent-ink underline">
             {chunks}
         </a>
     ),
@@ -27,7 +28,7 @@ const LEGAL_RICH = {
             href={`https://${String(chunks)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sky-400 underline"
+            className="text-accent-ink underline"
         >
             {chunks}
         </a>
@@ -54,30 +55,33 @@ export default async function TermsPage({
     ] as const;
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-200">
+        <div className="min-h-screen bg-background text-fg">
             <div className="mx-auto max-w-3xl px-6 py-16">
                 <div className="flex items-center justify-between gap-4">
                     <Link
                         href="/"
-                        className="text-sm text-slate-400 hover:text-slate-200 transition"
+                        className="text-sm text-fg-60 hover:text-fg transition"
                     >
                         {t("back")}
                     </Link>
-                    <LangToggle variant="dark" />
+                    <div className="flex items-center gap-2">
+                        <ThemeToggle />
+                        <LangToggle />
+                    </div>
                 </div>
 
-                <h1 className="mt-8 text-4xl font-black text-white">
+                <h1 className="mt-8 text-4xl font-black text-fg">
                     {t("title")}
                 </h1>
-                <p className="mt-2 text-sm text-slate-500">{t("lastUpdate")}</p>
+                <p className="mt-2 text-sm text-fg-40">{t("lastUpdate")}</p>
 
                 <div className="mt-10 space-y-8">
                     {sections.map((s) => (
                         <section key={s}>
-                            <h2 className="text-xl font-bold text-white">
+                            <h2 className="text-xl font-bold text-fg">
                                 {t(`${s}.title`)}
                             </h2>
-                            <div className="mt-3 text-slate-300 leading-relaxed text-[15px]">
+                            <div className="mt-3 text-fg-60 leading-relaxed text-[15px]">
                                 {t.rich(`${s}.body`, LEGAL_RICH)}
                             </div>
                         </section>

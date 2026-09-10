@@ -16,14 +16,14 @@ const LABELS: Record<FilterKey, string> = {
 
 const COLORS: Record<FilterKey, string> = {
     all: "bg-surface-2 text-fg border-hairline",
-    exact: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]",
-    approved: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]",
-    heuristic: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.30)]",
-    none: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]",
-    not_needed: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]",
-    pending: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]",
-    refunded: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]",
-    credit_missing: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]",
+    exact: "bg-accent-hot/10 text-accent-hot border-accent-hot/30",
+    approved: "bg-accent-hot/10 text-accent-hot border-accent-hot/30",
+    heuristic: "bg-accent/10 text-accent-ink border-accent/30",
+    none: "bg-destructive/10 text-destructive border-destructive/30",
+    not_needed: "bg-soon/10 text-soon border-soon/30",
+    pending: "bg-veil-strong text-fg-60 border-hairline-strong",
+    refunded: "bg-destructive/10 text-destructive border-destructive/30",
+    credit_missing: "bg-soon/10 text-soon border-soon/30",
 };
 
 export function Filters({ current, setCurrent, counts }: {

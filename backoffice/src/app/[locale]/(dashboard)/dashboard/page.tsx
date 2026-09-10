@@ -125,7 +125,7 @@ export default function WelcomeDashboard() {
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-[rgba(2,141,196,0.20)] border-t-accent rounded-full animate-spin" />
+        <div className="w-12 h-12 border-4 border-accent/20 border-t-accent rounded-full animate-spin" />
       </div>
     );
   }
@@ -164,7 +164,7 @@ export default function WelcomeDashboard() {
         <div className="flex items-center gap-4">
           <Link
             href="/integrations"
-            className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+            className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 flex items-center gap-3 shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
           >
             {t("newIntegration")} <Plus className="w-4 h-4" />
           </Link>
@@ -178,7 +178,7 @@ export default function WelcomeDashboard() {
           <div className="glass p-6 rounded-[2.5rem] flex flex-col overflow-hidden relative min-h-[280px]">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-[rgba(94,234,212,0.10)] rounded-xl border border-[rgba(94,234,212,0.20)]">
+                <div className="p-2 bg-accent-hot/10 rounded-xl border border-accent-hot/20">
                   <FileText className="w-4 h-4 text-accent-hot" />
                 </div>
                 <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">{t("recentDocs")}</h3>
@@ -205,7 +205,7 @@ export default function WelcomeDashboard() {
                         href={inv.ix_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl hover:bg-white/5 transition-all group"
+                        className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl hover:bg-fg/5 transition-all group"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-1 h-1 rounded-full bg-accent-hot shrink-0" />
@@ -241,8 +241,8 @@ export default function WelcomeDashboard() {
           <div className="glass p-6 rounded-[2.5rem] flex flex-col overflow-hidden relative min-h-[280px]">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-[rgba(2,141,196,0.10)] rounded-xl border border-[rgba(2,141,196,0.20)]">
-                  <ScrollText className="w-4 h-4 text-accent" />
+                <div className="p-2 bg-accent/10 rounded-xl border border-accent/20">
+                  <ScrollText className="w-4 h-4 text-accent-ink" />
                 </div>
                 <h3 className="font-mono text-[11px] font-medium text-fg uppercase tracking-[0.18em]">{t("logs")}</h3>
               </div>
@@ -268,7 +268,7 @@ export default function WelcomeDashboard() {
                           : tone === "err" ? "bg-destructive"
                           : "bg-fg-40";
                   return (
-                    <li key={log.id} className="px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
+                    <li key={log.id} className="px-3 py-1.5 rounded-lg hover:bg-fg/5 transition-colors">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className={cn("w-1 h-1 rounded-full shrink-0", dot)} />
@@ -302,12 +302,12 @@ export default function WelcomeDashboard() {
           <div className="pt-8 border-t border-hairline space-y-4">
             <p className="font-mono text-[10px] font-medium text-fg-40 uppercase tracking-[0.22em]">{t("resources")}</p>
             <div className="grid gap-2">
-              <Link href="/help" className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all group">
+              <Link href="/help" className="flex items-center gap-3 p-3 rounded-xl hover:bg-fg/5 transition-all group">
                 <BookOpen className="w-4 h-4 text-fg-60" />
                 <span className="text-xs font-medium text-fg-60 group-hover:text-fg transition-colors">{t("helpCenter")}</span>
                 <ArrowRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 transition-all translate-x-[-10px] group-hover:translate-x-0 text-fg-60" />
               </Link>
-              <a href="mailto:pedro@kapta.pt" className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all group">
+              <a href="mailto:pedro@kapta.pt" className="flex items-center gap-3 p-3 rounded-xl hover:bg-fg/5 transition-all group">
                 <Zap className="w-4 h-4 text-fg-60" />
                 <span className="text-xs font-medium text-fg-60 group-hover:text-fg transition-colors">{t("supportTeam")}</span>
                 <ArrowRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 transition-all translate-x-[-10px] group-hover:translate-x-0 text-fg-60" />
@@ -325,13 +325,13 @@ export default function WelcomeDashboard() {
             {integrationStatus && (
               <Link
                 href="/integrations/shopify-ix"
-                className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-[rgba(94,234,212,0.30)] transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
+                className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-accent-hot/30 transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-0 group-hover:opacity-5 transition-all">
                   <Settings2 className="w-32 h-32 text-accent-hot" />
                 </div>
                 <div className="flex items-center gap-8 relative z-10 w-full md:w-auto">
-                  <div className="w-20 h-20 rounded-[1.8rem] bg-[rgba(94,234,212,0.10)] flex items-center justify-center border border-[rgba(94,234,212,0.20)] shrink-0">
+                  <div className="w-20 h-20 rounded-[1.8rem] bg-accent-hot/10 flex items-center justify-center border border-accent-hot/20 shrink-0">
                     <Store className="w-10 h-10 text-accent-hot" />
                   </div>
                   <div className="space-y-1">
@@ -340,8 +340,8 @@ export default function WelcomeDashboard() {
                       <span className={cn(
                         "px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border",
                         integrationStatus.isAllComplete
-                          ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
-                          : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                          ? "bg-accent-hot/10 text-accent-hot border-accent-hot/20"
+                          : "bg-soon/10 text-soon border-soon/20"
                       )}>
                         {integrationStatus.isAllComplete ? t("activeAuthorized") : t("configPending")}
                       </span>
@@ -351,8 +351,8 @@ export default function WelcomeDashboard() {
                 </div>
                 <div className="flex items-center gap-6 relative z-10 ml-auto md:ml-0">
                   <div className="hidden xl:flex items-center -space-x-2">
-                    <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.shopifyAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot" : "bg-surface-2 text-fg-40")}><Store className="w-3 h-3" /></div>
-                    <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.ixAuthorized ? "bg-[rgba(94,234,212,0.18)] text-accent-hot" : "bg-surface-2 text-fg-40")}><ClipboardList className="w-3 h-3" /></div>
+                    <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.shopifyAuthorized ? "bg-accent-hot/18 text-accent-hot" : "bg-surface-2 text-fg-40")}><Store className="w-3 h-3" /></div>
+                    <div className={cn("w-8 h-8 rounded-full border-4 border-surface flex items-center justify-center", integrationStatus.ixAuthorized ? "bg-accent-hot/18 text-accent-hot" : "bg-surface-2 text-fg-40")}><ClipboardList className="w-3 h-3" /></div>
                   </div>
                   <ArrowRight className="w-6 h-6 text-fg-40 group-hover:text-accent-hot group-hover:translate-x-2 transition-all" />
                 </div>
@@ -370,13 +370,13 @@ export default function WelcomeDashboard() {
                 <Link
                   key={conn.id}
                   href={href}
-                  className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-[rgba(94,234,212,0.30)] transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
+                  className="glass p-5 sm:p-8 rounded-[2.5rem] hover:border-accent-hot/30 transition-all flex flex-col md:flex-row items-center justify-between gap-8 group relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 p-5 sm:p-8 opacity-0 group-hover:opacity-5 transition-all">
                     <Settings2 className="w-32 h-32 text-accent-hot" />
                   </div>
                   <div className="flex items-center gap-8 relative z-10 w-full md:w-auto">
-                    <div className="w-20 h-20 rounded-[1.8rem] bg-[rgba(94,234,212,0.10)] flex items-center justify-center border border-[rgba(94,234,212,0.20)] shrink-0">
+                    <div className="w-20 h-20 rounded-[1.8rem] bg-accent-hot/10 flex items-center justify-center border border-accent-hot/20 shrink-0">
                       {icon}
                     </div>
                     <div className="space-y-1">
@@ -385,8 +385,8 @@ export default function WelcomeDashboard() {
                         <span className={cn(
                           "px-2 py-0.5 rounded-lg font-mono text-[10px] font-medium uppercase tracking-[0.22em] border",
                           !subBlocked && conn.status === "active"
-                            ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]"
-                            : "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]"
+                            ? "bg-accent-hot/10 text-accent-hot border-accent-hot/20"
+                            : "bg-soon/10 text-soon border-soon/20"
                         )}>
                           {subBlocked ? t("incompleteSub") : conn.status === "active" ? t("activeAuthorized") : t("configPending")}
                         </span>
@@ -413,7 +413,7 @@ export default function WelcomeDashboard() {
             </div>
             <Link
               href="/integrations"
-              className="px-5 sm:px-8 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 shadow-[0_8px_30px_-12px_rgba(2,141,196,0.45)]"
+              className="px-5 sm:px-8 py-3 rounded-2xl bg-fg text-surface font-mono text-xs uppercase tracking-[0.18em] hover:bg-accent-hot transition-all transform active:scale-95 shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
             >
               {t("explorePlatforms")}
             </Link>

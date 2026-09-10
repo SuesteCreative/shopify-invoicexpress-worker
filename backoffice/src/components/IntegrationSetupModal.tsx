@@ -7,14 +7,14 @@ import { X, Calendar, Mail } from "lucide-react";
 
 const DISMISSED_KEY_PREFIX = "rioko_setup_modal_dismissed:";
 
-const SURFACE   = "#0E1116";
-const HAIRLINE  = "rgba(255,255,255,0.06)";
-const RULE      = "rgba(255,255,255,0.08)";
-const FG        = "#F0F0F0";
-const FG_60     = "rgba(240,240,240,0.62)";
-const FG_40     = "rgba(240,240,240,0.40)";
-const ACCENT    = "#028DC4";
-const ACCENT_HOT = "#5EEAD4";
+const SURFACE   = "var(--background)";
+const HAIRLINE  = "var(--hairline)";
+const RULE      = "var(--rule)";
+const FG        = "var(--foreground)";
+const FG_60     = "var(--fg-60)";
+const FG_40     = "var(--fg-40)";
+const ACCENT    = "var(--accent)";
+const ACCENT_HOT = "var(--accent-hot)";
 
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
@@ -68,7 +68,7 @@ export function IntegrationSetupModal() {
         >
           <div
             className="rounded-[1.625rem] p-px"
-            style={{ background: "rgba(255,255,255,0.05)" }}
+            style={{ background: "var(--veil)" }}
           >
             <div
               className="rounded-[calc(1.625rem-1px)] overflow-hidden relative"
@@ -78,8 +78,8 @@ export function IntegrationSetupModal() {
                 backdropFilter: "blur(20px)",
                 WebkitBackdropFilter: "blur(20px)",
                 boxShadow: [
-                  "inset 0 1px 0 rgba(255,255,255,0.06)",
-                  "0 24px 48px -28px rgba(0,0,0,0.72)",
+                  "inset 0 1px 0 var(--glass-inset)",
+                  "var(--glass-shadow)",
                 ].join(", "),
               }}
             >
@@ -102,7 +102,7 @@ export function IntegrationSetupModal() {
                   className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] font-mono text-[10px] uppercase tracking-[0.22em]"
                   style={{
                     border: `1px solid ${RULE}`,
-                    background: "rgba(255,255,255,0.02)",
+                    background: "color-mix(in srgb, var(--veil) 40%, transparent)",
                     color: FG_40,
                   }}
                 >
@@ -138,10 +138,10 @@ export function IntegrationSetupModal() {
                     className="group flex items-center justify-between w-full rounded-full py-2.5 pl-5 pr-1.5 active:scale-[0.98]"
                     style={{
                       background: ACCENT,
-                      color: "#ffffff",
+                      color: "var(--on-accent)",
                       boxShadow: [
                         "inset 0 1px 0 rgba(255,255,255,0.15)",
-                        "0 0 28px -10px rgba(2,141,196,0.45)",
+                        "0 0 28px -10px color-mix(in srgb, var(--accent) 45%, transparent)",
                       ].join(", "),
                       transition: `transform 200ms cubic-bezier(${EASE.join(",")})`,
                     }}
@@ -161,7 +161,7 @@ export function IntegrationSetupModal() {
                     href="mailto:pedro@kapta.pt"
                     className="group flex items-center justify-between w-full rounded-full py-2.5 pl-5 pr-1.5 active:scale-[0.98]"
                     style={{
-                      background: "rgba(255,255,255,0.03)",
+                      background: "var(--glass-bg)",
                       border: `1px solid ${HAIRLINE}`,
                       color: FG_60,
                       transition: `transform 200ms cubic-bezier(${EASE.join(",")})`,
@@ -172,7 +172,7 @@ export function IntegrationSetupModal() {
                     </span>
                     <span
                       className="h-7 w-7 rounded-full flex items-center justify-center transition-transform duration-500 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
-                      style={{ background: "rgba(255,255,255,0.06)" }}
+                      style={{ background: "var(--hairline)" }}
                     >
                       <Mail strokeWidth={1.5} className="w-3.5 h-3.5" />
                     </span>

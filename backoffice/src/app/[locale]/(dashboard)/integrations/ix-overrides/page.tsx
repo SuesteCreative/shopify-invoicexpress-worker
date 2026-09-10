@@ -143,7 +143,7 @@ export default function IxOverridesPage() {
     }
 
     if (loading) {
-        return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" /></div>;
+        return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent-ink animate-spin opacity-50" /></div>;
     }
 
     const srcLabel = sourceKind === "stripe" ? "Stripe" : sourceKind === "lodgify" ? "Lodgify" : sourceKind === "eupago" ? "EuPago" : "Shopify";
@@ -153,7 +153,7 @@ export default function IxOverridesPage() {
     return (
         <div className="space-y-10 animate-in fade-in duration-700">
             <div className="space-y-2">
-                <Link href={backHref} className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
+                <Link href={backHref} className="text-[10px] font-black text-accent-ink uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
                     <ArrowLeft className="w-3 h-3" /> {t("backToIntegration", { source: `${srcLabel} + InvoiceXpress` })}
                 </Link>
                 <h1 className="text-3xl sm:text-4xl font-black tracking-tight">{t("title")}</h1>
@@ -175,9 +175,9 @@ export default function IxOverridesPage() {
             </div>
 
             {error && (
-                <div className="glass p-4 rounded-xl border border-[rgba(239,68,68,0.30)] bg-[rgba(239,68,68,0.05)] flex items-start gap-3">
-                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-400">{error}</p>
+                <div className="glass p-4 rounded-xl border border-destructive/30 bg-destructive/5 flex items-start gap-3">
+                    <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">{error}</p>
                 </div>
             )}
 
@@ -217,7 +217,7 @@ export default function IxOverridesPage() {
                                             <div className="flex flex-wrap gap-2">
                                                 {TAX_PRESETS.map(rate => (
                                                     <button key={rate} type="button" onClick={() => setDraft({ ...draft, tax_rate: String(rate) })}
-                                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono uppercase tracking-wider border transition-colors ${draft.tax_rate === String(rate) ? "border-accent bg-accent/10 text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}>
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono uppercase tracking-wider border transition-colors ${draft.tax_rate === String(rate) ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}>
                                                         {rate}%
                                                     </button>
                                                 ))}
@@ -234,7 +234,7 @@ export default function IxOverridesPage() {
                                             <div className="flex gap-2">
                                                 {["", "inc", "exc"].map(v => (
                                                     <button key={v || "default"} type="button" onClick={() => setDraft({ ...draft, vat_inclusion: v })}
-                                                        className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-mono uppercase tracking-wider border transition-colors ${draft.vat_inclusion === v ? "border-accent bg-accent/10 text-accent" : "border-hairline text-fg-60 hover:border-rule"}`}>
+                                                        className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-mono uppercase tracking-wider border transition-colors ${draft.vat_inclusion === v ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}>
                                                         {v === "" ? t("vatDefault") : v === "inc" ? t("vatInc") : t("vatExc")}
                                                     </button>
                                                 ))}
@@ -297,8 +297,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function Pill({ label, color }: { label: string; color: "accent" | "soon" | "hot" }) {
-    const cls = color === "accent" ? "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.30)]"
-        : color === "soon" ? "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]"
-            : "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]";
+    const cls = color === "accent" ? "bg-accent/10 text-accent-ink border-accent/30"
+        : color === "soon" ? "bg-soon/10 text-soon border-soon/30"
+            : "bg-accent-hot/10 text-accent-hot border-accent-hot/30";
     return <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono uppercase tracking-wider border ${cls}`}>{label}</span>;
 }

@@ -1,18 +1,189 @@
 @import "tailwindcss";
 
-:root {
+/* ============================================================
+   RIOKO — dual theme
+   night : the original Rioko chrome. Values unchanged.
+   day   : "Kapta Admin" editorial chrome (cream / ink / terracotta),
+           replicated from https://admin.kapta.pt/dashboard.
+   The whole UI is painted from these variables, so switching the
+   `data-theme` attribute on <html> repaints everything and touches
+   no behaviour.
+   ============================================================ */
+
+:root,
+[data-theme="night"] {
+  color-scheme: dark;
+
+  /* Planes */
   --background: #0E1116;
   --foreground: #F0F0F0;
   --surface-2: #14181F;
+
+  /* Brand + status */
   --accent: #028DC4;
   --accent-hot: #5EEAD4;
   --soon: #F59E0B;
   --destructive: #F43F5E;
+  /* The accent as TEXT. On a dark plane the plate colour is already legible,
+     so the two are the same; day mode needs a deeper one (see below). */
+  --accent-ink: #028DC4;
+  /* The accent one step brighter, for link hovers. */
+  --accent-hover: #3AA9D8;
+  /* Text that sits on top of a filled --accent / --destructive / --soon plate */
+  --on-accent: #F0F0F0;
+
+  /* Text ramp */
   --fg-60: rgba(240, 240, 240, 0.62);
   --fg-40: rgba(240, 240, 240, 0.40);
+
+  /* Lines */
   --rule: rgba(255, 255, 255, 0.08);
   --hairline: rgba(255, 255, 255, 0.06);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+
+  /* Neutral washes — the theme-aware stand-in for white/5, black/40 … */
+  --veil: rgba(255, 255, 255, 0.05);
+  --veil-strong: rgba(255, 255, 255, 0.10);
+  --sunken: rgba(0, 0, 0, 0.20);
+  /* The unchecked half of a switch. Must stay darker than the white knob. */
+  --track-off: #14181F;
+  /* A plate that holds third-party logo artwork. Brand marks are drawn for a
+     light ground, so this one stays light in BOTH skins on purpose: it is a
+     named constant, not a theme choice, so a later pass does not "tokenise" it. */
+  --media-plate: #FFFFFF;
+  --on-media: #111111;
+  --scrim: rgba(0, 0, 0, 0.60);
+
+  /* Glass recipe */
   --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-inset: rgba(255, 255, 255, 0.06);
+  --glass-shadow: 0 24px 48px -28px rgba(0, 0, 0, 0.6);
+  --glass-blur: 20px;
+
+  /* Elevation */
+  --shadow-card: none;
+  --shadow-lift: 0 20px 60px rgba(0, 0, 0, 0.9);
+
+  /* Page ambient */
+  /* Display-type gradient. Night keeps the original three cyan stops. */
+  --headline-1: #06B6D4;
+  --headline-2: #028DC4;
+  --headline-3: #0369A1;
+
+  --ambient-1: rgba(2, 141, 196, 0.08);
+  --ambient-2: rgba(94, 234, 212, 0.04);
+
+  /* Logos shipped light-on-transparent read correctly as-is */
+  --logo-invert: 0;
+  --logo-dim: 0.4;
+
+  /* A plane one step off the card. Night has no second cream, so it sits on
+     the card colour and the token exists only so day can differ. */
+  --surface-3: #14181F;
+
+  /* Type. Night keeps Geist for both roles. */
+  --app-font-sans: var(--font-sans-display);
+  --app-font-display: var(--font-sans-display);
+
+  /* Kapta elevation, night equivalents */
+  --shadow-cta: 0 16px 34px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="day"] {
+  color-scheme: light;
+
+  /* Planes — cream page, white cards */
+  --background: #F6F3EE;
+  --foreground: #111111;
+  --surface-2: #FFFFFF;
+
+  /* Brand + status — terracotta lead, Kapta's status ramp */
+  --accent: #C75C4A;
+  /* Kapta pairs its terracotta plate with a deeper ink for type, because the
+     plate colour itself only reaches ~3:1 on cream. Same trick here. */
+  --accent-ink: #9F3F2E;
+  --accent-hover: #C75C4A;
+  /* Status inks are the dark end of each ramp, so a 10% tint still carries
+     readable text (emerald-800 / amber-800 / red-700, as on admin.kapta.pt). */
+  --accent-hot: #065F46;
+  --soon: #92400E;
+  --destructive: #B42318;
+  --on-accent: #FFFFFF;
+
+  /* Text ramp — ink / ink-mid / ink-muted */
+  --fg-60: #4B4B4B;
+  --fg-40: #8A857E;
+
+  /* Lines — border / border-strong */
+  --rule: #E7DED3;
+  --hairline: #E7DED3;
+  --hairline-strong: #CABFB2;
+
+  --veil: rgba(17, 17, 17, 0.04);
+  --veil-strong: rgba(17, 17, 17, 0.08);
+  --sunken: rgba(17, 17, 17, 0.10);
+  --track-off: #CABFB2;
+  /* A plate that holds third-party logo artwork. Brand marks are drawn for a
+     light ground, so this one stays light in BOTH skins on purpose: it is a
+     named constant, not a theme choice, so a later pass does not "tokenise" it. */
+  --media-plate: #FFFFFF;
+  --on-media: #111111;
+  --scrim: rgba(17, 17, 17, 0.40);
+
+  /* Glass becomes an opaque paper panel with a hairline, not a blur */
+  --glass-bg: rgba(251, 248, 243, 0.92);
+  --glass-border: #E7DED3;
+  --glass-inset: rgba(255, 255, 255, 0.90);
+  --glass-shadow: 0 1px 2px rgba(17, 17, 17, 0.04);
+  --glass-blur: 22px;
+
+  --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-lift: 0 30px 80px rgba(17, 17, 17, 0.12);
+
+  /* Kapta's dashboard has no glow — barely-there warmth only */
+  /* Day: a terracotta run, dark enough to read as display type on cream. */
+  --headline-1: #C75C4A;
+  --headline-2: #9F3F2E;
+  --headline-3: #5E2318;
+
+  --ambient-1: rgba(199, 92, 74, 0.05);
+  --ambient-2: rgba(17, 17, 17, 0.02);
+
+  --logo-invert: 1;
+  --logo-dim: 0.55;
+
+  /* Kapta cream-2: the shaded plane, for table heads and inset rows. */
+  --surface-3: #EEE8DF;
+
+  /* Type — Kapta uses General Sans as the base and Satoshi for display. */
+  --app-font-sans: var(--font-general-sans);
+  --app-font-display: var(--font-satoshi);
+
+  /* Kapta shadow-cta, lifted straight from admin.kapta.pt */
+  --shadow-cta: 0 16px 34px rgba(17, 17, 17, 0.12);
+
+  /* Both landings build an inverted "printed paper" island on their dark page.
+     By day the page is already light, so that island has to become a card
+     instead: white on cream, with the Kapta hairline. These two are declared
+     ONLY here, so the night rendering keeps whatever literal each page passes
+     as the var() fallback and is byte-identical. */
+  --paper: #FFFFFF;
+  --paper-edge: #E7DED3;
+  --paper-hover: #FBF8F3;
+  /* The "live" badge, cyan on the paper island at night. */
+  --live-ink: #9F3F2E;
+
+  /* Provider pills in /superadmin keep each brand's hue, but the night inks are
+     pastels that land at 1.3-2.0:1 on cream. These are the same hues taken dark
+     enough to read (5.2-6.5:1). Declared only here, so night keeps the literal
+     each class passes as its var() fallback. */
+  --pill-shopify: #3F5A0E;
+  --pill-stripe: #6D28D9;
+  --pill-ix: #054A36;
+  --pill-ix-bg: rgba(6, 95, 70, 0.12);
+  --pill-moloni: #1D4ED8;
+  --pill-vendus: #9D174D;
 }
 
 @theme inline {
@@ -24,11 +195,25 @@
   --color-accent-hot: var(--accent-hot);
   --color-soon: var(--soon);
   --color-destructive: var(--destructive);
+  --color-on-accent: var(--on-accent);
   --color-fg: var(--foreground);
   --color-fg-60: var(--fg-60);
   --color-fg-40: var(--fg-40);
   --color-rule: var(--rule);
   --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-veil: var(--veil);
+  --color-veil-strong: var(--veil-strong);
+  --color-sunken: var(--sunken);
+  --color-track-off: var(--track-off);
+  --color-media-plate: var(--media-plate);
+  --color-on-media: var(--on-media);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-hover: var(--accent-hover);
+  --color-scrim: var(--scrim);
+  --color-surface-3: var(--surface-3);
+  --font-display: var(--app-font-display);
+  --font-app: var(--app-font-sans);
 }
 
 body {
@@ -39,15 +224,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Day mode reads as print: tighter tracking, warmer line height */
+[data-theme="day"] body {
+  letter-spacing: -0.01em;
+  line-height: 1.55;
+}
+
 /* Brand glass recipe — matches Landing.tsx GLASS object */
 .glass {
   background: var(--glass-bg);
-  border: 1px solid var(--hairline);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 24px 48px -28px rgba(0, 0, 0, 0.6);
+    inset 0 1px 0 var(--glass-inset),
+    var(--glass-shadow);
 }
 
 .glass-card {
@@ -61,10 +252,10 @@ body {
 }
 
 .glass-card.complete {
-  border-color: rgba(94, 234, 212, 0.30);
+  border-color: color-mix(in srgb, var(--accent-hot) 30%, transparent);
 }
 
-/* Subtle cyan ambient — static, single radial, no animation */
+/* Ambient wash — a cyan glow at night, a whisper of warmth by day */
 .brand-ambient {
   position: fixed;
   inset: 0;
@@ -72,8 +263,46 @@ body {
   overflow: hidden;
   pointer-events: none;
   background-image:
-    radial-gradient(60% 40% at 8% 0%, rgba(2, 141, 196, 0.08), transparent 60%),
-    radial-gradient(50% 35% at 100% 100%, rgba(94, 234, 212, 0.04), transparent 60%);
+    radial-gradient(60% 40% at 8% 0%, var(--ambient-1), transparent 60%),
+    radial-gradient(50% 35% at 100% 100%, var(--ambient-2), transparent 60%);
+}
+
+/* A logo drawn light-on-transparent in a SINGLE colour, flipped to ink by day.
+   Only safe on genuinely monochrome artwork: inverting a mark that carries a
+   brand colour changes that colour too. Two-colour marks use <ThemedLogo>. */
+.logo-adaptive {
+  filter: invert(var(--logo-invert));
+}
+
+/* The two halves of a <ThemedLogo> pair. Preflight already gives img
+   display:block, so block is the value being restored, not one imposed here. */
+.art-day {
+  display: none;
+}
+[data-theme="day"] .art-day {
+  display: block;
+}
+[data-theme="day"] .art-night {
+  display: none;
+}
+
+/* Segmented pills — the language and theme toggles share one grammar.
+   The active segment is chosen by CSS from the <html data-theme> attribute,
+   so it paints correctly before React has hydrated. */
+.seg {
+  background: transparent;
+  color: var(--fg-60);
+  cursor: pointer;
+}
+.seg:hover {
+  color: var(--foreground);
+}
+.seg[aria-pressed="true"],
+[data-theme="day"] .theme-seg[data-theme-option="day"],
+[data-theme="night"] .theme-seg[data-theme-option="night"] {
+  background: var(--veil-strong);
+  color: var(--foreground);
+  cursor: default;
 }
 
 /* Hide scrollbars on sidebar */
@@ -83,4 +312,174 @@ body {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* Repaint without a flash of the old palette when the toggle flips */
+[data-theme-switching] * {
+  transition: none !important;
+}
+
+/* ============================================================
+   DAY MODE — component layer
+   Night is untouched: every rule below is scoped to
+   [data-theme="day"]. These are unlayered, so they beat
+   Tailwind's utilities (which live in @layer utilities)
+   without !important. Copied off admin.kapta.pt: 20px cards on
+   a hairline, ink pills, sans eyebrows, ring-4 focus.
+   ============================================================ */
+
+/* Kapta has ONE card radius. Rioko's oversized radii collapse to it;
+   rounded-2xl and below already match Kapta's own scale and stay. */
+[data-theme="day"] .rounded-\[1\.25rem\],
+[data-theme="day"] .rounded-\[1\.5rem\],
+[data-theme="day"] .rounded-\[1\.625rem\],
+[data-theme="day"] .rounded-\[1\.75rem\],
+[data-theme="day"] .rounded-\[1\.8rem\],
+[data-theme="day"] .rounded-\[2rem\],
+[data-theme="day"] .rounded-\[2\.3rem\],
+[data-theme="day"] .rounded-\[2\.5rem\],
+[data-theme="day"] .rounded-\[3rem\],
+[data-theme="day"] .rounded-\[3\.5rem\],
+[data-theme="day"] .rounded-3xl {
+  border-radius: 20px;
+}
+
+/* The card. Kapta draws a white plate on a hairline with one soft
+   shadow, and never blurs anything behind it. */
+[data-theme="day"] .glass {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow-card);
+}
+[data-theme="day"] [class*="backdrop-blur"] {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Eyebrows. Rioko sets them in mono at wide tracking; Kapta sets them
+   in the body face, heavy and tight. Only the uppercase ones move —
+   mono on data (ids, references, amounts) is left alone. */
+[data-theme="day"] .font-mono.uppercase {
+  font-family: var(--app-font-sans), system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+/* Display type: Satoshi, light, tight, as on the Kapta dashboard. */
+[data-theme="day"] h1,
+[data-theme="day"] h2 {
+  font-family: var(--app-font-display), system-ui, sans-serif;
+  letter-spacing: -0.03em;
+}
+[data-theme="day"] h1 {
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+/* The primary action. Rioko's inverted plate becomes Kapta's ink pill:
+   sentence case, medium weight, a lift on hover. */
+[data-theme="day"] button.bg-fg.text-surface,
+[data-theme="day"] a.bg-fg.text-surface {
+  border-radius: 9999px;
+  box-shadow: var(--shadow-cta);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+[data-theme="day"] button.bg-fg.text-surface:hover:not(:disabled),
+[data-theme="day"] a.bg-fg.text-surface:hover {
+  transform: translateY(-1px);
+}
+
+/* Fields. Kapta: white, a strong hairline, ink on focus, a 4px ink ring. */
+[data-theme="day"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+[data-theme="day"] select,
+[data-theme="day"] textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 16px;
+}
+[data-theme="day"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+[data-theme="day"] select:focus,
+[data-theme="day"] textarea:focus {
+  outline: none;
+  border-color: var(--foreground);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+/* Tables. Tiny uppercase head on a rule, rows that warm on hover. */
+[data-theme="day"] thead th {
+  font-family: var(--app-font-sans), system-ui, sans-serif;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-40);
+}
+[data-theme="day"] tbody tr {
+  border-bottom: 1px solid var(--hairline);
+}
+[data-theme="day"] tbody tr:last-child {
+  border-bottom: 0;
+}
+[data-theme="day"] tbody tr:hover {
+  background: color-mix(in srgb, var(--surface-3) 40%, transparent);
+}
+
+/* Big figures are set in the display face on the Kapta dashboard, the way a
+   printed table sets its totals. Table cells keep the body face. */
+[data-theme="day"] .text-2xl.tabular-nums,
+[data-theme="day"] .text-3xl.tabular-nums,
+[data-theme="day"] .text-4xl.tabular-nums,
+[data-theme="day"] .text-5xl.tabular-nums {
+  font-family: var(--app-font-display), system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+/* The secondary action. Kapta never tints a button: it is a white pill on a
+   strong hairline, ink type, warming to cream-2 on hover. The tint stays on
+   badges and status pills, which are not buttons. */
+[data-theme="day"] button.bg-accent-hot\/10,
+[data-theme="day"] button.bg-accent\/10,
+[data-theme="day"] a.bg-accent-hot\/10,
+[data-theme="day"] a.bg-accent\/10 {
+  background: var(--surface-2);
+  border-color: var(--hairline-strong);
+  border-radius: 9999px;
+  color: var(--foreground);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+[data-theme="day"] button.bg-accent-hot\/10:hover:not(:disabled),
+[data-theme="day"] button.bg-accent\/10:hover:not(:disabled),
+[data-theme="day"] a.bg-accent-hot\/10:hover,
+[data-theme="day"] a.bg-accent\/10:hover {
+  background: var(--surface-3);
+}
+
+/* The rail. Kapta has no sidebar, so there is nothing to copy literally;
+   what carries over is its nav grammar — a pill per item, ink when current,
+   cream on hover — applied to the rail Rioko already has. */
+[data-theme="day"] aside a[class*="rounded-2xl"],
+[data-theme="day"] aside button[class*="rounded-2xl"] {
+  border-radius: 9999px;
+}
+[data-theme="day"] aside a.bg-accent\/18,
+[data-theme="day"] aside a.bg-destructive\/18 {
+  background: var(--foreground);
+  color: var(--surface-2);
+  border-color: transparent;
+  box-shadow: none;
+}
+[data-theme="day"] aside a.text-fg-60:hover {
+  background: var(--surface-3);
+  color: var(--foreground);
 }

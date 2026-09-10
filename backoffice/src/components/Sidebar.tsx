@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { UserButton, SignOutButton } from "@clerk/nextjs";
-import Image from "next/image";
+import { ThemedLogo } from "@/components/ThemedLogo";
 import { Link, usePathname } from "@/i18n/navigation";
 import { LogOut, Menu, X } from "lucide-react";
 import { NavLinks } from "@/components/NavLinks";
 import { LangToggle } from "@/components/landing/LangToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type SidebarStrings = {
     developedBy: string;
@@ -59,7 +60,7 @@ export function Sidebar({
             {/* Mobile top bar — only visible <md */}
             <div className="md:hidden sticky top-0 z-30 glass border-b border-hairline flex items-center justify-between px-4 py-3 shrink-0">
                 <Link href="/" className="flex items-center">
-                    <Image src="/images/rioko2-logo.svg" alt="Rioko 2.0" width={104} height={22} priority />
+                    <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={104} height={22} priority />
                 </Link>
                 <button
                     type="button"
@@ -76,7 +77,7 @@ export function Sidebar({
                 <div
                     role="presentation"
                     onClick={() => setOpen(false)}
-                    className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+                    className="md:hidden fixed inset-0 z-40 bg-scrim backdrop-blur-sm"
                 />
             )}
 
@@ -104,14 +105,14 @@ export function Sidebar({
                 <div className="mb-14 flex flex-col items-start w-full">
                     <div className="flex items-center transition-transform hover:scale-[1.02]">
                         <Link href="/">
-                            <Image src="/images/rioko2-logo.svg" alt="Rioko 2.0" width={140} height={29} priority />
+                            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={140} height={29} priority />
                         </Link>
                     </div>
 
                     <div className="mt-4 flex flex-col items-start gap-1">
                         <div className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{strings.developedBy}</div>
                         <a href="https://kapta.pt" target="_blank" rel="noopener noreferrer" className="transition-all hover:scale-105 active:scale-95">
-                            <Image src="/images/logo-kapta-white.webp" alt="Kapta Logo" width={70} height={18} className="opacity-40 grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500" />
+                            <ThemedLogo nightSrc="/images/logo-kapta-white.webp" daySrc="/images/logo-kapta-black.webp" alt="Kapta Logo" width={70} height={18} className="opacity-[var(--logo-dim)] grayscale hover:opacity-100 hover:grayscale-0 transition-all duration-500" />
                         </a>
                     </div>
                 </div>
@@ -119,8 +120,9 @@ export function Sidebar({
                 <NavLinks canAccessAdmin={canAccessAdmin} isHiperadmin={isHiperadmin} />
 
                 <div className="mt-auto space-y-4 w-full pt-8">
-                    <div className="flex items-center justify-center">
-                        <LangToggle variant="dark" />
+                    <div className="flex flex-col items-center gap-2">
+                        <ThemeToggle />
+                        <LangToggle />
                     </div>
 
                     <div className="px-4 py-3 rounded-2xl bg-surface-2 border border-hairline flex items-center justify-between">
@@ -133,7 +135,7 @@ export function Sidebar({
                         </div>
                         <SignOutButton>
                             <button
-                                className="p-2 rounded-lg text-fg-40 transition-all cursor-pointer hover:bg-[rgba(244,63,94,0.10)] hover:text-destructive"
+                                className="p-2 rounded-lg text-fg-40 transition-all cursor-pointer hover:bg-destructive/10 hover:text-destructive"
                                 aria-label={strings.signOut}
                             >
                                 <LogOut className="w-4 h-4" />
@@ -144,7 +146,7 @@ export function Sidebar({
                     <div className="pt-6 border-t border-hairline w-full text-left space-y-1">
                         <div className="font-mono text-[10px] text-fg-40 leading-snug tracking-[0.14em]">
                             © {new Date().getFullYear()}{" "}
-                            <a href="https://kapta.pt/" target="_blank" rel="noopener noreferrer" className="text-fg-60 hover:text-accent transition-colors">
+                            <a href="https://kapta.pt/" target="_blank" rel="noopener noreferrer" className="text-fg-60 hover:text-accent-ink transition-colors">
                                 Kapta
                             </a>
                             .

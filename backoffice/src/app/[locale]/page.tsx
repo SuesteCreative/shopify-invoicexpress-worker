@@ -5,7 +5,7 @@ import { redirect } from "@/i18n/navigation";
 import Landing from "@/components/landing/Landing";
 import JsonLd from "@/components/JsonLd";
 import { faqSchema, howToSchema, softwareApplicationSchema } from "@/lib/schema";
-import { sansDisplay, monoFont } from "../fonts";
+import { sansDisplay, monoFont, generalSans, satoshi } from "../fonts";
 
 export const runtime = "edge";
 
@@ -52,8 +52,8 @@ export default async function LandingPage({
 
   return (
     <div
-      className={`${sansDisplay.variable} ${monoFont.variable}`}
-      style={{ fontFamily: "var(--font-sans-display), system-ui, sans-serif" }}
+      className={`${sansDisplay.variable} ${monoFont.variable} ${generalSans.variable} ${satoshi.variable}`}
+      style={{ fontFamily: "var(--app-font-sans), system-ui, sans-serif" }}
     >
       <JsonLd data={softwareApplicationSchema(locale)} />
       <JsonLd data={faqSchema(faqItems)} />

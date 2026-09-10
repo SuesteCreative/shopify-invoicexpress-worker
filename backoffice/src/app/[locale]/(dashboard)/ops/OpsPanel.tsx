@@ -149,7 +149,7 @@ export function OpsPanel() {
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" />
+        <Loader2 className="w-12 h-12 text-accent-ink animate-spin opacity-50" />
       </div>
     );
   }
@@ -161,7 +161,7 @@ export function OpsPanel() {
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <Activity className="w-8 h-8 text-accent" />
+            <Activity className="w-8 h-8 text-accent-ink" />
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
               {t("title")}
             </h1>
@@ -193,7 +193,7 @@ export function OpsPanel() {
             onClick={() => void load()}
             className="bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-surface-2/80 transition-all active:scale-95"
           >
-            <RefreshCw className="w-4 h-4 text-accent" /> {t("refresh")}
+            <RefreshCw className="w-4 h-4 text-accent-ink" /> {t("refresh")}
           </button>
         </div>
       </div>
@@ -208,7 +208,7 @@ export function OpsPanel() {
       {/* ── Incident triage ─────────────────────────────────────────────── */}
       <section className="space-y-4">
         <h2 className="text-xs font-black uppercase tracking-widest text-fg-40 flex items-center gap-2">
-          <ListFilter className="w-3 h-3 text-accent" /> {t("incidentsTitle", { count: visible.length })}
+          <ListFilter className="w-3 h-3 text-accent-ink" /> {t("incidentsTitle", { count: visible.length })}
         </h2>
 
         <AnimatePresence mode="popLayout">
@@ -234,13 +234,13 @@ export function OpsPanel() {
                     className="flex-1 min-w-0 text-left"
                   >
                     <div className="flex items-center gap-2 flex-wrap">
-                      {open ? <ChevronDown className="w-4 h-4 text-accent shrink-0" /> : <ChevronRight className="w-4 h-4 text-fg-40 shrink-0" />}
+                      {open ? <ChevronDown className="w-4 h-4 text-accent-ink shrink-0" /> : <ChevronRight className="w-4 h-4 text-fg-40 shrink-0" />}
                       <span className={`text-[10px] font-black uppercase tracking-widest border rounded px-2 py-0.5 ${severityStyles[incident.severity] ?? severityStyles.info}`}>
                         {incident.severity}
                       </span>
                       <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{incident.kind}</span>
                       {incident.merchant_label && (
-                        <span className="text-[10px] font-black uppercase tracking-widest text-accent">{incident.merchant_label}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-accent-ink">{incident.merchant_label}</span>
                       )}
                       {incident.occurrences > 1 && (
                         <span className="text-[10px] font-bold text-fg-40">×{incident.occurrences}</span>
@@ -267,7 +267,7 @@ export function OpsPanel() {
                       onClick={() => void setStatus(incident, "resolved")}
                       className="rounded-xl border border-hairline px-3 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-surface-2/80 transition-all flex items-center gap-1"
                     >
-                      <CheckCircle2 className="w-3 h-3 text-accent" /> {t("resolve")}
+                      <CheckCircle2 className="w-3 h-3 text-accent-ink" /> {t("resolve")}
                     </button>
                   </div>
                 </div>
@@ -312,7 +312,7 @@ export function OpsPanel() {
                               onClick={() => void loadTimeline(id)}
                               className="rounded-lg border border-hairline bg-surface-2/50 px-2 py-1 text-[10px] font-bold hover:bg-surface-2/80 transition-all flex items-center gap-1"
                             >
-                              <FileSearch className="w-3 h-3 text-accent" /> {id}
+                              <FileSearch className="w-3 h-3 text-accent-ink" /> {id}
                             </button>
                           ))}
                           {affected.length > 25 && (
@@ -352,7 +352,7 @@ export function OpsPanel() {
                     {incident.user_id && (
                       <a
                         href={`/superadmin/users/${incident.user_id}/dev-mode`}
-                        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent hover:underline"
+                        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent-ink hover:underline"
                       >
                         <Wrench className="w-3 h-3" /> {t("openDevMode")}
                       </a>
@@ -366,7 +366,7 @@ export function OpsPanel() {
 
         {visible.length === 0 && (
           <div className="text-center py-14 text-fg-40 font-bold text-sm flex flex-col items-center gap-2">
-            <CheckCircle2 className="w-8 h-8 text-accent opacity-60" />
+            <CheckCircle2 className="w-8 h-8 text-accent-ink opacity-60" />
             {t("noIncidents")}
           </div>
         )}
@@ -388,7 +388,7 @@ export function OpsPanel() {
                 </span>
                 <button
                   onClick={() => void loadTimeline(ev.external_id)}
-                  className="text-[10px] font-black uppercase tracking-widest text-accent hover:underline"
+                  className="text-[10px] font-black uppercase tracking-widest text-accent-ink hover:underline"
                 >
                   {ev.external_id}
                 </button>

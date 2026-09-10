@@ -15,7 +15,7 @@ import {
 // Monospace inline span. Color defaults to mint accent.
 export function Mono({
   children,
-  color = ACCENT_HOT,
+  color = "var(--accent-hot)",
 }: {
   children: ReactNode;
   color?: string;
@@ -51,7 +51,7 @@ export function Gradient({ children }: { children: ReactNode }) {
 }
 
 // Two-layer pulsing live dot. Inner static dot + animated ring.
-export function LiveDot({ color = ACCENT_HOT }: { color?: string }) {
+export function LiveDot({ color = "var(--accent-hot)" }: { color?: string }) {
   return (
     <span className="relative inline-flex h-2 w-2 items-center justify-center">
       <span
@@ -71,7 +71,7 @@ export function LiveDot({ color = ACCENT_HOT }: { color?: string }) {
 // Eyebrow pill — mono uppercase label with a mint prefix dot.
 export function Eyebrow({
   children,
-  dotColor = ACCENT_HOT,
+  dotColor = "var(--accent-hot)",
 }: {
   children: ReactNode;
   dotColor?: string;
@@ -80,9 +80,9 @@ export function Eyebrow({
     <span
       className="inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.22em]"
       style={{
-        border: `1px solid ${RULE}`,
-        background: "rgba(255,255,255,0.02)",
-        color: FG_40,
+        border: `1px solid var(--rule)`,
+        background: "color-mix(in srgb, var(--veil) 40%, transparent)",
+        color: "var(--fg-40)",
       }}
     >
       <span
@@ -101,9 +101,9 @@ const STATUS_STYLES: Record<
   { bg: string; fg: string; dot?: string; label: string }
 > = {
   live: {
-    bg: "rgba(2,141,196,0.12)",
-    fg: ACCENT,
-    dot: ACCENT,
+    bg: "color-mix(in srgb, var(--accent) 12%, transparent)",
+    fg: "var(--accent-ink)",
+    dot: "var(--accent)",
     label: "Ativo",
   },
   soon: {
@@ -117,9 +117,9 @@ const STATUS_STYLES: Record<
     label: "Em estudo",
   },
   error: {
-    bg: "rgba(244,63,94,0.10)",
-    fg: DESTRUCTIVE,
-    dot: DESTRUCTIVE,
+    bg: "color-mix(in srgb, var(--destructive) 10%, transparent)",
+    fg: "var(--destructive)",
+    dot: "var(--destructive)",
     label: "Erro",
   },
 };

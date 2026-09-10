@@ -81,25 +81,25 @@ export type Row = {
 };
 
 const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
-    exact: { label: "Match exato", cls: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]" },
-    approved: { label: "Aprovado", cls: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]" },
-    heuristic: { label: "Heurístico", cls: "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.30)]" },
-    not_needed: { label: "Não necessária", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
-    none: { label: "Sem fatura", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
-    pending: { label: "Aguarda pagamento", cls: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]" },
+    exact: { label: "Match exato", cls: "bg-accent-hot/10 text-accent-hot border-accent-hot/30" },
+    approved: { label: "Aprovado", cls: "bg-accent-hot/10 text-accent-hot border-accent-hot/30" },
+    heuristic: { label: "Heurístico", cls: "bg-accent/10 text-accent-ink border-accent/30" },
+    not_needed: { label: "Não necessária", cls: "bg-soon/10 text-soon border-soon/30" },
+    none: { label: "Sem fatura", cls: "bg-destructive/10 text-destructive border-destructive/30" },
+    pending: { label: "Aguarda pagamento", cls: "bg-veil-strong text-fg-60 border-hairline-strong" },
 };
 
 // Source-side chip for refunded / cancelled orders. Full refund + cancellation
 // read as destructive (red); a partial refund is a softer amber.
 const REFUND_CHIP: Record<NonNullable<Row["order"]["refund_state"]>, { label: string; cls: string }> = {
-    full: { label: "Reembolsado", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
-    partial: { label: "Reembolso parcial", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" },
-    cancelled: { label: "Cancelado", cls: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.30)]" },
+    full: { label: "Reembolsado", cls: "bg-destructive/10 text-destructive border-destructive/30" },
+    partial: { label: "Reembolso parcial", cls: "bg-soon/10 text-soon border-soon/30" },
+    cancelled: { label: "Cancelado", cls: "bg-destructive/10 text-destructive border-destructive/30" },
 };
 
 // Source-side chip for a declined Lodgify booking (enquiry the host declined).
 // Neutral grey — it's not an error, just a booking that will never be invoiced.
-const DECLINED_CHIP = { label: "Recusada", cls: "bg-[rgba(148,163,184,0.10)] text-fg-60 border-[rgba(148,163,184,0.30)]" };
+const DECLINED_CHIP = { label: "Recusada", cls: "bg-veil-strong text-fg-60 border-hairline-strong" };
 
 // Lodgify `source` codes → friendly channel labels shown as a chip on the row.
 const CHANNEL_LABELS: Record<string, string> = {
@@ -124,7 +124,7 @@ const fmtDate = (s: string | null | undefined) => {
 // A sale that predates the integration and has no invoice is NOT our miss — the
 // merchant's previous process owned it. Amber, not red, and worded so nobody
 // reads it as a Rioko failure.
-const PRE_CUTOFF_BADGE = { label: "Anterior à integração", cls: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.30)]" };
+const PRE_CUTOFF_BADGE = { label: "Anterior à integração", cls: "bg-soon/10 text-soon border-soon/30" };
 
 export function ReconciliationRow({ row, onChanged, source, destination }: { row: Row; onChanged: () => void; source: string; destination: string }) {
     const [acting, setActing] = useState(false);
@@ -213,7 +213,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                         <SourceIcon className="w-3 h-3" /> {srcLabel}
                     </span>
                     {channelLabel(row.order.channel) && (
-                        <span className="text-[9px] font-black uppercase tracking-widest text-accent px-2 py-0.5 rounded bg-[rgba(2,141,196,0.10)] border border-[rgba(2,141,196,0.30)]">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-accent-ink px-2 py-0.5 rounded bg-accent/10 border border-accent/30">
                             {channelLabel(row.order.channel)}
                         </span>
                     )}
@@ -346,7 +346,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             )}
                             {row.match.type === "approved" && (
                                 <button onClick={revertApprove} disabled={acting}
-                                    className="text-[10px] font-black uppercase tracking-widest text-soon hover:text-soon/85 px-2.5 py-1 rounded-lg border border-[rgba(245,158,11,0.20)] hover:border-[rgba(245,158,11,0.40)] inline-flex items-center gap-1 disabled:opacity-50">
+                                    className="text-[10px] font-black uppercase tracking-widest text-soon hover:text-soon/85 px-2.5 py-1 rounded-lg border border-soon/20 hover:border-soon/40 inline-flex items-center gap-1 disabled:opacity-50">
                                     {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Reverter aprovação
                                 </button>
                             )}
@@ -399,7 +399,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                                             <p className="text-[10px] text-fg-40 truncate">{c.client_name} · {fmt(c.total)} · {fmtDate(c.date)}</p>
                                         </div>
                                         <button onClick={() => approve(c.id)} disabled={acting}
-                                            className="text-[10px] font-black uppercase tracking-widest bg-[rgba(94,234,212,0.18)] text-accent-hot border border-[rgba(94,234,212,0.30)] px-2.5 py-1 rounded-lg hover:bg-[rgba(94,234,212,0.25)] inline-flex items-center gap-1 disabled:opacity-50">
+                                            className="text-[10px] font-black uppercase tracking-widest bg-accent-hot/18 text-accent-hot border border-accent-hot/30 px-2.5 py-1 rounded-lg hover:bg-accent-hot/25 inline-flex items-center gap-1 disabled:opacity-50">
                                             {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} Aprovar
                                         </button>
                                     </div>
@@ -430,7 +430,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                         {row.credit_notes && row.credit_notes.length > 0 ? (
                             row.credit_notes.map(cn => (
                                 <div key={cn.id} className="flex flex-wrap items-baseline gap-2">
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-destructive px-2 py-0.5 rounded bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.30)] inline-flex items-center gap-1">
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-destructive px-2 py-0.5 rounded bg-destructive/10 border border-destructive/30 inline-flex items-center gap-1">
                                         <RotateCcw className="w-3 h-3" /> Nota de crédito
                                     </span>
                                     {cn.permalink ? (

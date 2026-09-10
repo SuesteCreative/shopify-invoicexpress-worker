@@ -158,11 +158,11 @@ export function DevModePanel({ target }: { target: Target }) {
                 </Link>
                 <div className="flex items-end justify-between flex-wrap gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-2xl bg-[rgba(2,141,196,0.10)] border border-[rgba(2,141,196,0.20)] flex items-center justify-center">
-                            <Wrench className="w-7 h-7 text-accent" />
+                        <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+                            <Wrench className="w-7 h-7 text-accent-ink" />
                         </div>
                         <div>
-                            <h1 className="text-4xl font-black tracking-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">
+                            <h1 className="text-4xl font-black tracking-tight bg-gradient-to-r from-fg to-fg-40 bg-clip-text text-transparent">
                                 {t("title")}
                             </h1>
                             <p className="text-fg-60 font-semibold mt-1">
@@ -173,7 +173,7 @@ export function DevModePanel({ target }: { target: Target }) {
                     </div>
                 </div>
                 {connections !== null && connections.length === 0 && (
-                    <div className="glass rounded-2xl p-5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.05)] flex items-center gap-3 text-soon text-sm font-bold">
+                    <div className="glass rounded-2xl p-5 border border-soon/30 bg-soon/5 flex items-center gap-3 text-soon text-sm font-bold">
                         <AlertCircle className="w-5 h-5" />
                         {t("noConnections")}
                     </div>
@@ -203,14 +203,10 @@ export function DevModePanel({ target }: { target: Target }) {
                     {conn.destination === "invoicexpress" && (
                         <>
                             <LinkIxCard targetUserId={target.id} />
+                            <TaxOverrideCard targetUserId={target.id} />
                             <PendingReverseChargeCard targetUserId={target.id} />
                         </>
                     )}
-
-                    {/* Every destination: force_tax_rate is read by the Moloni and
-                        Vendus adapters too, so gating this on InvoiceXpress left a
-                        Moloni connection with no way to state its own rate at all. */}
-                    <TaxOverrideCard targetUserId={target.id} conn={conn} />
 
                     {cap.backfill && <BackfillCard targetUserId={target.id} conn={conn} cutoff={connCutoff} notifyEmails={notifyEmails} />}
                     {cap.reemit && <ReemitCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
@@ -245,7 +241,7 @@ function ConnectionSelector({ connections, selected, onSelect }: {
                     const active = key === selected;
                     return (
                         <button key={key} type="button" onClick={() => onSelect(key)}
-                            className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${active ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                            className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${active ? "bg-accent/18 text-accent-ink border-accent/40" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
                             {connectionLabel(c.source, c.destination)}
                         </button>
                     );
@@ -276,7 +272,7 @@ function ResultBox({ result }: { result: JobResult | null }) {
     if (!result) return null;
     const errored = result.error && !result.job_id;
     return (
-        <pre className={`mt-4 rounded-2xl p-5 text-[11px] font-mono whitespace-pre-wrap border ${errored ? "bg-[rgba(244,63,94,0.05)] border-[rgba(244,63,94,0.20)] text-destructive" : "bg-surface-2/70 border-hairline text-fg"}`}>
+        <pre className={`mt-4 rounded-2xl p-5 text-[11px] font-mono whitespace-pre-wrap border ${errored ? "bg-destructive/5 border-destructive/20 text-destructive" : "bg-surface-2/70 border-hairline text-fg"}`}>
             {JSON.stringify(result, null, 2)}
         </pre>
     );
@@ -345,10 +341,10 @@ function IntegrationStartRow({
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                     {t("integrationStart")} · {connectionLabel(conn.source, conn.destination)}
                     <input type="date" value={value} onChange={e => { setValue(e.target.value); setError(null); }}
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                 </label>
                 <button onClick={save} disabled={saving || value === ymdOf(conn.effective)}
-                    className="px-4 py-2.5 rounded-xl border border-hairline text-[10px] font-black uppercase tracking-widest text-fg hover:text-accent hover:border-[rgba(2,141,196,0.40)] transition-all disabled:opacity-40">
+                    className="px-4 py-2.5 rounded-xl border border-hairline text-[10px] font-black uppercase tracking-widest text-fg hover:text-accent-ink hover:border-accent/40 transition-all disabled:opacity-40">
                     {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("cutoffSave")}
                 </button>
             </div>
@@ -356,7 +352,7 @@ function IntegrationStartRow({
                 {conn.source_of_date === "explicit" ? t("cutoffExplicit") : t("cutoffDerived")}
             </p>
             {error && (
-                <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] text-destructive text-xs font-bold">
+                <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-destructive/5 border border-destructive/20 text-destructive text-xs font-bold">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-px" /><span>{error}</span>
                 </div>
             )}
@@ -419,7 +415,7 @@ function AccountStateCard({ targetUserId, initialInactive }: { targetUserId: str
                 {!saving && savedAt && <span className="text-[10px] font-black uppercase tracking-widest text-accent-hot">{t("accountStateSaved")}</span>}
             </label>
             {error && (
-                <div className="px-4 py-3 rounded-xl bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] text-destructive text-xs font-bold">
+                <div className="px-4 py-3 rounded-xl bg-destructive/5 border border-destructive/20 text-destructive text-xs font-bold">
                     {error}
                 </div>
             )}
@@ -518,8 +514,8 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
 
     if (isAdminTarget) {
         return (
-            <Section icon={<Sparkles className="w-5 h-5 text-accent" />} title={t("subscriptionTitle")} desc={t("subscriptionAdminDesc")}>
-                <div className="px-4 py-3 rounded-xl bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] text-accent text-xs font-bold">
+            <Section icon={<Sparkles className="w-5 h-5 text-accent-ink" />} title={t("subscriptionTitle")} desc={t("subscriptionAdminDesc")}>
+                <div className="px-4 py-3 rounded-xl bg-accent/5 border border-accent/20 text-accent-ink text-xs font-bold">
                     {t("subscriptionAdminBadge", { role: targetRole })}
                 </div>
             </Section>
@@ -557,17 +553,17 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                         min={new Date().toISOString().split("T")[0]}
                         onChange={e => { setTrialEnd(e.target.value); setError(null); }}
                         disabled={!loaded}
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white"
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg"
                     />
                 </label>
                 <button onClick={save} disabled={!loaded || saving}
-                    className="bg-white text-black py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    className="bg-fg text-surface py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent hover:text-on-accent transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                     {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? <CheckCircle2 className="w-3 h-3" /> : null}
                     {savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("save")}
                 </button>
             </div>
             {error && (
-                <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] text-destructive text-xs font-bold">
+                <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-destructive/5 border border-destructive/20 text-destructive text-xs font-bold">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
                     <span>{error}</span>
                 </div>
@@ -596,16 +592,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
     );
 }
 
-/**
- * Tax overrides for ONE integration.
- *
- * They used to be account-wide, written onto the legacy `integrations` row: a
- * merchant running a Shopify shop and a Stripe connection had a single set of
- * rates between them, and saving here rewrote both. A shop at 0% next to a
- * Stripe connection at 23% is a normal, deliberate setup, so each connection now
- * carries its own and the shop keeps its row.
- */
-function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: Connection | null }) {
+function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
     const t = useTranslations("devMode");
     const [rate, setRate] = useState<string>("");
     const [shippingRate, setShippingRate] = useState<string>("");
@@ -616,17 +603,8 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
 
-    // The IX-only switches are meaningless on a Moloni or Vendus connection —
-    // only the InvoiceXpress builder reads OSS and reverse charge — so they are
-    // hidden rather than shown as controls that do nothing.
-    const isIx = !conn || conn.destination === "invoicexpress";
-    const scope = conn && conn.source !== "shopify"
-        ? `&source_kind=${encodeURIComponent(conn.source)}&destination_kind=${encodeURIComponent(conn.destination)}`
-        : "";
-
     useEffect(() => {
-        setLoaded(false);
-        fetch(`/api/admin/dev-mode/tax-override?targetUserId=${targetUserId}${scope}`)
+        fetch(`/api/admin/dev-mode/tax-override?targetUserId=${targetUserId}`)
             .then(r => r.json())
             .then((d: any) => {
                 setRate(d.force_tax_rate != null ? String(d.force_tax_rate) : "");
@@ -637,7 +615,7 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
                 setLoaded(true);
             })
             .catch(console.error);
-    }, [targetUserId, scope]);
+    }, [targetUserId]);
 
     const save = async () => {
         setSaving(true);
@@ -649,9 +627,6 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     targetUserId,
-                    ...(conn && conn.source !== "shopify"
-                        ? { source_kind: conn.source, destination_kind: conn.destination }
-                        : {}),
                     force_tax_rate: parsed,
                     force_shipping_tax_rate: parsedShipping,
                     oss_enabled: oss,
@@ -666,7 +641,7 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
     };
 
     return (
-        <Section icon={<Percent className="w-5 h-5 text-accent" />} title={t("taxOverrideTitle")} desc={t("taxOverrideDesc")}>
+        <Section icon={<Percent className="w-5 h-5 text-accent-ink" />} title={t("taxOverrideTitle")} desc={t("taxOverrideDesc")}>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                     {t("forceTaxProducts")}
@@ -675,7 +650,7 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
                         value={rate} onChange={e => setRate(e.target.value)}
                         placeholder={t("forceTaxProductsPlaceholder")}
                         disabled={!loaded}
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white"
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg"
                     />
                 </label>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
@@ -685,22 +660,22 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
                         value={shippingRate} onChange={e => setShippingRate(e.target.value)}
                         placeholder={t("forceTaxShippingPlaceholder")}
                         disabled={!loaded}
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white"
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg"
                     />
                 </label>
-                {isIx && <label className="flex items-center gap-3 cursor-pointer pb-2">
+                <label className="flex items-center gap-3 cursor-pointer pb-2">
                     <input type="checkbox" checked={oss} onChange={e => setOss(e.target.checked)} disabled={!loaded} className="accent-accent w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
                         {t("ossActive")}
                     </span>
-                </label>}
+                </label>
                 <button onClick={save} disabled={!loaded || saving}
-                    className="bg-white text-black py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    className="bg-fg text-surface py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent hover:text-on-accent transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                     {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? <CheckCircle2 className="w-3 h-3" /> : null}
                     {savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("save")}
                 </button>
             </div>
-            {isIx && <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mt-2">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mt-2">
                 <label className="flex items-center gap-3 cursor-pointer pb-2 md:col-span-2">
                     <input type="checkbox" checked={b2bReverseCharge} onChange={e => setB2bReverseCharge(e.target.checked)} disabled={!loaded} className="accent-accent w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
@@ -719,7 +694,7 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
                             }
                         }}
                         disabled={!loaded || !b2bReverseCharge}
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg disabled:opacity-50"
                     >
                         <option value="M16">{t("b2bM16")}</option>
                         <option value="M40">{t("b2bM40")}</option>
@@ -732,11 +707,11 @@ function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: C
                             onChange={e => setB2bReason(e.target.value.toUpperCase().slice(0, 16))}
                             placeholder={t("b2bCustomPlaceholder")}
                             disabled={!loaded || !b2bReverseCharge}
-                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white mt-1.5 disabled:opacity-50"
+                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg mt-1.5 disabled:opacity-50"
                         />
                     )}
                 </label>
-            </div>}
+            </div>
             <p className="text-[10px] text-fg-40 font-medium leading-relaxed">
                 <strong className="text-fg-40">{t("taxOverrideExplain1Title")}</strong> {t("taxOverrideExplain1")}<br />
                 <strong className="text-fg-40">{t("taxOverrideExplain2Title")}</strong> {t("taxOverrideExplain2")}<br />
@@ -807,10 +782,10 @@ function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
                         return (
                             <div key={r.id} className="rounded-2xl border border-hairline bg-surface-2/30 p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <div className="text-xs space-y-1">
-                                    <p className="font-bold text-white">{t("orderHash", { n: r.order_id })}</p>
+                                    <p className="font-bold text-fg">{t("orderHash", { n: r.order_id })}</p>
                                     <p className="text-fg-60">{t("viesAttempts", { vat, attempts: r.attempts, state: r.incident_id ? t("viesIncidentOpen") : t("viesTrying") })}</p>
                                     {r.last_error && <p className="text-fg-40">{t("viesLastError", { error: r.last_error })}</p>}
-                                    <a href={viesUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline text-[10px] font-black uppercase tracking-widest">
+                                    <a href={viesUrl} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline text-[10px] font-black uppercase tracking-widest">
                                         {t("validateOnVies")}
                                     </a>
                                 </div>
@@ -818,14 +793,14 @@ function PendingReverseChargeCard({ targetUserId }: { targetUserId: string }) {
                                     <button
                                         onClick={() => decide(r.id, "approve")}
                                         disabled={acting === r.id}
-                                        className="px-3 py-2 rounded-xl bg-[rgba(94,234,212,0.18)] border border-[rgba(94,234,212,0.40)] text-accent-hot text-[10px] font-black uppercase tracking-widest hover:bg-[rgba(94,234,212,0.25)] disabled:opacity-50"
+                                        className="px-3 py-2 rounded-xl bg-accent-hot/18 border border-accent-hot/40 text-accent-hot text-[10px] font-black uppercase tracking-widest hover:bg-accent-hot/25 disabled:opacity-50"
                                     >
                                         {acting === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : t("approveRc")}
                                     </button>
                                     <button
                                         onClick={() => decide(r.id, "reject")}
                                         disabled={acting === r.id}
-                                        className="px-3 py-2 rounded-xl bg-[rgba(244,63,94,0.18)] border border-[rgba(244,63,94,0.40)] text-destructive text-[10px] font-black uppercase tracking-widest hover:bg-[rgba(244,63,94,0.25)] disabled:opacity-50"
+                                        className="px-3 py-2 rounded-xl bg-destructive/18 border border-destructive/40 text-destructive text-[10px] font-black uppercase tracking-widest hover:bg-destructive/25 disabled:opacity-50"
                                     >
                                         {t("rejectRc")}
                                     </button>
@@ -857,9 +832,9 @@ function NotifyEmailsCard({ emails, input, setInput, onAdd, onRemove, saving }: 
                         type="email" placeholder={t("notifyAddPlaceholder")} value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); onAdd(); } }}
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(244,63,94,0.20)] focus:border-[rgba(244,63,94,0.40)] w-56"
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-destructive/20 focus:border-destructive/40 w-56"
                     />
-                    <button onClick={onAdd} disabled={saving} className="bg-white text-black px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest disabled:opacity-50">
+                    <button onClick={onAdd} disabled={saving} className="bg-fg text-surface px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest disabled:opacity-50">
                         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : "+"}
                     </button>
                 </div>
@@ -919,7 +894,7 @@ function BackfillCard({ targetUserId, conn, cutoff, notifyEmails }: { targetUser
                         <div className="flex gap-2">
                             {(["date_range", "since_last"] as const).map(m => (
                                 <button key={m} onClick={() => setMode(m)}
-                                    className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                                    className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? "bg-accent/18 text-accent-ink border-accent/40" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
                                     {m === "date_range" ? t("modeDateRange") : t("modeSinceLast")}
                                 </button>
                             ))}
@@ -927,7 +902,7 @@ function BackfillCard({ targetUserId, conn, cutoff, notifyEmails }: { targetUser
                         <div className="flex gap-2">
                             {(["create_orders", "finalize_orders"] as const).map(tk => (
                                 <button key={tk} onClick={() => setType(tk)}
-                                    className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${type === tk ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                                    className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${type === tk ? "bg-destructive/18 text-destructive border-destructive/40" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
                                     {tk === "create_orders" ? t("typeCreateOrders") : t("typeFinalizeOrders")}
                                 </button>
                             ))}
@@ -937,11 +912,11 @@ function BackfillCard({ targetUserId, conn, cutoff, notifyEmails }: { targetUser
 
                 {(mode === "date_range" || !isLegacyShopify) && (
                     <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                        {t("from")} <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                        {t("from")} <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                     </label>
                 )}
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                    {t("to")} <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                    {t("to")} <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                 </label>
 
                 {!isLegacyShopify && (
@@ -971,12 +946,12 @@ function BackfillCard({ targetUserId, conn, cutoff, notifyEmails }: { targetUser
                     placeholder={t("reasonPlaceholder")}
                     value={reason} onChange={e => setReason(e.target.value)}
                     rows={2}
-                    className="md:col-span-2 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none"
+                    className="md:col-span-2 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg resize-none"
                 />
             </div>
 
             <button onClick={run} disabled={loading}
-                className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent-hot hover:text-surface transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                className="w-full bg-fg text-surface py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent-hot hover:text-surface transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
                 {dryRun ? t("simulateBackfill") : t("runBackfill")}
             </button>
@@ -1038,7 +1013,7 @@ function LinkIxCard({ targetUserId }: { targetUserId: string }) {
     };
 
     return (
-        <Section icon={<Link2 className="w-5 h-5 text-accent" />} title={t("linkIxTitle")} desc={t("linkIxDesc")}>
+        <Section icon={<Link2 className="w-5 h-5 text-accent-ink" />} title={t("linkIxTitle")} desc={t("linkIxDesc")}>
             {events.length === 0 ? (
                 <p className="text-fg-40 text-xs font-medium">{t("linkIxEmpty")}</p>
             ) : (
@@ -1046,7 +1021,7 @@ function LinkIxCard({ targetUserId }: { targetUserId: string }) {
                     <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                         {t("linkIxEventLabel")}
                         <select value={eventId} onChange={e => setEventId(e.target.value)}
-                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white">
+                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg">
                             <option value="">{t("linkIxEventPlaceholder")}</option>
                             {events.map(e => <option key={e.id} value={e.id}>{label(e)}</option>)}
                         </select>
@@ -1054,10 +1029,10 @@ function LinkIxCard({ targetUserId }: { targetUserId: string }) {
                     <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                         {t("linkIxPermalinkLabel")}
                         <input type="url" value={permalink} onChange={e => setPermalink(e.target.value)} placeholder="https://kapta.app.invoicexpress.com/..."
-                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                     </label>
                     <button onClick={run} disabled={loading || !eventId || !permalink.trim()}
-                        className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                        className="w-full bg-fg text-surface py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-on-accent transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
                         {t("linkIxButton")}
                     </button>
@@ -1118,7 +1093,7 @@ function StripeRecoveryCard({ targetUserId }: { targetUserId: string }) {
     };
 
     return (
-        <Section icon={<Webhook className="w-5 h-5 text-accent" />} title={t("stripeRecoveryTitle")} desc={t("stripeRecoveryDesc")}>
+        <Section icon={<Webhook className="w-5 h-5 text-accent-ink" />} title={t("stripeRecoveryTitle")} desc={t("stripeRecoveryDesc")}>
             {loadErr ? (
                 <p className="text-fg-40 text-xs font-medium">{t("stripeNoConn")} — {loadErr}</p>
             ) : endpoints.length === 0 ? (
@@ -1127,12 +1102,12 @@ function StripeRecoveryCard({ targetUserId }: { targetUserId: string }) {
                 <div className="space-y-2">
                     {endpoints.map(ep => (
                         <div key={ep.id} className="flex items-center gap-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2">
-                            <span className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-widest border ${ep.status === "enabled" ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]" : "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]"}`}>{ep.status}</span>
+                            <span className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-widest border ${ep.status === "enabled" ? "bg-accent-hot/10 text-accent-hot border-accent-hot/20" : "bg-destructive/10 text-destructive border-destructive/20"}`}>{ep.status}</span>
                             <span className="flex-1 text-xs font-mono text-fg-60 truncate" title={ep.url}>{ep.url}</span>
                             {ep.status !== "enabled" && (
-                                <button onClick={() => action("reenable", ep.id)} disabled={loading} className="px-3 py-1.5 rounded-lg bg-white text-black text-[10px] font-black uppercase tracking-widest hover:bg-accent hover:text-fg disabled:opacity-50">{t("stripeReenable")}</button>
+                                <button onClick={() => action("reenable", ep.id)} disabled={loading} className="px-3 py-1.5 rounded-lg bg-fg text-surface text-[10px] font-black uppercase tracking-widest hover:bg-accent hover:text-on-accent disabled:opacity-50">{t("stripeReenable")}</button>
                             )}
-                            <button onClick={() => action("delete", ep.id)} disabled={loading} className="px-3 py-1.5 rounded-lg bg-[rgba(244,63,94,0.10)] text-destructive border border-[rgba(244,63,94,0.20)] text-[10px] font-black uppercase tracking-widest hover:bg-[rgba(244,63,94,0.18)] disabled:opacity-50">{t("stripeDelete")}</button>
+                            <button onClick={() => action("delete", ep.id)} disabled={loading} className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive border border-destructive/20 text-[10px] font-black uppercase tracking-widest hover:bg-destructive/18 disabled:opacity-50">{t("stripeDelete")}</button>
                         </div>
                     ))}
                 </div>
@@ -1141,9 +1116,9 @@ function StripeRecoveryCard({ targetUserId }: { targetUserId: string }) {
                 <label className="text-[10px] font-black uppercase tracking-widest text-fg-40">{t("stripeReplayLabel")}</label>
                 <div className="flex gap-2">
                     <input value={eventId} onChange={e => setEventId(e.target.value)} placeholder="evt_..."
-                        className="flex-1 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-mono text-white" />
+                        className="flex-1 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-mono text-fg" />
                     <button onClick={replay} disabled={loading || !eventId.trim()}
-                        className="px-5 rounded-xl bg-white text-black font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-fg disabled:opacity-50 flex items-center gap-2">
+                        className="px-5 rounded-xl bg-fg text-surface font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-on-accent disabled:opacity-50 flex items-center gap-2">
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}{t("stripeReplay")}
                     </button>
                 </div>
@@ -1167,7 +1142,7 @@ function ExternalIdInput({ conn, value, onChange, className }: {
                 value={value}
                 onChange={e => onChange(e.target.value)}
                 placeholder={conn.external_id.placeholder}
-                className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
         </label>
     );
 }
@@ -1207,10 +1182,10 @@ function ReemitCard({ targetUserId, conn, notifyEmails }: { targetUserId: string
                     </label>
                 )}
                 <textarea placeholder={t("reasonShort")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
-                    className="md:col-span-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
+                    className="md:col-span-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg resize-none" />
             </div>
             <button onClick={run} disabled={loading || !externalId.trim()}
-                className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                className="w-full bg-fg text-surface py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-on-accent transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
                 {t("reemit")}
             </button>
@@ -1255,7 +1230,7 @@ function CancelInvoiceCard({ targetUserId, conn, notifyEmails }: { targetUserId:
                     .filter(m => m === "delete_draft" ? conn.capabilities.deleteDraft : conn.capabilities.creditNote)
                     .map(m => (
                         <button key={m} onClick={() => setMode(m)}
-                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? (m === "delete_draft" ? "bg-[rgba(244,63,94,0.18)] text-destructive border-[rgba(244,63,94,0.40)]" : "bg-[rgba(245,158,11,0.18)] text-soon border-[rgba(245,158,11,0.40)]") : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${mode === m ? (m === "delete_draft" ? "bg-destructive/18 text-destructive border-destructive/40" : "bg-soon/18 text-soon border-soon/40") : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
                             {m === "delete_draft" ? t("modeDeleteDraft") : t("modeCreditNote")}
                         </button>
                     ))}
@@ -1269,16 +1244,16 @@ function CancelInvoiceCard({ targetUserId, conn, notifyEmails }: { targetUserId:
                     without one, and a deleted document with no stated reason is
                     an unanswerable question three months later. */}
                 <textarea placeholder={t("reasonRequired")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
-                    className="md:col-span-2 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
+                    className="md:col-span-2 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg resize-none" />
             </div>
             {confirm ? (
-                <div className="flex items-center gap-3 bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] rounded-2xl p-4">
+                <div className="flex items-center gap-3 bg-destructive/5 border border-destructive/20 rounded-2xl p-4">
                     <AlertCircle className="w-4 h-4 text-destructive" />
                     <span className="text-xs font-bold text-destructive flex-1">
                         {isDelete ? t("confirmDeleteDraft", { n: externalId }) : t("confirmCreditNote", { n: externalId })}
                     </span>
                     <button onClick={run} disabled={loading}
-                        className={`px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest ${isDelete ? "bg-destructive hover:bg-destructive/85" : "bg-soon hover:bg-soon/85"} text-white disabled:opacity-50 flex items-center gap-2`}>
+                        className={`px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest ${isDelete ? "bg-destructive hover:bg-destructive/85" : "bg-soon hover:bg-soon/85"} text-on-accent disabled:opacity-50 flex items-center gap-2`}>
                         {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
                         {t("confirm")}
                     </button>
@@ -1286,7 +1261,7 @@ function CancelInvoiceCard({ targetUserId, conn, notifyEmails }: { targetUserId:
                 </div>
             ) : (
                 <button onClick={() => setConfirm(true)} disabled={loading || !externalId.trim() || !reason.trim()}
-                    className={`w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${isDelete ? "bg-white text-black hover:bg-destructive hover:text-fg" : "bg-white text-black hover:bg-soon hover:text-fg"}`}>
+                    className={`w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${isDelete ? "bg-fg text-surface hover:bg-destructive hover:text-on-accent" : "bg-fg text-surface hover:bg-soon hover:text-on-accent"}`}>
                     {isDelete ? <Trash2 className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
                     {isDelete ? t("modeDeleteDraft") : t("modeCreditNote")}
                 </button>
@@ -1330,7 +1305,7 @@ function FinalizeDraftsCard({ targetUserId, conn, notifyEmails }: { targetUserId
     };
 
     return (
-        <Section icon={<FileCheck2 className="w-5 h-5 text-accent" />} title={t("finalizeTitle")} desc={t("finalizeDesc", connNames(conn))}>
+        <Section icon={<FileCheck2 className="w-5 h-5 text-accent-ink" />} title={t("finalizeTitle")} desc={t("finalizeDesc", connNames(conn))}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-3 flex flex-col gap-2">
                     <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{t("dateStrategy")}</span>
@@ -1341,7 +1316,7 @@ function FinalizeDraftsCard({ targetUserId, conn, notifyEmails }: { targetUserId
                         ] as const).map(opt => (
                             <button key={opt.id} type="button" onClick={() => setDateStrategy(opt.id)}
                                 title={opt.desc}
-                                className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${dateStrategy === opt.id ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                                className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${dateStrategy === opt.id ? "bg-accent/18 text-accent-ink border-accent/40" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
                                 {opt.label}
                             </button>
                         ))}
@@ -1363,7 +1338,7 @@ function FinalizeDraftsCard({ targetUserId, conn, notifyEmails }: { targetUserId
                             { id: "date_range", label: t("filterDateRange") },
                         ] as const).map(opt => (
                             <button key={opt.id} type="button" onClick={() => setFilterMode(opt.id)}
-                                className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${filterMode === opt.id ? "bg-[rgba(2,141,196,0.18)] text-accent border-[rgba(2,141,196,0.40)]" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
+                                className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${filterMode === opt.id ? "bg-accent/18 text-accent-ink border-accent/40" : "bg-surface-2/50 text-fg-40 border-hairline hover:text-fg"}`}>
                                 {opt.label}
                             </button>
                         ))}
@@ -1371,20 +1346,20 @@ function FinalizeDraftsCard({ targetUserId, conn, notifyEmails }: { targetUserId
                     {filterMode === "order_range" && (
                         <div className="grid grid-cols-2 gap-3 mt-1">
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                {t("from")} # <input type="number" value={fromOrder} onChange={e => setFromOrder(e.target.value)} placeholder="1260" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("from")} # <input type="number" value={fromOrder} onChange={e => setFromOrder(e.target.value)} placeholder="1260" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                             </label>
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                {t("to")} # <input type="number" value={toOrder} onChange={e => setToOrder(e.target.value)} placeholder="1280" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("to")} # <input type="number" value={toOrder} onChange={e => setToOrder(e.target.value)} placeholder="1280" className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                             </label>
                         </div>
                     )}
                     {filterMode === "date_range" && (
                         <div className="grid grid-cols-2 gap-3 mt-1">
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                {t("from")} <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("from")} <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                             </label>
                             <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                                {t("to")} <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                                {t("to")} <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                             </label>
                         </div>
                     )}
@@ -1392,17 +1367,17 @@ function FinalizeDraftsCard({ targetUserId, conn, notifyEmails }: { targetUserId
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                     {t("limit")}
                     <input type="number" value={limit} onChange={e => setLimit(e.target.value)} min={1} max={500}
-                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white" />
+                        className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
                 </label>
                 <label className="md:col-span-2 flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={dryRun} onChange={e => setDryRun(e.target.checked)} className="accent-soon w-4 h-4" />
                     <span className="text-xs font-bold text-fg">{t("dryRun")}</span>
                 </label>
                 <textarea placeholder={t("reasonShort")} value={reason} onChange={e => setReason(e.target.value)} rows={2}
-                    className="md:col-span-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white resize-none" />
+                    className="md:col-span-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg resize-none" />
             </div>
             <button onClick={run} disabled={loading}
-                className="w-full bg-white text-black py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-surface transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                className="w-full bg-fg text-surface py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-surface transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck2 className="w-4 h-4" />}
                 {dryRun ? t("simulateFinalize") : t("runFinalize")}
             </button>
@@ -1444,7 +1419,7 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
             <div className="flex gap-2 border-b border-hairline pb-3">
                 {(["jobs", "errors", "webhooks"] as const).map(tabId => (
                     <button key={tabId} onClick={() => setTab(tabId)}
-                        className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tab === tabId ? "bg-white text-black" : "text-fg-40 hover:text-fg"}`}>
+                        className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tab === tabId ? "bg-fg text-surface" : "text-fg-40 hover:text-fg"}`}>
                         {tabId}
                     </button>
                 ))}
@@ -1475,7 +1450,7 @@ function LogsCard({ targetUserId }: { targetUserId: string }) {
                                             </p>
                                         </div>
                                     </div>
-                                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${ok ? "bg-[rgba(94,234,212,0.10)] text-accent-hot" : "bg-[rgba(245,158,11,0.10)] text-soon"}`}>
+                                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${ok ? "bg-accent-hot/10 text-accent-hot" : "bg-soon/10 text-soon"}`}>
                                         {e.status ?? e.state ?? "-"}
                                     </span>
                                 </button>

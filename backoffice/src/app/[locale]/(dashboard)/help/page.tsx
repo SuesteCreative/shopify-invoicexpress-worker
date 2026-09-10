@@ -24,7 +24,7 @@ function Section({ id, icon, title, step, children, accent = "rose" }: {
     accent?: "rose" | "sky" | "violet" | "emerald" | "amber";
 }) {
     const accentText = {
-        rose: "text-destructive", sky: "text-accent", violet: "text-accent",
+        rose: "text-destructive", sky: "text-accent-ink", violet: "text-accent-ink",
         emerald: "text-accent-hot", amber: "text-soon",
     }[accent];
     return (
@@ -37,7 +37,7 @@ function Section({ id, icon, title, step, children, accent = "rose" }: {
                     {step && (
                         <div className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{step}</div>
                     )}
-                    <h2 className="text-2xl font-black text-white">{title}</h2>
+                    <h2 className="text-2xl font-black text-fg">{title}</h2>
                 </div>
             </div>
             <div className="ml-0 sm:ml-16 space-y-6">{children}</div>
@@ -47,11 +47,11 @@ function Section({ id, icon, title, step, children, accent = "rose" }: {
 
 function Steps({ items, accent = "rose" }: { items: string[]; accent?: "rose" | "sky" | "violet" | "emerald" | "amber" }) {
     const pill = {
-        rose: "bg-[rgba(244,63,94,0.10)] border-[rgba(244,63,94,0.20)] text-destructive",
-        sky: "bg-[rgba(2,141,196,0.10)] border-[rgba(2,141,196,0.20)] text-accent",
-        violet: "bg-[rgba(2,141,196,0.10)] border-[rgba(2,141,196,0.20)] text-accent",
-        emerald: "bg-[rgba(94,234,212,0.10)] border-[rgba(94,234,212,0.20)] text-accent-hot",
-        amber: "bg-[rgba(245,158,11,0.10)] border-[rgba(245,158,11,0.20)] text-soon",
+        rose: "bg-destructive/10 border-destructive/20 text-destructive",
+        sky: "bg-accent/10 border-accent/20 text-accent-ink",
+        violet: "bg-accent/10 border-accent/20 text-accent-ink",
+        emerald: "bg-accent-hot/10 border-accent-hot/20 text-accent-hot",
+        amber: "bg-soon/10 border-soon/20 text-soon",
     }[accent];
     return (
         <ol className="space-y-3">
@@ -73,12 +73,12 @@ function Placeholder({ src, alt, description, onZoom }: { src: string; alt: stri
         <div className="rounded-2xl overflow-hidden border border-hairline/60 bg-surface-2/40 cursor-zoom-in group relative" onClick={() => onZoom(src)}>
             <div className="relative w-full aspect-video bg-surface transition-transform duration-500 group-hover:scale-[1.02]">
                 <Image src={src} alt={alt} fill className="object-contain p-4" />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20">
-                        <Search className="w-6 h-6 text-white" />
+                <div className="absolute inset-0 bg-scrim/67 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <div className="bg-veil-strong backdrop-blur-md p-3 rounded-2xl border border-fg/20">
+                        <Search className="w-6 h-6 text-fg" />
                     </div>
                 </div>
-                <div className="absolute bottom-3 left-3 right-3 bg-black/70 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2">
+                <div className="absolute bottom-3 left-3 right-3 bg-surface/70 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2">
                     <span className="text-soon text-[10px] font-black uppercase tracking-widest">{t("preview")}</span>
                     <span className="text-[11px] text-fg font-medium truncate">{description}</span>
                 </div>
@@ -89,16 +89,16 @@ function Placeholder({ src, alt, description, onZoom }: { src: string; alt: stri
 
 function HtmlInfoBox({ html }: { html: string }) {
     return (
-        <div className="bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl p-4 flex items-start gap-3">
-            <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
-            <p className="text-accent text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
+        <div className="bg-accent/5 border border-accent/20 rounded-2xl p-4 flex items-start gap-3">
+            <Info className="w-5 h-5 text-accent-ink shrink-0 mt-0.5" />
+            <p className="text-accent-ink text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
         </div>
     );
 }
 
 function HtmlWarningBox({ html }: { html: string }) {
     return (
-        <div className="bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] rounded-2xl p-4">
+        <div className="bg-soon/5 border border-soon/20 rounded-2xl p-4">
             <p className="text-soon text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
         </div>
     );
@@ -109,13 +109,13 @@ function ContactBox({ subject = "Rioko - Suporte" }: { subject?: string }) {
     const t = useTranslations("help");
     const mail = `mailto:pedro@kapta.pt?subject=${encodeURIComponent(subject)}`;
     return (
-        <div className="bg-[rgba(244,63,94,0.05)] border border-[rgba(244,63,94,0.20)] rounded-2xl p-6 flex flex-col gap-4">
+        <div className="bg-destructive/5 border border-destructive/20 rounded-2xl p-6 flex flex-col gap-4">
             <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] flex items-center justify-center shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-destructive/10 border border-destructive/20 flex items-center justify-center shrink-0">
                     <Mail className="w-5 h-5 text-destructive" />
                 </div>
                 <div className="flex-1">
-                    <p className="text-white font-bold text-sm">{t("thisStepByKapta")}</p>
+                    <p className="text-fg font-bold text-sm">{t("thisStepByKapta")}</p>
                     <p className="text-fg-60 text-sm mt-1">
                         {t("thisStepByKaptaBody")}
                     </p>
@@ -126,13 +126,13 @@ function ContactBox({ subject = "Rioko - Suporte" }: { subject?: string }) {
                     href="https://calendly.com/pedro-kapta/apoio-kapta"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 bg-accent text-white px-5 py-3 rounded-2xl font-mono text-[11px] uppercase tracking-[0.18em] flex items-center justify-center gap-2 hover:bg-accent/85 transition-all active:scale-95"
+                    className="flex-1 bg-accent text-on-accent px-5 py-3 rounded-2xl font-mono text-[11px] uppercase tracking-[0.18em] flex items-center justify-center gap-2 hover:bg-accent/85 transition-all active:scale-95"
                 >
                     <Calendar className="w-4 h-4" /> {t("scheduleMeeting")}
                 </a>
                 <a
                     href={mail}
-                    className="flex-1 bg-destructive text-white px-5 py-3 rounded-2xl font-mono text-[11px] uppercase tracking-[0.18em] flex items-center justify-center gap-2 hover:bg-destructive/85 transition-all active:scale-95"
+                    className="flex-1 bg-destructive text-on-accent px-5 py-3 rounded-2xl font-mono text-[11px] uppercase tracking-[0.18em] flex items-center justify-center gap-2 hover:bg-destructive/85 transition-all active:scale-95"
                 >
                     <Mail className="w-4 h-4" /> pedro@kapta.pt
                 </a>
@@ -162,10 +162,10 @@ function usePlatforms() {
 }
 
 const ACCENT_CLASSES: Record<Accent, string> = {
-    emerald: "text-accent-hot border-[rgba(94,234,212,0.40)] bg-[rgba(94,234,212,0.10)]",
-    violet: "text-accent border-[rgba(2,141,196,0.40)] bg-[rgba(2,141,196,0.10)]",
-    sky: "text-accent border-[rgba(2,141,196,0.40)] bg-[rgba(2,141,196,0.10)]",
-    amber: "text-soon border-[rgba(245,158,11,0.40)] bg-[rgba(245,158,11,0.10)]",
+    emerald: "text-accent-hot border-accent-hot/40 bg-accent-hot/10",
+    violet: "text-accent-ink border-accent/40 bg-accent/10",
+    sky: "text-accent-ink border-accent/40 bg-accent/10",
+    amber: "text-soon border-soon/40 bg-soon/10",
 };
 
 function PlatformTabButton({ p, active, onClick }: { p: ReturnType<typeof usePlatforms>[number]; active: boolean; onClick: () => void }) {
@@ -175,7 +175,7 @@ function PlatformTabButton({ p, active, onClick }: { p: ReturnType<typeof usePla
             onClick={onClick}
             className={`relative flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all text-left group ${active ? ACCENT_CLASSES[p.accent] : "border-hairline/60 bg-surface-2/40 text-fg-60 hover:border-rule hover:text-fg"}`}
         >
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-white/5" : "bg-surface-2"}`}>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-veil" : "bg-surface-2"}`}>
                 <Icon className="w-4 h-4" />
             </div>
             <div className="min-w-0">
@@ -204,7 +204,7 @@ function PlatformTabs({ tab, onChange }: { tab: Platform; onChange: (p: Platform
     return (
         <div className="glass rounded-[2rem] p-5 border-hairline space-y-5">
             <div className="space-y-3">
-                <GroupHeader label={t("groupPayment")} gradientFrom="from-[rgba(94,234,212,0.30)]" gradientVia="via-[rgba(2,141,196,0.30)]" />
+                <GroupHeader label={t("groupPayment")} gradientFrom="from-accent-hot/30" gradientVia="via-accent/30" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {payment.map(p => (
                         <PlatformTabButton key={p.id} p={p} active={tab === p.id} onClick={() => onChange(p.id)} />
@@ -215,7 +215,7 @@ function PlatformTabs({ tab, onChange }: { tab: Platform; onChange: (p: Platform
             <div className="border-t border-hairline" />
 
             <div className="space-y-3">
-                <GroupHeader label={t("groupInvoicing")} gradientFrom="from-[rgba(2,141,196,0.30)]" gradientVia="via-[rgba(245,158,11,0.30)]" />
+                <GroupHeader label={t("groupInvoicing")} gradientFrom="from-accent/30" gradientVia="via-soon/30" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {invoicing.map(p => (
                         <PlatformTabButton key={p.id} p={p} active={tab === p.id} onClick={() => onChange(p.id)} />
@@ -360,11 +360,11 @@ function InvoiceXpressGuide({ onZoom }: { onZoom: (src: string) => void }) {
             <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="ix-environment" icon={<Globe className="w-5 h-5" />} title={t("ixEnvTitle")} accent="sky">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="bg-[rgba(94,234,212,0.05)] border border-[rgba(94,234,212,0.20)] rounded-2xl p-5">
+                        <div className="bg-accent-hot/5 border border-accent-hot/20 rounded-2xl p-5">
                             <div className="text-accent-hot font-black text-sm mb-2">{t("ixEnvProd")}</div>
                             <p className="text-fg-60 text-sm">{t("ixEnvProdBody")}</p>
                         </div>
-                        <div className="bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.20)] rounded-2xl p-5">
+                        <div className="bg-soon/5 border border-soon/20 rounded-2xl p-5">
                             <div className="text-soon font-black text-sm mb-2">{t("ixEnvSandbox")}</div>
                             <p className="text-fg-60 text-sm">{t("ixEnvSandboxBody")}</p>
                         </div>
@@ -562,12 +562,12 @@ function VendusGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 <Section id="vendus-ids" icon={<Settings2 className="w-5 h-5" />} title={t("vendusIdsTitle")} step={t("credentialTotal3b")} accent="violet">
                     <HtmlInfoBox html={t("vendusIdsInfo")} />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl p-5">
-                            <div className="text-accent font-black text-sm mb-2">Register ID</div>
+                        <div className="bg-accent/5 border border-accent/20 rounded-2xl p-5">
+                            <div className="text-accent-ink font-black text-sm mb-2">Register ID</div>
                             <p className="text-fg-60 text-sm">{t("vendusRegisterIdHint")}</p>
                         </div>
-                        <div className="bg-[rgba(2,141,196,0.05)] border border-[rgba(2,141,196,0.20)] rounded-2xl p-5">
-                            <div className="text-accent font-black text-sm mb-2">Series ID</div>
+                        <div className="bg-accent/5 border border-accent/20 rounded-2xl p-5">
+                            <div className="text-accent-ink font-black text-sm mb-2">Series ID</div>
                             <p className="text-fg-60 text-sm">{t("vendusSeriesIdHint")}</p>
                         </div>
                     </div>
@@ -654,7 +654,7 @@ function FAQ({ tab }: { tab: Platform }) {
                 </div>
                 <div>
                     <div className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{t("faqEyebrow")}</div>
-                    <h2 className="text-2xl font-black text-white">{t("faqTitle", { platform: PLATFORMS.find(p => p.id === tab)?.label ?? "" })}</h2>
+                    <h2 className="text-2xl font-black text-fg">{t("faqTitle", { platform: PLATFORMS.find(p => p.id === tab)?.label ?? "" })}</h2>
                 </div>
             </div>
             <div className="ml-0 lg:ml-16 space-y-2">
@@ -667,7 +667,7 @@ function FAQ({ tab }: { tab: Platform }) {
                                 aria-expanded={isOpen}
                                 className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-surface-2/50 transition-colors"
                             >
-                                <span className="text-sm font-bold text-white" dangerouslySetInnerHTML={{ __html: it.q }} />
+                                <span className="text-sm font-bold text-fg" dangerouslySetInnerHTML={{ __html: it.q }} />
                                 <ChevronDown className={`w-4 h-4 text-fg-40 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-soon" : ""}`} />
                             </button>
                             <AnimatePresence initial={false}>
@@ -728,12 +728,12 @@ function HelpFooter() {
     const t = useTranslations("help");
     return (
         <div className="bg-surface-2/50 border border-hairline/60 rounded-[2.5rem] p-12 lg:p-20 relative overflow-hidden flex flex-col items-center text-center gap-8">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[rgba(245,158,11,0.20)] to-transparent" />
-            <div className="w-20 h-20 bg-[rgba(245,158,11,0.10)] rounded-3xl flex items-center justify-center border border-[rgba(245,158,11,0.20)] shadow-[0_0_40px_rgba(245,158,11,0.1)]">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-soon/20 to-transparent" />
+            <div className="w-20 h-20 bg-soon/10 rounded-3xl flex items-center justify-center border border-soon/20 shadow-[0_0_40px_color-mix(in_srgb,var(--soon)_10%,transparent)]">
                 <BookOpen className="w-10 h-10 text-soon" />
             </div>
             <div className="space-y-4 max-w-2xl">
-                <h2 className="text-4xl font-black tracking-tight text-white">{t("footerTitle")}</h2>
+                <h2 className="text-4xl font-black tracking-tight text-fg">{t("footerTitle")}</h2>
                 <p className="text-fg-60 font-medium leading-relaxed">
                     {t("footerBody")}
                 </p>
@@ -743,11 +743,11 @@ function HelpFooter() {
                     href="https://calendly.com/pedro-kapta/apoio-kapta"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="bg-accent text-white px-6 sm:px-10 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent/85 transition-all transform active:scale-95 shadow-xl flex items-center gap-3"
+                    className="bg-accent text-on-accent px-6 sm:px-10 py-4 rounded-2xl font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent/85 transition-all transform active:scale-95 shadow-xl flex items-center gap-3"
                 >
                     <Calendar className="w-4 h-4" /> {t("scheduleMeeting")}
                 </a>
-                <a href="mailto:pedro@kapta.pt" className="bg-white text-black px-6 sm:px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95 shadow-xl">
+                <a href="mailto:pedro@kapta.pt" className="bg-fg text-surface px-6 sm:px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-accent-hot hover:text-surface transition-all transform active:scale-95 shadow-xl">
                     {t("footerContact")}
                 </a>
                 <button
@@ -829,7 +829,7 @@ export default function HelpPage() {
                         <motion.button
                             initial={{ scale: 0.5, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
-                            className="absolute top-6 right-6 w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors border border-white/10"
+                            className="absolute top-6 right-6 w-12 h-12 rounded-full bg-veil-strong flex items-center justify-center text-fg hover:bg-fg/20 transition-colors border border-veil-strong"
                         >
                             <X className="w-6 h-6" />
                         </motion.button>

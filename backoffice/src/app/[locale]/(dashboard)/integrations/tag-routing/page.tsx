@@ -132,7 +132,7 @@ export default function TagRoutingPage() {
     }
 
     if (loading) {
-        return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" /></div>;
+        return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent-ink animate-spin opacity-50" /></div>;
     }
 
     // Rules written before migration 0031 may still carry a "_draft" suffix if
@@ -170,7 +170,7 @@ export default function TagRoutingPage() {
     return (
         <div className="space-y-10 animate-in fade-in duration-700">
             <div className="space-y-2">
-                <Link href={backHref} className="text-[10px] font-black text-accent uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
+                <Link href={backHref} className="text-[10px] font-black text-accent-ink uppercase tracking-widest hover:text-fg transition-colors flex items-center gap-2 mb-4">
                     <ArrowLeft className="w-3 h-3" /> {t("back", { source: backConnectionLabel })}
                 </Link>
                 {/* Both halves of the pair, named. The copy used to be chosen by
@@ -184,9 +184,9 @@ export default function TagRoutingPage() {
             </div>
 
             {error && (
-                <div className="glass p-4 rounded-xl border border-[rgba(239,68,68,0.30)] bg-[rgba(239,68,68,0.05)] flex items-start gap-3">
-                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-400">{error}</p>
+                <div className="glass p-4 rounded-xl border border-destructive/30 bg-destructive/5 flex items-start gap-3">
+                    <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">{error}</p>
                 </div>
             )}
 
@@ -322,7 +322,7 @@ export default function TagRoutingPage() {
                 {!adding && (
                     <button
                         onClick={openAdd}
-                        className="w-full py-4 rounded-2xl border border-dashed border-hairline hover:border-accent text-fg-40 hover:text-accent text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
+                        className="w-full py-4 rounded-2xl border border-dashed border-hairline hover:border-accent text-fg-40 hover:text-accent-ink text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
                     >
                         <Plus className="w-3.5 h-3.5" /> {t("addRule")}
                     </button>
@@ -334,8 +334,8 @@ export default function TagRoutingPage() {
 
 function Badge({ label, color }: { label: string; color: "accent" | "hot" }) {
     const cls = color === "accent"
-        ? "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.30)]"
-        : "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.30)]";
+        ? "bg-accent/10 text-accent-ink border-accent/30"
+        : "bg-accent-hot/10 text-accent-hot border-accent-hot/30";
     return (
         <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono uppercase tracking-wider border ${cls}`}>
             {label}

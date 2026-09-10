@@ -63,6 +63,11 @@
         "body": "A página que procuras não existe ou foi movida.",
         "cta": "Voltar ao Início"
     },
+    "theme": {
+        "switchTo": "Mudar aspeto",
+        "day": "Dia",
+        "night": "Noite"
+    },
     "lang": {
         "pt": "PT",
         "en": "EN",

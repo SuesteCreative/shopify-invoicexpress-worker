@@ -144,7 +144,7 @@ const Toggle = ({ value, onChange, disabled }: { value: boolean; onChange: (v: b
 
 const inputCls =
   "bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium w-full "
-  + "focus:outline-none focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.40)] transition-all";
+  + "focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/40 transition-all";
 
 /* ────────────────────────────── the panel ────────────────────────────── */
 
@@ -349,7 +349,7 @@ export function ClientRulesPanel() {
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-12 h-12 text-accent animate-spin opacity-50" />
+        <Loader2 className="w-12 h-12 text-accent-ink animate-spin opacity-50" />
       </div>
     );
   }
@@ -359,7 +359,7 @@ export function ClientRulesPanel() {
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <Settings2 className="w-8 h-8 text-accent" />
+            <Settings2 className="w-8 h-8 text-accent-ink" />
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight bg-gradient-to-r from-fg via-fg to-fg-40 bg-clip-text text-transparent">
               {t("title")}
             </h1>
@@ -367,11 +367,11 @@ export function ClientRulesPanel() {
           <p className="text-fg-60 font-semibold tracking-wide">{t("subtitle")}</p>
         </div>
         <div className="relative group">
-          <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-accent transition-colors" />
+          <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-accent-ink transition-colors" />
           <input
             type="text" placeholder={t("searchPlaceholder")}
             value={search} onChange={(e) => setSearch(e.target.value)}
-            className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[rgba(2,141,196,0.20)] focus:border-[rgba(2,141,196,0.40)] w-full lg:w-80 transition-all"
+            className="bg-surface-2/50 border border-hairline rounded-2xl py-3 pl-12 pr-6 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/40 w-full lg:w-80 transition-all"
           />
         </div>
       </div>
@@ -405,7 +405,7 @@ export function ClientRulesPanel() {
                 >
                   <div className="min-w-0">
                     <h2 className="text-xl font-bold break-words flex items-center gap-2">
-                      {open ? <ChevronDown className="w-4 h-4 text-accent shrink-0" /> : <ChevronRight className="w-4 h-4 text-fg-40 shrink-0" />}
+                      {open ? <ChevronDown className="w-4 h-4 text-accent-ink shrink-0" /> : <ChevronRight className="w-4 h-4 text-fg-40 shrink-0" />}
                       {label(client)}
                     </h2>
                     <p className="text-fg-40 text-sm break-words pl-6">{client.email}</p>
@@ -417,7 +417,7 @@ export function ClientRulesPanel() {
                       )}
                       {client.connections.map((k) => (
                         <span key={k.id} className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest bg-surface-2/50 px-2 py-1 rounded-lg border border-hairline">
-                          <Link2 className="w-3 h-3 text-accent" /> {k.source_kind} → {k.destination_kind}
+                          <Link2 className="w-3 h-3 text-accent-ink" /> {k.source_kind} → {k.destination_kind}
                           {k.status !== "active" && <span className="text-soon">({k.status})</span>}
                         </span>
                       ))}
@@ -427,7 +427,7 @@ export function ClientRulesPanel() {
                     </div>
                   </div>
                   {client.notes && (
-                    <span className="shrink-0 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent">
+                    <span className="shrink-0 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent-ink">
                       <NotebookPen className="w-3 h-3" /> {t("hasNotes")}
                     </span>
                   )}
@@ -438,7 +438,7 @@ export function ClientRulesPanel() {
                     {/* Operator notes — context for diagnosis, never enforced. */}
                     <section>
                       <h3 className="text-xs font-black uppercase tracking-widest text-fg-40 mb-2 flex items-center gap-2">
-                        <NotebookPen className="w-3 h-3 text-accent" /> {t("notesTitle")}
+                        <NotebookPen className="w-3 h-3 text-accent-ink" /> {t("notesTitle")}
                       </h3>
                       <p className="text-[11px] text-fg-40 mb-3">{t("notesHelp")}</p>
                       <textarea
@@ -477,7 +477,7 @@ export function ClientRulesPanel() {
                       return (
                         <section key={conn.id}>
                           <h3 className="text-xs font-black uppercase tracking-widest text-fg-40 mb-3 flex items-center gap-2">
-                            <Link2 className="w-3 h-3 text-accent" /> {conn.source_kind} → {conn.destination_kind}
+                            <Link2 className="w-3 h-3 text-accent-ink" /> {conn.source_kind} → {conn.destination_kind}
                           </h3>
                           <div>
                             {defs.map((def) =>

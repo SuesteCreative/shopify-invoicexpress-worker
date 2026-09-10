@@ -46,18 +46,18 @@ function formatRef(pi: string | null, invId: string): string {
 function StatusBadge({ status, type, t }: { status: string; type: string; t: (k: string) => string }) {
     if (type === "charge.refunded") {
         return (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.18em] border bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]">
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.18em] border bg-destructive/10 text-destructive border-destructive/20">
                 <RefreshCw className="w-3 h-3" />
                 {t("badgeRefund")}
             </span>
         );
     }
     const config: Record<string, { bg: string; labelKey: string; icon: any }> = {
-        paid: { bg: "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]", labelKey: "badgePaid", icon: CheckCircle2 },
-        failed: { bg: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]", labelKey: "badgeFailed", icon: XCircle },
-        open: { bg: "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]", labelKey: "badgeOpen", icon: Clock },
+        paid: { bg: "bg-accent-hot/10 text-accent-hot border-accent-hot/20", labelKey: "badgePaid", icon: CheckCircle2 },
+        failed: { bg: "bg-destructive/10 text-destructive border-destructive/20", labelKey: "badgeFailed", icon: XCircle },
+        open: { bg: "bg-soon/10 text-soon border-soon/20", labelKey: "badgeOpen", icon: Clock },
         void: { bg: "bg-surface-2 text-fg-40 border-hairline", labelKey: "badgeVoid", icon: XCircle },
-        uncollectible: { bg: "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]", labelKey: "badgeUncollectible", icon: AlertCircle },
+        uncollectible: { bg: "bg-destructive/10 text-destructive border-destructive/20", labelKey: "badgeUncollectible", icon: AlertCircle },
     };
     const c = config[status];
     const label = c ? t(c.labelKey) : status;
@@ -192,7 +192,7 @@ export default function FaturacaoPage() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                <Loader2 className="w-8 h-8 text-accent-ink animate-spin" />
             </div>
         );
     }
@@ -208,7 +208,7 @@ export default function FaturacaoPage() {
     return (
         <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
             {stripeResult === "success" && (
-                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-[rgba(94,234,212,0.12)] border border-[rgba(94,234,212,0.30)] text-accent-hot">
+                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-accent-hot/12 border border-accent-hot/30 text-accent-hot">
                     <CheckCheck className="w-5 h-5 shrink-0" />
                     <p className="font-mono text-xs uppercase tracking-[0.18em]">{t("stripeSuccess")}</p>
                 </motion.div>
@@ -226,17 +226,17 @@ export default function FaturacaoPage() {
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8">
                 <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
                     <div className="flex items-center gap-6">
-                        <div className="w-16 h-16 rounded-2xl bg-[rgba(2,141,196,0.15)] ring-1 ring-[rgba(2,141,196,0.30)] flex items-center justify-center">
-                            <CreditCard className="w-7 h-7 text-accent" />
+                        <div className="w-16 h-16 rounded-2xl bg-accent/15 ring-1 ring-accent/30 flex items-center justify-center">
+                            <CreditCard className="w-7 h-7 text-accent-ink" />
                         </div>
                         <div className="space-y-2">
                             <div className="flex items-center gap-3 flex-wrap">
                                 <span className={cn(
                                     "px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border",
-                                    uiState === "active" ? "bg-[rgba(94,234,212,0.10)] text-accent-hot border-[rgba(94,234,212,0.20)]" :
-                                    uiState === "trialing_earlybird" ? "bg-[rgba(245,158,11,0.10)] text-soon border-[rgba(245,158,11,0.20)]" :
-                                    uiState === "trialing" ? "bg-[rgba(2,141,196,0.10)] text-accent border-[rgba(2,141,196,0.20)]" :
-                                    uiState === "blocked" ? "bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]" :
+                                    uiState === "active" ? "bg-accent-hot/10 text-accent-hot border-accent-hot/20" :
+                                    uiState === "trialing_earlybird" ? "bg-soon/10 text-soon border-soon/20" :
+                                    uiState === "trialing" ? "bg-accent/10 text-accent-ink border-accent/20" :
+                                    uiState === "blocked" ? "bg-destructive/10 text-destructive border-destructive/20" :
                                     "bg-surface-2 text-fg-40 border-hairline"
                                 )}>
                                     {uiState === "active" ? t("statusActive") : uiState === "trialing_earlybird" ? t("statusEarlyBird") : uiState === "trialing" ? t("statusTrial") : uiState === "blocked" ? t("statusInactive") : t("statusNone")}
@@ -249,7 +249,7 @@ export default function FaturacaoPage() {
                                     </span>
                                 )}
                                 {s?.cancel_at_period_end === 1 && (
-                                    <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-[rgba(244,63,94,0.10)] text-destructive border-[rgba(244,63,94,0.20)]">
+                                    <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-destructive/10 text-destructive border-destructive/20">
                                         {t("cancels", { date: s.current_period_end ? new Date(s.current_period_end).toLocaleDateString("pt-PT") : "" })}
                                     </span>
                                 )}
@@ -274,21 +274,21 @@ export default function FaturacaoPage() {
 
                     {hasSubscription && (
                         <div className="flex flex-wrap gap-3">
-                            <button onClick={handleManageSubscription} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-accent/15 border border-accent/30 text-accent font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent/25 transition-all flex items-center gap-2 disabled:opacity-50">
+                            <button onClick={handleManageSubscription} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-accent/15 border border-accent/30 text-accent-ink font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent/25 transition-all flex items-center gap-2 disabled:opacity-50">
                                 {acting === "portal" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
                                 {t("manageSubscription")}
                             </button>
-                            <button onClick={handleUpdateCard} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-white/5 border border-hairline text-fg font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-white/10 transition-all flex items-center gap-2 disabled:opacity-50">
+                            <button onClick={handleUpdateCard} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-veil border border-hairline text-fg font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-fg/10 transition-all flex items-center gap-2 disabled:opacity-50">
                                 {acting === "update" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
                                 {t("changeCard")}
                             </button>
                             {s?.cancel_at_period_end === 1 ? (
-                                <button onClick={handleReactivate} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-[rgba(94,234,212,0.15)] border border-[rgba(94,234,212,0.30)] text-accent-hot font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(94,234,212,0.25)] transition-all flex items-center gap-2 disabled:opacity-50">
+                                <button onClick={handleReactivate} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-accent-hot/15 border border-accent-hot/30 text-accent-hot font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent-hot/25 transition-all flex items-center gap-2 disabled:opacity-50">
                                     {acting === "reactivate" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                                     {t("reactivate")}
                                 </button>
                             ) : (
-                                <button onClick={handleCancel} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-[rgba(244,63,94,0.10)] border border-[rgba(244,63,94,0.20)] text-destructive font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(244,63,94,0.18)] transition-all flex items-center gap-2 disabled:opacity-50">
+                                <button onClick={handleCancel} disabled={!!acting} className="px-5 py-3 rounded-2xl bg-destructive/10 border border-destructive/20 text-destructive font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-destructive/18 transition-all flex items-center gap-2 disabled:opacity-50">
                                     {acting === "cancel" ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
                                     {t("cancel")}
                                 </button>
@@ -300,7 +300,7 @@ export default function FaturacaoPage() {
 
             {/* Admin-only: manually associate a Stripe subscription (e.g. from a Payment Link) */}
             {sub?.viewer_is_admin && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8 border border-[rgba(245,158,11,0.20)]">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[2rem] p-5 sm:p-8 border border-soon/20">
                     <div className="flex items-center gap-2 mb-2">
                         <span className="font-mono text-[11px] text-soon uppercase tracking-[0.22em]">{t("linkSubTitle")}</span>
                     </div>
@@ -310,9 +310,9 @@ export default function FaturacaoPage() {
                             value={linkSubId}
                             onChange={(e) => setLinkSubId(e.target.value)}
                             placeholder={t("linkSubPlaceholder")}
-                            className="flex-1 bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-sm font-mono focus:ring-2 focus:ring-[rgba(245,158,11,0.20)] focus:border-soon outline-none transition-all placeholder:text-fg-40"
+                            className="flex-1 bg-surface-2/50 border border-hairline rounded-2xl px-5 py-3 text-sm font-mono focus:ring-2 focus:ring-soon/20 focus:border-soon outline-none transition-all placeholder:text-fg-40"
                         />
-                        <button onClick={handleLinkSubscription} disabled={!!acting || !linkSubId.trim()} className="px-6 py-3 rounded-2xl bg-[rgba(245,158,11,0.15)] border border-[rgba(245,158,11,0.30)] text-soon font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-[rgba(245,158,11,0.25)] transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                        <button onClick={handleLinkSubscription} disabled={!!acting || !linkSubId.trim()} className="px-6 py-3 rounded-2xl bg-soon/15 border border-soon/30 text-soon font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-soon/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                             {acting === "link" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                             {t("linkSubButton")}
                         </button>
@@ -324,8 +324,8 @@ export default function FaturacaoPage() {
             {showSubscribeCta && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                     {uiState === "trialing_earlybird" ? (
-                        <div className="flex items-start gap-4 px-6 py-5 rounded-2xl border border-[rgba(245,158,11,0.25)] bg-[rgba(245,158,11,0.06)]">
-                            <span className="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-[rgba(245,158,11,0.15)] text-soon ring-1 ring-[rgba(245,158,11,0.30)]">
+                        <div className="flex items-start gap-4 px-6 py-5 rounded-2xl border border-soon/25 bg-soon/6">
+                            <span className="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-soon/15 text-soon ring-1 ring-soon/30">
                                 <Clock className="w-5 h-5" />
                             </span>
                             <div className="min-w-0">
@@ -348,17 +348,17 @@ export default function FaturacaoPage() {
                             <button
                                 onClick={() => handleSubscribe("monthly")}
                                 disabled={!!subscribing}
-                                className="w-full py-4 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] bg-white/5 border border-hairline hover:border-rule hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                className="w-full py-4 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] bg-veil border border-hairline hover:border-rule hover:bg-fg/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                             >
                                 {subscribing === "monthly" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                                 {t("btnSubscribeMonthly")}
                             </button>
                         </div>
-                        <div className="glass rounded-[2rem] p-6 sm:p-8 flex flex-col gap-6 border border-accent/30 bg-[rgba(2,141,196,0.04)]">
+                        <div className="glass rounded-[2rem] p-6 sm:p-8 flex flex-col gap-6 border border-accent/30 bg-accent/4">
                             <div>
                                 <div className="flex items-center gap-2 mb-2">
                                     <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{t("annualPlan")}</p>
-                                    <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-[rgba(94,234,212,0.15)] text-accent-hot border border-[rgba(94,234,212,0.25)]">{t("annualSaving")}</span>
+                                    <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-accent-hot/15 text-accent-hot border border-accent-hot/25">{t("annualSaving")}</span>
                                 </div>
                                 <p className="text-3xl font-medium tracking-tight">{t("annualPrice")}</p>
                             </div>
@@ -403,7 +403,7 @@ export default function FaturacaoPage() {
                                 {events.map((e) => {
                                     const isRefund = e.type === "charge.refunded";
                                     return (
-                                        <tr key={e.id} className={cn("border-b border-hairline hover:bg-white/[0.02] transition-colors", isRefund && "bg-[rgba(244,63,94,0.05)]")}>
+                                        <tr key={e.id} className={cn("border-b border-hairline hover:bg-fg/[0.02] transition-colors", isRefund && "bg-destructive/5")}>
                                             <td className="px-6 py-4 text-sm text-fg font-medium">{formatDate(e.created_at)}</td>
                                             <td className="px-6 py-4 text-xs text-fg-60 font-mono">{formatRef(e.payment_intent_id, e.stripe_object_id)}</td>
                                             <td className={cn("px-6 py-4 text-sm font-medium text-right tabular-nums", isRefund ? "text-destructive" : "text-fg")}>
@@ -412,7 +412,7 @@ export default function FaturacaoPage() {
                                             <td className="px-6 py-4"><StatusBadge status={e.status} type={e.type} t={t} /></td>
                                             <td className="px-6 py-4">
                                                 {e.ix_invoice_permalink ? (
-                                                    <a href={e.ix_invoice_permalink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-xs font-medium text-accent hover:text-accent-hot transition-colors">
+                                                    <a href={e.ix_invoice_permalink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-xs font-medium text-accent-ink hover:text-accent-hot transition-colors">
                                                         {isRefund ? t("viewCreditNote") : t("viewInvoice")}
                                                         <ExternalLink className="w-3 h-3" />
                                                         {e.ix_match_method === "heuristic" && (

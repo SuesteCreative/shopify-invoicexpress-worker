@@ -118,7 +118,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
         <div className="max-w-7xl mx-auto px-4 md:px-8 py-10 space-y-8">
             <header className="flex flex-col gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.20)] flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-2xl bg-accent-hot/10 border border-accent-hot/20 flex items-center justify-center">
                         <ScrollText className="w-6 h-6 text-accent-hot" />
                     </div>
                     <div>
@@ -129,11 +129,11 @@ export function ReconciliationView({ identifier, label, source, destination }: {
             </header>
 
             {isPaused && (
-                <div className="rounded-2xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] p-5 flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
+                <div className="rounded-2xl border border-soon/35 bg-soon/8 p-5 flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
                     <div className="flex gap-3 items-start">
-                        <PauseCircle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                        <PauseCircle className="w-6 h-6 text-soon shrink-0 mt-0.5" />
                         <div className="space-y-1">
-                            <p className="text-sm font-semibold text-amber-300">
+                            <p className="text-sm font-semibold text-soon">
                                 Integração pausada — nenhuma fatura está a ser emitida automaticamente
                             </p>
                             <p className="text-xs text-fg-60">
@@ -145,7 +145,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                     <button
                         onClick={resume}
                         disabled={resuming}
-                        className="bg-amber-500 hover:bg-amber-400 text-surface px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
+                        className="bg-soon hover:bg-soon/85 text-surface px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
                     >
                         {resuming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                         Retomar agora
@@ -169,7 +169,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                         finally { setExporting(false); }
                     }}
                     disabled={loading || exporting || !data || filtered.length === 0}
-                    className="bg-[rgba(94,234,212,0.10)] border border-[rgba(94,234,212,0.30)] text-accent-hot px-6 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-[rgba(94,234,212,0.18)] transition-all disabled:opacity-50">
+                    className="bg-accent-hot/10 border border-accent-hot/30 text-accent-hot px-6 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent-hot/18 transition-all disabled:opacity-50">
                     {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
                     Excel
                 </button>
@@ -177,7 +177,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                     <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2" />
                     <input placeholder={`Pesquisar ${noun.singular}, cliente, email, ref. fatura...`}
                         value={search} onChange={e => setSearch(e.target.value)}
-                        className="w-full bg-surface-2 border border-hairline rounded-xl py-2.5 pl-11 pr-4 text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-[rgba(2,141,196,0.20)]" />
+                        className="w-full bg-surface-2 border border-hairline rounded-xl py-2.5 pl-11 pr-4 text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-accent/20" />
                 </div>
             </div>
 
@@ -204,14 +204,14 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                 missing. Saying so is the difference between chasing 141 orders
                 and chasing the 85 that are actually missing. */}
             {data && data.summary.recovery_complete === 0 && (
-                <div className="rounded-2xl border border-[rgba(234,179,8,0.30)] bg-[rgba(234,179,8,0.05)] p-4 text-sm">
+                <div className="rounded-2xl border border-soon/30 bg-soon/5 p-4 text-sm">
                     <strong>Verificação incompleta.</strong>{" "}
                     {(data.summary.recovery_unknown ?? 0) + (data.summary.recovery_remaining ?? 0)}{" "}
                     encomenda(s) não chegaram a ser confirmadas no destino, por isso o número
                     de <em>sem fatura</em> acima é um máximo, não uma contagem.
                     <button
                         onClick={() => load({ refresh: true })}
-                        className="ml-2 underline underline-offset-2 hover:text-accent"
+                        className="ml-2 underline underline-offset-2 hover:text-accent-ink"
                     >
                         Verificar outra vez
                     </button>
@@ -219,12 +219,12 @@ export function ReconciliationView({ identifier, label, source, destination }: {
             )}
 
             {error && (
-                <div className="rounded-2xl border border-[rgba(244,63,94,0.30)] bg-[rgba(244,63,94,0.05)] p-5 text-sm text-destructive">{error}</div>
+                <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">{error}</div>
             )}
 
             {loading && !data && (
                 <div className="flex items-center justify-center py-20">
-                    <Loader2 className="w-8 h-8 text-accent animate-spin opacity-60" />
+                    <Loader2 className="w-8 h-8 text-accent-ink animate-spin opacity-60" />
                 </div>
             )}
 

@@ -203,10 +203,13 @@ export async function POST(req: NextRequest) {
             locale,
             custom_fields: [
                 {
+                    // Required: it is the name that ends up on the invoice we
+                    // issue for the service, and it arrives prefilled from the
+                    // account, so it costs a glance rather than typing.
                     key: "company_name",
                     label: { type: "custom", custom: locale === "en" ? "Company name" : "Nome da empresa" },
                     type: "text",
-                    optional: true,
+                    optional: false,
                     // The SDK is v14, whose types describe the 2023-10 API; the
                     // version this client pins (2025-01-27.acacia) does take a
                     // default value. Same reason `apiVersion` is cast in lib/stripe.

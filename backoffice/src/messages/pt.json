@@ -1893,6 +1893,16 @@
         "moloniFailed": "Não foi possível concluir a autorização do Moloni.",
         "moloniConnectedBanner": "Moloni autorizado"
     },
+    "stripeConnectIxSetup": {
+        "pageTitle": "Stripe Connect + InvoiceXpress",
+        "engineSubtitle": "Pagamentos Stripe por autorização, faturados no InvoiceXpress",
+        "step2Title": "InvoiceXpress",
+        "step2Desc": "A conta que emite os documentos e a identidade fiscal desta ligação",
+        "ixIntroTitle": "As credenciais são da conta, a identidade fiscal é desta ligação",
+        "ixIntroBody": "O nome da conta e a chave de API do InvoiceXpress são partilhados por todas as integrações que emitem para lá. Já a série, o tipo de documento e o código de isenção pertencem a esta ligação: pode ter uma série aqui e outra diferente noutra integração da mesma conta.",
+        "seqHint": "Deixe vazio para usar a série que a conta já tem definida.",
+        "subscribeHint": "Esta ligação é faturada no mesmo plano que o Stripe Legacy + InvoiceXpress."
+    },
     "stripeIxSetup": {
         "backToIntegrations": "Voltar para Integrações",
         "pageTitle": "Stripe Legacy + InvoiceXpress",

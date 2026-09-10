@@ -1893,6 +1893,16 @@
         "moloniFailed": "The Moloni authorisation could not be completed.",
         "moloniConnectedBanner": "Moloni authorised"
     },
+    "stripeConnectIxSetup": {
+        "pageTitle": "Stripe Connect + InvoiceXpress",
+        "engineSubtitle": "Stripe payments by authorisation, invoiced in InvoiceXpress",
+        "step2Title": "InvoiceXpress",
+        "step2Desc": "The account that issues the documents, and this connection's fiscal identity",
+        "ixIntroTitle": "The credentials belong to the account, the fiscal identity to this connection",
+        "ixIntroBody": "The InvoiceXpress account name and API key are shared by every integration that files into it. The series, document type and exemption code belong to this connection: you can use one series here and a different one on another integration of the same account.",
+        "seqHint": "Leave empty to use whichever series the account already has set.",
+        "subscribeHint": "This connection bills on the same plan as Stripe Legacy + InvoiceXpress."
+    },
     "stripeIxSetup": {
         "backToIntegrations": "Back to integrations",
         "pageTitle": "Stripe Legacy + InvoiceXpress",

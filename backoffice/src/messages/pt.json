@@ -962,6 +962,10 @@
                 "label": "Taxas regionais de PT (Madeira/Açores)",
                 "help": "Aplica 22% na Madeira e 16% nos Açores em vez dos 23% do continente, pelo código postal do cliente (DL 347/85: a taxa segue o domicílio do adquirente). Independente do motor de OSS — pode ligar-se sozinha num regime de autoliquidação B2B. Só substitui a taxa normal: uma linha já a 6% ou 13% fica como está."
             },
+            "b2bReverseChargePipeline": {
+                "label": "Autoliquidação B2B (pipeline)",
+                "help": "Fatura a 0% com menção de autoliquidação quando o comprador é uma empresa noutro Estado-Membro e o VIES o confirma (art. 6.º n.º 6 a) do CIVA + art. 196.º). Vale para InvoiceXpress, Moloni e Vendus. Distinto da autoliquidação antiga, que só funciona no caminho Shopify→InvoiceXpress. Se o VIES não responder, o documento fica em rascunho em vez de declarar um regime por confirmar."
+            },
             "b2bReverseCharge": {
                 "label": "Autoliquidação B2B",
                 "help": "Fatura as vendas B2B da UE elegíveis com autoliquidação, depois de o VIES confirmar o comprador."

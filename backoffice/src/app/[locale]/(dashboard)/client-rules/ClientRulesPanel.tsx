@@ -90,6 +90,7 @@ const TAX_BEHAVIOUR_FIELDS: FieldDef[] = [
   { key: "oss_engine", kind: "bool", i18n: "ossEngine", dangerous: true },
   { key: "oss_export_exemption_code", kind: "text", i18n: "ossExportExemptionCode", dangerous: true },
   { key: "pt_regional_rates", kind: "bool", i18n: "ptRegionalRates", dangerous: true },
+  { key: "b2b_reverse_charge_pipeline", kind: "bool", i18n: "b2bReverseChargePipeline", dangerous: true },
   { key: "b2b_reverse_charge", kind: "bool", i18n: "b2bReverseCharge", dangerous: true },
   { key: "force_tax_rate", kind: "number", i18n: "forceTaxRate", dangerous: true },
   { key: "force_shipping_tax_rate", kind: "number", i18n: "forceShippingTaxRate", dangerous: true },

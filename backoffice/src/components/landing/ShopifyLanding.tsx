@@ -189,7 +189,7 @@ function TopBar() {
       <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4 px-4 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <Link href="/" aria-label="Rioko">
-            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko" width={104} height={22} className="h-auto w-[92px] sm:w-[104px]" priority />
+            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-light2.svg" alt="Rioko" width={104} height={22} className="h-auto w-[92px] sm:w-[104px]" priority />
           </Link>
           <span
             className="hidden items-center gap-2 sm:inline-flex"
@@ -1752,7 +1752,7 @@ function FooterSlim() {
       >
         <div className="flex items-center gap-3">
           <Link href="/" aria-label="Rioko">
-            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko" width={96} height={20} />
+            <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-light2.svg" alt="Rioko" width={96} height={20} />
           </Link>
           <span
             className="text-[10px] uppercase tracking-[0.18em]"

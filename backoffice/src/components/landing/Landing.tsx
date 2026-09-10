@@ -260,7 +260,7 @@ function Nav() {
         }}
       >
         <div className="flex items-center gap-3 pl-3 md:pl-8">
-          <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={132} height={27} className="w-[100px] h-auto sm:w-[132px]" priority />
+          <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-light2.svg" alt="Rioko 2.0" width={132} height={27} className="w-[100px] h-auto sm:w-[132px]" priority />
           <span
             className="hidden font-mono text-[10px] uppercase tracking-[0.18em] sm:inline-block"
             style={{ color: FG_40 }}
@@ -1979,7 +1979,7 @@ function Footer() {
     >
       <div className="mx-auto flex w-full max-w-[1280px] flex-col items-center gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
-          <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-black.svg" alt="Rioko 2.0" width={110} height={23} />
+          <ThemedLogo nightSrc="/images/rioko2-logo.svg" daySrc="/images/rioko2-logo-light2.svg" alt="Rioko 2.0" width={110} height={23} />
           <span
             className="font-mono text-[10px] uppercase tracking-[0.2em]"
             style={{ color: FG_40 }}

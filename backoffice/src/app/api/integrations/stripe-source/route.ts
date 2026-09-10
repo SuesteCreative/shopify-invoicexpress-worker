@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
 
 export const runtime = "edge";
 
@@ -21,17 +22,6 @@ async function resolveTargetUser(request: NextRequest) {
     let targetUserId = await resolveAccountUser(request, userId);
     return { userId, targetUserId };
 }
-
-/**
- * What the connection may state instead of the shared `integrations` row.
- *
- * An account with both a Shopify shop and a Stripe account invoicing into the
- * same InvoiceXpress account needs two different series, and the legacy row
- * holds one — so whichever wizard was saved last used to win. These three live
- * on the connection; the worker reads them through `projectConnectionBehaviour`
- * and falls back to the legacy row for anything left blank.
- */
-const FISCAL_KEYS = ["ix_sequence_name", "ix_exemption_reason", "ix_document_type"] as const;
 
 function isEnabled() {
     return process.env.NEXT_PUBLIC_STRIPE_SOURCE_ENABLED === "1"
@@ -64,10 +54,7 @@ export async function GET(request: NextRequest) {
     };
     // The fiscal identity this connection states for itself. Absent keys mean
     // "inherit the account's legacy row", which is what the worker does with them.
-    const dCfg = row.destination_config_json ? JSON.parse(row.destination_config_json) : {};
-    const fiscal = Object.fromEntries(
-        FISCAL_KEYS.filter((k) => typeof dCfg[k] === "string").map((k) => [k, dCfg[k]]),
-    );
+    const fiscal = readConnectionFiscal(row.destination_config_json);
 
     return NextResponse.json({
         connection: {
@@ -120,12 +107,8 @@ export async function POST(request: NextRequest) {
     // Only the fiscal keys this request carries, so a partial post never erases
     // a sibling. An empty string is meaningful and kept: it clears the override
     // and hands the field back to the account's legacy row.
-    const fiscalPatch: Record<string, string> = {};
-    for (const key of FISCAL_KEYS) {
-        const value = body.fiscal?.[key];
-        if (typeof value === "string") fiscalPatch[key] = value.trim();
-    }
-    const hasFiscal = Object.keys(fiscalPatch).length > 0;
+    const fiscalPatch = fiscalPatchFrom(body.fiscal);
+    const hasFiscal = !!fiscalPatch;
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();

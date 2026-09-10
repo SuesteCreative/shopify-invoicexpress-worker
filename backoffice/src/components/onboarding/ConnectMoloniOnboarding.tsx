@@ -570,8 +570,8 @@ export default function ConnectMoloniOnboarding() {
                     </>
                 ) : (
                     <PrimaryButton onClick={connectStripe} busy={busy === "stripe"}>
-                        <Image src="/images/stripe-logo.svg" alt="" width={44} height={18} className="h-4 w-auto" />
-                        {tWiz("connectStripe")}
+                        {t("stripe.connectWith")}
+                        <Image src="/images/stripe-logo.svg" alt="Stripe" width={44} height={18} className="h-4 w-auto" />
                     </PrimaryButton>
                 )}
             </div>
@@ -582,7 +582,23 @@ export default function ConnectMoloniOnboarding() {
                 <Notice tone="info">
                     <p className="font-medium text-fg">{tWiz("moloniIntroTitle")}</p>
                     <ol className="list-decimal pl-4 space-y-1.5 mt-1.5">
-                        <li>{tWiz("moloniStep1")}</li>
+                        {/* Same instruction as the wizard's, with the word "Moloni"
+                            carrying the link to their customer area, which is where
+                            the API is switched on. */}
+                        <li>
+                            {t.rich("moloni.step1", {
+                                link: chunks => (
+                                    <a
+                                        href="https://www.moloni.pt/ac/"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-accent-ink font-medium underline underline-offset-2 hover:text-accent-hover transition-colors"
+                                    >
+                                        {chunks}
+                                    </a>
+                                ),
+                            })}
+                        </li>
                         <li>{tWiz("moloniStep2")}</li>
                         <li>{tWiz("moloniStep3")}</li>
                     </ol>

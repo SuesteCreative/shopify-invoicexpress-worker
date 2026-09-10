@@ -2616,7 +2616,7 @@
             "description": "Connect Stripe to Moloni in six steps: account, company details, Stripe authorisation, Moloni authorisation, invoicing settings and subscription."
         },
         "eyebrow": "Guided set-up",
-        "title": "Your Stripe sales, invoiced in Moloni",
+        "title": "Onboarding Stripe - Moloni",
         "subtitle": "Six steps, once only. There are no keys to create and no passwords to hand over: you authorise Stripe and Moloni on behalf of your company, and you can withdraw either one whenever you like.",
         "trust1": "Read-only access to Stripe",
         "trust2": "An authorisation you can withdraw",
@@ -2656,12 +2656,14 @@
         },
         "stripe": {
             "title": "Connect Stripe",
-            "desc": "One click, on Stripe's own page"
+            "desc": "One click, on Stripe's own page",
+            "connectWith": "Connect with"
         },
         "moloni": {
             "title": "Authorise Moloni",
             "desc": "OAuth v2, with your own Moloni app",
-            "authorizedBody": "The authorisation renews itself. You can withdraw it in Moloni whenever you like."
+            "authorizedBody": "The authorisation renews itself. You can withdraw it in Moloni whenever you like.",
+            "step1": "In <link>Moloni</link>, open the customer area and switch the API on as a Developer. The Developer ID and the Client Secret are shown there."
         },
         "settings": {
             "title": "Invoicing settings",

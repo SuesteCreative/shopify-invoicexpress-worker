@@ -2616,7 +2616,7 @@
             "description": "Ligue o Stripe ao Moloni em seis passos: conta, dados da empresa, autorização do Stripe, autorização do Moloni, definições de facturação e subscrição."
         },
         "eyebrow": "Ligação guiada",
-        "title": "As suas vendas no Stripe, facturadas no Moloni",
+        "title": "Onboarding Stripe - Moloni",
         "subtitle": "Seis passos, uma vez só. Não há chaves para criar nem passwords para nos dar: autoriza o Stripe e o Moloni em nome da sua empresa, e retira a autorização quando quiser.",
         "trust1": "Acesso só de leitura ao Stripe",
         "trust2": "Autorização que retira quando quiser",
@@ -2656,12 +2656,14 @@
         },
         "stripe": {
             "title": "Ligar o Stripe",
-            "desc": "Um clique, na página do próprio Stripe"
+            "desc": "Um clique, na página do próprio Stripe",
+            "connectWith": "Ligar com o"
         },
         "moloni": {
             "title": "Autorizar o Moloni",
             "desc": "OAuth v2, com a aplicação da sua conta Moloni",
-            "authorizedBody": "A autorização renova-se sozinha. Pode retirá-la no Moloni quando quiser."
+            "authorizedBody": "A autorização renova-se sozinha. Pode retirá-la no Moloni quando quiser.",
+            "step1": "No <link>Moloni</link>, abra a Área de Cliente e active a API como Developer. Ficam à vista o Developer ID e o Client Secret."
         },
         "settings": {
             "title": "Definições de facturação",

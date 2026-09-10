@@ -44,3 +44,26 @@ export function stripeConnectRedirectUri(): string {
 export function moloniRedirectUri(connectionId: string): string {
     return `${RIOKO_CONFIG.appUrl}/api/integrations/moloni-oauth/callback/${connectionId}`;
 }
+
+/**
+ * Stripe's Connect credentials come in pairs, one per mode.
+ *
+ * A test `client_id` exchanged with the live secret key is rejected, and a
+ * test-mode `acct_` read with the live key answers 404 — so the mode has to be
+ * consistent from the consent screen through to every later read.
+ *
+ * The test values are SEPARATE variables, never a replacement for the live
+ * ones: those are platform-wide, and swapping them would take every live
+ * Connect merchant down at once. When they are unset — which is the normal
+ * state — test mode simply is not offered.
+ */
+export type StripeMode = "live" | "test";
+
+export function stripeConnectCredentials(mode: StripeMode) {
+    const suffix = mode === "test" ? "_TEST" : "";
+    return {
+        clientId: getStripeEnvOptional(`STRIPE_CONNECT_CLIENT_ID${suffix}`),
+        // The token exchange authenticates with the platform's own secret key.
+        secretKey: getStripeEnvOptional(`STRIPE_SECRET_KEY${suffix}`),
+    };
+}

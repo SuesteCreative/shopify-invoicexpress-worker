@@ -662,8 +662,13 @@ async function runPipelineCore(
       // Read off the source's declared capability rather than comparing against
       // the string "shopify", so the next source states its own semantics
       // instead of inheriting whatever this comparison happens to imply.
+      // A connection authorised against Stripe's TEST mode never certifies.
+      // A finalized document is AT-communicated and cannot be unmade except by
+      // a credit note, so the one thing a sandbox must not be able to produce
+      // is a real one. Drafts are the entire point of testing.
+      const isTestConnection = (ctx.sourceConfig as any)?.livemode === false;
       const finalizeInSameFlow = !sourceAdapter.capabilities.emitsSeparatePaidEvent
-        && ctx.config.auto_finalize === 1 && !holdReason;
+        && ctx.config.auto_finalize === 1 && !holdReason && !isTestConnection;
       let response = holdReason ? `Created (draft — ${holdReason})` : "Created";
       if (finalizeInSameFlow) {
         await destAdapter.finalize(invoiceId, ctx);

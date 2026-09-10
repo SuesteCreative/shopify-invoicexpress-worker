@@ -36,9 +36,40 @@ export interface StripeAuth {
 /** Same shape whether it came from D1, a queue message or a test fixture. */
 export interface StripeAuthSource {
   auth_mode?: string;
+  /** false only for a connection authorised against Stripe's test mode. */
+  livemode?: boolean;
   restricted_key?: string;
   stripe_restricted_key?: string;
   stripe_account_id?: string;
+}
+
+/**
+ * Whether an event's mode matches the connection it would be invoiced against.
+ *
+ * `livemode` is written into `source_config_json` by the Connect OAuth callback
+ * and, until this existed, was read by nothing at all. A test-mode event whose
+ * `account` matched an active row — or, on the legacy route, whose signature
+ * verified against a merchant's secret — went straight through to Moloni or
+ * InvoiceXpress and became a real fiscal document out of money that does not
+ * exist.
+ *
+ * A connection that states nothing is treated as LIVE. Every existing one is:
+ * the field only began being written when Connect shipped. That makes the guard
+ * closed by default — a test event is refused unless a connection has said, in
+ * writing, that it is a test connection.
+ *
+ * An event that states nothing is also treated as live, because Stripe always
+ * sends the field and its absence means we are not looking at a Stripe event.
+ */
+export function livemodeMatches(
+  sourceConfigJson: string | null | undefined,
+  eventLivemode: unknown,
+): boolean {
+  let cfg: Record<string, any> = {};
+  try { cfg = sourceConfigJson ? JSON.parse(sourceConfigJson) : {}; } catch { cfg = {}; }
+  const connectionIsLive = cfg.livemode !== false;
+  const eventIsLive = eventLivemode !== false;
+  return connectionIsLive === eventIsLive;
 }
 
 export function isConnectConfig(sourceConfig: StripeAuthSource | null | undefined): boolean {
@@ -55,13 +86,18 @@ export function isConnectConfig(sourceConfig: StripeAuthSource | null | undefine
  * finished the wizard into a nightly alert.
  */
 export function resolveStripeAuth(
-  env: Pick<Env, "STRIPE_PLATFORM_SECRET_KEY">,
+  env: Pick<Env, "STRIPE_PLATFORM_SECRET_KEY" | "STRIPE_PLATFORM_SECRET_KEY_TEST">,
   sourceConfig: StripeAuthSource | null | undefined,
 ): StripeAuth | null {
   if (!sourceConfig) return null;
 
   if (isConnectConfig(sourceConfig)) {
-    const apiKey = env.STRIPE_PLATFORM_SECRET_KEY;
+    // A test-mode connected account read with the live key answers 404. The
+    // connection records which mode it was authorised in; anything that never
+    // said is live, which is every connection made before test mode existed.
+    const apiKey = (sourceConfig as any).livemode === false
+      ? env.STRIPE_PLATFORM_SECRET_KEY_TEST
+      : env.STRIPE_PLATFORM_SECRET_KEY;
     const connectAccount = sourceConfig.stripe_account_id;
     // A Connect connection without one of these cannot read anything. Half a
     // credential is not a credential.

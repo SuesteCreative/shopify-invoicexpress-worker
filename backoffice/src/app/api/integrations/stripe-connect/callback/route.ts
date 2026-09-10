@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { isValidOAuthState } from "@/lib/oauth-state";
-import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
+import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 
@@ -72,8 +72,13 @@ export async function GET(request: NextRequest) {
         return backToWizard("error", "Pedido inválido ou expirado. Recomece o passo do Stripe.", row.destination_kind);
     }
 
-    const platformKey = getStripeEnvOptional("STRIPE_SECRET_KEY");
-    if (!platformKey) return backToWizard("error", "STRIPE_SECRET_KEY not configured", row.destination_kind);
+    // Which mode the merchant left in, recorded by /start. A test client_id
+    // exchanged with the live secret key is rejected outright.
+    let startedConfig: Record<string, any> = {};
+    try { startedConfig = row.source_config_json ? JSON.parse(row.source_config_json) : {}; } catch { startedConfig = {}; }
+    const mode = startedConfig.livemode === false ? "test" as const : "live" as const;
+    const { secretKey: platformKey } = stripeConnectCredentials(mode);
+    if (!platformKey) return backToWizard("error", `STRIPE_SECRET_KEY${mode === "test" ? "_TEST" : ""} not configured`, row.destination_kind);
 
     let tokenBody: any;
     try {

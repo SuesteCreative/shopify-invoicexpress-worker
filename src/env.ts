@@ -22,10 +22,18 @@ export interface Env {
   // Rioko's own Stripe secret key. Connect connections are read with THIS key
   // plus a Stripe-Account header — we never hold the merchant's own key.
   STRIPE_PLATFORM_SECRET_KEY?: string;
+  /**
+   * The same two credentials in Stripe's TEST mode, so a sandbox connection can
+   * be exercised end to end without touching the live ones. ADDED to the pair
+   * above, never swapped for them: those are platform-wide, and replacing them
+   * would take every live Connect merchant down at once.
+   */
+  STRIPE_PLATFORM_SECRET_KEY_TEST?: string;
   // Signing secret of the single platform-level Connect webhook endpoint. One
   // secret for every connected account, unlike the per-connection whsec_ that
   // the restricted-key flow installs on each merchant's account.
   STRIPE_CONNECT_WEBHOOK_SECRET?: string;
+  STRIPE_CONNECT_WEBHOOK_SECRET_TEST?: string;
   // Moloni OAuth app credentials, used only when a connection does not carry its
   // own (i.e. if one Rioko-owned Moloni app can authorise third-party accounts).
   MOLONI_APP_CLIENT_ID?: string;

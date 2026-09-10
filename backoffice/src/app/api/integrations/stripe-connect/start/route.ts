@@ -1,9 +1,9 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
-import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
-import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
+import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
+import { isSuperAdmin } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -23,13 +23,23 @@ export async function POST(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const clientId = getStripeEnvOptional("STRIPE_CONNECT_CLIENT_ID");
-    if (!clientId) {
-        return NextResponse.json({ error: "STRIPE_CONNECT_CLIENT_ID not configured" }, { status: 500 });
-    }
-
-    const body = await request.json().catch(() => ({})) as { destination_kind?: string };
+    const body = await request.json().catch(() => ({})) as { destination_kind?: string; mode?: string };
     const destinationKind = body.destination_kind === "invoicexpress" ? "invoicexpress" : "moloni";
+
+    // Test mode is an operator tool, not a merchant choice: a sandbox
+    // connection issues nothing certified and exists to exercise the flow.
+    const wantsTest = body.mode === "test";
+    if (wantsTest && !(await isSuperAdmin(authResult.userId))) {
+        return NextResponse.json({ error: "Test mode is restricted" }, { status: 403 });
+    }
+    const mode = wantsTest ? "test" as const : "live" as const;
+    const { clientId } = stripeConnectCredentials(mode);
+    if (!clientId) {
+        return NextResponse.json(
+            { error: mode === "test" ? "STRIPE_CONNECT_CLIENT_ID_TEST not configured" : "STRIPE_CONNECT_CLIENT_ID not configured" },
+            { status: 500 },
+        );
+    }
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -51,7 +61,10 @@ export async function POST(request: NextRequest) {
            updated_at = excluded.updated_at`
     ).bind(
         crypto.randomUUID(), authResult.targetUserId, destinationKind,
-        JSON.stringify({ auth_mode: "connect" }),
+        // Provisional: the callback needs to know which secret key to exchange
+        // with BEFORE Stripe has told it anything. Stripe's own answer
+        // overwrites this with the truth a moment later.
+        JSON.stringify({ auth_mode: "connect", livemode: mode === "live" }),
         state, expiresAt, now, now,
     ).run();
 

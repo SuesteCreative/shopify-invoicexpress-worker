@@ -27,10 +27,15 @@ export function isDestinationKind(v: unknown): v is DestinationKind {
 
 const LABELS: Record<string, string> = {
     shopify: "Shopify",
-    stripe: "Stripe",
-    // Deliberately distinct from "Stripe": an account can hold both kinds at
-    // once, and a support conversation about "the Stripe connection" has to be
-    // able to name which one.
+    // "Legacy" is the merchant-facing name for the original integration: the one
+    // authenticated with a restricted key the merchant pastes in, as opposed to
+    // Connect's OAuth. Only the LABEL changes — `stripe` remains the stored
+    // `source_kind` in connections, subscriptions, processed_orders,
+    // document_events and every query that reads them.
+    stripe: "Stripe Legacy",
+    // Deliberately distinct: an account can hold both kinds at once, and a
+    // support conversation about "the Stripe connection" has to be able to name
+    // which one.
     stripe_connect: "Stripe Connect",
     eupago: "EuPago",
     lodgify: "Lodgify",

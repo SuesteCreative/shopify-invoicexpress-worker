@@ -21,7 +21,7 @@ const STRIPE_CONNECT_ENABLED = process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED ==
 
 const PAYMENT_PLATFORMS = [
     { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
-    { id: "stripe", name: "Stripe", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
+    { id: "stripe", name: "Stripe Legacy", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
     // The same Stripe, connected in one click instead of by pasting a restricted
     // key. A separate tile because it is a separate connection: an account can
     // hold both, and support has to be able to tell which one is being discussed.

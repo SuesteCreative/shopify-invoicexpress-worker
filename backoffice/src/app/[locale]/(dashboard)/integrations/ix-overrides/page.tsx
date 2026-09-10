@@ -7,6 +7,7 @@ import { Loader2, AlertTriangle, Search, ArrowLeft, Trash2, Plus, Pencil, Save, 
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import { kindLabel } from "@/lib/connection-kinds";
 
 type SourceProduct = {
     source_reference: string;
@@ -146,7 +147,9 @@ export default function IxOverridesPage() {
         return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-12 h-12 text-accent-ink animate-spin opacity-50" /></div>;
     }
 
-    const srcLabel = sourceKind === "stripe" ? "Stripe" : sourceKind === "lodgify" ? "Lodgify" : sourceKind === "eupago" ? "EuPago" : "Shopify";
+    // Had no `stripe_connect` branch, so a Connect connection was labelled
+    // "Shopify" on this page.
+    const srcLabel = kindLabel(sourceKind);
     const backHref = `/integrations/${sourceKind}-ix`;
     const overrideCount = overrides.size;
 

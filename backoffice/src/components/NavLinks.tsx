@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { Activity, ShieldCheck, Settings2, BookOpen, Zap, ScrollText, Receipt, Wrench, Users } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { kindLabel } from "@/lib/connection-kinds";
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -53,12 +54,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
             for (const conn of active) {
                 const id = `${conn.source_kind}-${conn.destination_kind}`;
                 if (integrations.find(i => i.id === id)) continue;
-                const srcLabel = conn.source_kind === "lodgify" ? "Lodgify"
-                    : conn.source_kind === "stripe" ? "Stripe"
-                    : conn.source_kind === "stripe_connect" ? "Stripe Connect"
-                    : conn.source_kind === "shopify" ? "Shopify"
-                    : conn.source_kind === "eupago" ? "EuPago"
-                    : conn.source_kind;
+                const srcLabel = kindLabel(conn.source_kind);
                 const destLabel = conn.destination_kind === "invoicexpress" ? "IX"
                     : conn.destination_kind === "moloni" ? "Moloni"
                     : conn.destination_kind === "vendus" ? "Vendus"

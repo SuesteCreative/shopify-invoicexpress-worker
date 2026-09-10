@@ -1476,7 +1476,7 @@
         "manageTagRouting": "Gerir routing"
     },
     "stripeVendusSetup": {
-        "title": "Stripe + Vendus",
+        "title": "Stripe Legacy + Vendus",
         "subtitle": "Liga a tua conta Vendus para emitir faturas certificadas automaticamente quando recebes pagamentos via Stripe.",
         "stripeMissingTitle": "Stripe ainda não está ligado.",
         "stripeMissingBody": "Para receber webhooks de pagamentos precisas primeiro de configurar a ligação Stripe.",
@@ -1500,7 +1500,7 @@
         "errorMissingApiKey": "Falta a API Key Vendus.",
         "securityFooter": "A API Key Vendus é encriptada em repouso e usada apenas pelo worker Rioko para autenticar pedidos à API Vendus. Nunca é partilhada com terceiros nem exposta ao browser.",
         "backToIntegrations": "Voltar para Integrações",
-        "pageTitle": "Stripe + Vendus",
+        "pageTitle": "Stripe Legacy + Vendus",
         "engineSubtitle": "Configuração de Automação Fiscal.",
         "syncState": "Estado da Sincronização",
         "realtimeOn": "Tempo Real ATIVO",
@@ -1711,7 +1711,7 @@
         "sendEmailNeedsFinalize": "Sem efeito enquanto o Auto Finalizar estiver desligado: os documentos ficam em rascunho e um rascunho nunca é enviado ao cliente."
     },
     "stripeMoloniSetup": {
-        "title": "Stripe + Moloni",
+        "title": "Stripe Legacy + Moloni",
         "subtitle": "Liga a tua conta Moloni para emitir faturas automaticamente quando recebes pagamentos via Stripe.",
         "stripeMissingTitle": "Stripe ainda não está ligado.",
         "stripeMissingBody": "Para receber webhooks de pagamentos precisas primeiro de configurar a ligação Stripe. Configura Stripe e volta aqui.",
@@ -1748,7 +1748,7 @@
         "errorMissingPassword": "Falta a password Moloni.",
         "securityFooter": "Todas as credenciais são encriptadas em repouso. O Client Secret e a password só são usados pelo worker Rioko para obter tokens de acesso de curta duração junto da API Moloni — nunca são partilhados com terceiros nem com o teu browser.",
         "backToIntegrations": "Voltar para Integrações",
-        "pageTitle": "Stripe + Moloni",
+        "pageTitle": "Stripe Legacy + Moloni",
         "engineSubtitle": "Configuração de Automação Fiscal.",
         "syncState": "Estado da Sincronização",
         "realtimeOn": "Tempo Real ATIVO",
@@ -1891,7 +1891,7 @@
     },
     "stripeIxSetup": {
         "backToIntegrations": "Voltar para Integrações",
-        "pageTitle": "Stripe + InvoiceXpress",
+        "pageTitle": "Stripe Legacy + InvoiceXpress",
         "engineSubtitle": "Configuração de Automação Fiscal.",
         "syncState": "Estado da Sincronização",
         "realtimeOn": "Tempo Real ATIVO",

@@ -6,7 +6,10 @@ import { ShoppingBag, Home, CreditCard, Receipt, FileText, type LucideIcon } fro
 const SOURCE_LABEL: Record<string, string> = {
     shopify: "Shopify",
     lodgify: "Lodgify",
-    stripe: "Stripe",
+    stripe: "Stripe Legacy",
+    // Was missing entirely, so a Connect row fell through to `cap()` and
+    // rendered as "Stripe_connect".
+    stripe_connect: "Stripe Connect",
     eupago: "EuPago",
 };
 
@@ -20,6 +23,7 @@ const SOURCE_ICON: Record<string, LucideIcon> = {
     shopify: ShoppingBag,
     lodgify: Home,
     stripe: CreditCard,
+    stripe_connect: CreditCard,
     eupago: Receipt,
 };
 

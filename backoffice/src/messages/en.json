@@ -1476,7 +1476,7 @@
         "manageTagRouting": "Manage routing"
     },
     "stripeVendusSetup": {
-        "title": "Stripe + Vendus",
+        "title": "Stripe Legacy + Vendus",
         "subtitle": "Connect your Vendus account to issue certified invoices automatically when Stripe collects a payment.",
         "stripeMissingTitle": "Stripe is not connected yet.",
         "stripeMissingBody": "You need an active Stripe source connection before Vendus receives anything.",
@@ -1500,7 +1500,7 @@
         "errorMissingApiKey": "Vendus API Key missing.",
         "securityFooter": "The Vendus API Key is encrypted at rest and used only by the Rioko worker to authenticate requests against the Vendus API. Never shared with third parties or exposed to the browser.",
         "backToIntegrations": "Back to integrations",
-        "pageTitle": "Stripe + Vendus",
+        "pageTitle": "Stripe Legacy + Vendus",
         "engineSubtitle": "Tax automation setup.",
         "syncState": "Sync state",
         "realtimeOn": "Real-time ACTIVE",
@@ -1711,7 +1711,7 @@
         "sendEmailNeedsFinalize": "No effect while Auto-finalize is off: documents stay as drafts, and a draft is never sent to the customer."
     },
     "stripeMoloniSetup": {
-        "title": "Stripe + Moloni",
+        "title": "Stripe Legacy + Moloni",
         "subtitle": "Connect your Moloni account to issue invoices automatically when Stripe collects a payment.",
         "stripeMissingTitle": "Stripe is not connected yet.",
         "stripeMissingBody": "You need an active Stripe source connection before Moloni receives anything. Configure Stripe first, then come back.",
@@ -1748,7 +1748,7 @@
         "errorMissingPassword": "Moloni password missing.",
         "securityFooter": "All credentials are encrypted at rest. The Client Secret and password are used only by the Rioko worker to mint short-lived access tokens against the Moloni API — never shared with third parties or exposed to your browser.",
         "backToIntegrations": "Back to integrations",
-        "pageTitle": "Stripe + Moloni",
+        "pageTitle": "Stripe Legacy + Moloni",
         "engineSubtitle": "Tax automation setup.",
         "syncState": "Sync state",
         "realtimeOn": "Real-time ACTIVE",
@@ -1891,7 +1891,7 @@
     },
     "stripeIxSetup": {
         "backToIntegrations": "Back to integrations",
-        "pageTitle": "Stripe + InvoiceXpress",
+        "pageTitle": "Stripe Legacy + InvoiceXpress",
         "engineSubtitle": "Tax automation setup.",
         "syncState": "Sync state",
         "realtimeOn": "Real-time ACTIVE",

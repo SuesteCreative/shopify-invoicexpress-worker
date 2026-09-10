@@ -7,6 +7,7 @@ import { Loader2, Check, AlertTriangle, ChevronRight, Search, ArrowLeft, Link2, 
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import { kindLabel } from "@/lib/connection-kinds";
 
 type SourceProduct = {
     source_reference: string;
@@ -190,11 +191,7 @@ export default function MoloniMappingsPage() {
         );
     }
 
-    const srcLabel = sourceKind === "stripe" ? "Stripe"
-        : sourceKind === "stripe_connect" ? "Stripe Connect"
-        : sourceKind === "lodgify" ? "Lodgify"
-        : sourceKind === "eupago" ? "EuPago"
-        : "Shopify";
+    const srcLabel = kindLabel(sourceKind);
     // The wizard routes are kebab-cased; the connection kinds are not.
     const backHref = `/integrations/${sourceKind === "stripe_connect" ? "stripe-connect" : sourceKind}-moloni`;
     const mappedCount = mappings.size;

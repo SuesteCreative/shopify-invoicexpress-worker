@@ -1,6 +1,8 @@
 import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
+import { renderInTheme } from "./email-templates";
+import { getUserTheme } from "./user-theme";
 import { renderIncidentTemplate, tplPatternReport, type IncidentKind } from "./email-templates";
 import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type IncidentDiagnosis, type RedactedIncident } from "./anthropic";
 import { getCompanyRulesNotes } from "./company-rules";
@@ -220,7 +222,9 @@ async function emailMerchantActionNeeded(env: Env, input: ReportIncidentInput): 
   }
 
   const now = new Date().toISOString();
-  const { subject, html } = NIF_NOTICE_KINDS.has(input.kind)
+  // The merchant reads this in whichever skin they picked in the dashboard.
+  const theme = await getUserTheme(env, input.user_id);
+  const { subject, html } = renderInTheme(theme, () => NIF_NOTICE_KINDS.has(input.kind)
     ? renderMerchantActionNeeded(input)
     : renderIncidentTemplate(input.kind, {
       occurrences: 1,
@@ -234,7 +238,7 @@ async function emailMerchantActionNeeded(env: Env, input: ReportIncidentInput): 
       merchantName: input.merchant_name,
       affectedIds: input.affected_ids?.map(String),
       severity: input.severity,
-    });
+    }));
 
   await sendEmail(env, { to: recipients, subject, html });
 }
@@ -685,7 +689,8 @@ export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number
 
     const merchantName = userId ? await resolveMerchantName(env, userId) : "Kapta team";
     const { tplDigest } = await import("./email-templates");
-    const tpl = tplDigest({
+    const theme = userId ? await getUserTheme(env, userId) : "night";
+    const tpl = renderInTheme(theme, () => tplDigest({
       merchantName,
       incidents: incidents.map(i => ({
         kind: i.kind,
@@ -695,7 +700,7 @@ export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number
         severity: i.severity,
         connectionLabel: undefined,
       })),
-    });
+    }));
 
     const result = await sendEmail(env, { to: recipients, subject: tpl.subject, html: tpl.html });
     if (result.ok) {
@@ -1020,7 +1025,8 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
     const creditCount = uniqueCredits.size + creditAccountLevel;
 
     const merchantName = await resolveMerchantName(env, userId);
-    const tpl = tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount, creditItems, totalCreditMissing: creditCount });
+    const tpl = renderInTheme(await getUserTheme(env, userId), () =>
+      tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount, creditItems, totalCreditMissing: creditCount }));
 
     // Dry-run: record what WOULD be sent, send nothing.
     if (opts.dryRun) {

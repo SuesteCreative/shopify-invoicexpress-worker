@@ -2,6 +2,8 @@ import type { Env } from "../env";
 import type { IRequestConfig } from "../storage";
 import { sendEmail } from "./email";
 import { renderQuotaEmail } from "./email-templates";
+import { renderInTheme } from "./email-templates";
+import { getUserTheme } from "./user-theme";
 
 // True when an IX create error is the plan's document-quota limit, e.g.
 // "Atingiu o limite de criação de documentos para o período de 2026-05-30 a 2026-06-30".
@@ -50,13 +52,13 @@ export async function maybeSendQuotaReachedAlert(env: Env, config: IRequestConfi
     const recipients = [...new Set([...m.emails, ...ops])];
     if (recipients.length === 0) return;
 
-    const tpl = renderQuotaEmail({
+    const tpl = renderInTheme(await getUserTheme(env, config.user_id), () => renderQuotaEmail({
       kind: "reached",
       merchantName: m.name || config.shopify_domain || account,
       ixAccount: account,
       periodStart: period.start,
       periodEnd: period.end,
-    });
+    }));
     const res = await sendEmail(env, { to: recipients, subject: tpl.subject, html: tpl.html });
     if (res.ok) {
       try { await env.INVOICE_KV.put(key, new Date().toISOString(), { expirationTtl: 35 * 24 * 60 * 60 }); } catch { /* ignore */ }

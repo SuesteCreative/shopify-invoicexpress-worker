@@ -37,6 +37,17 @@ export function ThemeToggle() {
     } catch {
       // Site data blocked — the theme still applies, it just won't be remembered.
     }
+
+    // Tell the server, so the emails we send this account are dressed the same
+    // way. Deliberately not awaited and deliberately silent: the page never
+    // waits on it, and a signed-out visitor simply gets a 401 nobody reads.
+    // What is on screen is still decided entirely by localStorage.
+    void fetch("/api/user/theme", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: next }),
+      keepalive: true,
+    }).catch(() => { });
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => root.removeAttribute("data-theme-switching"));
     });

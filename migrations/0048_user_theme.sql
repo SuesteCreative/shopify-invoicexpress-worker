@@ -1,0 +1,11 @@
+-- The skin a merchant picked in the dashboard, copied here so the emails we
+-- send them can be dressed the same way.
+--
+-- The dashboard itself paints from localStorage and never asks the server what
+-- theme to use; that stays true. This column is written only by the backoffice
+-- when the toggle is flipped, and read only by the email templates. Nothing
+-- about how a document is built, routed or issued looks at it.
+--
+-- 'day' is the default because that is what the dashboard shows an account that
+-- never touched the toggle.
+ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'day';

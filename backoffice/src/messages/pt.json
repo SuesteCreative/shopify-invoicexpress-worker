@@ -2670,7 +2670,8 @@
             "haveAccount": "Já tem conta?",
             "signIn": "Entrar",
             "signedInAs": "Sessão iniciada como {email}",
-            "signedInBody": "Está dentro. Pode avançar para os dados da empresa."
+            "signedInBody": "Está dentro. Pode avançar para os dados da empresa.",
+            "signOut": "Sair e usar outro email"
         },
         "company": {
             "title": "Dados da empresa",

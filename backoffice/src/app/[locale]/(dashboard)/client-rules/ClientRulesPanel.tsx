@@ -76,12 +76,41 @@ const STRIPE_IX_FISCAL_FIELDS: FieldDef[] = [
   { key: "ix_multicurrency", kind: "bool", i18n: "ixMulticurrency", dangerous: true },
 ];
 
-const LEGACY_FIELDS: FieldDef[] = [
-  { key: "custom_invoice_note", kind: "text", i18n: "customInvoiceNote", maxLength: 200 },
+/**
+ * What decides the VAT on a line, and who it belongs to.
+ *
+ * `projectConnectionBehaviour` isolates all four per connection: for any source
+ * but Shopify they are read from the connection's blob or forced neutral, never
+ * inherited from the account's legacy row. Rendered in both scopes for the same
+ * reason as the 0037 switches — until they were, the console showed them,
+ * wrote them to the legacy row, and the worker ignored what it wrote.
+ */
+const TAX_BEHAVIOUR_FIELDS: FieldDef[] = [
+  { key: "oss_enabled", kind: "bool", i18n: "ossEnabled", dangerous: true },
+  { key: "b2b_reverse_charge", kind: "bool", i18n: "b2bReverseCharge", dangerous: true },
+  { key: "force_tax_rate", kind: "number", i18n: "forceTaxRate", dangerous: true },
+  { key: "force_shipping_tax_rate", kind: "number", i18n: "forceShippingTaxRate", dangerous: true },
+];
+
+/**
+ * Which series the documents are filed in, what kind they are, and which legal
+ * exemption they name. One account may run two connections into the SAME
+ * InvoiceXpress account and still need different answers for each.
+ *
+ * `ix_exemption_reason` is deliberately separate from the `exemption_reason` in
+ * `common`: that one is Moloni's spelling, and on an IX connection it sets
+ * nothing while still counting as "stated" — see the note in redact.ts.
+ */
+const IX_IDENTITY_FIELDS: FieldDef[] = [
   { key: "ix_sequence_name", kind: "text", i18n: "ixSequenceName" },
   { key: "ix_document_type", kind: "select", i18n: "ixDocumentType", options: ["invoice", "invoice_receipt"] },
   { key: "ix_exemption_reason", kind: "text", i18n: "ixExemptionReason", dangerous: true },
   { key: "ix_b2b_exemption_reason", kind: "text", i18n: "ixB2bExemptionReason", dangerous: true },
+];
+
+const LEGACY_FIELDS: FieldDef[] = [
+  { key: "custom_invoice_note", kind: "text", i18n: "customInvoiceNote", maxLength: 200 },
+  ...IX_IDENTITY_FIELDS,
   { key: "ix_stamp_exemption_note", kind: "bool", i18n: "ixStampExemptionNote" },
   { key: "ix_payment_term", kind: "number", i18n: "ixPaymentTerm" },
   { key: "auto_finalize", kind: "bool", i18n: "autoFinalize" },
@@ -92,10 +121,7 @@ const LEGACY_FIELDS: FieldDef[] = [
   { key: "ix_retention_enabled", kind: "bool", i18n: "ixRetentionEnabled" },
   { key: "ix_retention", kind: "number", i18n: "ixRetention" },
   { key: "vat_included", kind: "bool", i18n: "vatIncludedLegacy", dangerous: true },
-  { key: "oss_enabled", kind: "bool", i18n: "ossEnabled", dangerous: true },
-  { key: "b2b_reverse_charge", kind: "bool", i18n: "b2bReverseCharge", dangerous: true },
-  { key: "force_tax_rate", kind: "number", i18n: "forceTaxRate", dangerous: true },
-  { key: "force_shipping_tax_rate", kind: "number", i18n: "forceShippingTaxRate", dangerous: true },
+  ...TAX_BEHAVIOUR_FIELDS,
   ...STRIPE_IX_FISCAL_FIELDS,
 ];
 
@@ -107,11 +133,14 @@ const CONNECTION_FIELDS: Record<string, FieldDef[]> = {
     { key: "send_email", kind: "bool", i18n: "sendEmail" },
     { key: "exemption_reason", kind: "text", i18n: "exemptionReason", dangerous: true },
     { key: "default_vat_rate", kind: "number", i18n: "defaultVatRate", dangerous: true },
+    // Cross-destination: Moloni reads `force_tax_rate` too, and OSS /
+    // reverse-charge decide the rate before any destination sees the line.
+    ...TAX_BEHAVIOUR_FIELDS,
   ],
   // Scoped to the destination that produces the documents these switches
   // change, rather than to `common`, so a Moloni or Vendus connection is not
   // offered settings that mean nothing to it.
-  invoicexpress: STRIPE_IX_FISCAL_FIELDS,
+  invoicexpress: [...IX_IDENTITY_FIELDS, ...STRIPE_IX_FISCAL_FIELDS],
   moloni: [
     { key: "moloni_document_set_name", kind: "text", i18n: "moloniDocumentSet" },
     { key: "moloni_document_type", kind: "select", i18n: "moloniDocumentType", options: ["invoice", "invoice_receipt", "simplified_invoice"] },

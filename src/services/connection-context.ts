@@ -119,7 +119,7 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
  * connection that never stated one silently resume a paused account. They move
  * when the toggle moves with them.
  */
-const CONNECTION_FISCAL_IDENTITY = [
+export const CONNECTION_FISCAL_IDENTITY = [
   "ix_sequence_name",
   "ix_exemption_reason",
   "ix_document_type",
@@ -140,18 +140,18 @@ const CONNECTION_FISCAL_IDENTITY = [
  * CONNECTION and nowhere else: stated there, or neutral. Shopify keeps reading
  * the legacy row, which is its own.
  */
-const CONNECTION_FISCAL_RATES = [
+export const CONNECTION_FISCAL_RATES = [
   "force_tax_rate",
   "force_shipping_tax_rate",
 ] as const;
 
-const CONNECTION_FISCAL_TOGGLES = [
+export const CONNECTION_FISCAL_TOGGLES = [
   "b2b_reverse_charge",
   "oss_enabled",
   "vat_included",
 ] as const;
 
-const CONNECTION_FISCAL_FLAGS = [
+export const CONNECTION_FISCAL_FLAGS = [
   "ix_derive_exemption",
   "ix_adapter_safety_nets",
   "stripe_tax_from_source",

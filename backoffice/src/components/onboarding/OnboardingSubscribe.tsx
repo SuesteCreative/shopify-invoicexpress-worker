@@ -270,7 +270,11 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
             )}
 
             {!loading && !error && clientSecret && stripePromise && (
-                <div className="rounded-2xl border border-hairline bg-media-plate overflow-hidden">
+                // No plate of our own behind it: the iframe paints its own
+                // surface from the Stripe branding settings, and a white card
+                // under a dark one is what made it read as a box dropped on the
+                // page. The hairline is all that frames it.
+                <div className="rounded-2xl border border-hairline overflow-hidden">
                     {/* Keyed by plan: a plan change is a different session, and the
                         form has to be built again rather than updated. */}
                     <EmbeddedCheckoutProvider key={plan} stripe={stripePromise} options={{ clientSecret }}>

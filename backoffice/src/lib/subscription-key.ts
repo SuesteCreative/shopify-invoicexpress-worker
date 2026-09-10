@@ -18,6 +18,12 @@ export const SOURCE_TO_CONNECTION_KEY: Record<string, string> = {
     faturacao: DEFAULT_CONNECTION_KEY,
     "shopify-ix": DEFAULT_CONNECTION_KEY,
     "stripe-ix": "stripe:invoicexpress",
+    // Lodgify→IX runs on the same product/price as Shopify→IX, but it is its
+    // OWN connection: without this line every Lodgify+IX merchant's payment was
+    // filed against a `shopify:invoicexpress` connection they do not have, and
+    // the billing page — which reads the connection they DO have — kept showing
+    // the account as suspended (Farracemota, 10/09/2026).
+    "lodgify-ix": "lodgify:invoicexpress",
     "stripe-moloni": "stripe:moloni",
     // The Connect wizard is its own page and its own connection, but the same
     // product at the same price. Only the key differs.
@@ -29,6 +35,7 @@ export const SOURCE_TO_CONNECTION_KEY: Record<string, string> = {
 export const CONNECTION_KEY_TO_SOURCE: Record<string, string> = {
     "shopify:invoicexpress": "faturacao",
     "stripe:invoicexpress": "stripe-ix",
+    "lodgify:invoicexpress": "lodgify-ix",
     "stripe:moloni": "stripe-moloni",
     "stripe_connect:moloni": "stripe-connect-moloni",
     "lodgify:moloni": "lodgify-moloni",

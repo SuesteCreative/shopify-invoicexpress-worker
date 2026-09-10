@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
+import { normalizeReturnSlug, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
@@ -28,8 +29,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "STRIPE_CONNECT_CLIENT_ID not configured" }, { status: 500 });
     }
 
-    const body = await request.json().catch(() => ({})) as { destination_kind?: string };
+    const body = await request.json().catch(() => ({})) as {
+        destination_kind?: string; return_slug?: string; return_locale?: string;
+    };
     const destinationKind = body.destination_kind === "invoicexpress" ? "invoicexpress" : "moloni";
+
+    // Which page this round trip started on, so the callback can end it there.
+    // Always written, never inherited: the wizard sends no slug, and a row left
+    // over from a run that started on the onboarding page would otherwise send a
+    // wizard user somewhere they did not come from.
+    const returnSlug = normalizeReturnSlug(body.return_slug) ?? RETURN_SLUG_WIZARD;
+    const returnLocale = body.return_locale === "en" ? "en" : "pt";
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -46,12 +56,15 @@ export async function POST(request: NextRequest) {
            (id, user_id, source_kind, destination_kind, source_config_json, status, oauth_state, oauth_state_expires_at, created_at, updated_at)
          VALUES (?, ?, 'stripe_connect', ?, ?, 'draft', ?, ?, ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
+           source_config_json = json_patch(COALESCE(connections.source_config_json, '{}'), excluded.source_config_json),
            oauth_state = excluded.oauth_state,
            oauth_state_expires_at = excluded.oauth_state_expires_at,
            updated_at = excluded.updated_at`
     ).bind(
         crypto.randomUUID(), authResult.targetUserId, destinationKind,
-        JSON.stringify({ auth_mode: "connect" }),
+        // Patched, not replaced, on an existing row: a reconnection must not drop
+        // the account id this same column is holding.
+        JSON.stringify({ auth_mode: "connect", return_slug: returnSlug, return_locale: returnLocale }),
         state, expiresAt, now, now,
     ).run();
 

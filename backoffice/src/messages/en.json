@@ -2609,5 +2609,71 @@
         "driftsTitle": "Drifts and refusals, last 7 days ({count})",
         "driftsHelp": "Documents that came back different from what was sent, and the ones the destination refused outright. A drift is a verdict; a lead is unconfirmed until checked.",
         "noDrifts": "No drifts or refusals in the last 7 days."
+    },
+    "connectOnboarding": {
+        "meta": {
+            "title": "Stripe and Moloni onboarding | Rioko",
+            "description": "Connect Stripe to Moloni in six steps: account, company details, Stripe authorisation, Moloni authorisation, invoicing settings and subscription."
+        },
+        "eyebrow": "Guided set-up",
+        "title": "Your Stripe sales, invoiced in Moloni",
+        "subtitle": "Six steps, once only. There are no keys to create and no passwords to hand over: you authorise Stripe and Moloni on behalf of your company, and you can withdraw either one whenever you like.",
+        "trust1": "Read-only access to Stripe",
+        "trust2": "An authorisation you can withdraw",
+        "trust3": "No password of yours kept by us",
+        "progress": "Step {current} of {total}",
+        "allDone": "All done",
+        "statusDone": "Done",
+        "statusNow": "Up next",
+        "statusLocked": "Locked",
+        "continue": "Continue",
+        "privacy": "Privacy",
+        "terms": "Terms",
+        "help": {
+            "body": "Stuck on a step? Reply to the email you were sent, or write to"
+        },
+        "finished": {
+            "title": "Everything is connected",
+            "body": "From now on your Stripe sales produce documents in Moloni. The dashboard follows each one, and it is also where your own service invoices live.",
+            "cta": "Open the dashboard"
+        },
+        "account": {
+            "title": "Create your account",
+            "desc": "Email and password, or your Google account",
+            "body": "The account is yours: it is where you see the connection, the documents issued and your service invoices. Once it exists we bring you back to this page, on the next step.",
+            "create": "Create account",
+            "haveAccount": "Already have an account?",
+            "signIn": "Sign in",
+            "signedInAs": "Signed in as {email}",
+            "signedInBody": "You are in. Carry on to the company details."
+        },
+        "company": {
+            "title": "Company details",
+            "desc": "Who holds the account",
+            "body": "These are for your Rioko account and for your service invoices. Whoever buys from your shop is identified by what Stripe collects at payment, not by these.",
+            "privacyLink": "Privacy Policy",
+            "update": "Save changes"
+        },
+        "stripe": {
+            "title": "Connect Stripe",
+            "desc": "One click, on Stripe's own page"
+        },
+        "moloni": {
+            "title": "Authorise Moloni",
+            "desc": "OAuth v2, with your own Moloni app",
+            "authorizedBody": "The authorisation renews itself. You can withdraw it in Moloni whenever you like."
+        },
+        "settings": {
+            "title": "Invoicing settings",
+            "desc": "Company, document set, document type and VAT",
+            "body": "All of this can be changed later in the dashboard. With Auto Finalize off, documents stay as drafts in Moloni so you can review them before they are issued.",
+            "finish": "Finish the connection"
+        },
+        "subscribe": {
+            "title": "Subscribe",
+            "desc": "7.50 € per month, or 75 € per year",
+            "body": "Payment happens on Stripe's secure page. The connection is already built: the subscription is what keeps it issuing.",
+            "note": "Prices exclude VAT, added at the legal rate. Cancel whenever you like from the dashboard, with no minimum term."
+        }
     }
 }

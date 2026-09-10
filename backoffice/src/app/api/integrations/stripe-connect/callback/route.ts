@@ -3,19 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { isValidOAuthState } from "@/lib/oauth-state";
+import { resolveReturnPath, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
-
-const WIZARD_PATH = "/pt/integrations/stripe-connect-moloni";
-
-/** Back to the wizard with a message it can render, never a bare JSON error. */
-function backToWizard(status: string, detail?: string) {
-    const url = new URL(`${RIOKO_CONFIG.appUrl}${WIZARD_PATH}`);
-    url.searchParams.set("stripe", status);
-    if (detail) url.searchParams.set("detail", detail.slice(0, 200));
-    return NextResponse.redirect(url.toString(), 302);
-}
 
 /**
  * Step 2: Stripe sends the merchant back here with a one-time code.
@@ -26,6 +17,21 @@ function backToWizard(status: string, detail?: string) {
  */
 export async function GET(request: NextRequest) {
     if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });
+
+    // Two pages drive this flow: the dashboard wizard and the guided onboarding
+    // page a client is sent a link to. Which one is written on the connection row
+    // by the start route, so it is only known once the row has been read, and
+    // until then the wizard is the answer. Request-local on purpose: a module
+    // variable would leak one merchant's page into the next request's redirect.
+    let returnPath = resolveReturnPath(RETURN_SLUG_WIZARD, "pt");
+
+    /** Back to where they started, with a message it can render, never a bare JSON error. */
+    const backToWizard = (status: string, detail?: string) => {
+        const url = new URL(`${RIOKO_CONFIG.appUrl}${returnPath}`);
+        url.searchParams.set("stripe", status);
+        if (detail) url.searchParams.set("detail", detail.slice(0, 200));
+        return NextResponse.redirect(url.toString(), 302);
+    };
 
     const params = request.nextUrl.searchParams;
     const error = params.get("error");
@@ -50,6 +56,9 @@ export async function GET(request: NextRequest) {
         .first();
 
     if (!row) return backToWizard("error", "Ligação não encontrada. Recomece o passo do Stripe.");
+
+    const startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {};
+    returnPath = resolveReturnPath(startedOn.return_slug, startedOn.return_locale);
 
     // CSRF. Without this check anyone could hand a logged-in merchant a link that
     // attaches THEIR Stripe account to the merchant's Rioko connection.

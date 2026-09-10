@@ -2698,5 +2698,18 @@
             "body": "Payment happens on Stripe's secure page. The connection is already built: the subscription is what keeps it issuing.",
             "note": "Prices exclude VAT, added at the legal rate. Cancel whenever you like from the dashboard, with no minimum term."
         }
+    },
+    "onboardingSubscribe": {
+        "preparing": "Getting the secure payment form ready…",
+        "errorTitle": "The payment form could not be opened here.",
+        "openHosted": "Pay on Stripe's page",
+        "secure": "Payment is handled by Stripe, inside this page. Card details never reach Rioko.",
+        "confirmingTitle": "Payment received",
+        "confirmingBody": "Activating the subscription. This takes a few seconds.",
+        "doneTitle": "Subscription active",
+        "doneBody": "Everything is paid and connected. You can close this page.",
+        "failedTitle": "The payment was not completed",
+        "failedBody": "Nothing was charged. You can try again.",
+        "retry": "Try again"
     }
 }

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getStripeEnvOptional, getDB, primaryConnectionKey } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
 import { CONNECTION_KEY_TO_SOURCE, keyFromRequest } from "@/lib/subscription-key";
+import { RIOKO_CONFIG } from "@/lib/config";
+import { resolveReturnPath } from "@/lib/oauth-return";
 
 export const runtime = "edge";
 
@@ -30,9 +32,16 @@ export async function POST(req: NextRequest) {
 
         const body = (await req.json().catch(() => ({}))) as {
             plan?: "monthly" | "annual"; source?: string; connection_key?: string;
+            ui_mode?: string; return_slug?: string; locale?: string;
         };
         const plan = body.plan === "annual" ? "annual" : "monthly";
         const rawSource = body.source ?? "";
+
+        // The onboarding pages mount the form inside their own page instead of
+        // sending the merchant off to Stripe. Same session, same everything below
+        // it: only where the browser goes afterwards changes.
+        const embedded = body.ui_mode === "embedded";
+        const locale = body.locale === "en" ? "en" : "pt";
 
         const stripe = getStripe();
         const db = getDB();
@@ -150,6 +159,21 @@ export async function POST(req: NextRequest) {
         const cancelUrl  = paths ? `${appBaseUrl}${paths.cancel}` : getStripeEnv("CANCEL_REDIRECT_URL");
         const taxRateId = getStripeEnvOptional("STRIPE_TAX_RATE_ID");
 
+        // Where an embedded form sends the merchant once Stripe is done with them.
+        // Through the slug map, never a path from the request: a redirect target
+        // that arrives in a body and is obeyed is an open redirect.
+        const returnUrl = embedded
+            ? `${RIOKO_CONFIG.appUrl}${resolveReturnPath(body.return_slug, locale)}?stripe=return&session_id={CHECKOUT_SESSION_ID}`
+            : null;
+
+        // The company name is already on the account by the time anyone reaches
+        // the payment step, so it is offered filled in rather than asked again.
+        const profile: any = await db
+            .prepare("SELECT company_name, name FROM users WHERE id = ?")
+            .bind(targetUserId)
+            .first();
+        const companyDefault = String(profile?.company_name || profile?.name || "").slice(0, 255);
+
         const session = await stripe.checkout.sessions.create({
             mode: "subscription",
             line_items: [{
@@ -169,12 +193,32 @@ export async function POST(req: NextRequest) {
             ),
             billing_address_collection: "required",
             phone_number_collection: { enabled: true },
-            custom_fields: [{
-                key: "nif",
-                label: { type: "custom", custom: "NIF (opcional)" },
-                type: "text",
-                optional: true,
-            }],
+            // Stripe does not translate these labels, so the session carries the
+            // page's own language for everything around them.
+            locale,
+            custom_fields: [
+                {
+                    key: "company_name",
+                    label: { type: "custom", custom: locale === "en" ? "Company name" : "Nome da empresa" },
+                    type: "text",
+                    optional: true,
+                    // The SDK is v14, whose types describe the 2023-10 API; the
+                    // version this client pins (2025-01-27.acacia) does take a
+                    // default value. Same reason `apiVersion` is cast in lib/stripe.
+                    ...(companyDefault ? { text: { default_value: companyDefault } as any } : {}),
+                },
+                {
+                    // Nine digits, enforced in the form. It used to be free text, so
+                    // anything could be typed and the webhook quietly dropped what
+                    // did not match /^\d{9}$/ — the merchant never learned why their
+                    // invoice came out without a NIF.
+                    key: "nif",
+                    label: { type: "custom", custom: locale === "en" ? "Tax number (optional)" : "NIF (opcional)" },
+                    type: "numeric",
+                    numeric: { minimum_length: 9, maximum_length: 9 },
+                    optional: true,
+                },
+            ],
             subscription_data: {
                 metadata: {
                     app: "rioko",
@@ -192,10 +236,24 @@ export async function POST(req: NextRequest) {
                 early_bird: earlyBirdMeta,
                 connection_key: connectionKey,
             },
-            success_url: successUrl,
-            cancel_url: cancelUrl,
+            // Embedded forbids success_url/cancel_url and wants a return_url; the
+            // hosted flow is unchanged.
+            ...(embedded
+                ? { ui_mode: "embedded" as const, return_url: returnUrl! }
+                : { success_url: successUrl, cancel_url: cancelUrl }
+            ),
             allow_promotion_codes: true,
         });
+
+        if (embedded) {
+            return NextResponse.json({
+                client_secret: session.client_secret,
+                id: session.id,
+                // A publishable key is meant to reach the browser, and this saves a
+                // NEXT_PUBLIC_ variable that would have to be baked into the build.
+                publishable_key: getStripeEnvOptional("STRIPE_PUBLIC_KEY") ?? null,
+            });
+        }
 
         return NextResponse.json({ url: session.url, id: session.id });
     } catch (e: any) {

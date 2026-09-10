@@ -813,6 +813,92 @@ export class AppStorage {
     ).bind(JSON.stringify(emails), this.shopDomain).run();
   }
 
+  /**
+   * The same five settings, for a connection instead of a Shopify shop.
+   *
+   * `getTaxOverride` reads the legacy `integrations` row, which belongs to ONE
+   * integration. A merchant may run several at once — a Shopify shop at 0% and a
+   * Stripe connection at 23% is a normal, deliberate setup — so each connection
+   * keeps its own, in its own `destination_config_json`.
+   *
+   * Unset fields come back as the neutral defaults, NOT as the account's values:
+   * inheriting is exactly what this exists to stop.
+   */
+  async getConnectionTaxOverride(
+    userId: string,
+    sourceKind: string,
+    destinationKind: string,
+  ): Promise<{
+    force_tax_rate: number | null;
+    force_shipping_tax_rate: number | null;
+    oss_enabled: number;
+    b2b_reverse_charge: number;
+    ix_b2b_exemption_reason: string;
+  }> {
+    const neutral = {
+      force_tax_rate: null,
+      force_shipping_tax_rate: null,
+      oss_enabled: 0,
+      b2b_reverse_charge: 0,
+      ix_b2b_exemption_reason: "M16",
+    };
+    try {
+      const row: any = await this.db.prepare(
+        `SELECT destination_config_json FROM connections
+          WHERE user_id = ? AND source_kind = ? AND destination_kind = ? LIMIT 1`
+      ).bind(userId, sourceKind, destinationKind).first();
+      if (!row?.destination_config_json) return neutral;
+      const cfg = JSON.parse(row.destination_config_json);
+      const num = (v: unknown): number | null => {
+        const n = Number(v);
+        return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : n;
+      };
+      const bool = (v: unknown): number => (v === true || v === 1 ? 1 : 0);
+      return {
+        force_tax_rate: num(cfg.force_tax_rate),
+        force_shipping_tax_rate: num(cfg.force_shipping_tax_rate),
+        oss_enabled: bool(cfg.oss_enabled),
+        b2b_reverse_charge: bool(cfg.b2b_reverse_charge),
+        ix_b2b_exemption_reason: String(cfg.ix_b2b_exemption_reason ?? "M16"),
+      };
+    } catch (e) {
+      console.error("[Rioko] Failed to get connection tax override:", e);
+      return neutral;
+    }
+  }
+
+  /** Write those five onto the connection, leaving everything else in the blob alone. */
+  async setConnectionTaxOverride(
+    userId: string,
+    sourceKind: string,
+    destinationKind: string,
+    values: {
+      force_tax_rate: number | null;
+      force_shipping_tax_rate: number | null;
+      oss_enabled: boolean;
+      b2b_reverse_charge: boolean;
+      ix_b2b_exemption_reason: string;
+    },
+  ): Promise<boolean> {
+    // json_patch merges, so a settings save cannot wipe the credentials or the
+    // tokens sitting in the same blob — the mistake that once dropped a
+    // merchant's whole Moloni configuration on a single toggle.
+    const patch = JSON.stringify({
+      force_tax_rate: values.force_tax_rate,
+      force_shipping_tax_rate: values.force_shipping_tax_rate,
+      oss_enabled: values.oss_enabled,
+      b2b_reverse_charge: values.b2b_reverse_charge,
+      ix_b2b_exemption_reason: values.ix_b2b_exemption_reason,
+    });
+    const res: any = await this.db.prepare(
+      `UPDATE connections
+          SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
+              updated_at = ?
+        WHERE user_id = ? AND source_kind = ? AND destination_kind = ?`
+    ).bind(patch, new Date().toISOString(), userId, sourceKind, destinationKind).run();
+    return (res?.meta?.changes ?? 0) > 0;
+  }
+
   async getTaxOverride(): Promise<{
     force_tax_rate: number | null;
     force_shipping_tax_rate: number | null;

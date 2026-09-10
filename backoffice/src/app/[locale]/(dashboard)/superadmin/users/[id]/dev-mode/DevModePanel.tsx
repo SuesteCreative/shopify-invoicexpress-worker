@@ -203,10 +203,14 @@ export function DevModePanel({ target }: { target: Target }) {
                     {conn.destination === "invoicexpress" && (
                         <>
                             <LinkIxCard targetUserId={target.id} />
-                            <TaxOverrideCard targetUserId={target.id} />
                             <PendingReverseChargeCard targetUserId={target.id} />
                         </>
                     )}
+
+                    {/* Every destination: force_tax_rate is read by the Moloni and
+                        Vendus adapters too, so gating this on InvoiceXpress left a
+                        Moloni connection with no way to state its own rate at all. */}
+                    <TaxOverrideCard targetUserId={target.id} conn={conn} />
 
                     {cap.backfill && <BackfillCard targetUserId={target.id} conn={conn} cutoff={connCutoff} notifyEmails={notifyEmails} />}
                     {cap.reemit && <ReemitCard targetUserId={target.id} conn={conn} notifyEmails={notifyEmails} />}
@@ -592,7 +596,16 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
     );
 }
 
-function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
+/**
+ * Tax overrides for ONE integration.
+ *
+ * They used to be account-wide, written onto the legacy `integrations` row: a
+ * merchant running a Shopify shop and a Stripe connection had a single set of
+ * rates between them, and saving here rewrote both. A shop at 0% next to a
+ * Stripe connection at 23% is a normal, deliberate setup, so each connection now
+ * carries its own and the shop keeps its row.
+ */
+function TaxOverrideCard({ targetUserId, conn }: { targetUserId: string; conn: Connection | null }) {
     const t = useTranslations("devMode");
     const [rate, setRate] = useState<string>("");
     const [shippingRate, setShippingRate] = useState<string>("");
@@ -603,8 +616,17 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
 
+    // The IX-only switches are meaningless on a Moloni or Vendus connection —
+    // only the InvoiceXpress builder reads OSS and reverse charge — so they are
+    // hidden rather than shown as controls that do nothing.
+    const isIx = !conn || conn.destination === "invoicexpress";
+    const scope = conn && conn.source !== "shopify"
+        ? `&source_kind=${encodeURIComponent(conn.source)}&destination_kind=${encodeURIComponent(conn.destination)}`
+        : "";
+
     useEffect(() => {
-        fetch(`/api/admin/dev-mode/tax-override?targetUserId=${targetUserId}`)
+        setLoaded(false);
+        fetch(`/api/admin/dev-mode/tax-override?targetUserId=${targetUserId}${scope}`)
             .then(r => r.json())
             .then((d: any) => {
                 setRate(d.force_tax_rate != null ? String(d.force_tax_rate) : "");
@@ -615,7 +637,7 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                 setLoaded(true);
             })
             .catch(console.error);
-    }, [targetUserId]);
+    }, [targetUserId, scope]);
 
     const save = async () => {
         setSaving(true);
@@ -627,6 +649,9 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     targetUserId,
+                    ...(conn && conn.source !== "shopify"
+                        ? { source_kind: conn.source, destination_kind: conn.destination }
+                        : {}),
                     force_tax_rate: parsed,
                     force_shipping_tax_rate: parsedShipping,
                     oss_enabled: oss,
@@ -663,19 +688,19 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                         className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-white"
                     />
                 </label>
-                <label className="flex items-center gap-3 cursor-pointer pb-2">
+                {isIx && <label className="flex items-center gap-3 cursor-pointer pb-2">
                     <input type="checkbox" checked={oss} onChange={e => setOss(e.target.checked)} disabled={!loaded} className="accent-accent w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
                         {t("ossActive")}
                     </span>
-                </label>
+                </label>}
                 <button onClick={save} disabled={!loaded || saving}
                     className="bg-white text-black py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent hover:text-fg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                     {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedAt && Date.now() - savedAt < 2000 ? <CheckCircle2 className="w-3 h-3" /> : null}
                     {savedAt && Date.now() - savedAt < 2000 ? t("saved") : t("save")}
                 </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mt-2">
+            {isIx && <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mt-2">
                 <label className="flex items-center gap-3 cursor-pointer pb-2 md:col-span-2">
                     <input type="checkbox" checked={b2bReverseCharge} onChange={e => setB2bReverseCharge(e.target.checked)} disabled={!loaded} className="accent-accent w-4 h-4" />
                     <span className="text-xs font-bold text-fg">
@@ -711,7 +736,7 @@ function TaxOverrideCard({ targetUserId }: { targetUserId: string }) {
                         />
                     )}
                 </label>
-            </div>
+            </div>}
             <p className="text-[10px] text-fg-40 font-medium leading-relaxed">
                 <strong className="text-fg-40">{t("taxOverrideExplain1Title")}</strong> {t("taxOverrideExplain1")}<br />
                 <strong className="text-fg-40">{t("taxOverrideExplain2Title")}</strong> {t("taxOverrideExplain2")}<br />

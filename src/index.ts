@@ -2333,27 +2333,54 @@ app.post("/admin/stripe/finalize-drafts", async (c) => {
 })
 
 // Admin: get/set per-account tax override
+// Tax overrides are addressed EITHER by shop (the legacy Shopify integration,
+// whose settings live on the `integrations` row) OR by connection. A merchant may
+// run several integrations at once and each is a separate fiscal decision: a
+// Shopify shop at 0% next to a Stripe connection at 23% is a normal setup, and
+// one must never rewrite the other.
+function taxOverrideTarget(c: Context<{ Bindings: Env }>, body?: any):
+  | { kind: "shop"; shop: string }
+  | { kind: "connection"; userId: string; source: string; destination: string }
+  | null {
+  const q = (name: string) => body?.[name] ?? c.req.query(name);
+  const userId = q("user_id");
+  const source = q("source_kind");
+  const destination = q("destination_kind");
+  if (userId && source && destination && source !== "shopify") {
+    return { kind: "connection", userId: String(userId), source: String(source), destination: String(destination) };
+  }
+  const shop = q("shop");
+  return shop ? { kind: "shop", shop: String(shop) } : null;
+}
+
 app.get("/admin/tax-override", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
-  const shop = c.req.query("shop");
-  if (!shop) return c.json({ error: "Missing shop" }, 400);
-  const appStorage = new AppStorage(c.env, shop);
-  return c.json(await appStorage.getTaxOverride());
+  const target = taxOverrideTarget(c);
+  if (!target) return c.json({ error: "Missing shop or connection" }, 400);
+  const appStorage = new AppStorage(c.env);
+  if (target.kind === "connection") {
+    return c.json(await appStorage.getConnectionTaxOverride(target.userId, target.source, target.destination));
+  }
+  return c.json(await new AppStorage(c.env, target.shop).getTaxOverride());
 })
 
 app.put("/admin/tax-override", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
   const body = await c.req.json<{
-    shop: string;
+    shop?: string;
+    user_id?: string;
+    source_kind?: string;
+    destination_kind?: string;
     force_tax_rate: number | null;
     force_shipping_tax_rate: number | null;
     oss_enabled: boolean;
     b2b_reverse_charge?: boolean;
     ix_b2b_exemption_reason?: string;
   }>();
-  if (!body.shop) return c.json({ error: "Missing shop" }, 400);
+  const target = taxOverrideTarget(c, body);
+  if (!target) return c.json({ error: "Missing shop or connection" }, 400);
   const validate = (r: number | null | undefined, label: string) => {
     if (r != null && (typeof r !== "number" || r < 0 || r > 100)) {
       return c.json({ error: `${label} must be a number between 0 and 100, or null` }, 400);
@@ -2367,7 +2394,19 @@ app.put("/admin/tax-override", async (c) => {
   const reason = body.ix_b2b_exemption_reason && body.ix_b2b_exemption_reason.trim().length > 0
     ? body.ix_b2b_exemption_reason.trim().slice(0, 16)
     : "M16";
-  const appStorage = new AppStorage(c.env, body.shop);
+  if (target.kind === "connection") {
+    const store = new AppStorage(c.env);
+    const written = await store.setConnectionTaxOverride(target.userId, target.source, target.destination, {
+      force_tax_rate: body.force_tax_rate ?? null,
+      force_shipping_tax_rate: body.force_shipping_tax_rate ?? null,
+      oss_enabled: !!body.oss_enabled,
+      b2b_reverse_charge: !!body.b2b_reverse_charge,
+      ix_b2b_exemption_reason: reason,
+    });
+    if (!written) return c.json({ error: "Connection not found" }, 404);
+    return c.json(await store.getConnectionTaxOverride(target.userId, target.source, target.destination));
+  }
+  const appStorage = new AppStorage(c.env, target.shop);
   await appStorage.setTaxOverride(
     body.force_tax_rate ?? null,
     body.force_shipping_tax_rate ?? null,

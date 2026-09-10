@@ -210,6 +210,14 @@ export function projectConnectionBehaviour(
     if (!destinationConfig?.ix_exemption_reason && !destinationConfig?.exemption_reason) {
       c.ix_exemption_reason = null;
     }
+    // Same for the reverse-charge code. It only matters when b2b_reverse_charge
+    // is on, which is itself isolated above, but a connection that turns RC on
+    // must not silently borrow another integration's article.
+    if (typeof destinationConfig?.ix_b2b_exemption_reason === "string" && destinationConfig.ix_b2b_exemption_reason.trim()) {
+      c.ix_b2b_exemption_reason = destinationConfig.ix_b2b_exemption_reason.trim();
+    } else {
+      c.ix_b2b_exemption_reason = null;
+    }
   }
 
   if (!destinationConfig) return config;

@@ -118,6 +118,27 @@ function taxIdsToNoteAttributes(taxIds: any): any[] {
  * buyer's NIF and the sale's VAT quietly go missing. Restricted-key connections
  * pass nothing and produce byte-identical requests to the ones they always sent.
  */
+/**
+ * The line's description when the sale itself does not carry one.
+ *
+ * Every shape a Stripe sale arrives in — Checkout Session, PaymentIntent,
+ * Charge — used to fall back to ITS OWN id, with its own wording: "Stripe
+ * checkout cs_…", "Stripe payment pi_…", "Stripe charge ch_…". Whichever event
+ * happened to win the race decided what the merchant's customer read on the
+ * invoice, so two consecutive sales of the same thing could be described three
+ * different ways.
+ *
+ * The PaymentIntent is the one identifier every shape agrees on — it is already
+ * what `stripeStableId` deduplicates on and what the document reference carries
+ * — so it is what the line names too.
+ */
+function stripeLineTitle(explicit: unknown, paymentIntentId: unknown, fallbackId: unknown): string {
+  const own = typeof explicit === "string" ? explicit.trim() : "";
+  if (own) return own;
+  const pi = typeof paymentIntentId === "string" ? paymentIntentId.trim() : "";
+  return `Stripe payment ${pi || String(fallbackId ?? "")}`.trim();
+}
+
 function stripeApiHeaders(apiKey: string, stripeAccount?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Authorization": `Bearer ${apiKey}`,
@@ -385,7 +406,7 @@ export function stripeToNormalized(event: any): Normalized | null {
     const billingEmail = details.email ?? session.customer_email ?? "";
     const billingPhone = details.phone ?? "";
     const billingCompany = details.tax_exempt ? null : null; // Stripe doesn't surface company on customer_details; use Customer expand when needed.
-    const description = session.description || details.name || `Stripe checkout ${session.id}`;
+    const description = session.description || details.name || stripeLineTitle(null, session.payment_intent, session.id);
     // Dedup key: prefer the linked PI so this event and payment_intent.succeeded
     // hash to the same processed_orders row.
     const stableRef = session.payment_intent || session.id;
@@ -470,7 +491,7 @@ export function stripeToNormalized(event: any): Normalized | null {
     if (pi.status && pi.status !== "succeeded") return null;
 
     const amount = (pi.amount_received ?? pi.amount ?? 0) / 100;
-    const description = pi.description ?? `Stripe payment ${pi.id}`;
+    const description = stripeLineTitle(pi.description, pi.id, pi.id);
     const billingName = pi.shipping?.name ?? "";
     const customerStableId = stableCustomerId(pi.customer, pi.receipt_email, pi.id);
     return {
@@ -717,7 +738,7 @@ export function stripeToNormalized(event: any): Normalized | null {
         subtotal_calculated: (ch.amount ?? 0) / 100,
         tax: { name: "VAT", value: 0, unit_amount: 0 },
         discount: { name: "", percent: 0 },
-        title: ch.description ?? `Stripe charge ${ch.id}`,
+        title: stripeLineTitle(ch.description, ch.payment_intent, ch.id),
         variant_title: null,
         sku: ch.payment_intent ?? "",
         fulfilled: true,

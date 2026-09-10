@@ -2,7 +2,7 @@ import type { IRequestConfig } from "../storage";
 import type { Normalized } from "../api/normalize-shopify";
 import type { PostV2CreditNotesData, PostV2InvoicesData } from "../api/ix/client";
 import { validatePTNIF } from "./nif";
-import { isCrossBorderEU, EU_COUNTRIES } from "./eu-countries";
+import { isCrossBorderEU, EU_COUNTRIES, isPlausibleEuVatLength } from "./eu-countries";
 import { buildExemptionMention } from "./exemption-mentions";
 import type { ViesChecker } from "./vies";
 import { type ReconcileLine } from "../adapters/reconcile";
@@ -14,6 +14,36 @@ const IX_CLIENT_NAME_MAX = 100;
 
 /** Portuguese mobile ranges. Nine digits, same shape as a NIF — see inspectAddressTaxId. */
 const PT_MOBILE_PREFIX = /^9[1236]/;
+
+/**
+ * Field names that mean "this value is a tax id". Substring match on the
+ * whitespace-stripped, lower-cased attribute name: `vat` catches vat_id and
+ * vatnumber, `fiscal` catches fiscal_id, `tax` catches tax_id and taxnumber.
+ * The rest are acronyms that are not substrings of anything else.
+ *
+ * This list is what separates a value a buyer typed into a NIF field from
+ * every other key an app happens to attach. On a Stripe payment the
+ * note_attributes ARE the whole metadata bag (see metadataToNoteAttributes in
+ * stripe-source.ts), so reading them unfiltered means reading analytics
+ * telemetry as fiscal identity — which is exactly how a Google Analytics
+ * client id became `FR1428932220` on a real document (WHM, 10/09/2026).
+ */
+const TAX_ID_FIELD_KEYWORDS = [
+  "nif", "vat", "contribuinte", "fiscal", "tax", "tin",
+  "iva",   // Italian / Spanish VAT
+  "tva",   // French / Belgian / Luxembourgish VAT
+  "ust",   // German Umsatzsteuer
+  "mwst",  // Mehrwertsteuer (DE/AT/CH VAT)
+  "ein",   // US Employer Identification Number
+  "cif",   // Spanish company tax ID
+] as const;
+
+/** Whether a note_attribute's NAME claims the value is a tax id. */
+function isTaxIdFieldName(name: unknown): boolean {
+  const n = String(name ?? "").toLowerCase().replace(/\s+/g, "");
+  if (!n) return false;
+  return TAX_ID_FIELD_KEYWORDS.some((k) => n.includes(k));
+}
 
 /** Outcome of reading a tax id out of an address line 2. See `inspectAddressTaxId`. */
 export type Address2TaxId =
@@ -1026,20 +1056,10 @@ export class IxBuilder {
     // matches tax_id/taxnumber/taxid. The extras below cover non-substring acronyms
     // used in other EU countries and globally.
     if (order.note_attributes && Array.isArray(order.note_attributes)) {
-      const keywords = [
-        "nif", "vat", "contribuinte", "fiscal", "tax", "tin",
-        "iva",   // Italian / Spanish VAT
-        "tva",   // French / Belgian / Luxembourgish VAT
-        "ust",   // German Umsatzsteuer
-        "mwst",  // Mehrwertsteuer (DE/AT/CH VAT)
-        "ein",   // US Employer Identification Number
-        "cif",   // Spanish company tax ID
-      ];
       for (const attr of order.note_attributes) {
         if (!attr || attr.value == null) continue;
-        const name = String(attr.name ?? "").toLowerCase().replace(/\s+/g, "");
         const value = String(attr.value);
-        const nameMatches = keywords.some(k => name.includes(k));
+        const nameMatches = isTaxIdFieldName(attr.name);
         if (nameMatches) {
           const clean = value.replace(/\D/g, "");
           if (clean.length >= 9) { candidates.push(clean.slice(-9)); labeled.push(clean.slice(-9)); }
@@ -1160,6 +1180,15 @@ export class IxBuilder {
       // buyer whose company field held a checksum-failing 9-digit number came
       // out as "PT131262550" on the invoice.
       if (ccU === "PT" && !validatePTNIF(num.replace(/\D/g, ""))) return;
+      // The number must be the right length for the country it is being filed
+      // under. Every branch below combines a number with a country from a
+      // DIFFERENT source — a bare number with the billing country, a PT-shaped
+      // nine-digit id with a foreign one — and this is the only place that pair
+      // is checked for coherence. It catches two distinct fabrications seen on
+      // WHM (10/09/2026): a ten-digit analytics id read as a French VAT number,
+      // and extractAndValidateNIF's `slice(-9)` turning a real eleven-character
+      // number into a nine-digit one that was never anybody's tax id.
+      if (!isPlausibleEuVatLength(ccU, num)) return;
       const key = `${ccU}:${num}`;
       if (seen.has(key)) return;
       seen.add(key);
@@ -1195,15 +1224,25 @@ export class IxBuilder {
     }
 
     // Bare-format VAT/NIF/DNI/CIF (no country prefix) combined with the
-    // billing country. Restricted to fields where merchants typically jot
-    // foreign tax IDs (company, note_attributes) — NOT note/address2 which
-    // tend to contain phone fragments and other noise.
+    // billing country.
+    //
+    // A number with no country prefix carries nothing that says it is a tax id
+    // — the FIELD it sits in is the only evidence. So only two kinds of field
+    // qualify: the company name, and a note_attribute whose NAME claims to be
+    // a tax id. Reading every note_attribute value regardless of its name is
+    // what turned `google_analytics_client: "1428932220.1788599389"` into the
+    // buyer's VAT number on document 269830299 (WHM, 10/09/2026): on a Stripe
+    // payment the note_attributes are the entire metadata bag, so "a field
+    // merchants jot tax ids in" described every key the store's software
+    // writes, telemetry included.
     if (buyerCC) {
       const bareSources: string[] = [];
       if (order.billing_address?.company) bareSources.push(String(order.billing_address.company));
       if (order.note_attributes && Array.isArray(order.note_attributes)) {
         for (const a of order.note_attributes) {
-          if (a?.value != null) bareSources.push(String(a.value));
+          if (a?.value == null) continue;
+          if (!isTaxIdFieldName(a.name)) continue;
+          bareSources.push(String(a.value));
         }
       }
       // ES DNI 8d+L, ES NIE L+7d+L, ES CIF L+7d+char, FR/IT 11d, DE/NL 9d.
@@ -1212,7 +1251,13 @@ export class IxBuilder {
         const up = s.toUpperCase();
         for (const m of up.matchAll(BARE_RE)) {
           const v = m[1];
-          if (/[A-Z]/.test(v) || v.length >= 9) push(buyerCC, v);
+          if (!/[A-Z]/.test(v) && v.length < 9) continue;
+          // Second, independent guard: the number must be the right length for
+          // THIS buyer's country. A ten-digit id is a plausible PL or RO VAT
+          // number and is not a French one, and combining a bare number with
+          // the billing country is precisely where that distinction is lost.
+          if (!isPlausibleEuVatLength(buyerCC, v)) continue;
+          push(buyerCC, v);
         }
       }
     }

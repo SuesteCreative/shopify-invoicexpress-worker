@@ -225,16 +225,26 @@ export async function PATCH(request: NextRequest) {
 
     // Merge, never replace: the blob holds credentials and keys no UI
     // round-trips, and a partial save must not erase what it cannot see.
+    //
+    // The merge happens in SQL, not here. Parsing the blob and writing the whole
+    // thing back would overwrite anything that changed in between — a Moloni
+    // token rotation, most of all, which would kill the connection an hour later
+    // with nothing in the logs. `existing` is read only to decide what actually
+    // changed and to record the old value in the audit trail.
+    //
+    // json_patch is RFC 7396, so a null in the patch DELETES the key rather than
+    // storing a null. For these fiscal fields that is the same thing to every
+    // reader, and it is the tidier of the two.
     let existing: Record<string, unknown> = {};
     try { existing = row.destination_config_json ? JSON.parse(row.destination_config_json) : {}; } catch { existing = {}; }
 
-    const merged = { ...existing };
+    const patch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(body.patch)) {
       const next = key === "custom_invoice_note" && typeof value === "string"
         ? value.slice(0, MAX_CUSTOM_NOTE_CHARS)
         : value;
       if (next === existing[key]) continue;
-      merged[key] = next;
+      patch[key] = next;
       await auditConfigChange(db, {
         userId: targetUserId, actor: userId,
         scope: `connection:${source_kind}->${destination_kind}`,
@@ -243,9 +253,13 @@ export async function PATCH(request: NextRequest) {
     }
 
     await db.prepare(
-      `UPDATE connections SET destination_config_json = ?, updated_at = CURRENT_TIMESTAMP
+      `UPDATE connections
+          SET destination_config_json = json_patch(
+                CASE WHEN json_valid(destination_config_json)
+                     THEN destination_config_json ELSE '{}' END, ?),
+              updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ? AND source_kind = ? AND destination_kind = ?`,
-    ).bind(JSON.stringify(merged), targetUserId, source_kind, destination_kind).run();
+    ).bind(JSON.stringify(patch), targetUserId, source_kind, destination_kind).run();
 
     return NextResponse.json({ success: true });
   }

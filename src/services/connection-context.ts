@@ -467,3 +467,23 @@ export async function listUserConnections(env: Env, userId: string): Promise<Con
   }
   return out;
 }
+/**
+ * Project a connection's own "email the document to the buyer" preference onto
+ * the legacy config the pipeline reads.
+ *
+ * `ix_send_email` lives on the legacy `integrations` row, which only exists for
+ * clients who came in through Shopify→IX. A Moloni- or Vendus-only client has
+ * no such row, so the synthesized fallback pinned the flag to 0 and no toggle
+ * could ever turn it on. Their setting lives on the connection instead, next to
+ * `auto_finalize`, and the connection must win for its own traffic: one user can
+ * run a Shopify→IX shop that mails buyers and a Stripe→Moloni flow that does not.
+ *
+ * Absent key ⇒ leave the legacy value alone, so existing shops are unaffected.
+ */
+export function applyConnectionEmailPref(legacy: any, destinationConfig?: Record<string, any>): any {
+  if (destinationConfig && typeof destinationConfig.send_email === "boolean") {
+    legacy.ix_send_email = destinationConfig.send_email ? 1 : 0;
+  }
+  return legacy;
+}
+

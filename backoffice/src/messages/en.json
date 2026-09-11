@@ -2649,6 +2649,89 @@
         "driftsHelp": "Documents that came back different from what was sent, and the ones the destination refused outright. A drift is a verdict; a lead is unconfirmed until checked.",
         "noDrifts": "No drifts or refusals in the last 7 days."
     },
+    "connectIxOnboarding": {
+        "meta": {
+            "title": "Stripe and InvoiceXpress onboarding | Rioko",
+            "description": "Connect Stripe to InvoiceXpress in six steps: account, company details, Stripe authorisation, InvoiceXpress key, invoicing settings and subscription."
+        },
+        "eyebrow": "Guided set-up",
+        "title": "Onboarding Stripe - InvoiceXpress",
+        "subtitle": "Six steps, once only. Stripe is authorised in one click; InvoiceXpress is connected with an API key you create in your own account and revoke whenever you like.",
+        "trust1": "Read-only access to Stripe",
+        "trust2": "An API key you can revoke",
+        "trust3": "No password of yours kept by us",
+        "progress": "Step {current} of {total}",
+        "allDone": "All done",
+        "statusDone": "Done",
+        "statusNow": "Up next",
+        "statusLocked": "Locked",
+        "continue": "Continue",
+        "privacy": "Privacy",
+        "terms": "Terms",
+        "help": {
+            "body": "Stuck on a step? Reply to the email you were sent, or write to"
+        },
+        "finished": {
+            "title": "Everything is connected",
+            "body": "From now on your Stripe sales produce documents in InvoiceXpress. The dashboard follows each one, and it is also where your own service invoices live.",
+            "cta": "Open the dashboard"
+        },
+        "account": {
+            "title": "Create your account",
+            "desc": "Email and password, or your Google account",
+            "body": "The account is yours: it is where you see the connection, the documents issued and your service invoices. Once it exists we bring you back to this page, on the next step.",
+            "create": "Create account",
+            "haveAccount": "Already have an account?",
+            "signIn": "Sign in",
+            "signedInAs": "Signed in as {email}",
+            "signedInBody": "You are in. Carry on to the company details.",
+            "signOut": "Sign out and use another email"
+        },
+        "company": {
+            "title": "Company details",
+            "desc": "Who holds the account",
+            "body": "These are for your Rioko account and for your service invoices. Whoever buys from your shop is identified by what Stripe collects at payment, not by these.",
+            "privacyLink": "Privacy Policy",
+            "update": "Save changes"
+        },
+        "stripe": {
+            "title": "Connect Stripe",
+            "desc": "One click, on Stripe's own page",
+            "connectWith": "Connect with"
+        },
+        "ix": {
+            "title": "Connect InvoiceXpress",
+            "desc": "Account name and API key, verified on the spot",
+            "continueTo": "Continue to InvoiceXpress",
+            "introTitle": "The key is created by you, inside your own InvoiceXpress account",
+            "step1": "Open InvoiceXpress with the button below and sign in there, on InvoiceXpress's own page.",
+            "step2": "Under Account, find the API key and copy it.",
+            "step3": "Paste it here along with the account name. We check the key against InvoiceXpress before moving on.",
+            "accountHint": "It is your account subdomain: in company-name.app.invoicexpress.com, type company-name. Paste the whole address and we trim the rest.",
+            "apiKeyHint": "The key is stored encrypted and used only to issue your documents. You can revoke it in InvoiceXpress at any time.",
+            "openIx": "Open InvoiceXpress",
+            "save": "Save and verify",
+            "verified": "Key verified",
+            "verifiedBody": "InvoiceXpress answered with this key. You can carry on to the settings.",
+            "verifyFailed": "InvoiceXpress did not accept these details. Check the account name and the key, then try again."
+        },
+        "settings": {
+            "title": "Invoicing settings",
+            "desc": "Series, document type, VAT and exemption",
+            "continueTo": "Continue to the settings",
+            "body": "All of this can be changed later in the dashboard. With Auto Finalize off, documents stay as drafts in InvoiceXpress so you can review them before they are issued.",
+            "sequenceHint": "Leave empty to use whichever series the account already has set.",
+            "documentTypeHint": "An invoice-receipt is the one to use when the payment is already in, which is the case for everything that goes through Stripe.",
+            "exemptionHint": "Only used on 0% lines. If in doubt leave M01 and we will correct it with you later.",
+            "finish": "Finish the connection"
+        },
+        "subscribe": {
+            "title": "Subscribe",
+            "desc": "7.50 € per month, or 75 € per year",
+            "body": "Payment happens on Stripe's secure page. The connection is already built: the subscription is what keeps it issuing.",
+            "note": "Prices exclude VAT, added at the legal rate. Cancel whenever you like from the dashboard, with no minimum term."
+        }
+    },
     "connectOnboarding": {
         "meta": {
             "title": "Stripe and Moloni onboarding | Rioko",

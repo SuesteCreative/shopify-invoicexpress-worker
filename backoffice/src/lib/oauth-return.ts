@@ -16,11 +16,13 @@
 export const RETURN_SLUG_WIZARD = "wizard";
 export const RETURN_SLUG_WIZARD_IX = "wizard-ix";
 export const RETURN_SLUG_ONBOARDING_CONNECT_MOLONI = "onboarding-stripe-connect-moloni";
+export const RETURN_SLUG_ONBOARDING_CONNECT_IX = "onboarding-stripe-connect-ix";
 
 const RETURN_PATHS: Record<string, string> = {
     [RETURN_SLUG_WIZARD]: "/integrations/stripe-connect-moloni",
     [RETURN_SLUG_WIZARD_IX]: "/integrations/stripe-connect-ix",
     [RETURN_SLUG_ONBOARDING_CONNECT_MOLONI]: "/onboarding/stripe-connect-moloni",
+    [RETURN_SLUG_ONBOARDING_CONNECT_IX]: "/onboarding/stripe-connect-ix",
 };
 
 /** The slug as it may be stored, or undefined when it is not one we know. */

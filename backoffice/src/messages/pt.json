@@ -2649,6 +2649,89 @@
         "driftsHelp": "Documentos que voltaram diferentes do que foi enviado, e aqueles que o destino recusou de todo. Uma divergência é um veredicto; uma pista fica por confirmar até ser verificada.",
         "noDrifts": "Sem divergências nem recusas nos últimos 7 dias."
     },
+    "connectIxOnboarding": {
+        "meta": {
+            "title": "Onboarding Stripe e InvoiceXpress | Rioko",
+            "description": "Ligue o Stripe ao InvoiceXpress em seis passos: conta, dados da empresa, autorização do Stripe, chave do InvoiceXpress, definições de facturação e subscrição."
+        },
+        "eyebrow": "Ligação guiada",
+        "title": "Onboarding Stripe - InvoiceXpress",
+        "subtitle": "Seis passos, uma vez só. O Stripe autoriza-se com um clique; o InvoiceXpress liga-se com uma chave de API que cria na sua conta e revoga quando quiser.",
+        "trust1": "Acesso só de leitura ao Stripe",
+        "trust2": "Chave de API que revoga quando quiser",
+        "trust3": "Nenhuma password sua guardada por nós",
+        "progress": "Passo {current} de {total}",
+        "allDone": "Tudo pronto",
+        "statusDone": "Concluído",
+        "statusNow": "A fazer agora",
+        "statusLocked": "Por desbloquear",
+        "continue": "Continuar",
+        "privacy": "Privacidade",
+        "terms": "Termos",
+        "help": {
+            "body": "Alguma dúvida num dos passos? Responda ao email que recebeu, ou escreva para"
+        },
+        "finished": {
+            "title": "Está tudo ligado",
+            "body": "As próximas vendas no Stripe passam a dar origem a documentos no InvoiceXpress. No painel acompanha cada um, e é lá que ficam também as facturas do serviço.",
+            "cta": "Abrir o painel"
+        },
+        "account": {
+            "title": "Criar a sua conta",
+            "desc": "Email e password, ou a sua conta Google",
+            "body": "A conta é sua: é onde vê a ligação, os documentos emitidos e as facturas do serviço. Depois de a criar, voltamos a esta página no passo seguinte.",
+            "create": "Criar conta",
+            "haveAccount": "Já tem conta?",
+            "signIn": "Entrar",
+            "signedInAs": "Sessão iniciada como {email}",
+            "signedInBody": "Está dentro. Pode avançar para os dados da empresa.",
+            "signOut": "Sair e usar outro email"
+        },
+        "company": {
+            "title": "Dados da empresa",
+            "desc": "Quem é o titular da conta",
+            "body": "Servem para a sua conta Rioko e para as facturas do serviço. Quem compra na sua loja é identificado pelos dados que o Stripe recolhe no pagamento, não por estes.",
+            "privacyLink": "Política de Privacidade",
+            "update": "Gravar alterações"
+        },
+        "stripe": {
+            "title": "Ligar o Stripe",
+            "desc": "Um clique, na página do próprio Stripe",
+            "connectWith": "Ligar com o"
+        },
+        "ix": {
+            "title": "Ligar o InvoiceXpress",
+            "desc": "Nome da conta e chave de API, verificados na hora",
+            "continueTo": "Continuar para o InvoiceXpress",
+            "introTitle": "A chave é criada por si, dentro da sua conta InvoiceXpress",
+            "step1": "Abra o InvoiceXpress no botão abaixo e entre com os seus dados, na página do próprio InvoiceXpress.",
+            "step2": "Em Conta, procure a Chave API e copie-a.",
+            "step3": "Cole-a aqui com o nome da conta. Verificamos a chave contra o InvoiceXpress antes de seguir em frente.",
+            "accountHint": "É o subdomínio da sua conta: em nome-da-empresa.app.invoicexpress.com, escreva nome-da-empresa. Se colar o endereço completo, tiramos o resto.",
+            "apiKeyHint": "A chave fica guardada cifrada e usa-se só para emitir os seus documentos. Pode revogá-la no InvoiceXpress a qualquer momento.",
+            "openIx": "Abrir o InvoiceXpress",
+            "save": "Gravar e verificar",
+            "verified": "Chave verificada",
+            "verifiedBody": "O InvoiceXpress respondeu com esta chave. Pode avançar para as definições.",
+            "verifyFailed": "O InvoiceXpress não aceitou estes dados. Confirme o nome da conta e a chave, e tente outra vez."
+        },
+        "settings": {
+            "title": "Definições de facturação",
+            "desc": "Série, tipo de documento, IVA e isenção",
+            "continueTo": "Continuar para as definições",
+            "body": "Pode mudar tudo isto mais tarde no painel. Com o Auto Finalizar desligado, os documentos ficam em rascunho no InvoiceXpress para os rever antes de emitir.",
+            "sequenceHint": "Deixe vazio para usar a série que a conta já tem por defeito.",
+            "documentTypeHint": "A factura-recibo serve quando o pagamento já entrou, que é o caso de tudo o que passa pelo Stripe.",
+            "exemptionHint": "Só se usa nas linhas a 0%. Na dúvida, deixe M01 e corrigimos consigo mais tarde.",
+            "finish": "Concluir a ligação"
+        },
+        "subscribe": {
+            "title": "Subscrever",
+            "desc": "7,50 € por mês, ou 75 € por ano",
+            "body": "O pagamento acontece na página segura do Stripe. A ligação já está feita: a subscrição é o que a mantém a emitir.",
+            "note": "Preços sem IVA, acrescido à taxa legal. Cancela quando quiser no painel, sem período mínimo."
+        }
+    },
     "connectOnboarding": {
         "meta": {
             "title": "Onboarding Stripe e Moloni | Rioko",

@@ -26,6 +26,7 @@ interface Line {
     price_id: string | null;
     monthly_cents: number;
     price_legacy: boolean;
+    price_legacy_source: string;
     price_amount_cents: number | null;
     price_interval: string | null;
     current_period_end: string | null;
@@ -455,7 +456,7 @@ export function FinancePanel() {
                                                         {l.price_legacy && (
                                                             <span
                                                                 className="ml-2 text-soon"
-                                                                title={`Preço já não vendido: ${l.price_amount_cents != null ? eur(l.price_amount_cents) : "?"}${l.price_interval ? `/${l.price_interval === "year" ? "ano" : "mês"}` : ""}`}
+                                                                title={`Plano antigo${l.price_amount_cents != null ? `: ${eur(l.price_amount_cents)}${l.price_interval ? `/${l.price_interval === "year" ? "ano" : "mês"}` : ""}` : ""}${l.price_legacy_source === "override" ? " — definido à mão" : ""}`}
                                                             >
                                                                 preço legado
                                                             </span>

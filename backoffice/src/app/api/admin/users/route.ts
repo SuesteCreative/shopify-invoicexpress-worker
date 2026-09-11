@@ -5,7 +5,7 @@ import { isAdmin, getRole, getImpersonationId } from "@/lib/admin";
 import { subscriptionUIState } from "@/lib/stripe";
 import { accountLabel } from "@/lib/labels";
 import { priceBook } from "@/lib/price-book";
-import { currentPriceCents, sunsetAt, tierOf } from "@/lib/billing-legacy";
+import { currentPriceCents, sunsetAt, resolveTier } from "@/lib/billing-legacy";
 
 export const runtime = "edge";
 
@@ -32,6 +32,8 @@ interface SubRow {
     trial_end: string | null;
     current_period_end: string | null;
     early_bird: number | null;
+    /** Migration 0054. NULL means nobody answered and the price decides. */
+    legacy_price: number | null;
     stripe_subscription_id: string | null;
     /** A price id or a lookup key; the price book is indexed by both. */
     price_id: string | null;
@@ -125,7 +127,7 @@ export async function GET(request: NextRequest) {
 
         const subRows = await db.prepare(
             `SELECT user_id, connection_key, status, plan, trial_end, current_period_end,
-                    early_bird, stripe_subscription_id, price_id
+                    early_bird, stripe_subscription_id, price_id, legacy_price
              FROM subscriptions`
         ).all();
 
@@ -197,7 +199,9 @@ export async function GET(request: NextRequest) {
                 // ends for it. A client who signed up at 5 € stays at 5 € until
                 // the subscription they bought runs out.
                 const price = sub?.price_id ? prices.get(sub.price_id) : null;
-                const tier = tierOf(price);
+                // The operator's toggle beats the price, which beats nothing else
+                // here: this page lists the fleet and does not re-read invoices.
+                const tier = resolveTier({ override: sub?.legacy_price ?? null, price }).tier;
                 const interval = price?.recurring?.interval
                     ?? (sub?.plan === "annual" ? "year" : sub?.plan === "monthly" ? "month" : null);
 
@@ -211,6 +215,8 @@ export async function GET(request: NextRequest) {
                     sub_stripe_id: sub?.stripe_subscription_id ?? null,
                     sub_inherited: inherited,
                     sub_state,
+                    // Which plan they are on, so a card says it without anyone
+                    // opening dev mode to find out. See lib/billing-legacy.
                     sub_tier: tier,
                     sub_unit_amount_cents: price?.unit_amount ?? null,
                     sub_interval: interval,

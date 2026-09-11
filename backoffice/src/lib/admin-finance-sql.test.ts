@@ -34,9 +34,11 @@ function db() {
             user_id TEXT, connection_key TEXT, status TEXT, plan TEXT, price_id TEXT,
             current_period_end TEXT, trial_end TEXT, early_bird INTEGER,
             stripe_subscription_id TEXT, cancel_at_period_end INTEGER,
-            -- Migration 0052: the fixed end date a legacy monthly is given, and
-            -- which notice about it has already gone out.
-            cancel_at TEXT, legacy_notice_sent_for TEXT
+            -- The fixed end date a legacy monthly is given, and which notice
+            -- about it has already gone out.
+            cancel_at TEXT, legacy_notice_sent_for TEXT,
+            -- And whether an operator said which plan this is, overriding both.
+            legacy_price INTEGER
         );
         CREATE TABLE account_seats (id TEXT PRIMARY KEY, account_id TEXT, amount_cents INTEGER, created_at TEXT);
     `);

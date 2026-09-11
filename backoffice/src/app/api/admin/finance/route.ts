@@ -6,6 +6,7 @@ import { accountLabel } from "@/lib/labels";
 import { subscriptionUIState } from "@/lib/stripe";
 import { priceBook } from "@/lib/price-book";
 import { REVENUE_BY_MONTH } from "@/lib/admin-stats-sql";
+import { resolveTier } from "@/lib/billing-legacy";
 import {
     PAYMENTS_BY_ACCOUNT, REFUNDS_BY_ACCOUNT, SUBSCRIPTION_LINES,
     TRIALS_ENDING, OUTSTANDING_PAYMENTS, SETTLED_AFTER_FAILURE,
@@ -100,6 +101,7 @@ export async function GET() {
             // A trial with no Stripe subscription behind it is free access, not
             // revenue, however alive it looks in the table.
             const price = s.price_id ? prices.get(s.price_id) : null;
+            const legacy = resolveTier({ override: s.legacy_price ?? null, price });
             const billing = state === "active" || (state === "trialing" && !!s.stripe_subscription_id);
             const monthly = billing ? Math.round(monthlyCents(price)) : 0;
             if (billing && s.price_id && !price) {

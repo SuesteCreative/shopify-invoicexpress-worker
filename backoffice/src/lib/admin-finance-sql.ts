@@ -44,7 +44,7 @@ export const REFUNDS_BY_ACCOUNT = `
  */
 export const SUBSCRIPTION_LINES = `
   SELECT s.user_id, s.connection_key, s.status, s.plan, s.price_id,
-         s.current_period_end, s.trial_end, s.early_bird,
+         s.current_period_end, s.trial_end, s.early_bird, s.legacy_price,
          s.stripe_subscription_id, s.cancel_at_period_end, s.cancel_at,
          u.email, u.name, u.company_name, u.admin_label,
          COALESCE(u.role, 'user') AS role,

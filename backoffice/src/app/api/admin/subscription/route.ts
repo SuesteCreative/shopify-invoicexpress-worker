@@ -2,7 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/stripe";
 import { isAdmin } from "@/lib/admin";
-import { primaryConnectionKey, listSubscriptions } from "@/lib/stripe";
+import { primaryConnectionKey, listSubscriptions, getStripe } from "@/lib/stripe";
+import { resolveTier } from "@/lib/billing-legacy";
 import { keyFromRequest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
@@ -25,6 +26,9 @@ export async function POST(req: NextRequest) {
             early_bird?: boolean;
             trial_end?: string | null;
             connection_key?: string;
+            /** true/false is a deliberate answer from an operator; null clears
+             *  it and lets the price decide again (migration 0054). */
+            legacy_price?: boolean | null;
         };
         const targetUserId = body.user_id;
         if (!targetUserId) return NextResponse.json({ error: "user_id required" }, { status: 400 });
@@ -53,6 +57,16 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // Absent means "leave it alone", not "clear it" — hence the COALESCE on
+        // the update below. This endpoint is also how trial dates are saved, and
+        // a form that does not carry the toggle must not silently reset it.
+        //
+        // NULL in the column means nobody has answered and the price decides;
+        // 0 and 1 are an operator's answer and win. See lib/billing-legacy.
+        const legacyPrice = body.legacy_price === true ? 1
+            : body.legacy_price === false ? 0
+            : null;
+
         const db = getDB();
 
         // Which connection the grant is for (0044). Unnamed, it lands on the
@@ -71,28 +85,31 @@ export async function POST(req: NextRequest) {
         if (existing) {
             await db.prepare(`
                 UPDATE subscriptions
-                SET early_bird = ?, trial_end = ?, admin_override_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                SET early_bird = ?, trial_end = ?, legacy_price = COALESCE(?, legacy_price),
+                    admin_override_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ? AND connection_key = ?
             `).bind(
                 body.early_bird ? 1 : 0,
                 trialEndIso,
+                legacyPrice,
                 targetUserId,
                 connectionKey,
             ).run();
         } else {
             await db.prepare(`
-                INSERT INTO subscriptions (user_id, connection_key, status, trial_end, early_bird, admin_override_at, created_at, updated_at)
-                VALUES (?, ?, 'trialing', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO subscriptions (user_id, connection_key, status, trial_end, early_bird, legacy_price, admin_override_at, created_at, updated_at)
+                VALUES (?, ?, 'trialing', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             `).bind(
                 targetUserId,
                 connectionKey,
                 trialEndIso,
                 body.early_bird ? 1 : 0,
+                legacyPrice,
             ).run();
         }
 
         const updated: any = await db.prepare(
-            "SELECT user_id, connection_key, status, trial_end, early_bird, stripe_subscription_id, admin_override_at FROM subscriptions WHERE user_id = ? AND connection_key = ?"
+            "SELECT user_id, connection_key, status, trial_end, early_bird, legacy_price, stripe_subscription_id, admin_override_at FROM subscriptions WHERE user_id = ? AND connection_key = ?"
         ).bind(targetUserId, connectionKey).first();
 
         return NextResponse.json({ success: true, subscription: updated });
@@ -100,6 +117,37 @@ export async function POST(req: NextRequest) {
         console.error("[admin/subscription] error", e);
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
+}
+
+/**
+ * Which plan this account is on, from whichever source can answer.
+ *
+ * The Stripe price is asked for only when the column has not been set by hand,
+ * because a deliberate answer beats it anyway and this runs on a page an
+ * operator opens per client.
+ */
+async function resolveLegacyForUser(db: D1Database, userId: string, sub: any) {
+    const override = sub?.legacy_price ?? null;
+    if (override === 1 || override === 0) return resolveTier({ override });
+
+    let price: any = null;
+    if (sub?.price_id) {
+        try {
+            price = await getStripe().prices.retrieve(sub.price_id);
+        } catch {
+            // Stripe unreachable, or a lookup key stored where an id belongs —
+            // both land on the paid-amount fallback below.
+        }
+    }
+
+    // Gross, and the most recent one: a plan change shows up here first.
+    const paid: any = await db.prepare(
+        `SELECT amount_cents FROM billing_events
+          WHERE user_id = ? AND type = 'invoice.paid' AND amount_cents > 0
+          ORDER BY created_at DESC LIMIT 1`
+    ).bind(userId).first().catch(() => null);
+
+    return resolveTier({ override, price, paidGrossCents: paid?.amount_cents ?? null });
 }
 
 export async function GET(req: NextRequest) {
@@ -117,7 +165,14 @@ export async function GET(req: NextRequest) {
         // nothing pays for — which is the state this whole change makes visible.
         const subs = await listSubscriptions(db, targetUserId);
 
-        return NextResponse.json({ subscription: subs[0] ?? null, subscriptions: subs });
+        return NextResponse.json({
+            subscription: subs[0] ?? null,
+            subscriptions: subs,
+            // The resolved answer, not just the raw column: the toggle shows
+            // what the fleet currently believes, and `source` is what stops a
+            // derivation being read as somebody's decision.
+            legacy: await resolveLegacyForUser(db, targetUserId, subs[0] ?? null),
+        });
     } catch (e: any) {
         console.error("[admin/subscription GET] error", e);
         return NextResponse.json({ error: e.message }, { status: 500 });

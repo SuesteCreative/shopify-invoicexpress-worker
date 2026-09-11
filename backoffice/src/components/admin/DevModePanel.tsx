@@ -437,6 +437,10 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
     const [sub, setSub] = useState<any>(null);
     const [earlyBird, setEarlyBird] = useState(false);
     const [trialEnd, setTrialEnd] = useState<string>("");
+    /** The old plan: 5 €/month or 50 €/year, against today's 7,50 € and 75 €.
+     *  Off by default; on is a deliberate answer that beats what the price says. */
+    const [legacyPrice, setLegacyPrice] = useState(false);
+    const [legacySource, setLegacySource] = useState<string>("unknown");
     const [loaded, setLoaded] = useState(false);
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -452,6 +456,8 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                     setSub(d.subscription);
                     setEarlyBird(d.subscription.early_bird === 1);
                     setTrialEnd(d.subscription.trial_end ? d.subscription.trial_end.split("T")[0] : "");
+                    setLegacyPrice(!!d.legacy?.legacy);
+                    setLegacySource(d.legacy?.source ?? "unknown");
                 } else {
                     setEarlyBird(false);
                     // A default is a suggestion, and this one used to be the date
@@ -492,7 +498,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
             const res = await fetch("/api/admin/subscription", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user_id: targetUserId, early_bird: earlyBird, trial_end: trialEndIso }),
+                body: JSON.stringify({ user_id: targetUserId, early_bird: earlyBird, trial_end: trialEndIso, legacy_price: legacyPrice }),
             });
             const d: any = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -505,6 +511,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                 setSub(d.subscription);
                 setEarlyBird(d.subscription.early_bird === 1);
                 setTrialEnd(d.subscription.trial_end ? String(d.subscription.trial_end).split("T")[0] : "");
+                if (d.legacy) { setLegacyPrice(!!d.legacy.legacy); setLegacySource(d.legacy.source); }
             }
             setSavedAt(Date.now());
         } catch (e: any) {
@@ -547,6 +554,21 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                     />
                     <span className="text-xs font-bold text-fg">{t("earlyBird")}</span>
                 </label>
+                <label className="flex items-center gap-3 cursor-pointer pb-2">
+                    <input
+                        type="checkbox"
+                        checked={legacyPrice}
+                        onChange={e => { setLegacyPrice(e.target.checked); setLegacySource("override"); }}
+                        disabled={!loaded}
+                        className="accent-soon w-4 h-4"
+                    />
+                    <span className="text-xs font-bold text-fg">
+                        Preço legado
+                        <span className="ml-2 font-medium text-fg-40">
+                            {legacyPrice ? "5 € / 50 €" : "7,50 € / 75 €"}
+                        </span>
+                    </span>
+                </label>
                 <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
                     {t("trialEnds")}
                     <input
@@ -588,6 +610,18 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                 <div className="text-[10px] text-fg-40 font-medium space-y-1">
                     <p><strong className="text-fg-60">{t("statusNow")}</strong> {sub.status}{sub.stripe_subscription_id && <span className="text-fg-40"> · {sub.stripe_subscription_id}</span>}</p>
                     {sub.current_period_end && <p><strong className="text-fg-60">{t("nextCharge")}</strong> {new Date(sub.current_period_end).toLocaleDateString("pt-PT")}</p>}
+                    <p>
+                        <strong className="text-fg-60">Plano:</strong>{" "}
+                        {legacyPrice ? "legado (5 € / 50 €)" : "actual (7,50 € / 75 €)"}
+                        {" · "}
+                        {/* Where the answer came from, so a derivation is not
+                            mistaken for somebody's decision. */}
+                        {legacySource === "override" ? "definido à mão"
+                            : legacySource === "price" ? "lido do preço no Stripe"
+                            : legacySource === "archived" ? "preço arquivado no Stripe"
+                            : legacySource === "paid" ? "deduzido do que foi cobrado"
+                            : "sem dados, assumido actual"}
+                    </p>
                 </div>
             )}
         </Section>

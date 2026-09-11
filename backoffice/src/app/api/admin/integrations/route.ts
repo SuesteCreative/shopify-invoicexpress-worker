@@ -5,6 +5,7 @@ import { isAdmin, isHiperadmin } from "@/lib/admin";
 import { accountLabel } from "@/lib/labels";
 import { subscriptionUIState } from "@/lib/stripe";
 import { isSourceKind, isDestinationKind } from "@/lib/connection-kinds";
+import { resolveTier } from "@/lib/billing-legacy";
 import {
     deleteConnection, resetConnection, setConnectionStatus,
     deleteLegacyIntegration, resetLegacyIntegration, setLegacyPaused,
@@ -46,6 +47,8 @@ interface SubRow {
      *  which is the only thing left naming an orphaned connection. */
     name: string | null;
     email: string | null;
+    /** Migration 0054. NULL means nobody answered and the price decides. */
+    legacy_price: number | null;
 }
 
 const rows = (r: any): any[] => (r?.results ?? []) as any[];
@@ -141,6 +144,22 @@ export async function GET() {
             return s?.name || s?.email || null;
         };
 
+        /** The subscription row that answers for a pipe: its own, or the
+         *  account's best if it rides on one. */
+        const subFor = (userId_: string, key: string): SubRow | null => {
+            const subs = subsByUser.get(userId_) ?? [];
+            const own = subs.find((s) => s.connection_key === key);
+            if (own) return own;
+            const rank = (s: SubRow) => (s.status === "active" ? 3 : s.status === "trialing" ? 2 : 1);
+            return [...subs].sort((a, b) => rank(b) - rank(a))[0] ?? null;
+        };
+
+        /** Whether this pipe is on the old plan. No Stripe call here — this page
+         *  lists the whole fleet, and the column plus the amounts already answer
+         *  for everyone the backfill touched. */
+        const legacyFor = (userId_: string, key: string) =>
+            resolveTier({ override: subFor(userId_, key)?.legacy_price ?? null }).legacy;
+
         /** The verdict the worker's gate would reach for this pipe. */
         const subStateFor = (userId_: string, key: string, role: string | null) => {
             if (role === "superadmin" || role === "hiperadmin") return "exempt";
@@ -188,6 +207,7 @@ export async function GET() {
                 created_at: c.created_at ?? null,
                 updated_at: c.updated_at ?? null,
                 sub_state: subStateFor(c.user_id, key, u?.role ?? null),
+                legacy_price: legacyFor(c.user_id, key),
                 can_delete: true,
             });
         }
@@ -220,6 +240,7 @@ export async function GET() {
                 created_at: i.created_at ?? null,
                 updated_at: i.updated_at ?? null,
                 sub_state: subStateFor(i.user_id, LEGACY_KEY, u?.role ?? null),
+                legacy_price: legacyFor(i.user_id, LEGACY_KEY),
                 // Its verbs mean something different — see connection-lifecycle:
                 // reset keeps the fiscal settings, delete takes them with it.
                 can_delete: true,

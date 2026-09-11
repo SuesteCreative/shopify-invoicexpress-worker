@@ -42,6 +42,7 @@ interface Row {
     created_at: string | null;
     updated_at: string | null;
     sub_state: string;
+    legacy_price: boolean;
     can_delete: boolean;
 }
 
@@ -385,10 +386,15 @@ export function IntegrationsPanel() {
                                     </td>
 
                                     <td className="px-4 py-3">
-                                        <Badge className={r.sub_state === "blocked" ? "text-destructive border-destructive/40" : "text-fg-40 border-hairline"}>
-                                            {r.sub_state === "blocked" && <Ban className="w-3 h-3" />}
-                                            {SUB_LABEL[r.sub_state] ?? r.sub_state}
-                                        </Badge>
+                                        <div className="flex flex-col gap-1 items-start">
+                                            <Badge className={r.sub_state === "blocked" ? "text-destructive border-destructive/40" : "text-fg-40 border-hairline"}>
+                                                {r.sub_state === "blocked" && <Ban className="w-3 h-3" />}
+                                                {SUB_LABEL[r.sub_state] ?? r.sub_state}
+                                            </Badge>
+                                            {r.legacy_price && (
+                                                <Badge className="text-soon border-soon/40" >preço legado</Badge>
+                                            )}
+                                        </div>
                                     </td>
 
                                     <td className="px-4 py-3 font-mono text-[11px] text-fg-40 whitespace-nowrap">

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
     monthlyCents, PAYMENTS_BY_ACCOUNT, REFUNDS_BY_ACCOUNT,
-    SUBSCRIPTION_LINES, TRIALS_ENDING, FAILED_PAYMENTS, SEATS_BY_ACCOUNT,
+    SUBSCRIPTION_LINES, TRIALS_ENDING, OUTSTANDING_PAYMENTS,
+    SETTLED_AFTER_FAILURE, SEATS_BY_ACCOUNT,
 } from "./admin-finance-sql";
 
 /**
@@ -111,15 +112,15 @@ describe("the remaining queries run against the real shape", () => {
             INSERT INTO subscriptions (user_id, connection_key, status, plan, price_id, stripe_subscription_id, early_bird, cancel_at_period_end)
             VALUES ('user_a', 'shopify:invoicexpress', 'active', 'monthly', 'price_1', 'sub_1', 0, 0);
             INSERT INTO account_seats (id, account_id, amount_cents, created_at) VALUES ('s1', 'user_a', 150, '2026-03-01');
-            INSERT INTO billing_events (id, user_id, type, amount_cents, currency, created_at)
-            VALUES ('evt_f', 'user_a', 'invoice.payment_failed', 750, 'eur', '2026-03-10T10:00:00.000Z');
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, amount_cents, currency, created_at)
+            VALUES ('evt_f', 'user_a', 'invoice.payment_failed', 'in_open', 750, 'eur', '2026-03-10T10:00:00.000Z');
         `);
 
         expect(d.all(SUBSCRIPTION_LINES)[0]).toMatchObject({
             user_id: "user_a", status: "active", price_id: "price_1", email: "a@x.pt", role: "user",
         });
         expect(d.all(SEATS_BY_ACCOUNT)[0]).toMatchObject({ user_id: "user_a", n: 1, cents: 150 });
-        expect(d.all(FAILED_PAYMENTS)[0]).toMatchObject({ user_id: "user_a", amount_cents: 750 });
+        expect(d.all(OUTSTANDING_PAYMENTS)[0]).toMatchObject({ user_id: "user_a", amount_cents: 750 });
     });
 
     it("finds an early-bird trial ending inside the window and ignores one outside it", () => {
@@ -146,5 +147,60 @@ describe("the remaining queries run against the real shape", () => {
             VALUES ('user_a', 'k', 'trialing', 'sub_live', 1, '${soon}');
         `);
         expect(d.all(TRIALS_ENDING)).toHaveLength(0);
+    });
+});
+
+describe("what is actually owed", () => {
+    it("drops a failure whose retry collected it", () => {
+        const d = db();
+        // The ordinary case, and the one that made this list unreadable: an SCA
+        // challenge or a bank decline on the first attempt, paid minutes later.
+        // Eleven of thirteen rows in production were this.
+        d.exec(`
+            INSERT INTO users (id, email, role) VALUES ('user_a', 'a@x.pt', 'user');
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, amount_cents, currency, created_at) VALUES
+              ('evt_f', 'user_a', 'invoice.payment_failed', 'in_A', 9225, 'eur', '2026-09-10T18:00:00.000Z'),
+              ('evt_p', 'user_a', 'invoice.paid',           'in_A', 9225, 'eur', '2026-09-10T20:14:00.000Z');
+        `);
+        expect(d.all(OUTSTANDING_PAYMENTS)).toHaveLength(0);
+        expect(d.all(SETTLED_AFTER_FAILURE)[0].n).toBe(1);
+    });
+
+    it("keeps a failure nobody ever collected", () => {
+        const d = db();
+        d.exec(`
+            INSERT INTO users (id, email, role) VALUES ('user_a', 'a@x.pt', 'user');
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, amount_cents, currency, created_at)
+            VALUES ('evt_f', 'user_a', 'invoice.payment_failed', 'in_A', 923, 'eur', '2026-09-10T18:00:00.000Z');
+        `);
+        const rows = d.all(OUTSTANDING_PAYMENTS);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ invoice_id: "in_A", amount_cents: 923, attempts: 1 });
+        expect(d.all(SETTLED_AFTER_FAILURE)[0].n).toBe(0);
+    });
+
+    it("counts one invoice once however many times Stripe retried it", () => {
+        const d = db();
+        // Stripe retries on its own schedule and each attempt writes a row. The
+        // same invoice appeared twice in the production list for this reason.
+        d.exec(`
+            INSERT INTO users (id, email, role) VALUES ('user_a', 'a@x.pt', 'user');
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, amount_cents, currency, created_at) VALUES
+              ('evt_1', 'user_a', 'invoice.payment_failed', 'in_A', 923, 'eur', '2026-08-08T10:00:00.000Z'),
+              ('evt_2', 'user_a', 'invoice.payment_failed', 'in_A', 923, 'eur', '2026-08-11T10:00:00.000Z');
+        `);
+        const rows = d.all(OUTSTANDING_PAYMENTS);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ attempts: 2, created_at: "2026-08-11T10:00:00.000Z" });
+    });
+
+    it("names the client", () => {
+        const d = db();
+        d.exec(`
+            INSERT INTO users (id, email, company_name, role) VALUES ('user_a', 'a@x.pt', 'Pleasant Venture Lda', 'user');
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, amount_cents, currency, created_at)
+            VALUES ('evt_f', 'user_a', 'invoice.payment_failed', 'in_A', 923, 'eur', '2026-09-10T18:00:00.000Z');
+        `);
+        expect(d.all(OUTSTANDING_PAYMENTS)[0].company_name).toBe("Pleasant Venture Lda");
     });
 });

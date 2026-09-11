@@ -25,6 +25,9 @@ interface Line {
     plan: string | null;
     price_id: string | null;
     monthly_cents: number;
+    price_legacy: boolean;
+    price_amount_cents: number | null;
+    price_interval: string | null;
     current_period_end: string | null;
     trial_end: string | null;
     early_bird: boolean;
@@ -61,7 +64,11 @@ interface Finance {
     price_book_size: number;
     accounts: Account[];
     trials_ending: { user_id: string; account: string; connection_key: string; trial_end: string }[];
-    failed_payments: { id: string; user_id: string; account: string; amount_cents: number; currency: string; created_at: string }[];
+    outstanding_payments: {
+        id: string; invoice_id: string; user_id: string; account: string;
+        amount_cents: number; currency: string; created_at: string; attempts: number;
+    }[];
+    settled_after_failure: number;
 }
 
 const eur = (cents: number) =>
@@ -201,9 +208,10 @@ export function FinancePanel() {
             <header>
                 <h1 className="text-3xl font-black text-fg">Financeiro</h1>
                 <p className="mt-2 text-sm text-fg-40">
-                    A receita é histórico, lido do livro de pagamentos. O MRR é previsão, calculado
-                    aos preços que o Stripe tem agora. Quando divergem, é quase sempre um pagamento
-                    reposto à mão que ficou datado do dia em que foi ligado.
+                    A receita é histórico, lida do livro de pagamentos, e vem <strong>com IVA</strong>,
+                    porque é o que foi cobrado. O MRR é previsão, calculado aos preços do Stripe, que
+                    são <strong>sem IVA</strong> — os 92,25 € que um cliente anual paga são 75 € de
+                    preço. As duas colunas não se comparam directamente.
                 </p>
             </header>
 
@@ -262,15 +270,21 @@ export function FinancePanel() {
                     )}
                 </Card>
 
-                <Card title="Cobranças falhadas" hint="O Stripe tentou e não conseguiu. Só o cliente resolve.">
-                    {data.failed_payments.length === 0 ? (
-                        <p className="text-[11px] text-fg-40">Nenhuma registada.</p>
+                <Card
+                    title="Por cobrar"
+                    hint="Facturas que falharam e nunca chegaram a ser pagas. Uma primeira tentativa falhar e a seguinte passar é banal, e essas não estão aqui."
+                >
+                    {data.outstanding_payments.length === 0 ? (
+                        <p className="text-[11px] text-fg-40">Nada por cobrar.</p>
                     ) : (
                         <div className="space-y-2">
-                            {data.failed_payments.map((f) => (
+                            {data.outstanding_payments.map((f) => (
                                 <div key={f.id} className="flex items-baseline justify-between gap-3">
                                     <Link href={`/admin/users/${f.user_id}/dev-mode`} className="text-sm text-fg hover:text-accent-ink truncate">
                                         {f.account}
+                                        {f.attempts > 1 && (
+                                            <span className="ml-2 font-mono text-[10px] text-fg-40">{n(f.attempts)} tentativas</span>
+                                        )}
                                     </Link>
                                     <span className="font-mono text-[11px] text-destructive shrink-0">
                                         {eur(f.amount_cents)} · {dateOf(f.created_at)}
@@ -278,6 +292,12 @@ export function FinancePanel() {
                                 </div>
                             ))}
                         </div>
+                    )}
+                    {data.settled_after_failure > 0 && (
+                        <p className="pt-2 border-t border-hairline text-[11px] text-fg-40">
+                            Outras {n(data.settled_after_failure)} facturas falharam à primeira e foram
+                            cobradas a seguir. Não são dívida e por isso não aparecem.
+                        </p>
                     )}
                 </Card>
             </div>
@@ -328,6 +348,14 @@ export function FinancePanel() {
                                                         {l.connection_key.split(":").map(kindLabel).join(" → ")}
                                                         <span className="ml-2 text-fg-60">{STATE_LABEL[l.state] ?? l.state}</span>
                                                         {l.cancel_at_period_end && <span className="ml-2 text-destructive">cancela</span>}
+                                                        {l.price_legacy && (
+                                                            <span
+                                                                className="ml-2 text-soon"
+                                                                title={`Preço já não vendido: ${l.price_amount_cents != null ? eur(l.price_amount_cents) : "?"}${l.price_interval ? `/${l.price_interval === "year" ? "ano" : "mês"}` : ""}`}
+                                                            >
+                                                                preço legado
+                                                            </span>
+                                                        )}
                                                     </span>
                                                 ))}
                                             </div>

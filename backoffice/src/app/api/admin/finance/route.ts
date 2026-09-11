@@ -7,7 +7,8 @@ import { getStripe, subscriptionUIState } from "@/lib/stripe";
 import { REVENUE_BY_MONTH } from "@/lib/admin-stats-sql";
 import {
     PAYMENTS_BY_ACCOUNT, REFUNDS_BY_ACCOUNT, SUBSCRIPTION_LINES,
-    TRIALS_ENDING, FAILED_PAYMENTS, SEATS_BY_ACCOUNT, monthlyCents,
+    TRIALS_ENDING, OUTSTANDING_PAYMENTS, SETTLED_AFTER_FAILURE,
+    SEATS_BY_ACCOUNT, monthlyCents,
 } from "@/lib/admin-finance-sql";
 
 export const runtime = "edge";
@@ -90,14 +91,15 @@ export async function GET() {
 
         const EMPTY = { results: [] as any[] };
 
-        const [monthRows, payRows, refundRows, subRows, trialRows, failRows, seatRows, prices] =
+        const [monthRows, payRows, refundRows, subRows, trialRows, failRows, settledRow, seatRows, prices] =
             await Promise.all([
                 soft(db.prepare(REVENUE_BY_MONTH).all(), EMPTY, "by_month"),
                 soft(db.prepare(PAYMENTS_BY_ACCOUNT).all(), EMPTY, "payments"),
                 soft(db.prepare(REFUNDS_BY_ACCOUNT).all(), EMPTY, "refunds"),
                 soft(db.prepare(SUBSCRIPTION_LINES).all(), EMPTY, "subscriptions"),
                 soft(db.prepare(TRIALS_ENDING).all(), EMPTY, "trials"),
-                soft(db.prepare(FAILED_PAYMENTS).all(), EMPTY, "failed"),
+                soft(db.prepare(OUTSTANDING_PAYMENTS).all(), EMPTY, "outstanding"),
+                soft(db.prepare(SETTLED_AFTER_FAILURE).first(), null, "settled"),
                 soft(db.prepare(SEATS_BY_ACCOUNT).all(), EMPTY, "seats"),
                 priceBook(),
             ]);
@@ -149,6 +151,12 @@ export async function GET() {
                 plan: s.plan ?? null,
                 price_id: s.price_id ?? null,
                 monthly_cents: monthly,
+                /** Stripe archives a price when it stops being sold, but a client
+                 *  stays on the one they signed up to. That is what "legacy"
+                 *  means here, and it is the only reliable signal for it. */
+                price_legacy: !!price && price.active === false,
+                price_amount_cents: price?.unit_amount ?? null,
+                price_interval: price?.recurring?.interval ?? null,
                 current_period_end: s.current_period_end ?? null,
                 trial_end: s.trial_end ?? null,
                 early_bird: Number(s.early_bird ?? 0) === 1,
@@ -211,14 +219,19 @@ export async function GET() {
                 connection_key: t.connection_key,
                 trial_end: t.trial_end,
             })),
-            failed_payments: rows(failRows).map((f) => ({
+            outstanding_payments: rows(failRows).map((f) => ({
                 id: f.id,
+                invoice_id: f.invoice_id,
                 user_id: f.user_id,
                 account: accountLabel(f, f.email),
                 amount_cents: num(f.amount_cents),
                 currency: f.currency ?? "eur",
                 created_at: f.created_at,
+                attempts: num(f.attempts),
             })),
+            /** Failures that the retry collected. Shown as context so the list
+             *  above reads as the exception it is. */
+            settled_after_failure: num((settledRow as any)?.n),
         });
     } catch (error: any) {
         console.error("[admin/finance] failed:", error?.message ?? error);

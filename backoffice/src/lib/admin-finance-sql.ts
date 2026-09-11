@@ -78,19 +78,59 @@ export const TRIALS_ENDING = `
 `;
 
 /**
- * Charges Stripe could not collect, newest first.
+ * Charges that failed and were never collected.
+ *
+ * The `AND NOT EXISTS` is the whole query. A first attempt failing and the
+ * retry succeeding minutes later is ordinary — an SCA challenge, a bank's
+ * random decline — and Stripe records the failure either way. Listing every
+ * `invoice.payment_failed` therefore reads as a wall of unpaid clients who are
+ * in fact paid up: of the thirteen rows this used to show, eleven had already
+ * settled. Only an invoice with no `invoice.paid` behind it is anybody's
+ * problem.
+ *
+ * Grouped by invoice, because a single one can fail several times on Stripe's
+ * retry schedule and each attempt writes its own row.
  *
  * These rows survive the nightly TTL purge on purpose — dunning is the one
  * billing event only the client can fix, and the row is already there.
  */
-export const FAILED_PAYMENTS = `
-  SELECT b.id, b.user_id, b.amount_cents, b.currency, b.created_at,
-         u.email, u.name, u.company_name, u.admin_label
-  FROM billing_events b
-  LEFT JOIN users u ON u.id = b.user_id
-  WHERE b.type = 'invoice.payment_failed'
-  ORDER BY b.created_at DESC
+export const OUTSTANDING_PAYMENTS = `
+  SELECT f.*, u.email, u.name, u.company_name, u.admin_label
+  FROM (
+    SELECT b.stripe_object_id  AS invoice_id,
+           MIN(b.id)           AS id,
+           MIN(b.user_id)      AS user_id,
+           MAX(b.amount_cents) AS amount_cents,
+           MIN(b.currency)     AS currency,
+           MAX(b.created_at)   AS created_at,
+           COUNT(*)            AS attempts
+    FROM billing_events b
+    WHERE b.type = 'invoice.payment_failed'
+      AND b.stripe_object_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM billing_events p
+         WHERE p.type = 'invoice.paid'
+           AND p.stripe_object_id = b.stripe_object_id
+      )
+    GROUP BY b.stripe_object_id
+  ) f
+  LEFT JOIN users u ON u.id = f.user_id
+  ORDER BY f.created_at DESC
   LIMIT 25
+`;
+
+/** How many failures resolved themselves, so the number above reads as the
+ *  exception it is rather than as the whole story. */
+export const SETTLED_AFTER_FAILURE = `
+  SELECT COUNT(DISTINCT b.stripe_object_id) AS n
+  FROM billing_events b
+  WHERE b.type = 'invoice.payment_failed'
+    AND b.stripe_object_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM billing_events p
+       WHERE p.type = 'invoice.paid'
+         AND p.stripe_object_id = b.stripe_object_id
+    )
 `;
 
 /** Seat purchases, which never produce a Stripe invoice and so never land in

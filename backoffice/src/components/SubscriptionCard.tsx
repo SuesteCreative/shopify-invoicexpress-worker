@@ -24,6 +24,8 @@ interface SubData {
     connections?: { key: string; source: string | null; ui_state: UIState; blocked: boolean }[];
 }
 
+type Money = { amount_cents: number; currency: string };
+
 function daysUntil(iso?: string | null): number | null {
     if (!iso) return null;
     const diff = new Date(iso).getTime() - Date.now();
@@ -52,6 +54,10 @@ export default function SubscriptionCard(
     const [loading, setLoading] = useState(true);
     const [acting, setActing] = useState(false);
     const [selectedPlan, setSelectedPlan] = useState<"monthly" | "annual">("annual");
+    // What this account is actually charged. Asked of the server, which reads the
+    // same Stripe price the button will charge: the figures used to be written
+    // into the markup, and were only ever true of the original product.
+    const [prices, setPrices] = useState<{ monthly: Money | null; annual: Money | null } | null>(null);
 
     const refresh = async () => {
         try {
@@ -70,6 +76,34 @@ export default function SubscriptionCard(
     };
 
     useEffect(() => { refresh(); }, [connectionKey]);
+
+    useEffect(() => {
+        let alive = true;
+        fetch(`/api/billing/price?source=${encodeURIComponent(source ?? "faturacao")}`)
+            .then(r => (r.ok ? r.json() : null))
+            .then((d: any) => { if (alive && d) setPrices({ monthly: d.monthly ?? null, annual: d.annual ?? null }); })
+            .catch(() => { /* the plate simply shows no figure */ });
+        return () => { alive = false; };
+    }, [source]);
+
+    const money = (m: Money | null | undefined) =>
+        m ? new Intl.NumberFormat(dateLocale || "pt-PT", {
+            style: "currency", currency: (m.currency || "eur").toUpperCase(),
+            minimumFractionDigits: m.amount_cents % 100 === 0 ? 0 : 2,
+        }).format(m.amount_cents / 100) : null;
+
+    /** "equivale a X/mês", from the yearly price rather than from a fixed sentence. */
+    const monthlyEquivalent = prices?.annual
+        ? money({ amount_cents: Math.round(prices.annual.amount_cents / 12), currency: prices.annual.currency })
+        : null;
+
+    /** Only claimed when the year really is cheaper than twelve months of it. */
+    const savedPercent = prices?.annual && prices?.monthly && prices.monthly.amount_cents > 0
+        ? (() => {
+            const pct = Math.round((1 - prices.annual!.amount_cents / (prices.monthly!.amount_cents * 12)) * 100);
+            return pct >= 1 ? pct : null;
+        })()
+        : null;
 
     const startCheckout = async () => {
         setActing(true);
@@ -256,7 +290,7 @@ export default function SubscriptionCard(
                                 {/* pr-8 keeps the label clear of the tick in the corner. */}
                                 <div className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] mb-2 pr-8">{t("tabMonthly")}</div>
                                 <div className="flex items-baseline gap-1 flex-wrap">
-                                    <span className="text-3xl sm:text-4xl font-medium text-fg tabular-nums">7,50€</span>
+                                    <span className="text-3xl sm:text-4xl font-medium text-fg tabular-nums">{money(prices?.monthly) ?? "—"}</span>
                                     <span className="text-sm text-fg-40 font-medium">{t("perMonth")}</span>
                                 </div>
                                 <div className="text-[11px] text-fg-40 font-medium mt-2">{t("vatMonthly")}</div>
@@ -280,13 +314,17 @@ export default function SubscriptionCard(
                                     instead of sliding under the tick in the corner. */}
                                 <div className="flex items-center gap-2 mb-2 pr-8 flex-wrap">
                                     <span className="font-mono text-[10px] text-accent-hot uppercase tracking-[0.22em]">{t("tabAnnual")}</span>
-                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent-hot/18 text-accent-hot uppercase tracking-[0.22em] whitespace-nowrap">{t("save17")}</span>
+                                    {savedPercent !== null && (
+                                        <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent-hot/18 text-accent-hot uppercase tracking-[0.22em] whitespace-nowrap">{t("savePercent", { pct: savedPercent })}</span>
+                                    )}
                                 </div>
                                 <div className="flex items-baseline gap-1 flex-wrap">
-                                    <span className="text-3xl sm:text-4xl font-medium text-fg tabular-nums">75€</span>
+                                    <span className="text-3xl sm:text-4xl font-medium text-fg tabular-nums">{money(prices?.annual) ?? "—"}</span>
                                     <span className="text-sm text-fg-40 font-medium">{t("perYear")}</span>
                                 </div>
-                                <div className="text-[11px] text-fg-40 font-medium mt-2">{t("vatAnnual")}</div>
+                                <div className="text-[11px] text-fg-40 font-medium mt-2">
+                                    {monthlyEquivalent ? t("vatAnnualEquivalent", { amount: monthlyEquivalent }) : t("vatAnnualPlain")}
+                                </div>
                                 {selectedPlan === "annual" && (
                                     <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-accent-hot flex items-center justify-center">
                                         <Check className="w-3 h-3 text-surface stroke-[3]" />

@@ -2,10 +2,10 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getStripeEnvOptional, getDB, primaryConnectionKey, EMBEDDED_CHECKOUT_API_VERSION, EMBEDDED_CHECKOUT_UI_MODE } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
-import { CONNECTION_KEY_TO_SOURCE, keyFromRequest } from "@/lib/subscription-key";
+import { keyFromRequest } from "@/lib/subscription-key";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { resolveReturnPath } from "@/lib/oauth-return";
-import { priceLookupFor, resolvePrice } from "@/lib/billing-prices";
+import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
 
 export const runtime = "edge";
 
@@ -51,13 +51,7 @@ export async function POST(req: NextRequest) {
         // which price to bill. Resolve it from the merchant's own set-up connection
         // (oldest wins when there is more than one); with nothing set up yet, the
         // default Shopify→IX price applies.
-        let source = rawSource;
-        if (rawSource === "dashboard") {
-            const conn: any = await db.prepare(
-                "SELECT source_kind, destination_kind FROM connections WHERE user_id = ? AND status IN ('active','paused') ORDER BY created_at ASC LIMIT 1"
-            ).bind(targetUserId).first();
-            source = (conn && CONNECTION_KEY_TO_SOURCE[`${conn.source_kind}:${conn.destination_kind}`]) || "faturacao";
-        }
+        const source = await resolveBillingSource(db, targetUserId, rawSource);
 
         // Which connection this subscription pays for (0044). Carried in the
         // subscription's own metadata so the webhook can file the row against

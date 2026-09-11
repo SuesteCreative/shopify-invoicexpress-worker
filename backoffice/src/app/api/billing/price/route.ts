@@ -1,7 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe";
-import { priceLookupFor, resolvePrice } from "@/lib/billing-prices";
+import { getStripe, getDB } from "@/lib/stripe";
+import { resolveAccountUser } from "@/lib/account";
+import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
 
 export const runtime = "edge";
 
@@ -18,7 +19,11 @@ export async function GET(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const source = new URL(request.url).searchParams.get("source") ?? "";
+    // "dashboard" names no product: the account's own set-up decides which one,
+    // exactly as the checkout resolves it.
+    const rawSource = new URL(request.url).searchParams.get("source") ?? "";
+    const targetUserId = await resolveAccountUser(request, userId);
+    const source = await resolveBillingSource(getDB(), targetUserId, rawSource);
     if (!priceLookupFor(source, "monthly")) {
         return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
     }

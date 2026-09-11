@@ -1,4 +1,5 @@
 import { getStripeEnv } from "@/lib/stripe";
+import { CONNECTION_KEY_TO_SOURCE } from "@/lib/subscription-key";
 
 /**
  * Which Stripe price each integration bills on.
@@ -64,4 +65,21 @@ export async function resolvePrice(stripe: any, lookupOrId: string): Promise<any
     }
     const prices = await stripe.prices.list({ lookup_keys: [lookupOrId], limit: 1, active: true });
     return prices.data[0] ?? null;
+}
+
+/**
+ * Which product a page that cannot name one is really asking about.
+ *
+ * The dashboard card sits above every integration, so it says "dashboard" and
+ * the account's own set-up decides: oldest connection wins, and an account with
+ * nothing set up yet falls back to the original Shopify product. Shared with
+ * the checkout, because a card that prints one price while the button charges
+ * another is the bug this file exists to prevent.
+ */
+export async function resolveBillingSource(db: any, userId: string, rawSource: string): Promise<string> {
+    if (rawSource !== "dashboard") return rawSource;
+    const conn: any = await db.prepare(
+        "SELECT source_kind, destination_kind FROM connections WHERE user_id = ? AND status IN ('active','paused') ORDER BY created_at ASC LIMIT 1"
+    ).bind(userId).first();
+    return (conn && CONNECTION_KEY_TO_SOURCE[`${conn.source_kind}:${conn.destination_kind}`]) || "faturacao";
 }

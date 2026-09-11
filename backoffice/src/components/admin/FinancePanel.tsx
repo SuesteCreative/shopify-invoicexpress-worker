@@ -57,6 +57,7 @@ interface Finance {
     mrr_cents: number;
     arr_cents: number;
     prices_missing: number;
+    unresolved_prices: { price_id: string; n: number }[];
     price_book_size: number;
     accounts: Account[];
     trials_ending: { user_id: string; account: string; connection_key: string; trial_end: string }[];
@@ -218,10 +219,15 @@ export function FinancePanel() {
             {data.prices_missing > 0 && (
                 <div className="glass rounded-2xl p-4 border border-soon/40 flex items-start gap-3">
                     <EyeOff className="w-4 h-4 text-soon shrink-0 mt-0.5" />
-                    <p className="text-[12px] text-fg">
-                        {n(data.prices_missing)} {data.prices_missing === 1 ? "subscrição activa" : "subscrições activas"} com
-                        um preço que o Stripe não devolveu. O MRR acima está curto por esse valor.
-                    </p>
+                    <div className="text-[12px] text-fg space-y-1">
+                        <p>
+                            {n(data.prices_missing)} {data.prices_missing === 1 ? "subscrição activa" : "subscrições activas"} com
+                            um preço que o Stripe não devolveu. O MRR acima está curto por esse valor.
+                        </p>
+                        <p className="font-mono text-[11px] text-fg-40">
+                            {data.unresolved_prices.map((u) => `${u.price_id}${u.n > 1 ? ` ×${u.n}` : ""}`).join(" · ")}
+                        </p>
+                    </div>
                 </div>
             )}
 

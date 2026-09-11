@@ -37,19 +37,38 @@ const soft = <T,>(p: Promise<T>, fallback: T, label: string): Promise<T> =>
         return fallback;
     });
 
-/** Everything Stripe knows about what things cost, in one request. */
+/**
+ * Everything Stripe knows about what things cost, in one request.
+ *
+ * Indexed by BOTH the price id and its lookup key, because `subscriptions.
+ * price_id` holds either. Checkout resolves a lookup key like
+ * `shopify-ix-monthly` into a real price and, depending on the path it took,
+ * stores one or the other — so nine of the fleet's live subscriptions carry a
+ * lookup key in a column named for an id. Keying on `p.id` alone silently
+ * priced all of them at zero.
+ *
+ * Archived prices are included deliberately: a client stays on the plan they
+ * signed up to long after it stops being sold, and leaving those out would
+ * understate MRR by exactly the legacy accounts that have paid longest.
+ */
 async function priceBook(): Promise<Map<string, any>> {
     const book = new Map<string, any>();
+    const add = (p: any) => {
+        book.set(p.id, p);
+        if (p.lookup_key) book.set(p.lookup_key, p);
+    };
+
     try {
         const stripe = getStripe();
         // The whole catalogue is a couple of dozen prices and changes almost
-        // never, so one page is the whole answer. Asking per subscription would
-        // be one round trip per client on a page that lists all of them.
-        const list = await stripe.prices.list({ limit: 100, active: true });
-        for (const p of list.data) book.set(p.id, p);
-        if (list.has_more) {
-            const more = await stripe.prices.list({ limit: 100, starting_after: list.data.at(-1)?.id });
-            for (const p of more.data) book.set(p.id, p);
+        // never, so a page or two is the whole answer. Asking per subscription
+        // would be one round trip per client on a page that lists all of them.
+        let page = await stripe.prices.list({ limit: 100 });
+        page.data.forEach(add);
+        let guard = 0;
+        while (page.has_more && guard++ < 5) {
+            page = await stripe.prices.list({ limit: 100, starting_after: page.data.at(-1)?.id });
+            page.data.forEach(add);
         }
     } catch (e: any) {
         // A missing key or a Stripe outage costs the forecast, not the page.
@@ -93,7 +112,10 @@ export async function GET() {
         /** One row per account, assembled from its subscription lines. */
         const byAccount = new Map<string, any>();
         let mrrCents = 0;
-        let pricesMissing = 0;
+        /** price_id → how many billing subscriptions carry it unresolved. Named,
+         *  because "4 subscriptions have a price we could not read" is a fact an
+         *  operator then has to come and ask about. */
+        const unresolved = new Map<string, number>();
 
         for (const s of rows(subRows)) {
             const entry = byAccount.get(s.user_id) ?? {
@@ -116,7 +138,9 @@ export async function GET() {
             const price = s.price_id ? prices.get(s.price_id) : null;
             const billing = state === "active" || (state === "trialing" && !!s.stripe_subscription_id);
             const monthly = billing ? Math.round(monthlyCents(price)) : 0;
-            if (billing && s.price_id && !price) pricesMissing++;
+            if (billing && s.price_id && !price) {
+                unresolved.set(s.price_id, (unresolved.get(s.price_id) ?? 0) + 1);
+            }
 
             entry.lines.push({
                 connection_key: s.connection_key,
@@ -175,7 +199,10 @@ export async function GET() {
             /** Subscriptions Stripe is billing whose price we could not read —
              *  MRR is short by whatever they are worth, and saying so is the
              *  difference between a forecast and a guess. */
-            prices_missing: pricesMissing,
+            prices_missing: [...unresolved.values()].reduce((a, b) => a + b, 0),
+            unresolved_prices: [...unresolved.entries()]
+                .map(([price_id, n]) => ({ price_id, n }))
+                .sort((a, b) => b.n - a.n),
             price_book_size: prices.size,
             accounts,
             trials_ending: rows(trialRows).map((t) => ({

@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { isSuperAdmin } from "@/lib/admin";
 import { redirect } from "next/navigation";
-import { ClientRulesPanel } from "./ClientRulesPanel";
+import { ClientRulesPanel } from "@/components/admin/ClientRulesPanel";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";

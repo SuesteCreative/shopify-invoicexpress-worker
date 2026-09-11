@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { isAdmin } from "@/lib/admin";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { redirect, notFound } from "next/navigation";
-import { DevModePanel } from "./DevModePanel";
+import { DevModePanel } from "@/components/admin/DevModePanel";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";

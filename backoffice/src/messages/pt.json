@@ -645,6 +645,185 @@
             "signIn": "Já tenho conta"
         }
     },
+    "lodgifyLanding": {
+        "meta": {
+            "title": "Faturação automática Lodgify → InvoiceXpress, Moloni ou Vendus | Rioko",
+            "description": "Liga o teu Lodgify ao InvoiceXpress, Moloni ou Vendus e fatura cada reserva automaticamente: IVA de alojamento a 6%, extras à taxa certa, NIF do hóspede e ATCUD. Feito para alojamento local. Desde 7,50 €/mês."
+        },
+        "nav": {
+            "chip": "Lodgify → Faturação",
+            "how": "Como funciona",
+            "destinations": "Programas",
+            "compliance": "Conformidade",
+            "pricing": "Preço",
+            "faq": "FAQ",
+            "hub": "Hub de Integrações"
+        },
+        "breadcrumb": {
+            "home": "Início",
+            "page": "Integração Lodgify"
+        },
+        "hero": {
+            "chip": "Integração Lodgify · Ativa",
+            "h1": "Cada reserva<br></br><g>fatura-se sozinha</g>.",
+            "body": "Reserva paga no Lodgify, fatura certificada no InvoiceXpress, Moloni ou Vendus. Noites a 6%, extras à taxa que definires, NIF do hóspede quando existe. <h>Sem folha de cálculo no fim do mês.</h>",
+            "ctaCreate": "Ligar o meu Lodgify",
+            "ctaSee": "Ver como funciona",
+            "stat1Value": "6%",
+            "stat1Label": "IVA de alojamento",
+            "stat2Value": "1 : 1",
+            "stat2Label": "reserva : fatura",
+            "stat3Value": "3",
+            "stat3Label": "programas certificados"
+        },
+        "showcase": {
+            "originLabel": "Origem",
+            "originTitle": "Lodgify",
+            "originSub": "reserva · B-48120",
+            "flowDest": "Destino",
+            "emitted": "emitida",
+            "live": "fluxo real · ao vivo",
+            "timeAgo": "ontem · 11h04",
+            "engineTitle": "Rioko · Motor fiscal",
+            "engineSub": "reserva → fatura · edge runtime",
+            "tagline": "1 reserva · 1 fatura · sem folha de cálculo"
+        },
+        "dest": {
+            "eyebrow": "Os destinos",
+            "title": "Escolhe o programa.<br></br><g>Nós tratamos do resto.</g>",
+            "sub": "A mesma ligação Lodgify emite no InvoiceXpress, no Moloni ou no Vendus. Escolhes o destino no painel e podes mudar sem reconfigurar as propriedades.",
+            "ix": "Faturas, recibos e notas de crédito na tua conta InvoiceXpress",
+            "moloni": "Documentos emitidos e sincronizados na tua conta Moloni",
+            "vendus": "POS e faturação certificada na cloud Vendus"
+        },
+        "how": {
+            "eyebrow": "O fluxo",
+            "title": "Três passos. <g>Uma vez.</g>",
+            "sub": "Configurar demora cerca de quatro minutos. Depois disso, cada reserva fatura-se a si própria.",
+            "stepLabel": "Passo",
+            "step1": {
+                "title": "Liga o Lodgify",
+                "body": "Cola a chave da API do Lodgify e a chave do teu programa de faturação. O Rioko liga-se sempre a partir do mesmo IP dedicado, que é o que o Lodgify exige para autorizar acessos de parceiros, valida as credenciais e começa a sincronizar as reservas de todas as tuas propriedades.",
+                "code4": "200 OK · sincronização ativa"
+            },
+            "step2": {
+                "title": "Define as regras fiscais",
+                "body": "Noites a 6%, limpeza e extras à taxa que definires, série própria para o alojamento local. Tudo no mesmo painel, sem código, sem ficheiros de configuração.",
+                "pill1": "IVA 6% · alojamento",
+                "pill2": "Extras a 23%",
+                "pill3": "Série AL",
+                "pill4": "Auto-finalizar"
+            },
+            "step3": {
+                "title": "Esquece. Cada reserva vira fatura.",
+                "body": "Cada reserva paga gera o documento no programa que escolheste, com o nome e o NIF do hóspede quando existem, a taxa certa em cada linha e o texto legal da AT. Cancelamentos e devoluções viram nota de crédito.",
+                "tick1": "1 reserva = 1 fatura, sem duplicados",
+                "tick2": "Cancelamentos → nota de crédito automática",
+                "tick3": "Logs auditáveis por reserva",
+                "tagD1": "atómico",
+                "tagKV": "rápido",
+                "tagHMAC": "verificado"
+            }
+        },
+        "fiscal": {
+            "eyebrow": "Confiança",
+            "title": "Feito para o alojamento local.<br></br><muted><g>Não</g> adaptado do retalho.</muted>",
+            "sub": "Uma reserva não é uma encomenda. Tem noites, limpeza, extras e hóspedes estrangeiros, e cada um tem o seu tratamento fiscal.",
+            "item1Title": "IVA de alojamento, linha a linha",
+            "item1Body": "As noites saem à taxa reduzida de 6% e a limpeza e os extras à taxa que definires. Cada linha leva a sua taxa, em vez de um total inteiro achatado numa taxa só.",
+            "item2Title": "Conformidade AT",
+            "item2Body": "Emissão via software certificado, com ATCUD, série comunicada e o texto legal das isenções M01–M99 nas observações do documento.",
+            "item3Title": "Hóspede estrangeiro sem NIF",
+            "item3Body": "Quando o hóspede não tem NIF português, o documento sai como Consumidor Final com o nome e o país corretos. Quando tem, é validado algoritmicamente antes de entrar na fatura.",
+            "item4Title": "Total igual ao cobrado",
+            "item4Body": "A fatura fecha no cêntimo com o valor da reserva: noites, limpeza, extras e descontos reconciliados linha a linha."
+        },
+        "pricing": {
+            "eyebrow": "Preço",
+            "title": "Simples. <g>Por integração.</g>",
+            "sub": "A integração Lodgify custa o mesmo que qualquer outra do catálogo. Sem fees por documento, sem limites de reservas.",
+            "notice": "Preços sem IVA · sem cartão para começar · cancela quando quiseres",
+            "fullLink": "Ver todos os planos no hub",
+            "monthly": {
+                "name": "Mensal",
+                "price": "7,50 €",
+                "period": "/mês · + IVA",
+                "b1": "Integração Lodgify completa",
+                "b2": "Uma fatura por reserva paga",
+                "b3": "IVA 6% · extras · isenções M01–M99",
+                "b4": "Cancelamentos → notas de crédito",
+                "cta": "Começar grátis"
+            },
+            "yearly": {
+                "name": "Anual",
+                "badge": "Recomendado",
+                "price": "75 €",
+                "period": "/ano · + IVA",
+                "save": "2 meses grátis · 75 € vs 90 €",
+                "b1": "Tudo no plano mensal",
+                "b2": "2 meses grátis",
+                "b3": "Prioridade no roadmap",
+                "b4": "Suporte por email · resposta < 24h",
+                "cta": "Começar grátis"
+            },
+            "custom": {
+                "name": "Personalizada",
+                "price": "Sob consulta",
+                "period": "à medida",
+                "b1": "Integração à medida · PMS, channel managers",
+                "b2": "Várias propriedades / vários NIFs",
+                "b3": "SLA dedicado",
+                "b4": "Onboarding técnico em videochamada",
+                "cta": "Pedir orçamento"
+            }
+        },
+        "faq": {
+            "eyebrow": "FAQ",
+            "title": "Perguntas <g>frequentes</g>.",
+            "sub": "Tudo o que precisas de saber antes de ligar o teu Lodgify. Não encontraste a resposta? Fala connosco.",
+            "items": [
+                {
+                    "q": "Como funciona a faturação automática das reservas do Lodgify?",
+                    "a": "O Rioko sincroniza as reservas da tua conta Lodgify, valida os dados, aplica a taxa de IVA certa a cada linha e envia tudo ao teu programa de faturação certificado (InvoiceXpress, Moloni ou Vendus), que emite o documento. Uma reserva paga dá uma fatura, sem intervenção manual."
+                },
+                {
+                    "q": "Que IVA é aplicado a uma reserva de alojamento local?",
+                    "a": "Em Portugal o alojamento tem taxa reduzida de 6%, enquanto a limpeza e os extras podem ter taxa diferente. O Rioko trata cada linha com a sua taxa em vez de aplicar uma taxa única a toda a reserva, e és tu que defines no painel a taxa dos extras."
+                },
+                {
+                    "q": "E se o hóspede for estrangeiro e não tiver NIF?",
+                    "a": "É o caso mais comum no alojamento local. Sem NIF português válido, o documento é emitido como Consumidor Final com o nome e o país do hóspede, exatamente como a lei permite. Se houver NIF, é validado antes de entrar no documento."
+                },
+                {
+                    "q": "Funciona com InvoiceXpress, Moloni e Vendus?",
+                    "a": "Sim, com os três. Escolhes o programa de destino ao configurar a integração e podes mudar mais tarde sem refazer a ligação ao Lodgify."
+                },
+                {
+                    "q": "As faturas têm ATCUD e são aceites pela AT?",
+                    "a": "Sim. O Rioko não emite faturas; envia os dados ao teu programa certificado pela Autoridade Tributária, que emite o documento com ATCUD, série comunicada e as menções legais de isenção corretas. A certificação é a do programa de faturação."
+                },
+                {
+                    "q": "E as reservas canceladas ou com reembolso?",
+                    "a": "Uma reserva cancelada ou reembolsada gera automaticamente uma nota de crédito no teu programa de faturação, com os totais reconciliados com o valor efetivamente devolvido, incluindo devoluções parciais."
+                },
+                {
+                    "q": "Tenho várias propriedades na mesma conta Lodgify. Preciso de várias integrações?",
+                    "a": "Não. Uma ligação Lodgify cobre todas as propriedades da conta. Só precisas de mais do que uma integração se faturares com NIFs diferentes ou para programas de faturação diferentes."
+                },
+                {
+                    "q": "Quanto custa e quanto tempo demora a configurar?",
+                    "a": "7,50 € + IVA por mês ou 75 € + IVA por ano, por integração, sem fees por documento nem limites de reservas. A configuração demora cerca de quatro minutos e não é preciso cartão para começar."
+                }
+            ]
+        },
+        "cta": {
+            "eyebrow": "Pronto?",
+            "title": "Liga o teu Lodgify em <g>quatro</g> minutos.",
+            "body": "Sem cartão. Sem instalação. Sem folha de cálculo no fim do mês. Configura uma vez, fatura para sempre.",
+            "start": "Começar grátis",
+            "signIn": "Já tenho conta"
+        }
+    },
     "privacy": {
         "back": "← Voltar",
         "title": "Política de Privacidade",

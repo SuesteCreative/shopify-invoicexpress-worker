@@ -1,8 +1,9 @@
 import { Bricolage_Grotesque, IBM_Plex_Mono } from "next/font/google";
 
-// Page-scoped fonts for the /shopify landing ("Midnight Ledger" design).
-// Deliberately separate from the global Geist pair in app/fonts.ts — this
-// page carries its own visual identity.
+// Fonts for the vertical landings (/shopify, /lodgify, /stripe) — the
+// "Midnight Ledger" design. Deliberately separate from the global Geist pair
+// in app/fonts.ts: these pages carry their own visual identity, and next/font
+// has to be called at module scope, so they live in one module all three share.
 export const ledgerDisplay = Bricolage_Grotesque({
     subsets: ["latin"],
     variable: "--font-ledger-display",

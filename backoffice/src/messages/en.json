@@ -645,6 +645,185 @@
             "signIn": "I already have an account"
         }
     },
+    "lodgifyLanding": {
+        "meta": {
+            "title": "Automatic Lodgify invoicing → InvoiceXpress, Moloni or Vendus | Rioko",
+            "description": "Connect Lodgify to InvoiceXpress, Moloni or Vendus and invoice every booking automatically: 6% accommodation VAT, extras at the right rate, guest VAT ID and ATCUD. Built for Portuguese short-term rental. From €7.50/month."
+        },
+        "nav": {
+            "chip": "Lodgify → Invoicing",
+            "how": "How it works",
+            "destinations": "Software",
+            "compliance": "Compliance",
+            "pricing": "Pricing",
+            "faq": "FAQ",
+            "hub": "Integrations hub"
+        },
+        "breadcrumb": {
+            "home": "Home",
+            "page": "Lodgify integration"
+        },
+        "hero": {
+            "chip": "Lodgify integration · Live",
+            "h1": "Every booking<br></br><g>invoices itself</g>.",
+            "body": "Booking paid in Lodgify, certified invoice in InvoiceXpress, Moloni or Vendus. Nights at 6%, extras at the rate you set, guest VAT ID when there is one. <h>No spreadsheet at month end.</h>",
+            "ctaCreate": "Connect my Lodgify",
+            "ctaSee": "See how it works",
+            "stat1Value": "6%",
+            "stat1Label": "accommodation VAT",
+            "stat2Value": "1 : 1",
+            "stat2Label": "booking : invoice",
+            "stat3Value": "3",
+            "stat3Label": "certified programs"
+        },
+        "showcase": {
+            "originLabel": "Source",
+            "originTitle": "Lodgify",
+            "originSub": "booking · B-48120",
+            "flowDest": "Destination",
+            "emitted": "issued",
+            "live": "real flow · live",
+            "timeAgo": "yesterday · 11:04",
+            "engineTitle": "Rioko · Fiscal engine",
+            "engineSub": "booking → invoice · edge runtime",
+            "tagline": "1 booking · 1 invoice · no spreadsheet"
+        },
+        "dest": {
+            "eyebrow": "The destinations",
+            "title": "Pick the program.<br></br><g>We handle the rest.</g>",
+            "sub": "The same Lodgify connection issues into InvoiceXpress, Moloni or Vendus. You pick the destination in the dashboard and can switch without reconfiguring your properties.",
+            "ix": "Invoices, receipts and credit notes in your InvoiceXpress account",
+            "moloni": "Documents issued and synced in your Moloni account",
+            "vendus": "POS and certified invoicing in the Vendus cloud"
+        },
+        "how": {
+            "eyebrow": "The flow",
+            "title": "Three steps. <g>Once.</g>",
+            "sub": "Setup takes about four minutes. After that, every booking invoices itself.",
+            "stepLabel": "Step",
+            "step1": {
+                "title": "Connect Lodgify",
+                "body": "Paste your Lodgify API key and your invoicing program key. Rioko always connects from the same dedicated IP, which is what Lodgify requires to authorise partner access, validates the credentials and starts syncing bookings across all your properties.",
+                "code4": "200 OK · sync active"
+            },
+            "step2": {
+                "title": "Set the fiscal rules",
+                "body": "Nights at 6%, cleaning and extras at the rate you choose, a dedicated series for short-term rental. All in one dashboard, no code, no config files.",
+                "pill1": "6% VAT · accommodation",
+                "pill2": "Extras at 23%",
+                "pill3": "AL series",
+                "pill4": "Auto-finalize"
+            },
+            "step3": {
+                "title": "Forget it. Every booking becomes an invoice.",
+                "body": "Every paid booking creates the document in the program you chose, with the guest name and VAT ID when present, the right rate on each line and the AT legal wording. Cancellations and refunds become credit notes.",
+                "tick1": "1 booking = 1 invoice, no duplicates",
+                "tick2": "Cancellations → automatic credit note",
+                "tick3": "Auditable logs per booking",
+                "tagD1": "atomic",
+                "tagKV": "fast",
+                "tagHMAC": "verified"
+            }
+        },
+        "fiscal": {
+            "eyebrow": "Trust",
+            "title": "Built for short-term rental.<br></br><muted><g>Not</g> adapted from retail.</muted>",
+            "sub": "A booking is not an order. It has nights, cleaning, extras and foreign guests, and each one is treated differently for tax.",
+            "item1Title": "Accommodation VAT, line by line",
+            "item1Body": "Nights go out at the reduced 6% rate, cleaning and extras at the rate you set. Each line carries its own rate instead of one total flattened to a single rate.",
+            "item2Title": "AT compliance",
+            "item2Body": "Issued through certified software, with ATCUD, a reported series and the legal wording for M01–M99 exemptions in the document notes.",
+            "item3Title": "Foreign guest with no VAT ID",
+            "item3Body": "When a guest has no Portuguese VAT ID, the document is issued to Consumidor Final with the correct name and country. When there is one, it is algorithmically validated before it reaches the invoice.",
+            "item4Title": "Total matches what was charged",
+            "item4Body": "The invoice closes to the cent against the booking value: nights, cleaning, extras and discounts reconciled line by line."
+        },
+        "pricing": {
+            "eyebrow": "Pricing",
+            "title": "Simple. <g>Per integration.</g>",
+            "sub": "The Lodgify integration costs the same as any other in the catalog. No per-document fees, no booking limits.",
+            "notice": "Prices excl. VAT · no card to start · cancel anytime",
+            "fullLink": "See all plans on the hub",
+            "monthly": {
+                "name": "Monthly",
+                "price": "€7.50",
+                "period": "/month · + VAT",
+                "b1": "Full Lodgify integration",
+                "b2": "One invoice per paid booking",
+                "b3": "6% VAT · extras · M01–M99 exemptions",
+                "b4": "Cancellations → credit notes",
+                "cta": "Start free"
+            },
+            "yearly": {
+                "name": "Yearly",
+                "badge": "Recommended",
+                "price": "€75",
+                "period": "/year · + VAT",
+                "save": "2 months free · €75 vs €90",
+                "b1": "Everything in monthly",
+                "b2": "2 months free",
+                "b3": "Roadmap priority",
+                "b4": "Email support · < 24h response",
+                "cta": "Start free"
+            },
+            "custom": {
+                "name": "Custom",
+                "price": "On request",
+                "period": "tailor-made",
+                "b1": "Tailor-made integration · PMS, channel managers",
+                "b2": "Multiple properties / multiple VAT IDs",
+                "b3": "Dedicated SLA",
+                "b4": "Technical onboarding call",
+                "cta": "Request a quote"
+            }
+        },
+        "faq": {
+            "eyebrow": "FAQ",
+            "title": "Frequently <g>asked</g>.",
+            "sub": "Everything you need to know before connecting Lodgify. Cannot find your answer? Talk to us.",
+            "items": [
+                {
+                    "q": "How does automatic invoicing of Lodgify bookings work?",
+                    "a": "Rioko syncs the bookings in your Lodgify account, validates the data, applies the right VAT rate to each line and sends everything to your certified invoicing program (InvoiceXpress, Moloni or Vendus), which issues the document. One paid booking gives one invoice, with no manual step."
+                },
+                {
+                    "q": "What VAT applies to a Portuguese short-term rental booking?",
+                    "a": "In Portugal accommodation carries the reduced 6% rate, while cleaning and extras can carry a different one. Rioko treats each line with its own rate instead of applying a single rate to the whole booking, and you set the rate for extras in the dashboard."
+                },
+                {
+                    "q": "What if the guest is foreign and has no Portuguese VAT ID?",
+                    "a": "That is the common case in short-term rental. With no valid Portuguese VAT ID, the document is issued to Consumidor Final with the guest name and country, exactly as the law allows. If there is a VAT ID, it is validated before it reaches the document."
+                },
+                {
+                    "q": "Does it work with InvoiceXpress, Moloni and Vendus?",
+                    "a": "Yes, all three. You pick the destination program when setting up the integration, and can change it later without redoing the Lodgify connection."
+                },
+                {
+                    "q": "Do the invoices carry ATCUD and are they accepted by the AT?",
+                    "a": "Yes. Rioko does not issue invoices; it sends the data to your program certified by the Portuguese tax authority, which issues the document with ATCUD, a reported series and the correct exemption wording. The certification is the invoicing program's."
+                },
+                {
+                    "q": "What about cancelled or refunded bookings?",
+                    "a": "A cancelled or refunded booking automatically produces a credit note in your invoicing program, with totals reconciled against the amount actually returned, partial refunds included."
+                },
+                {
+                    "q": "I have several properties in one Lodgify account. Do I need several integrations?",
+                    "a": "No. One Lodgify connection covers every property in the account. You only need more than one integration if you invoice under different VAT IDs or into different invoicing programs."
+                },
+                {
+                    "q": "How much does it cost and how long does setup take?",
+                    "a": "€7.50 + VAT per month or €75 + VAT per year, per integration, with no per-document fees and no booking limits. Setup takes about four minutes and no card is needed to start."
+                }
+            ]
+        },
+        "cta": {
+            "eyebrow": "Ready?",
+            "title": "Connect your Lodgify in <g>four</g> minutes.",
+            "body": "No card. No install. No month-end spreadsheet. Set it up once, invoice forever.",
+            "start": "Start free",
+            "signIn": "I already have an account"
+        }
+    },
     "privacy": {
         "back": "← Back",
         "title": "Privacy Policy",

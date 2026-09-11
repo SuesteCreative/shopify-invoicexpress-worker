@@ -4,7 +4,7 @@ import { VerticalPage, verticalMetadata } from "@/components/landing/vertical-pa
 
 export const runtime = "edge";
 
-const VARIANT = VERTICALS.shopify;
+const VARIANT = VERTICALS.lodgify;
 
 type Props = { params: Promise<{ locale: string }> };
 

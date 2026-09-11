@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { Activity, ShieldCheck, Settings2, BookOpen, Zap, ScrollText, Receipt, Wrench, Users } from "lucide-react";
+import { Activity, ShieldCheck, BookOpen, Zap, ScrollText, Receipt, Users } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { kindLabel } from "@/lib/connection-kinds";
@@ -21,8 +21,6 @@ interface ActiveIntegration {
 
 const ACTIVE_BRAND =
     "bg-accent/18 text-accent-ink border-accent/45 shadow-[inset_0_1px_0_var(--glass-inset)]";
-const ACTIVE_DANGER =
-    "bg-destructive/18 text-destructive border-destructive/45 shadow-[inset_0_1px_0_var(--glass-inset)]";
 const INACTIVE = "text-fg-60 hover:text-fg hover:bg-fg/5";
 
 export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boolean; isHiperadmin?: boolean }) {
@@ -189,39 +187,21 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
             {(canAccessAdmin || isHiperadmin) && (
                 <div className="space-y-2">
                     <span className="px-4 font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("admin")}</span>
+                    {/* One link out to the admin surface, which carries its own
+                        nav. A plain <a>, never LinkItem: that uses the i18n Link
+                        and would emit /pt/admin, and the middleware bypass covers
+                        /admin only — /pt/admin is a 404. */}
                     <div className="space-y-1">
-                        {canAccessAdmin && (
-                            <LinkItem
-                                href="/superadmin"
-                                icon={ShieldCheck}
-                                label={t("superadmin")}
-                                activeClass={ACTIVE_DANGER}
-                            />
-                        )}
-                        {canAccessAdmin && (
-                            <LinkItem
-                                href="/ops"
-                                icon={Activity}
-                                label={t("ops")}
-                                activeClass={ACTIVE_DANGER}
-                            />
-                        )}
-                        {canAccessAdmin && (
-                            <LinkItem
-                                href="/onboarding-helper"
-                                icon={Wrench}
-                                label={t("onboardingHelper")}
-                                activeClass={ACTIVE_DANGER}
-                            />
-                        )}
-                        {isHiperadmin && (
-                            <LinkItem
-                                href="/client-rules"
-                                icon={Settings2}
-                                label={t("clientRules")}
-                                activeClass={ACTIVE_DANGER}
-                            />
-                        )}
+                        <a
+                            href="/admin"
+                            className={cn(
+                                "flex items-center gap-3 px-4 py-3 rounded-2xl font-medium text-sm transition-all border border-transparent",
+                                INACTIVE
+                            )}
+                        >
+                            <ShieldCheck className="w-4 h-4" />
+                            {t("admin")}
+                        </a>
                     </div>
                 </div>
             )}

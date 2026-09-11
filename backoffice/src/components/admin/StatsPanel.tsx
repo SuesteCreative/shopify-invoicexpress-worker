@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-    Users, TrendingUp, Receipt, Wallet, AlertTriangle, Loader2, EyeOff,
+    Users, TrendingUp, Wallet, Ban, AlertTriangle, Loader2, EyeOff,
 } from "lucide-react";
 
 /**
@@ -22,7 +22,10 @@ interface Stats {
     signups: Series;
     funnel: { accounts: number; registered: number; connected: number; paying: number; mid_setup: number };
     revenue: Revenue;
+    subscription_net_cents: number;
     lifetime_net_cents: number;
+    /** Wired up, and the subscription gate is refusing to invoice for them. */
+    blocked: number;
     other_currencies: { currency: string; n: number; cents: number }[];
     subscriptions: { status: string; connection_key: string; n: number }[];
     documents: Series;
@@ -34,6 +37,9 @@ interface Stats {
 const eur = (cents: number) =>
     new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(cents / 100);
 
+/** Counts get the thousands separator too — "2375" is not how pt-PT reads. */
+const n = (v: number) => new Intl.NumberFormat("pt-PT").format(v);
+
 /** "2026-09" → "set 26". The series is dense enough that full labels collide. */
 const monthLabel = (ym: string) => {
     const [y, m] = ym.split("-");
@@ -43,7 +49,7 @@ const monthLabel = (ym: string) => {
 
 /** Keep the tail of a series — a chart of every month since the beginning is
  *  unreadable long before it is interesting. */
-const lastN = <T,>(xs: T[], n: number) => (xs.length > n ? xs.slice(-n) : xs);
+const lastN = <T,>(xs: T[], keep: number) => (xs.length > keep ? xs.slice(-keep) : xs);
 
 const Card = ({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) => (
     <section className="glass rounded-[2rem] p-5 sm:p-7 border-hairline space-y-5">
@@ -55,16 +61,16 @@ const Card = ({ title, hint, children }: { title: string; hint?: string; childre
     </section>
 );
 
-const Kpi = ({ icon: Icon, label, value, sub }: {
+const Kpi = ({ icon: Icon, label, value, sub, tone }: {
     icon: React.ComponentType<{ className?: string }>;
-    label: string; value: string; sub?: string;
+    label: string; value: string; sub?: string; tone?: "warn";
 }) => (
-    <div className="glass rounded-3xl p-5 border-hairline">
-        <div className="flex items-center gap-2 text-fg-40">
+    <div className={`glass rounded-3xl p-5 ${tone === "warn" ? "border border-soon/40" : "border-hairline"}`}>
+        <div className={`flex items-center gap-2 ${tone === "warn" ? "text-soon" : "text-fg-40"}`}>
             <Icon className="w-4 h-4" />
             <span className="font-mono text-[10px] uppercase tracking-[0.18em]">{label}</span>
         </div>
-        <div className="mt-3 text-3xl font-black text-fg tabular-nums">{value}</div>
+        <div className={`mt-3 text-3xl font-black tabular-nums ${tone === "warn" ? "text-soon" : "text-fg"}`}>{value}</div>
         {sub && <div className="mt-1 text-[11px] text-fg-40">{sub}</div>}
     </div>
 );
@@ -89,7 +95,7 @@ function Bars({ data, tone = "accent", format }: {
                 month labels render and the bars are invisible. */}
             <div className="flex items-stretch gap-1.5 h-40 min-w-fit">
                 {data.map((d) => (
-                    <div key={d.label} className="flex flex-col items-center gap-2 group min-w-[26px]">
+                    <div key={d.label} className="flex-1 flex flex-col items-center gap-2 group min-w-[26px]">
                         <div className="flex-1 flex items-end w-full">
                             <div
                                 className={`w-full rounded-t-md ${fill} transition-all group-hover:opacity-100 opacity-80`}
@@ -125,9 +131,9 @@ function Funnel({ funnel }: { funnel: Stats["funnel"] }) {
                         <div className="flex items-baseline justify-between gap-3">
                             <span className="text-sm text-fg">{s.label}</span>
                             <span className="font-mono text-sm text-fg tabular-nums">
-                                {s.n}
+                                {n(s.n)}
                                 {drop !== null && drop > 0 && (
-                                    <span className="ml-2 text-[11px] text-fg-40">−{drop}</span>
+                                    <span className="ml-2 text-[11px] text-fg-40">−{n(drop)}</span>
                                 )}
                             </span>
                         </div>
@@ -142,7 +148,7 @@ function Funnel({ funnel }: { funnel: Stats["funnel"] }) {
             })}
             {funnel.mid_setup > 0 && (
                 <p className="pt-1 text-[11px] text-soon">
-                    {funnel.mid_setup} {funnel.mid_setup === 1 ? "conta parou" : "contas pararam"} a meio de um wizard
+                    {n(funnel.mid_setup)} {funnel.mid_setup === 1 ? "conta parou" : "contas pararam"} a meio de um wizard
                     (ligação em rascunho).
                 </p>
             )}
@@ -200,14 +206,17 @@ export function StatsPanel() {
             </header>
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <Kpi icon={Users} label="Contas" value={String(stats.funnel.accounts)}
-                     sub={`${stats.funnel.paying} a pagar`} />
+                <Kpi icon={Users} label="Contas" value={n(stats.funnel.accounts)}
+                     sub={`${n(stats.funnel.paying)} a pagar`} />
                 <Kpi icon={Wallet} label="Receita total" value={eur(stats.lifetime_net_cents)}
-                     sub="líquida de reembolsos" />
+                     sub="subscrições e lugares, líquido" />
                 <Kpi icon={TrendingUp} label="Este mês" value={eur(revenueThisMonth)}
                      sub={monthLabel(thisMonth)} />
-                <Kpi icon={Receipt} label="Documentos" value={String(docsThisMonth)}
-                     sub={`${monthLabel(thisMonth)}`} />
+                {/* The actionable one. An account can be fully wired and still
+                    have every document refused at the subscription gate, and
+                    nothing else on this page would say so. */}
+                <Kpi icon={Ban} label="Bloqueadas" value={n(stats.blocked)}
+                     sub="ligadas, sem facturar" tone={stats.blocked > 0 ? "warn" : undefined} />
             </div>
 
             <div className="grid lg:grid-cols-2 gap-6">
@@ -230,8 +239,9 @@ export function StatsPanel() {
                     format={eur}
                 />
                 <div className="flex flex-wrap gap-x-6 gap-y-1 pt-1 text-[11px] text-fg-40">
+                    <span>Subscrições {eur(stats.subscription_net_cents)}</span>
                     {stats.seats.n > 0 && (
-                        <span>{stats.seats.n} lugares extra, {eur(stats.seats.cents)}</span>
+                        <span>{n(stats.seats.n)} lugares extra, {eur(stats.seats.cents)} (fora do gráfico, dentro do total)</span>
                     )}
                     {stats.other_currencies.map((c) => (
                         <span key={c.currency} className="text-soon">
@@ -251,7 +261,7 @@ export function StatsPanel() {
                                     <span className="text-sm text-fg">{s.status}</span>
                                     <span className="font-mono text-[10px] text-fg-40 truncate">{s.connection_key}</span>
                                 </div>
-                                <span className="font-mono text-sm text-fg tabular-nums shrink-0">{s.n}</span>
+                                <span className="font-mono text-sm text-fg tabular-nums shrink-0">{n(s.n)}</span>
                             </div>
                         ))}
                     </div>
@@ -263,7 +273,7 @@ export function StatsPanel() {
                         {stats.channels.map((c) => (
                             <div key={c.source} className="flex items-baseline justify-between gap-3">
                                 <span className="text-sm text-fg truncate">{c.source}</span>
-                                <span className="font-mono text-sm text-fg tabular-nums shrink-0">{c.n}</span>
+                                <span className="font-mono text-sm text-fg tabular-nums shrink-0">{n(c.n)}</span>
                             </div>
                         ))}
                     </div>
@@ -281,7 +291,7 @@ export function StatsPanel() {
 
             <Card
                 title="Documentos emitidos por mês"
-                hint="Uma reemissão de admin reescreve a data do registo, portanto os meses antigos derivam ligeiramente para baixo."
+                hint={`${n(docsThisMonth)} em ${monthLabel(thisMonth)}. Uma reemissão de admin reescreve a data do registo, portanto os meses antigos derivam ligeiramente para baixo.`}
             >
                 <Bars data={lastN(stats.documents, 18).map((d) => ({ label: monthLabel(d.ym), value: d.n }))} />
             </Card>

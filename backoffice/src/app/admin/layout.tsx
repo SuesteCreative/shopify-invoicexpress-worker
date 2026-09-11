@@ -13,6 +13,7 @@ import { sansDisplay, monoFont, generalSans, satoshi } from "../fonts";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
 import { getRole } from "@/lib/admin";
 import InactivityLogout from "@/components/InactivityLogout";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 
 // A metadata OBJECT is always safe here. A metadata FILE (icon.*, apple-icon.*,
@@ -71,11 +72,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                         <InactivityLogout />
                         <div className="brand-ambient" aria-hidden="true" />
 
-                        <div className="flex flex-col md:flex-row h-screen overflow-hidden">
-                            <AdminSidebar isHiperadmin={role === "hiperadmin"} />
-                            <main className="flex-1 overflow-y-auto relative z-10 px-4 py-6 md:px-12 md:py-16">
-                                {children}
-                            </main>
+                        {/* Not decoration. /api/admin/users answers as the
+                            IMPERSONATED user on purpose, so an admin who forgot
+                            they were impersonating sees a silently shortened
+                            client list — and, without this, no way back out of
+                            it from here. A row of its own above the sidebar, so
+                            it takes real height instead of covering the page. */}
+                        <div className="flex flex-col h-screen overflow-hidden">
+                            <ImpersonationBanner />
+                            <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
+                                <AdminSidebar isHiperadmin={role === "hiperadmin"} />
+                                <main className="flex-1 overflow-y-auto relative z-10 px-4 py-6 md:px-12 md:py-16">
+                                    {children}
+                                </main>
+                            </div>
                         </div>
                     </NextIntlClientProvider>
                 </body>

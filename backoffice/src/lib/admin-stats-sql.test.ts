@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-    REVENUE_BY_MONTH, OTHER_CURRENCIES, CUSTOMERS, CUSTOMERS_LEGACY,
+    REVENUE_BY_MONTH, OTHER_CURRENCIES, CUSTOMERS,
     FUNNEL, SIGNUPS_BY_MONTH, ATTRIBUTION_COVERAGE, DOCUMENTS_BY_MONTH,
+    BLOCKED_BY_GATE, CHANNELS, SUBSCRIPTIONS_BY_STATE, SEAT_REVENUE,
 } from "./admin-stats-sql";
 
 /**
@@ -41,8 +42,8 @@ function db() {
         );
         CREATE TABLE connections (id TEXT PRIMARY KEY, user_id TEXT, status TEXT);
         CREATE TABLE integrations (id TEXT PRIMARY KEY, user_id TEXT, shopify_domain TEXT);
-        CREATE TABLE subscriptions (user_id TEXT, connection_key TEXT, status TEXT);
-        CREATE TABLE processed_orders (id TEXT PRIMARY KEY, invoice_id TEXT, created_at TEXT);
+        CREATE TABLE subscriptions (user_id TEXT, connection_key TEXT, status TEXT, stripe_subscription_id TEXT, early_bird INTEGER, trial_end TEXT);
+        CREATE TABLE processed_orders (id TEXT PRIMARY KEY, invoice_id TEXT, created_at TEXT, user_id TEXT);
         CREATE TABLE account_seats (id TEXT PRIMARY KEY, account_id TEXT, amount_cents INTEGER, created_at TEXT);
     `);
 
@@ -120,6 +121,35 @@ describe("revenue", () => {
         expect(other[0].n).toBe(1);
     });
 
+    it("counts a charge refunded in instalments once, at its running total", () => {
+        const d = db();
+        // Stripe sends charge.refunded once per instalment and `amount_refunded`
+        // is the RUNNING TOTAL, not the increment. The webhook keys each row on
+        // the latest refund's own id, so they never collide — grouping on that
+        // would keep 10 € and 25 € and sum them to 35 € against a charge that
+        // was only ever refunded 25 €. The payment intent is the stable identity.
+        d.exec(`
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, payment_intent_id, amount_cents, currency, created_at) VALUES
+              ('evt_paid', 'user_a', 'invoice.paid',    'in_A', 'pi_A', 9000, 'eur', '2026-04-01T10:00:00.000Z'),
+              ('evt_r1',   'user_a', 'charge.refunded', 're_1', 'pi_A', 1000, 'eur', '2026-04-05T10:00:00.000Z'),
+              ('evt_r2',   'user_a', 'charge.refunded', 're_2', 'pi_A', 2500, 'eur', '2026-04-09T10:00:00.000Z');
+        `);
+
+        const [m] = d.all(REVENUE_BY_MONTH);
+        expect(m.refunded_cents).toBe(2500);
+        expect(m.gross_cents - m.refunded_cents).toBe(6500);
+    });
+
+    it("still separates refunds that belong to different charges", () => {
+        const d = db();
+        d.exec(`
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, payment_intent_id, amount_cents, currency, created_at) VALUES
+              ('evt_r1', 'user_a', 'charge.refunded', 're_1', 'pi_A', 1000, 'eur', '2026-04-05T10:00:00.000Z'),
+              ('evt_r2', 'user_b', 'charge.refunded', 're_2', 'pi_B', 2500, 'eur', '2026-04-09T10:00:00.000Z');
+        `);
+        expect(d.all(REVENUE_BY_MONTH)[0].refunded_cents).toBe(3500);
+    });
+
     it("ignores rows with no amount instead of counting them as zero-value sales", () => {
         const d = db();
         d.exec(`
@@ -156,15 +186,6 @@ describe("customers", () => {
         expect(f.registered).toBe(1);
     });
 
-    it("still answers on a database without migration 0039", () => {
-        const d = db();
-        seedPeople(d);
-        // The legacy shape cannot know about seats, so the colleague counts.
-        // What matters is that it runs and still excludes the admin.
-        const f = d.one(FUNNEL(CUSTOMERS_LEGACY));
-        expect(f.accounts).toBe(3);
-    });
-
     it("walks the funnel down: registered, then connected, then paying", () => {
         const d = db();
         seedPeople(d);
@@ -179,19 +200,39 @@ describe("customers", () => {
     it("counts a draft connection as a wizard someone walked out of", () => {
         const d = db();
         seedPeople(d);
+        // user_cust2 never completed the fiscal form, so under the nested funnel
+        // it is not "connected" — but mid_setup is deliberately NOT a stage, and
+        // still sees the abandoned wizard.
         d.exec(`INSERT INTO connections (id, user_id, status) VALUES ('c1', 'user_cust2', 'draft');`);
         const f = d.one(FUNNEL(CUSTOMERS));
         expect(f.mid_setup).toBe(1);
-        // A draft still counts as connected — the row exists. The two numbers
-        // together are what says "wired, but never finished".
-        expect(f.connected).toBe(1);
+        expect(f.connected).toBe(0);
     });
 
     it("counts the legacy Shopify pipe, which has no connections row at all", () => {
         const d = db();
         seedPeople(d);
-        d.exec(`INSERT INTO integrations (id, user_id, shopify_domain) VALUES ('i1', 'user_cust2', 'shop.myshopify.com');`);
+        d.exec(`INSERT INTO integrations (id, user_id, shopify_domain) VALUES ('i1', 'user_cust1', 'shop.myshopify.com');`);
         expect(d.one(FUNNEL(CUSTOMERS)).connected).toBe(1);
+    });
+
+    it("never lets a later stage exceed an earlier one", () => {
+        const d = db();
+        // The case that breaks three independent predicates: an account that
+        // pays and is wired, but never completed the fiscal form. Counted
+        // separately it would make "a pagar" larger than "dados preenchidos"
+        // and render a bar wider than the one above it.
+        d.exec(`
+            INSERT INTO users (id, role, created_at, registration_completed) VALUES
+              ('user_a', 'user', '2026-02-01T10:00:00.000Z', 0);
+            INSERT INTO connections (id, user_id, status) VALUES ('c1', 'user_a', 'active');
+            INSERT INTO subscriptions (user_id, connection_key, status) VALUES ('user_a', 'k', 'active');
+        `);
+        const f = d.one(FUNNEL(CUSTOMERS));
+        expect(f).toMatchObject({ accounts: 1, registered: 0, connected: 0, paying: 0 });
+        expect(f.registered).toBeLessThanOrEqual(f.accounts);
+        expect(f.connected).toBeLessThanOrEqual(f.registered);
+        expect(f.paying).toBeLessThanOrEqual(f.connected);
     });
 
     it("reports how much of the funnel has no attribution", () => {
@@ -213,11 +254,122 @@ describe("documents", () => {
     it("counts only sales that produced a document", () => {
         const d = db();
         d.exec(`
-            INSERT INTO processed_orders (id, invoice_id, created_at) VALUES
-              ('o1', 'inv_1', '2026-08-01T10:00:00.000Z'),
-              ('o2', 'inv_2', '2026-08-15 10:00:00'),
-              ('o3', NULL,    '2026-08-20T10:00:00.000Z');
+            INSERT INTO users (id, role) VALUES ('user_cust1', 'user');
+            INSERT INTO processed_orders (id, invoice_id, created_at, user_id) VALUES
+              ('o1', 'inv_1', '2026-08-01T10:00:00.000Z', 'user_cust1'),
+              ('o2', 'inv_2', '2026-08-15 10:00:00',      'user_cust1'),
+              ('o3', NULL,    '2026-08-20T10:00:00.000Z', 'user_cust1');
         `);
         expect(d.all(DOCUMENTS_BY_MONTH)).toEqual([{ ym: "2026-08", n: 2 }]);
+    });
+
+    it("leaves our own admin shops out, and keeps the pre-0012 rows that have no owner", () => {
+        const d = db();
+        d.exec(`
+            INSERT INTO users (id, role) VALUES ('user_cust1', 'user'), ('user_admin', 'hiperadmin');
+            INSERT INTO processed_orders (id, invoice_id, created_at, user_id) VALUES
+              ('o1', 'inv_1', '2026-08-01T10:00:00.000Z', 'user_cust1'),
+              ('o2', 'inv_2', '2026-08-02T10:00:00.000Z', 'user_admin'),
+              ('o3', 'inv_3', '2026-08-03T10:00:00.000Z', NULL);
+        `);
+        // The customer's document and the ownerless legacy one; not the admin's.
+        expect(d.all(DOCUMENTS_BY_MONTH)).toEqual([{ ym: "2026-08", n: 2 }]);
+    });
+});
+
+describe("the subscription gate", () => {
+    /** A customer with a connection, so only the subscription decides. */
+    function wiredCustomer(d: ReturnType<typeof db>, id: string) {
+        d.exec(`
+            INSERT INTO users (id, role, created_at) VALUES ('${id}', 'user', '2026-01-01T00:00:00.000Z');
+            INSERT INTO connections (id, user_id, status) VALUES ('c_${id}', '${id}', 'active');
+        `);
+    }
+
+    it("counts a wired account with no subscription row at all", () => {
+        const d = db();
+        wiredCustomer(d, "user_a");
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(1);
+    });
+
+    it("does not count an active subscription", () => {
+        const d = db();
+        wiredCustomer(d, "user_a");
+        d.exec(`INSERT INTO subscriptions (user_id, connection_key, status) VALUES ('user_a', 'k', 'active');`);
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(0);
+    });
+
+    it("counts every dead status", () => {
+        const d = db();
+        const dead = ["canceled", "unpaid", "incomplete_expired", "past_due", "incomplete"];
+        dead.forEach((st, i) => {
+            wiredCustomer(d, `user_${i}`);
+            d.exec(`INSERT INTO subscriptions (user_id, connection_key, status) VALUES ('user_${i}', 'k', '${st}');`);
+        });
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(dead.length);
+    });
+
+    it("lets an early bird inside its window through, and blocks one past it", () => {
+        const d = db();
+        wiredCustomer(d, "user_in");
+        wiredCustomer(d, "user_out");
+        d.exec(`
+            INSERT INTO subscriptions (user_id, connection_key, status, stripe_subscription_id, early_bird, trial_end) VALUES
+              ('user_in',  'k', 'trialing', NULL, 1, '2099-01-01T00:00:00.000Z'),
+              ('user_out', 'k', 'trialing', NULL, 1, '2020-01-01T00:00:00.000Z');
+        `);
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(1);
+    });
+
+    it("blocks a trial that is not an early bird, however fresh", () => {
+        const d = db();
+        wiredCustomer(d, "user_a");
+        d.exec(`
+            INSERT INTO subscriptions (user_id, connection_key, status, stripe_subscription_id, early_bird, trial_end)
+            VALUES ('user_a', 'k', 'trialing', NULL, 0, '2099-01-01T00:00:00.000Z');
+        `);
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(1);
+    });
+
+    it("lets a Stripe-backed trial through", () => {
+        const d = db();
+        wiredCustomer(d, "user_a");
+        d.exec(`
+            INSERT INTO subscriptions (user_id, connection_key, status, stripe_subscription_id, early_bird, trial_end)
+            VALUES ('user_a', 'k', 'trialing', 'sub_live', 0, NULL);
+        `);
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(0);
+    });
+
+    it("ignores an account with nothing wired up — it has nothing to invoice", () => {
+        const d = db();
+        d.exec(`INSERT INTO users (id, role, created_at) VALUES ('user_a', 'user', '2026-01-01T00:00:00.000Z');`);
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(0);
+    });
+});
+
+/**
+ * The queries the panel renders but nothing exercised. They are the ones most
+ * likely to name a column that does not exist, and a single one of those used
+ * to take the whole overview down with it.
+ */
+describe("the remaining queries run at all", () => {
+    it("channels, subscriptions by state and seat revenue return their shapes", () => {
+        const d = db();
+        d.exec(`
+            INSERT INTO users (id, role, created_at, acq_utm_source, acq_captured_at) VALUES
+              ('user_a', 'user', '2026-02-01T10:00:00.000Z', 'google', '2026-02-01T10:00:00.000Z'),
+              ('user_b', 'user', '2026-02-02T10:00:00.000Z', NULL,     NULL);
+            INSERT INTO subscriptions (user_id, connection_key, status) VALUES
+              ('user_a', 'shopify:invoicexpress', 'active');
+            INSERT INTO account_seats (id, account_id, amount_cents, created_at) VALUES
+              ('s1', 'user_a', 150, '2026-03-01T10:00:00.000Z');
+        `);
+
+        expect(d.all(CHANNELS(CUSTOMERS))).toEqual([{ source: "google", n: 1 }]);
+        expect(d.all(SUBSCRIPTIONS_BY_STATE)).toEqual([
+            { status: "active", connection_key: "shopify:invoicexpress", n: 1 },
+        ]);
+        expect(d.one(SEAT_REVENUE)).toEqual({ n: 1, cents: 150 });
     });
 });

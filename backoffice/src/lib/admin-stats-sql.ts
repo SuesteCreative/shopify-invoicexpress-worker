@@ -30,19 +30,31 @@ export const PAID_ROWS = `
          MIN(currency)                  AS currency,
          MIN(user_id)                   AS user_id
   FROM billing_events
-  WHERE type = 'invoice.paid' AND amount_cents IS NOT NULL
+  WHERE type = 'invoice.paid' AND amount_cents IS NOT NULL AND created_at IS NOT NULL
   GROUP BY COALESCE(stripe_object_id, id)
 `;
 
-/** One row per refund, collapsed the same way. */
+/**
+ * One row per refunded CHARGE, not per refund event.
+ *
+ * A charge can be refunded in instalments, and Stripe sends `charge.refunded`
+ * once per instalment carrying `amount_refunded` — which is the RUNNING TOTAL,
+ * not the increment. The webhook keys each of those rows on the latest refund's
+ * own id, so they never collide. Grouping on that id therefore keeps 10 € and
+ * then 25 € as two rows and sums them to 35 € against a charge that was only
+ * ever refunded 25 €.
+ *
+ * The payment intent is the stable identity of the charge, so grouping on it and
+ * taking MAX collapses the ladder back to its last rung, which is the answer.
+ */
 export const REFUND_ROWS = `
-  SELECT COALESCE(stripe_object_id, id) AS obj,
-         MIN(created_at)                AS created_at,
-         MAX(amount_cents)              AS amount_cents,
-         MIN(currency)                  AS currency
+  SELECT COALESCE(payment_intent_id, stripe_object_id, id) AS obj,
+         MIN(created_at)                                   AS created_at,
+         MAX(amount_cents)                                 AS amount_cents,
+         MIN(currency)                                     AS currency
   FROM billing_events
-  WHERE type = 'charge.refunded' AND amount_cents IS NOT NULL
-  GROUP BY COALESCE(stripe_object_id, id)
+  WHERE type = 'charge.refunded' AND amount_cents IS NOT NULL AND created_at IS NOT NULL
+  GROUP BY COALESCE(payment_intent_id, stripe_object_id, id)
 `;
 
 /**
@@ -60,11 +72,6 @@ export const CUSTOMERS = `
       SELECT 1 FROM account_members m
       WHERE m.member_user_id = u.id AND m.status = 'active'
     )
-`;
-
-/** The same, on a database that predates migration 0039. */
-export const CUSTOMERS_LEGACY = `
-  SELECT u.* FROM users u WHERE COALESCE(u.role, 'user') = 'user'
 `;
 
 /** Gross, refunded and (by subtraction) net euros per calendar month. */
@@ -99,23 +106,68 @@ export const SIGNUPS_BY_MONTH = (customers: string) => `
 `;
 
 /**
- * The onboarding funnel. Each stage is a subset of the one before it:
- * an account exists, its fiscal details are filled in, an integration is wired,
- * a subscription is being paid. `mid_setup` is the abandoned-wizard bucket —
- * a connection row that never left `draft`.
+ * The onboarding funnel, genuinely nested.
+ *
+ * Each stage carries the conditions of the stages above it. Three independent
+ * predicates over the same rows would not be a funnel: a paying account whose
+ * fiscal form was never completed would make "a pagar" larger than "dados
+ * preenchidos", and the bar would render wider than the one above it while the
+ * card claims each stage is a subset of the last. That it happens to come out
+ * monotonic today is luck, not arithmetic.
+ *
+ * `mid_setup` is deliberately NOT a stage — it is a side note counting accounts
+ * whose connection never left `draft`, i.e. someone who walked out of a wizard.
  */
 export const FUNNEL = (customers: string) => `
   SELECT
     COUNT(*) AS accounts,
-    SUM(CASE WHEN COALESCE(registration_completed, 0) = 1 THEN 1 ELSE 0 END) AS registered,
-    SUM(CASE WHEN EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id)
-               OR EXISTS (SELECT 1 FROM integrations i WHERE i.user_id = u.id AND i.shopify_domain IS NOT NULL)
-             THEN 1 ELSE 0 END) AS connected,
-    SUM(CASE WHEN EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'active')
-             THEN 1 ELSE 0 END) AS paying,
-    SUM(CASE WHEN EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id AND c.status = 'draft')
-             THEN 1 ELSE 0 END) AS mid_setup
+    SUM(CASE WHEN reg THEN 1 ELSE 0 END)                   AS registered,
+    SUM(CASE WHEN reg AND conn THEN 1 ELSE 0 END)          AS connected,
+    SUM(CASE WHEN reg AND conn AND pay THEN 1 ELSE 0 END)  AS paying,
+    SUM(CASE WHEN draft THEN 1 ELSE 0 END)                 AS mid_setup
+  FROM (
+    SELECT
+      COALESCE(u.registration_completed, 0) = 1 AS reg,
+      (EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id)
+        OR EXISTS (SELECT 1 FROM integrations i WHERE i.user_id = u.id AND i.shopify_domain IS NOT NULL)) AS conn,
+      EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'active') AS pay,
+      EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id AND c.status = 'draft')    AS draft
+    FROM (${customers}) u
+  )
+`;
+
+/**
+ * Accounts the worker is currently refusing to invoice for.
+ *
+ * The single most useful number on the page, and the one the funnel cannot
+ * show: an account can be wired up and still have every document blocked at the
+ * subscription gate. This mirrors isSubscriptionBlocked() in lib/stripe.ts — a
+ * dead status, or a trial that has no Stripe subscription behind it and whose
+ * early-bird grace has run out. Keep the two in step: if the gate changes and
+ * this does not, the page will say invoicing is fine while it is not.
+ */
+export const BLOCKED_BY_GATE = (customers: string) => `
+  SELECT COUNT(*) AS n
   FROM (${customers}) u
+  WHERE (
+      EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id)
+      OR EXISTS (SELECT 1 FROM integrations i WHERE i.user_id = u.id AND i.shopify_domain IS NOT NULL)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM subscriptions s
+    WHERE s.user_id = u.id
+      AND s.status NOT IN ('canceled','unpaid','incomplete_expired','past_due','incomplete')
+      AND (
+        s.status <> 'trialing'
+        OR s.stripe_subscription_id IS NOT NULL
+        -- An early bird keeps access until the day its trial ends. Compared on
+        -- the DATE only: trial_end is ISO with a T, datetime('now') is the space
+        -- form, and those two sort wrong against each other from position 11.
+        OR (COALESCE(s.early_bird, 0) = 1
+            AND s.trial_end IS NOT NULL
+            AND substr(s.trial_end, 1, 10) >= date('now'))
+      )
+  )
 `;
 
 /**
@@ -129,6 +181,11 @@ export const DOCUMENTS_BY_MONTH = `
   SELECT substr(created_at, 1, 7) AS ym, COUNT(*) AS n
   FROM processed_orders
   WHERE invoice_id IS NOT NULL AND created_at IS NOT NULL
+    -- The page says "customer accounts only", so our own dev-mode and test
+    -- shops must not be inside the count. Rows from before migration 0012 have
+    -- no user_id at all and are kept: they are real documents for real clients.
+    AND (user_id IS NULL
+         OR user_id IN (SELECT id FROM users WHERE COALESCE(role, 'user') = 'user'))
   GROUP BY ym ORDER BY ym
 `;
 

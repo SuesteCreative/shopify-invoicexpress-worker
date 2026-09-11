@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { isAdmin } from "@/lib/admin";
 import {
-    CUSTOMERS, CUSTOMERS_LEGACY,
+    CUSTOMERS,
     SIGNUPS_BY_MONTH, FUNNEL, REVENUE_BY_MONTH, OTHER_CURRENCIES,
     SUBSCRIPTIONS_BY_STATE, DOCUMENTS_BY_MONTH, CHANNELS,
-    ATTRIBUTION_COVERAGE, SEAT_REVENUE,
+    ATTRIBUTION_COVERAGE, SEAT_REVENUE, BLOCKED_BY_GATE,
 } from "@/lib/admin-stats-sql";
 
 export const runtime = "edge";
@@ -24,6 +24,21 @@ export const runtime = "edge";
 const rows = (r: any): any[] => (r?.results ?? []) as any[];
 const num = (v: unknown) => Number(v ?? 0);
 
+/**
+ * Every read degrades on its own.
+ *
+ * Promise.all rejects on the first failure, so one query naming a column an
+ * un-applied migration has not added yet would blank the entire overview —
+ * funnel, revenue and all. The acquisition reads are the live risk: the acq_*
+ * columns come from backoffice/migrations, a second directory applied by hand.
+ * A card that says nothing is a bad card; a page that says nothing is an outage.
+ */
+const soft = <T,>(p: Promise<T>, fallback: T, label: string): Promise<T> =>
+    p.catch((e) => {
+        console.error(`[admin/stats] ${label} failed:`, e?.message ?? e);
+        return fallback;
+    });
+
 export async function GET() {
     try {
         const { userId } = await auth();
@@ -35,29 +50,23 @@ export async function GET() {
         const db = (env as any).DB;
         if (!db) return NextResponse.json({ error: "No database binding" }, { status: 500 });
 
-        // account_members arrived in migration 0039. Probe once here rather than
-        // giving all five customer-scoped queries a fallback of their own.
-        const customers: string = await db
-            .prepare(`SELECT COUNT(*) AS n FROM (${CUSTOMERS})`)
-            .first()
-            .then(() => CUSTOMERS)
-            .catch(() => CUSTOMERS_LEGACY);
+        const customers = CUSTOMERS;
+        const EMPTY = { results: [] as any[] };
 
         const [
             signupRows, funnelRow, revenueRows, otherCurrencyRows,
-            subRows, docRows, channelRows, attributionRow, seatRow,
+            subRows, docRows, channelRows, attributionRow, seatRow, blockedRow,
         ] = await Promise.all([
-            db.prepare(SIGNUPS_BY_MONTH(customers)).all(),
-            db.prepare(FUNNEL(customers)).first(),
-            db.prepare(REVENUE_BY_MONTH).all(),
-            db.prepare(OTHER_CURRENCIES).all(),
-            db.prepare(SUBSCRIPTIONS_BY_STATE).all(),
-            db.prepare(DOCUMENTS_BY_MONTH).all(),
-            db.prepare(CHANNELS(customers)).all(),
-            db.prepare(ATTRIBUTION_COVERAGE(customers)).first(),
-            // account_seats arrived in 0040, and an unapplied migration must not
-            // take the whole page down with it.
-            db.prepare(SEAT_REVENUE).first().catch(() => ({ n: 0, cents: 0 })),
+            soft(db.prepare(SIGNUPS_BY_MONTH(customers)).all(), EMPTY, "signups"),
+            soft(db.prepare(FUNNEL(customers)).first(), null, "funnel"),
+            soft(db.prepare(REVENUE_BY_MONTH).all(), EMPTY, "revenue"),
+            soft(db.prepare(OTHER_CURRENCIES).all(), EMPTY, "other_currencies"),
+            soft(db.prepare(SUBSCRIPTIONS_BY_STATE).all(), EMPTY, "subscriptions"),
+            soft(db.prepare(DOCUMENTS_BY_MONTH).all(), EMPTY, "documents"),
+            soft(db.prepare(CHANNELS(customers)).all(), EMPTY, "channels"),
+            soft(db.prepare(ATTRIBUTION_COVERAGE(customers)).first(), null, "attribution"),
+            soft(db.prepare(SEAT_REVENUE).first(), { n: 0, cents: 0 }, "seats"),
+            soft(db.prepare(BLOCKED_BY_GATE(customers)).first(), null, "blocked"),
         ]);
 
         const revenue = rows(revenueRows).map((r) => ({
@@ -77,7 +86,12 @@ export async function GET() {
                 mid_setup: num((funnelRow as any)?.mid_setup),
             },
             revenue,
-            lifetime_net_cents: revenue.reduce((a, r) => a + r.net_cents, 0),
+            subscription_net_cents: revenue.reduce((a, r) => a + r.net_cents, 0),
+            // Seats are revenue too. A KPI called "total" that leaves a revenue
+            // line out is the number an operator quotes wrong to someone else.
+            lifetime_net_cents:
+                revenue.reduce((a, r) => a + r.net_cents, 0) + num((seatRow as any)?.cents),
+            blocked: num((blockedRow as any)?.n),
             other_currencies: rows(otherCurrencyRows).map((r) => ({
                 currency: r.currency, n: num(r.n), cents: num(r.cents),
             })),
@@ -93,6 +107,9 @@ export async function GET() {
             seats: { n: num((seatRow as any)?.n), cents: num((seatRow as any)?.cents) },
         });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        // The message can carry D1 table and column names. Admin-only route, but
+        // there is no reason to hand the schema to a browser console.
+        console.error("[admin/stats] failed:", error?.message ?? error);
+        return NextResponse.json({ error: "stats_failed" }, { status: 500 });
     }
 }

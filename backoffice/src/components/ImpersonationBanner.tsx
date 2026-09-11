@@ -28,7 +28,10 @@ export function ImpersonationBanner() {
                 body: JSON.stringify({ targetId: null })
             });
             if (res.ok) {
-                window.location.href = "/superadmin";
+                // Bare path, and a full navigation on purpose: the impersonation
+                // cookie changes server-side, so a client-side route push would
+                // keep rendering the old identity. /admin is not locale-prefixed.
+                window.location.href = "/admin/clientes";
             }
         } catch (e) {
             console.error(e);

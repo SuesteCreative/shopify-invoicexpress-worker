@@ -23,7 +23,10 @@ const APP_PATHS = [
     "/sign-up",
 ];
 
-const DISALLOW = ["/api/", ...APP_PATHS.flatMap((p) => [p, `/*${p}`])];
+// `/admin` goes in directly, never through APP_PATHS: that list is expanded
+// into `/x` and `/*/x` because those routes are locale-prefixed, and the admin
+// surface deliberately is not — `/pt/admin` does not exist.
+const DISALLOW = ["/api/", "/admin", ...APP_PATHS.flatMap((p) => [p, `/*${p}`])];
 
 /**
  * AI crawlers explicitly invited.

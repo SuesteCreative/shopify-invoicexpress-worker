@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isHiperadmin, isAdmin } from "@/lib/admin";
+import { isHiperadmin } from "@/lib/admin";
 import { redactConfigJson, FISCAL_CONFIG_KEYS } from "@/lib/redact";
 
 export const runtime = "edge";
@@ -89,9 +89,21 @@ async function auditConfigChange(
   }
 }
 
+/**
+ * Hiperadmin, for reading as well as writing.
+ *
+ * It used to be isSuperAdmin — a predicate byte-identical to isAdmin — on the
+ * grounds that reading was harmless. It is not: the payload is every company's
+ * fiscal configuration, and the page above it was tightened to hiperadmin while
+ * this was left open, so the whole ruleset stayed one console fetch away from
+ * any superadmin. Gating the page and not the data gates nothing.
+ *
+ * The four integration pages that talk to this route only ever PATCH, which has
+ * required hiperadmin from the start. ClientRulesPanel is the only GET caller.
+ */
 export async function GET() {
   const { userId } = await auth();
-  if (!userId || !(await isAdmin(userId))) {
+  if (!userId || !(await isHiperadmin(userId))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

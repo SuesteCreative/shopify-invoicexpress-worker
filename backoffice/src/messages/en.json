@@ -425,7 +425,7 @@
                 },
                 {
                     "q": "Which platforms does it work with?",
-                    "a": "Payment sources: Shopify and Stripe (EuPago and Easypay coming soon). Invoicing software: InvoiceXpress available now, Moloni and Vendus on the roadmap. Each store connects only the integrations it needs."
+                    "a": "Payment sources: Shopify, Stripe and Lodgify, all available today (EuPago and Easypay coming soon). Invoicing software: InvoiceXpress, Moloni and Vendus, all available today. Each store connects only the integrations it needs."
                 },
                 {
                     "q": "Are the invoices legal and certified in Portugal?",

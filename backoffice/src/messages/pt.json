@@ -425,7 +425,7 @@
                 },
                 {
                     "q": "Com que plataformas funciona?",
-                    "a": "Origens de pagamento: Shopify e Stripe (EuPago e Easypay em breve). Programas de faturação: InvoiceXpress disponível, Moloni e Vendus no roadmap. Cada loja liga apenas as integrações de que precisa."
+                    "a": "Origens de pagamento: Shopify, Stripe e Lodgify, todas disponíveis (EuPago e Easypay em breve). Programas de faturação: InvoiceXpress, Moloni e Vendus, todos disponíveis. Cada loja liga apenas as integrações de que precisa."
                 },
                 {
                     "q": "As faturas emitidas são legais e certificadas em Portugal?",

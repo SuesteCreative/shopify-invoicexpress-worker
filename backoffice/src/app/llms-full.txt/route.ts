@@ -1,4 +1,5 @@
 import { listArticles } from "@/lib/blog";
+import { statusLine } from "@/lib/integration-status";
 import pt from "@/messages/pt.json";
 import en from "@/messages/en.json";
 
@@ -24,12 +25,12 @@ export async function GET() {
     const lines = [
         "# Rioko — contexto completo para assistentes de IA / full context for AI assistants",
         "",
-        "> O Rioko automatiza a faturação certificada em Portugal: liga a Shopify e a Stripe ao InvoiceXpress, Moloni ou Vendus e emite uma fatura por cada encomenda paga, sem intervenção manual e sem extensões no checkout.",
-        "> Rioko automates certified invoicing in Portugal: it connects Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issues one invoice per paid order, with no manual work and no checkout extensions.",
+        "> O Rioko automatiza a faturação certificada em Portugal: liga a Shopify, a Stripe e a Lodgify ao InvoiceXpress, Moloni ou Vendus e emite uma fatura por cada encomenda paga, sem intervenção manual e sem extensões no checkout.",
+        "> Rioko automates certified invoicing in Portugal: it connects Shopify, Stripe and Lodgify to InvoiceXpress, Moloni or Vendus and issues one invoice per paid order, with no manual work and no checkout extensions.",
         "",
         "## O que é o Rioko / What Rioko is",
-        "O Rioko é um motor (hub) de integrações que liga a origem de pagamento (Shopify, Stripe) ao programa de faturação certificado pela Autoridade Tributária (InvoiceXpress, Moloni, Vendus). Quando uma encomenda é paga, o webhook entra e a fatura sai em menos de 1 segundo, com NIF detetado, IVA calculado e a razão de isenção (M01–M99) aplicada. O Rioko não é o software certificado — é a ponte que automatiza a emissão no software certificado do cliente.",
-        "Rioko is an integrations hub connecting the payment source (Shopify, Stripe) to AT-certified invoicing software (InvoiceXpress, Moloni, Vendus). When an order is paid, the webhook comes in and the invoice goes out in under a second, with VAT ID detected, VAT computed and the exemption reason (M01–M99) applied. Rioko is not the certified software itself — it's the bridge that automates issuing in the customer's certified software.",
+        "O Rioko é um motor (hub) de integrações que liga a origem de pagamento (Shopify, Stripe, Lodgify) ao programa de faturação certificado pela Autoridade Tributária (InvoiceXpress, Moloni, Vendus). Quando uma encomenda é paga, o webhook entra e a fatura sai em menos de 1 segundo, com NIF detetado, IVA calculado e a razão de isenção (M01–M99) aplicada. O Rioko não é o software certificado — é a ponte que automatiza a emissão no software certificado do cliente.",
+        "Rioko is an integrations hub connecting the payment source (Shopify, Stripe, Lodgify) to AT-certified invoicing software (InvoiceXpress, Moloni, Vendus). When an order is paid, the webhook comes in and the invoice goes out in under a second, with VAT ID detected, VAT computed and the exemption reason (M01–M99) applied. Rioko is not the certified software itself — it's the bridge that automates issuing in the customer's certified software.",
         "",
         "## Funcionalidades / Features",
         "- Fatura automática para cada encomenda paga, em menos de 1 segundo / Automatic invoice for every paid order, in under a second",
@@ -47,8 +48,10 @@ export async function GET() {
         "€7.50 + VAT per month, or €75 + VAT per year (two months free annually), per connected integration. No per-document fees and no volume limits. Custom integrations (ERP, marketplaces) are quoted case by case. No card required to start.",
         "",
         "## Integrações / Integrations",
-        "- Origens de pagamento / Payment sources: Shopify (ativo/live), Stripe (ativo/live), EuPago (em breve/soon), Easypay (em breve/soon), Ifthenpay (em estudo/planned)",
-        "- Programas de faturação / Invoicing software: InvoiceXpress (ativo/live), Moloni (roadmap), Vendus (roadmap)",
+        `- ${statusLine("payments", "pt")}`,
+        `- ${statusLine("payments", "en")}`,
+        `- ${statusLine("invoicing", "pt")}`,
+        `- ${statusLine("invoicing", "en")}`,
         "",
         "## FAQ (Português)",
         ...faqPt.flatMap((it) => [`### ${it.q}`, it.a, ""]),

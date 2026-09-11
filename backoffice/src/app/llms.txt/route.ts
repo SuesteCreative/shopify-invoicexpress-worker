@@ -1,4 +1,5 @@
 import { listArticles } from "@/lib/blog";
+import { statusLine } from "@/lib/integration-status";
 
 export const runtime = "edge";
 
@@ -12,14 +13,14 @@ export async function GET() {
     const lines = [
         "# Rioko",
         "",
-        "> O Rioko automatiza a faturação certificada em Portugal: liga a Shopify e a Stripe ao InvoiceXpress, Moloni ou Vendus e emite faturas com ATCUD, séries, NIF e IVA automaticamente, sem extensões no checkout. / Rioko automates certified invoicing in Portugal: it connects Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issues invoices automatically, with no checkout extensions.",
+        "> O Rioko automatiza a faturação certificada em Portugal: liga a Shopify, a Stripe e a Lodgify ao InvoiceXpress, Moloni ou Vendus e emite faturas com ATCUD, séries, NIF e IVA automaticamente, sem extensões no checkout. / Rioko automates certified invoicing in Portugal: it connects Shopify, Stripe and Lodgify to InvoiceXpress, Moloni or Vendus and issues invoices automatically, with no checkout extensions.",
         "",
         "## Factos / Key facts",
         "- Operado pela Kapta (https://kapta.pt), com sede em Portugal. Contacto: pedro@kapta.pt",
         "- O Rioko não emite faturas — envia os dados ao software certificado pela AT (InvoiceXpress, Moloni, Vendus), que emite o documento.",
         "- Preço: 7,50 € + IVA/mês ou 75 € + IVA/ano, por integração. Sem fees por documento, sem limites de volume.",
-        "- Origens de pagamento ATIVAS: Shopify, Stripe. Em breve: EuPago, Easypay. Em estudo: Ifthenpay.",
-        "- Programas de faturação ATIVOS: InvoiceXpress. No roadmap: Moloni, Vendus.",
+        `- ${statusLine("payments", "pt")}`,
+        `- ${statusLine("invoicing", "pt")}`,
         "- Configuração: ~4 minutos, sem cartão para começar, sem extensão no checkout (webhook + API).",
         "",
         "## Site (PT)",
@@ -46,7 +47,7 @@ export async function GET() {
         "- [llms-full.txt](https://rioko.online/llms-full.txt): FAQ completo, funcionalidades e factos em texto integral.",
         "",
         "## Sobre / About",
-        "Desenvolvido pela Kapta (https://kapta.pt). Fundador: Pedro Porto. Origens de pagamento: Shopify, Stripe. Programas de faturação: InvoiceXpress, Moloni, Vendus.",
+        `Desenvolvido pela Kapta (https://kapta.pt). Fundador: Pedro Porto. ${statusLine("payments", "pt")} ${statusLine("invoicing", "pt")}`,
         "",
     ];
 

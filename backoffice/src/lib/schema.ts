@@ -17,8 +17,8 @@ const LOGO = `${SITE}/images/rioko2-logo.svg`;
 type Locale = "pt" | "en" | string;
 
 const DESC: Record<"pt" | "en", string> = {
-    pt: "O Rioko automatiza a faturação certificada em Portugal: liga Shopify e Stripe ao InvoiceXpress, Moloni ou Vendus e emite faturas com ATCUD, séries, NIF e IVA sem intervenção manual.",
-    en: "Rioko automates certified invoicing in Portugal: it connects Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issues invoices with ATCUD, series, NIF and VAT with no manual work.",
+    pt: "O Rioko automatiza a faturação certificada em Portugal: liga Shopify, Stripe e Lodgify ao InvoiceXpress, Moloni ou Vendus e emite faturas com ATCUD, séries, NIF e IVA sem intervenção manual.",
+    en: "Rioko automates certified invoicing in Portugal: it connects Shopify, Stripe and Lodgify to InvoiceXpress, Moloni or Vendus and issues invoices with ATCUD, series, NIF and VAT with no manual work.",
 };
 
 const SLOGAN: Record<"pt" | "en", string> = {
@@ -36,7 +36,7 @@ const FEATURES: Record<"pt" | "en", string[]> = {
         "Reembolsos convertidos em notas de crédito automaticamente",
         "Idempotência: 1 encomenda = 1 fatura, sem duplicados",
         "Sem extensão no checkout — liga por webhook e API",
-        "Origens Shopify e Stripe; mais gateways no roadmap",
+        "Origens de pagamento Shopify, Stripe e Lodgify; EuPago e Easypay em breve",
     ],
     en: [
         "Automatic invoice for every paid order, in under a second",
@@ -47,7 +47,7 @@ const FEATURES: Record<"pt" | "en", string[]> = {
         "Refunds turned into credit notes automatically",
         "Idempotency: 1 order = 1 invoice, no duplicates",
         "No checkout extension — connects via webhook and API",
-        "Shopify and Stripe sources; more gateways on the roadmap",
+        "Shopify, Stripe and Lodgify payment sources; EuPago and Easypay coming soon",
     ],
 };
 

@@ -1,4 +1,6 @@
-import { RIOKO_CONFIG } from "@/lib/config";
+// Relative, not "@/lib/config": the whole module chain then resolves without a
+// bundler alias, which is what lets the test next door run under plain vitest.
+import { RIOKO_CONFIG } from "./config";
 
 /**
  * The Shopify OAuth round trip, in one place.

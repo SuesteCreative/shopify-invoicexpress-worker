@@ -6,15 +6,15 @@ import { guidedOnboardings, platformName } from "@/lib/platforms";
 import {
     ArrowLeft, Wrench, ShieldAlert, AlertTriangle, Info,
     KeyRound, Link2, Settings2, CheckCircle2, LifeBuoy,
-    Copy, Check, ExternalLink,
+    Copy, Check, ExternalLink, ChevronDown, Zap, Loader2,
 } from "lucide-react";
-
-const SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_all_orders,read_products";
-// Versão da API REST usada nos testes. Manter numa versão SUPORTADA (rever anualmente) —
-// versões retiradas devolvem 404 {"errors":"Not Found"} mesmo com token válido.
-const API_VERSION = "2026-04";
-
-const WEBHOOK_BASE = "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify";
+import {
+    SHOPIFY_SCOPES as SCOPES,
+    SHOPIFY_API_VERSION as API_VERSION,
+    SHOPIFY_WEBHOOK_BASE as WEBHOOK_BASE,
+    cleanShopDomain as cleanShop,
+    shopifyCallbackUri,
+} from "@/lib/shopify-oauth";
 
 // Páginas públicas de onboarding (link que se manda ao cliente antes de ele ter
 // conta). A lista das guiadas vem de src/lib/platforms.ts, que é onde o próprio
@@ -34,15 +34,6 @@ const ONBOARDING_LINKS: { href: string; label: string; hint: string }[] = [
         hint: "Seis passos: conta, dados da empresa, origem, destino, definições de faturação e subscrição.",
     })),
 ];
-
-function cleanShop(raw: string) {
-    if (!raw) return "";
-    return raw
-        .trim()
-        .replace(/^https?:\/\//i, "")
-        .replace(/\/admin.*$/i, "")
-        .replace(/\/+$/, "");
-}
 
 // ─── Shared building blocks ────────────────────────────────────────────────
 
@@ -78,6 +69,38 @@ function Section({ id, icon, title, eyebrow, accent = "sky", children }: {
             </div>
             <div className="ml-0 sm:ml-16 space-y-5">{children}</div>
         </section>
+    );
+}
+
+/**
+ * One of the two ways to onboard a store, in a fold.
+ *
+ * `<details open>`: open by default and collapsible is exactly what the element
+ * does on its own, and an operator who works one method never has to scroll past
+ * the other. No state, no library, and it survives a re-render mid-onboarding.
+ */
+function Method({ eyebrow, title, subtitle, accent = "sky", children }: {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    accent?: Accent;
+    children: React.ReactNode;
+}) {
+    return (
+        <details open className="group glass rounded-[2rem] border-hairline overflow-hidden">
+            <summary className="flex items-center gap-4 p-5 sm:p-6 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-surface-2/40 transition-colors">
+                <div className={`w-12 h-12 rounded-2xl bg-surface-2 border border-hairline flex items-center justify-center shrink-0 ${ACCENT_TEXT[accent]}`}>
+                    <Zap className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">{eyebrow}</div>
+                    <h2 className="text-xl sm:text-2xl font-black text-fg">{title}</h2>
+                    <p className="text-xs text-fg-60 mt-1">{subtitle}</p>
+                </div>
+                <ChevronDown className="w-5 h-5 text-fg-40 shrink-0 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-6">{children}</div>
+        </details>
     );
 }
 
@@ -338,6 +361,68 @@ export function OnboardingHelperPanel() {
 
     const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+    // ── Método 2 ────────────────────────────────────────────────────────────
+    // The domain, client id and secret above are shared with Método 1 on
+    // purpose: they are the same three values either way, and an operator who
+    // starts down one path and switches does not retype them.
+    const [accounts, setAccounts] = useState<{ id: string; label: string; domain: string | null }[]>([]);
+    const [targetUser, setTargetUser] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [startError, setStartError] = useState<string | null>(null);
+    const [outcome, setOutcome] = useState<{ status: string; detail: string } | null>(null);
+
+    useEffect(() => {
+        // One card per CONNECTION comes back, so an account with two pipes is
+        // listed twice; the picker wants accounts.
+        fetch("/api/admin/users")
+            .then(r => r.json())
+            .then((data: any) => {
+                const byId = new Map<string, { id: string; label: string; domain: string | null }>();
+                for (const u of (data?.users ?? []) as any[]) {
+                    if (!u?.id || byId.has(u.id)) continue;
+                    byId.set(u.id, { id: u.id, label: u.account_label ?? u.email ?? u.id, domain: u.shopify_domain ?? null });
+                }
+                setAccounts([...byId.values()]);
+            })
+            .catch(() => setAccounts([]));
+    }, []);
+
+    // The callback drops the operator back here with the verdict in the URL.
+    // Read from location rather than useSearchParams: no Suspense boundary to
+    // arrange for one string.
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const status = params.get("shopify");
+        if (status) setOutcome({ status, detail: params.get("detail") ?? "" });
+    }, []);
+
+    const startMethod2 = async () => {
+        setStartError(null);
+        setBusy(true);
+        try {
+            const res = await fetch("/api/admin/shopify-oauth/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    user_id: targetUser,
+                    shop: shopDomain,
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                }),
+            });
+            const data: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setStartError([data?.error, data?.reason].filter(Boolean).join(" ") || `Erro ${res.status}`);
+                return;
+            }
+            window.location.href = data.authorize_url;
+        } catch (e: any) {
+            setStartError(String(e?.message ?? e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const copy = (key: string, text: string) => {
         if (!text) return;
         navigator.clipboard.writeText(text).then(() => {
@@ -451,7 +536,15 @@ export function OnboardingHelperPanel() {
                     <strong>Versões da API envelhecem.</strong> A Shopify suporta cada versão REST ~12 meses; depois o path é removido e devolve <Code>{`404 {"errors":"Not Found"}`}</Code> — mesmo com token e loja válidos. Manter a versão usada (testes, integrador, webhooks) sempre numa versão suportada.
                 </WarnBox>
 
-                <div className="flex flex-wrap gap-2 pt-2">
+            </div>
+
+            <Method
+                eyebrow="Método 1"
+                title="Token à mão, webhooks à mão"
+                subtitle="O caminho de sempre: o code fica no browser, é trocado por curl, e os 4 webhooks são criados em Settings → Notifications. É o único caminho para as lojas já ligadas."
+                accent="sky"
+            >
+                <div className="flex flex-wrap gap-2 px-3 pt-2">
                     {TOC.map((item) => (
                         <a
                             key={item.id}
@@ -462,7 +555,6 @@ export function OnboardingHelperPanel() {
                         </a>
                     ))}
                 </div>
-            </div>
 
             {/* Parte A */}
             <Section id="parte-a" icon={<Settings2 className="w-5 h-5" />} title="Criar App no Shopify Dev Dashboard" eyebrow="Parte A" accent="sky">
@@ -771,6 +863,120 @@ export function OnboardingHelperPanel() {
                     </ul>
                 </div>
             </Section>
+
+            </Method>
+
+            <Method
+                eyebrow="Método 2"
+                title="OAuth de volta ao Rioko, webhooks automáticos"
+                subtitle="O redirect aponta para nós, por isso o code chega ao servidor: o token é trocado aqui e os 4 webhooks são criados pela Admin API na mesma ida. Só para lojas novas."
+                accent="emerald"
+            >
+                <Section id="m2-app" icon={<Settings2 className="w-5 h-5" />} title="Criar App no Dev Dashboard" eyebrow="Parte A" accent="emerald">
+                    <p className="text-sm text-fg-60">
+                        Igual à Parte A do Método 1 com <strong className="text-fg">uma diferença</strong>: o redirect é nosso, não o <Code>example.com</Code>.
+                    </p>
+                    <DataTable
+                        headers={["Campo", "Valor"]}
+                        rows={[
+                            ["App name", <>Nome do cliente (ex: <Code>Rioko — NomeDoCliente</Code>)</>],
+                            ["Embed app in Shopify admin", <strong key="embed" className="text-destructive">DESLIGADO</strong>],
+                            ["Allowed redirection URL(s)", <Code key="redirect">{shopifyCallbackUri()}</Code>],
+                            ["Scopes (Admin API)", <Code key="scopes">{SCOPES}</Code>],
+                        ]}
+                    />
+                    <Output
+                        label="Allowed redirection URL — colar exactamente assim"
+                        text={shopifyCallbackUri()}
+                        copied={copiedKey === "m2-redirect"}
+                        onCopy={() => copy("m2-redirect", shopifyCallbackUri())}
+                    />
+                    <InfoBox>
+                        Tem de ser <strong>byte a byte</strong> este valor, incluindo a ausência de barra final. A Shopify compara a string e recusa antes do ecrã de consentimento.
+                        Depois de mexer em redirect URLs ou scopes: <strong>nova versão</strong> e <strong>Launch</strong>, senão a app continua a correr a versão antiga.
+                    </InfoBox>
+                </Section>
+
+                <Section id="m2-install" icon={<KeyRound className="w-5 h-5" />} title="Instalar na loja" eyebrow="Parte B" accent="emerald">
+                    <p className="text-sm text-fg-60">
+                        Os três campos são partilhados com o Método 1. O botão guarda as credenciais na conta escolhida e abre o ecrã de consentimento da Shopify.
+                    </p>
+
+                    <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-fg-40 mb-1.5">Conta Rioko de destino</label>
+                        <select
+                            value={targetUser}
+                            onChange={(e) => setTargetUser(e.target.value)}
+                            className="w-full rounded-xl bg-surface-2 border border-hairline px-3 py-2.5 text-sm text-fg focus:border-accent outline-none transition-colors"
+                        >
+                            <option value="">{accounts.length ? "Escolher conta…" : "A carregar contas…"}</option>
+                            {accounts.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                    {a.label}{a.domain ? ` · ${a.domain}` : ""}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <Field label="Domínio Shopify (.myshopify.com)" placeholder="quickstart-66f9e5ef.myshopify.com" value={shopDomain} onChange={(e) => setShopDomain(e.target.value)} />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Field label="Client ID" placeholder="abc123def456..." value={clientId} onChange={(e) => setClientId(e.target.value)} />
+                        <Field label="Client Secret" type="password" placeholder="••••••••" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} />
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={startMethod2}
+                        disabled={busy || !targetUser || !shop || !clientId || !clientSecret}
+                        className="inline-flex items-center gap-2 rounded-xl border border-accent-hot/40 bg-accent-hot/10 px-5 py-3 text-sm font-bold text-accent-hot hover:bg-accent-hot/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                        Instalar na loja
+                    </button>
+
+                    {startError && <DangerBox>{startError}</DangerBox>}
+
+                    {outcome?.status === "connected" && (
+                        <div className="bg-accent-hot/8 border border-accent-hot/30 rounded-2xl p-4 flex items-start gap-3">
+                            <CheckCircle2 className="w-5 h-5 text-accent-hot shrink-0 mt-0.5" />
+                            <div className="text-accent-hot text-sm leading-relaxed">
+                                <strong>Ligado.</strong> Token guardado e os 4 webhooks estão criados. {outcome.detail}
+                            </div>
+                        </div>
+                    )}
+                    {outcome?.status === "partial" && (
+                        <WarnBox>
+                            <strong>Token guardado, webhooks incompletos.</strong> {outcome.detail}
+                            <br />Repetir o Método 2 para a mesma conta cria só os que faltam.
+                        </WarnBox>
+                    )}
+                    {(outcome?.status === "error" || outcome?.status === "denied") && (
+                        <DangerBox>
+                            <strong>{outcome.status === "denied" ? "Autorização recusada na loja." : "Falhou."}</strong> {outcome.detail}
+                        </DangerBox>
+                    )}
+                </Section>
+
+                <Section id="m2-check" icon={<CheckCircle2 className="w-5 h-5" />} title="O que fica feito" eyebrow="Parte C" accent="emerald">
+                    <ul className="space-y-1.5 text-sm text-fg-60 list-disc list-inside">
+                        <li><Code>shpat_…</Code> guardado na conta, sem ninguém colar nada.</li>
+                        <li>Os 4 webhooks criados e apontados a <Code>{WEBHOOK_BASE}</Code>.</li>
+                        <li>Versão da API gravada como <Code>{API_VERSION}</Code>.</li>
+                        <li>Steps 1 e 2 do wizard do cliente ficam <strong className="text-fg">saltados</strong>. O cliente só faz a parte do InvoiceXpress e as definições de faturação.</li>
+                        <li>O <strong className="text-fg">Webhook Signing Secret da loja não é usado</strong>: estes webhooks pertencem à app e são assinados com o client secret, que é o que fica guardado.</li>
+                    </ul>
+                    <DangerBox>
+                        <strong>Nunca correr numa loja que já está a facturar pelo Método 1.</strong> Uma app só vê as subscrições da própria app, nunca as que foram criadas à mão,
+                        por isso ligar isto por cima criaria um <strong>segundo</strong> conjunto: documentos a dobrar e alertas de assinatura em catadupa, exactamente o que aconteceu
+                        a 21/05/2026 na Soul Krave e na Estrela Jewelry Studio e passou três meses sem ninguém notar. O servidor recusa com <Code>409</Code> qualquer conta que já
+                        tenha webhook secret ou webhooks activos: para migrar, apagar primeiro os 4 manuais na loja e limpar a ligação.
+                    </DangerBox>
+                    <WarnBox>
+                        A loja de testes <Code>quickstart-66f9e5ef.myshopify.com</Code> <strong>não valida este caminho</strong>: não tem aprovação de protected customer data
+                        e usa token <Code>shpua_</Code>, por isso recusa a criação dos webhooks mesmo quando tudo está certo. Dá falso negativo.
+                    </WarnBox>
+                </Section>
+            </Method>
 
             <p className="text-center text-[11px] text-fg-40 font-bold uppercase tracking-widest pb-4">
                 Rioko 2.0 Engine — Onboarding interno · API {API_VERSION}

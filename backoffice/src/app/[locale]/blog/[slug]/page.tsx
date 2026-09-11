@@ -16,18 +16,21 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-    const { slug, locale } = await params;
+    const { slug } = await params;
     const article = getArticleBySlug(slug);
     if (!article) return { title: "Artigo não encontrado" };
 
     return {
         title: `${article.title} — Blog Rioko`,
         description: article.description,
+        // Articles are written in Portuguese only. `/en/blog/<slug>` serves that
+        // same Portuguese body, so it canonicalises to the PT URL rather than
+        // posing as an English translation — one article, one URL, one set of
+        // ranking signals. Add `en` back per-article once one is translated.
         alternates: {
-            canonical: `/${locale}/blog/${slug}`,
+            canonical: `/pt/blog/${slug}`,
             languages: {
                 pt: `/pt/blog/${slug}`,
-                en: `/en/blog/${slug}`,
                 "x-default": `/pt/blog/${slug}`,
             },
         },
@@ -51,9 +54,12 @@ export default async function BlogArticlePage({ params }: Props) {
     const { Content } = article;
     const related = listArticles().filter((a) => a.slug !== slug).slice(0, 3);
 
-    // JSON-LD: BlogPosting + breadcrumb trail (Início/Home → Blog → article)
-    const url = `https://rioko.online/${locale}/blog/${slug}`;
-    const articleSchema = blogPostingSchema(article, { url, locale });
+    // JSON-LD: BlogPosting + breadcrumb trail (Início/Home → Blog → article).
+    // The article node always points at the PT canonical and declares pt-PT:
+    // under /en this is still the Portuguese text, and saying otherwise told
+    // crawlers the site has an English article that does not exist.
+    const url = `https://rioko.online/pt/blog/${slug}`;
+    const articleSchema = blogPostingSchema(article, { url, locale: "pt" });
     const breadcrumb = breadcrumbSchema([
         { name: locale === "en" ? "Home" : "Início", url: `https://rioko.online/${locale}` },
         { name: "Blog", url: `https://rioko.online/${locale}/blog` },

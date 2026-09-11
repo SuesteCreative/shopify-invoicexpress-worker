@@ -9,14 +9,16 @@ export const runtime = "edge";
 
 type Props = { params: Promise<{ locale: string }> };
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-    const { locale } = await params;
+export async function generateMetadata(): Promise<Metadata> {
     return {
         title: "Blog Rioko — Guias Fiscais e Técnicos",
         description: "Artigos sobre faturação automática em Portugal: ATCUD, séries certificadas, IVA OSS, reverse charge, integrações Shopify/Stripe com InvoiceXpress/Moloni/Vendus.",
+        // The index copy and every article are Portuguese in both locales, so
+        // /en/blog canonicalises to /pt/blog instead of claiming to be the
+        // English edition of itself.
         alternates: {
-            canonical: `/${locale}/blog`,
-            languages: { pt: "/pt/blog", en: "/en/blog", "x-default": "/pt/blog" },
+            canonical: "/pt/blog",
+            languages: { pt: "/pt/blog", "x-default": "/pt/blog" },
         },
         openGraph: {
             title: "Blog Rioko — Guias Fiscais e Técnicos",

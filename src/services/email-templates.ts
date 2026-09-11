@@ -1685,6 +1685,83 @@ export interface PaymentFailedInput {
 /** "The subscription charge did not go through" — same brand shell, no incident
  *  meta row. The subscription is still active when this goes out: the email
  *  exists so it stays that way. */
+export interface LegacyPriceInput {
+  /** "marked" months ahead, "ending" when Stripe says the renewal is near. */
+  stage: "marked" | "ending";
+  accountLabel?: string | null;
+  /** The day the current subscription stops. */
+  endsAtLabel: string;
+  interval: "month" | "year";
+  currentAmountLabel?: string | null;
+  nextAmountLabel: string;
+  subscribeUrl?: string;
+  dashboardUrl?: string;
+  helpUrl?: string;
+}
+
+/**
+ * The old price is ending, and here is the one that follows it.
+ *
+ * Written to be read by somebody who has been paying 5 € a month since the
+ * beginning: it says the date, says what changes, and does not pretend the
+ * price is the same. The subscription is already set to stop on that date in
+ * Stripe, so the email never asks them to cancel anything.
+ */
+export function renderLegacyPriceEmail(input: LegacyPriceInput): RenderedTemplate {
+  const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
+  const subscribeUrl = input.subscribeUrl ?? `${dashboardUrl}/faturacao`;
+  const periodWord = input.interval === "year" ? "anual" : "mensal";
+  const currentLabel = input.currentAmountLabel
+    ? `<strong>${escapeHtml(input.currentAmountLabel)}</strong>`
+    : "o preço a que subscreveu";
+
+  const opening = input.stage === "marked"
+    ? paragraph(
+        `A sua subscrição ${periodWord} do Rioko está a ${currentLabel}, que foi o preço em vigor quando começou. ` +
+        `Esse preço mantém-se até <strong>${escapeHtml(input.endsAtLabel)}</strong>, data em que a subscrição actual termina.`,
+      )
+    : paragraph(
+        `A sua subscrição ${periodWord} do Rioko, a ${currentLabel}, termina a <strong>${escapeHtml(input.endsAtLabel)}</strong>. ` +
+        `Não é renovada nessa data, e nada lhe é cobrado sem a sua confirmação.`,
+      );
+
+  const bodyHtml = [
+    opening,
+    calloutBox(
+      "O que muda",
+      `A partir dessa data o plano ${periodWord} passa a <strong>${escapeHtml(input.nextAmountLabel)}</strong>. ` +
+      "Para continuar a emitir documentos sem interrupção, basta subscrever antes do fim.",
+    ),
+    ctaButton("Subscrever o plano actual", subscribeUrl),
+    paragraph(
+      `<span style="font-size:13px;color:${P().muted}">Até essa data não é preciso fazer nada: a faturação automática ` +
+      "continua a funcionar exactamente como hoje.</span>",
+    ),
+    paragraph(
+      `<span style="font-size:13px;color:${P().muted}">Se preferir falar connosco antes de decidir, responda a este email.</span>`,
+    ),
+  ].join("");
+
+  return {
+    subject: input.stage === "marked"
+      ? `O preço da sua subscrição Rioko mantém-se até ${input.endsAtLabel}`
+      : `A sua subscrição Rioko termina a ${input.endsAtLabel}`,
+    html: shell({
+      title: input.stage === "marked"
+        ? "O seu preço mantém-se até ao fim da subscrição"
+        : "A sua subscrição está a terminar",
+      severity: input.stage === "ending" ? "warning" : undefined,
+      preheader: `Termina a ${input.endsAtLabel}. O plano seguinte é ${input.nextAmountLabel}.`,
+      bodyHtml,
+      merchantName: input.accountLabel ?? undefined,
+      connectionLabel: "Subscrição Rioko",
+      helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
+      dashboardUrl,
+      footerNote: "Faturação da subscrição",
+    }),
+  };
+}
+
 export function renderPaymentFailedEmail(input: PaymentFailedInput): RenderedTemplate {
   const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
   const account = escapeHtml(input.accountLabel);

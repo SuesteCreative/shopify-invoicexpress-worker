@@ -2715,6 +2715,55 @@ app.post("/admin/payment-failed-email", async (c) => {
   return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
 })
 
+// The old price (5 €/mês, 50 €/ano) is ending with the subscription that carries
+// it. Rendered here because every Rioko email comes out of the same shell, and
+// the backoffice does not hand-roll HTML.
+app.post("/admin/legacy-price-email", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    stage?: "marked" | "ending";
+    to: string | string[];
+    name?: string | null;
+    ends_at: string;
+    interval?: string;
+    current_amount_cents?: number | null;
+    next_amount_cents?: number | null;
+    connection_key?: string;
+    theme?: "day" | "night";
+    user_id?: string;
+  }>();
+
+  const to = Array.isArray(body.to) ? body.to : [body.to];
+  if (!to.length || !body.ends_at) return c.json({ error: "Missing to/ends_at" }, 400);
+
+  const eur = (cents: number | null | undefined) =>
+    typeof cents === "number" ? `${(cents / 100).toFixed(2).replace(".", ",")} €` : null;
+  const day = new Date(body.ends_at);
+  const endsLabel = Number.isNaN(day.getTime())
+    ? body.ends_at
+    : `${String(day.getUTCDate()).padStart(2, "0")}/${String(day.getUTCMonth() + 1).padStart(2, "0")}/${day.getUTCFullYear()}`;
+
+  const { renderLegacyPriceEmail, renderInTheme } = await import("./services/email-templates");
+  const { getUserTheme } = await import("./services/user-theme");
+  const theme = body.theme ?? await getUserTheme(c.env, body.user_id);
+  const { subject, html } = renderInTheme(theme, () => renderLegacyPriceEmail({
+    stage: body.stage === "ending" ? "ending" : "marked",
+    accountLabel: body.name ?? null,
+    endsAtLabel: endsLabel,
+    interval: body.interval === "year" ? "year" : "month",
+    currentAmountLabel: eur(body.current_amount_cents),
+    nextAmountLabel: eur(body.next_amount_cents) ?? (body.interval === "year" ? "75,00 €" : "7,50 €"),
+  }));
+
+  // A client reading this is deciding whether to keep paying us; a reply has to
+  // reach a person.
+  const res = await sendEmailDirect(c.env, {
+    to, subject, html, fromName: "Rioko", replyTo: "suporte@kapta.pt",
+  });
+  return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
+})
+
 app.post("/admin/test-quota-email", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;

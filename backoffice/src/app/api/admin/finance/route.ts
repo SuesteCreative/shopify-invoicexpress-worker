@@ -135,6 +135,7 @@ export async function GET() {
                 trial_end: s.trial_end ?? null,
                 early_bird: Number(s.early_bird ?? 0) === 1,
                 cancel_at_period_end: Number(s.cancel_at_period_end ?? 0) === 1,
+                cancel_at: s.cancel_at ?? null,
                 has_stripe_sub: !!s.stripe_subscription_id,
             });
             entry.mrr_cents += monthly;
@@ -164,6 +165,9 @@ export async function GET() {
                         next_price_cents: l.next_price_cents,
                         sunset_at: l.sunset_at,
                         cancel_at_period_end: l.cancel_at_period_end,
+                        // Whether Stripe already holds the end date. Until it
+                        // does, the date in the list is a plan, not a fact.
+                        marked: l.cancel_at_period_end || !!l.cancel_at,
                     });
                 }
             }

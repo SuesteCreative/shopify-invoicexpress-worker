@@ -7,6 +7,8 @@ import { grantSeatFromSession } from "@/lib/seats";
 import { notifySubscriptionPaymentFailed } from "@/lib/billing-notify";
 import { DEFAULT_CONNECTION_KEY, keyFromRequest, shopIsOldest } from "@/lib/subscription-key";
 import { callWorkerJson } from "@/lib/worker";
+import { priceBook } from "@/lib/price-book";
+import { currentPriceCents, tierOf } from "@/lib/billing-legacy";
 
 export const runtime = "edge";
 
@@ -136,8 +138,8 @@ async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, s
     await db.prepare(`
         INSERT INTO subscriptions (user_id, connection_key, stripe_customer_id, stripe_subscription_id, status,
                                    plan, price_id, current_period_end, trial_end,
-                                   cancel_at_period_end, early_bird, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                   cancel_at_period_end, cancel_at, early_bird, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id, connection_key) DO UPDATE SET
             stripe_customer_id = excluded.stripe_customer_id,
             stripe_subscription_id = excluded.stripe_subscription_id,
@@ -153,6 +155,9 @@ async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, s
             trial_end = CASE WHEN subscriptions.admin_override_at IS NOT NULL AND excluded.trial_end IS NULL
                              THEN subscriptions.trial_end ELSE excluded.trial_end END,
             cancel_at_period_end = excluded.cancel_at_period_end,
+            -- The fixed end date, when there is one: a legacy monthly is ended
+            -- with cancel_at, which leaves cancel_at_period_end false.
+            cancel_at = excluded.cancel_at,
             -- early_bird is OWNED by our DB (set by onboarding / admin / migration),
             -- never by stale Stripe metadata. Preserve it on every webhook so an
             -- admin who turns it off isn't reverted to 1 by the next sub event.
@@ -177,8 +182,69 @@ async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, s
         isoFromUnix((sub as any).current_period_end),
         isoFromUnix(sub.trial_end),
         sub.cancel_at_period_end ? 1 : 0,
+        isoFromUnix((sub as any).cancel_at),
         earlyBird,
     ).run();
+}
+
+/**
+ * Tell a client on the old price that this renewal is the last one.
+ *
+ * Only for a subscription already marked to stop — `cancel_at_period_end` on an
+ * annual, `cancel_at` on a monthly — so it never announces an ending that is not
+ * happening. Once per end date: the marker is per ROW, unlike the two older
+ * reminder markers, which stamp every subscription an account has.
+ */
+async function noticeLegacyEnding(db: D1Database, stripe: Stripe, subscriptionId: string): Promise<void> {
+    const row: any = await db
+        .prepare(
+            `SELECT s.user_id, s.connection_key, s.plan, s.price_id, s.current_period_end,
+                    s.cancel_at, s.cancel_at_period_end, s.legacy_notice_sent_for,
+                    COALESCE(s.email, u.email) AS to_email,
+                    COALESCE(s.name, u.company_name, u.admin_label, u.name) AS label
+               FROM subscriptions s LEFT JOIN users u ON u.id = s.user_id
+              WHERE s.stripe_subscription_id = ? LIMIT 1`
+        )
+        .bind(subscriptionId)
+        .first()
+        .catch(() => null);
+
+    const ending = !!row && (Number(row.cancel_at_period_end) === 1 || !!row.cancel_at);
+    if (!ending || !row.to_email) return;
+
+    const price = row.price_id ? (await priceBook()).get(row.price_id) : null;
+    if (tierOf(price) !== "legacy") return;
+
+    const interval = price?.recurring?.interval ?? (row.plan === "annual" ? "year" : "month");
+    const endsAt = row.cancel_at ?? row.current_period_end;
+    if (!endsAt) return;
+
+    const marker = `${endsAt}#ending`;
+    if (row.legacy_notice_sent_for === marker) return;
+
+    const res = await callWorkerJson("/admin/legacy-price-email", {
+        method: "POST",
+        body: JSON.stringify({
+            stage: "ending",
+            to: row.to_email,
+            name: row.label ?? null,
+            ends_at: endsAt,
+            interval,
+            current_amount_cents: price?.unit_amount ?? null,
+            next_amount_cents: currentPriceCents(interval),
+            user_id: row.user_id,
+        }),
+    }).catch(() => ({ ok: false }));
+
+    if ((res as any).ok) {
+        await db
+            .prepare(
+                `UPDATE subscriptions SET legacy_notice_sent_for = ?, updated_at = CURRENT_TIMESTAMP
+                  WHERE user_id = ? AND connection_key = ?`
+            )
+            .bind(marker, row.user_id, row.connection_key)
+            .run();
+    }
 }
 
 export async function POST(req: NextRequest) {
@@ -377,6 +443,19 @@ export async function POST(req: NextRequest) {
                 await db.prepare(
                     "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"
                 ).bind(event.id, userId, event.type, sub.id, JSON.stringify(sub)).run();
+                break;
+            }
+
+            // Stripe's own reminder that a renewal is coming, days ahead. For a
+            // subscription already marked to stop, that renewal is not coming:
+            // this is the moment to say so, and it costs no scheduler of ours.
+            case "invoice.upcoming": {
+                const inv = event.data.object as Stripe.Invoice;
+                const subId = typeof (inv as any).subscription === "string"
+                    ? (inv as any).subscription
+                    : (inv as any).subscription?.id;
+                if (!subId) break;
+                await noticeLegacyEnding(db, stripe, subId);
                 break;
             }
 

@@ -68,7 +68,7 @@ interface Finance {
         user_id: string; account: string; connection_key: string;
         plan: string | null; interval: string | null;
         unit_amount_cents: number | null; next_price_cents: number | null;
-        sunset_at: string; cancel_at_period_end: boolean;
+        sunset_at: string; cancel_at_period_end: boolean; marked: boolean;
     }[];
     trials_ending: { user_id: string; account: string; connection_key: string; trial_end: string }[];
     outstanding_payments: {
@@ -173,8 +173,9 @@ export function FinancePanel() {
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState("");
     const [onlyPaying, setOnlyPaying] = useState(false);
+    const [marking, setMarking] = useState<string | null>(null);
 
-    useEffect(() => {
+    const load = () =>
         fetch("/api/admin/finance")
             .then(async (r) => {
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -182,7 +183,28 @@ export function FinancePanel() {
             })
             .then(setData)
             .catch((e) => setError(String(e?.message ?? e)));
-    }, []);
+
+    useEffect(() => { load(); }, []);
+
+    /** Tell Stripe when this one ends, and tell the client. */
+    const markSunset = async (user_id: string, connection_key: string) => {
+        const key = `${user_id}:${connection_key}`;
+        setMarking(key);
+        try {
+            const res = await fetch("/api/admin/legacy-sunset", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id, connection_key }),
+            });
+            const json: any = await res.json().catch(() => ({}));
+            if (!res.ok) setError(json.error ?? `HTTP ${res.status}`);
+            await load();
+        } catch (e: any) {
+            setError(String(e?.message ?? e));
+        } finally {
+            setMarking(null);
+        }
+    };
 
     const accounts = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -302,11 +324,25 @@ export function FinancePanel() {
                                     <Link href={`/admin/users/${s.user_id}/dev-mode`} className="text-sm text-fg hover:text-accent-ink truncate">
                                         {s.account}
                                     </Link>
-                                    <span className="font-mono text-[11px] shrink-0 text-fg-40">
-                                        {s.unit_amount_cents != null && <>{eur(s.unit_amount_cents)}</>}
-                                        {s.next_price_cents != null && <> → {eur(s.next_price_cents)}</>}
-                                        {" · "}
-                                        <span className={s.cancel_at_period_end ? "text-accent-hot" : "text-soon"}>{dateOf(s.sunset_at)}</span>
+                                    <span className="flex items-baseline gap-2 shrink-0">
+                                        <span className="font-mono text-[11px] text-fg-40">
+                                            {s.unit_amount_cents != null && <>{eur(s.unit_amount_cents)}</>}
+                                            {s.next_price_cents != null && <> → {eur(s.next_price_cents)}</>}
+                                            {" · "}
+                                            <span className={s.marked ? "text-accent-hot" : "text-soon"}>{dateOf(s.sunset_at)}</span>
+                                        </span>
+                                        {/* Marking it tells Stripe the date and emails the
+                                            client. Nothing happens on its own until then. */}
+                                        {!s.marked && (
+                                            <button
+                                                type="button"
+                                                onClick={() => markSunset(s.user_id, s.connection_key)}
+                                                disabled={marking === `${s.user_id}:${s.connection_key}`}
+                                                className="rounded-lg border border-hairline px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-fg-60 hover:text-fg hover:border-accent/40 transition-colors disabled:opacity-30"
+                                            >
+                                                {marking === `${s.user_id}:${s.connection_key}` ? "…" : "marcar fim"}
+                                            </button>
+                                        )}
                                     </span>
                                 </div>
                             ))}

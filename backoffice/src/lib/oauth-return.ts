@@ -19,6 +19,8 @@ export const RETURN_SLUG_ONBOARDING_CONNECT_MOLONI = "onboarding-stripe-connect-
 export const RETURN_SLUG_ONBOARDING_CONNECT_IX = "onboarding-stripe-connect-ix";
 export const RETURN_SLUG_ONBOARDING_LODGIFY_IX = "onboarding-lodgify-ix";
 export const RETURN_SLUG_ONBOARDING_LODGIFY_MOLONI = "onboarding-lodgify-moloni";
+/** The operator-side helper, where the Shopify OAuth round trip is driven from. */
+export const RETURN_SLUG_HELPER_SHOPIFY = "helper-shopify";
 
 const RETURN_PATHS: Record<string, string> = {
     [RETURN_SLUG_WIZARD]: "/integrations/stripe-connect-moloni",
@@ -27,6 +29,10 @@ const RETURN_PATHS: Record<string, string> = {
     [RETURN_SLUG_ONBOARDING_CONNECT_IX]: "/onboarding/stripe-connect-ix",
     [RETURN_SLUG_ONBOARDING_LODGIFY_IX]: "/onboarding/lodgify-ix",
     [RETURN_SLUG_ONBOARDING_LODGIFY_MOLONI]: "/onboarding/lodgify-moloni",
+    // The locale-prefixed copy of the helper, not /admin/onboarding-helper:
+    // these paths are all locale-prefixed, and both routes render the same panel
+    // behind the same admin check.
+    [RETURN_SLUG_HELPER_SHOPIFY]: "/onboarding-helper",
 };
 
 /** The slug as it may be stored, or undefined when it is not one we know. */

@@ -32,6 +32,10 @@ const isPublicRoute = createRouteMatcher([
     "/onboarding(.*)",
     "/api/webhooks/clerk",
     "/api/webhooks/stripe",
+    // Shopify's OAuth redirect. Whoever presses Install is signed in to Shopify,
+    // not to Clerk, so there is no session to protect this with: it authenticates
+    // itself on the one-shot state plus the HMAC Shopify signs the query with.
+    "/api/shopify/oauth/callback",
     "/api/internal/(.*)",
     "/api/cron/(.*)",
 ]);

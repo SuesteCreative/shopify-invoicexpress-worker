@@ -73,13 +73,31 @@ async function fetchPaidOrders(cfg) {
 
 const key = (n) => (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, "") + "%";
 
+// Which rule decided this line, in the builder's own precedence order. A rate
+// alone does not say whether 23% is the merch rate working correctly or a book
+// that fell past every override, and those are opposite problems.
+const isIsbn13 = (s) => /^97[89]\d{10}$/.test(String(s ?? "").replace(/[-\s]/g, ""));
+
+function whyRate(li, ovr, cfg) {
+  const sku = String(li?.sku ?? "").trim();
+  // SKU outranks variant id: a line WITH a SKU never reads a RIOKO-VARIANT-*
+  // row, so a book whose SKU is not a valid ISBN-13 misses both and lands on
+  // force_tax_rate. That is the silent one.
+  const k = sku ? sku.slice(0, 30) : li?.variant_id ? `RIOKO-VARIANT-${li.variant_id}`.slice(0, 30) : li?.product_id ? `RIOKO-PRODUCT-${li.product_id}`.slice(0, 30) : "RIOKO-SHIPPING";
+  if (ovr.get(k)?.tax_rate != null) return `override ${k}`;
+  if (ovr.get("RIOKO-ISBN-BOOK")?.tax_rate != null && isIsbn13(sku)) return "regra ISBN";
+  if (cfg.force_tax_rate != null) return `force_tax_rate ${cfg.force_tax_rate}%`;
+  return "taxa da Shopify";
+}
+
 async function checkShop(shop) {
   const cfg = loadConfig(shop.shopify_domain);
   const overrides = loadOverrides(cfg.user_id);
-  const builder = new IxBuilder(cfg, undefined, new Map(overrides.map((o) => [o.source_reference, o])));
+  const ovr = new Map(overrides.map((o) => [o.source_reference, o]));
+  const builder = new IxBuilder(cfg, undefined, ovr);
 
   const { orders, httpErr } = await fetchPaidOrders(cfg);
-  const prodRates = new Map(), shipRates = new Map();
+  const prodRates = new Map(), shipRates = new Map(), detail = new Map(), nearMiss = new Map();
   let n = 0, threw = 0, shippingOrders = 0;
 
   for (const o of orders) {
@@ -91,14 +109,31 @@ async function checkShop(shop) {
     unmute();
     if (!items) continue;
     if ((o.shipping_lines ?? []).some((sl) => Number(sl?.price ?? 0) > 0)) shippingOrders++;
+    // Line items and built items are positionally unrelated (zero-priced lines
+    // are dropped), so match on the name the builder stamped.
+    const byName = new Map();
+    for (const li of o.line_items ?? []) byName.set(String(li?.title ?? li?.name ?? "Item"), li);
     for (const it of items) {
-      const bucket = /^Portes de envio/.test(String(it.name ?? "")) ? shipRates : prodRates;
+      const isShip = /^Portes de envio/.test(String(it.name ?? ""));
       const raw = Number(it.tax?.value ?? it.tax ?? 0);
       const k = key(Number.isFinite(raw) ? raw : 0);
-      bucket.set(k, (bucket.get(k) ?? 0) + 1);
+      (isShip ? shipRates : prodRates).set(k, ((isShip ? shipRates : prodRates).get(k) ?? 0) + 1);
+      if (isShip) continue;
+      const li = byName.get(String(it.name ?? "").split(" / ")[0]) ?? byName.get(String(it.name ?? ""));
+      const why = li ? whyRate(li, ovr, cfg) : "?";
+      // The reduced rate hangs off the SKU being a well-formed ISBN-13. A digit
+      // short, an ISBN-10, a stray letter, and the book silently bills at the
+      // merch rate with nothing to show for it. Collect the near misses.
+      const sku = String(li?.sku ?? "").replace(/[-\s]/g, "");
+      if (ovr.get("RIOKO-ISBN-BOOK")?.tax_rate != null && parseFloat(k) > 6 && sku && !isIsbn13(sku)
+          && (/^97[89]/.test(sku) || /^\d{9,14}[\dXx]?$/.test(sku))) {
+        nearMiss.set(sku, `${sku} (${sku.length} digitos) ${String(it.name ?? "").slice(0, 44)}`);
+      }
+      const row = `${k.padEnd(5)} ${why.padEnd(34)} sku=${String(li?.sku ?? "").slice(0, 24).padEnd(24)} ${String(it.name ?? "").slice(0, 46)}`;
+      detail.set(row, (detail.get(row) ?? 0) + 1);
     }
   }
-  return { dom: shop.shopify_domain, cfg, overrides, httpErr, n, threw, shippingOrders, prodRates, shipRates };
+  return { dom: shop.shopify_domain, cfg, overrides, httpErr, n, threw, shippingOrders, prodRates, shipRates, detail, nearMiss };
 }
 
 function findings(r) {
@@ -135,6 +170,9 @@ function findings(r) {
   if (overShip.length && r.prodRates.size) {
     out.push(`PORTES ACIMA DOS ARTIGOS: artigos no maximo ${key(maxProd)}, portes a ${overShip.join(", ")}`);
   }
+  if (r.nearMiss.size) {
+    out.push(`ISBN QUASE VALIDO: ${r.nearMiss.size} SKU(s) falharam a regra do livro e sairam a taxa de merch -> ${[...r.nearMiss.values()].slice(0, 5).join(" | ")}`);
+  }
   if (String(cfg.ix_exemption_reason) === "M40") {
     out.push("ISENCAO GLOBAL M40 (autoliquidacao art. 6 n6) em QUALQUER linha a 0%: exportacao fora da UE devia ser M05");
   }
@@ -161,6 +199,11 @@ for (const s of shops) {
   const f = findings(r);
   if (f.length) flagged.push(r.dom);
   for (const line of f) console.log(`   ! ${line}`);
+  if (process.env.DETAIL === "1") {
+    console.log("   --- linhas por taxa e por regra ---");
+    for (const [row, count] of [...r.detail.entries()].sort())
+      console.log(`   ${String(count).padStart(4)}x ${row}`);
+  }
   console.log("");
 }
 console.log(`RESUMO: ${flagged.length} de ${shops.length} lojas com parametros a rever: ${flagged.join(", ") || "nenhuma"}\n`);

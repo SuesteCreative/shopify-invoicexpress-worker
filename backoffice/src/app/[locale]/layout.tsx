@@ -7,15 +7,13 @@ import { ptPT, enUS } from "@clerk/localizations";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { setRequestLocale, getMessages, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import Script from "next/script";
-
-const GA_ID = "G-VJBW01N7DM";
 
 import { sansDisplay, monoFont, generalSans, satoshi } from "../fonts";
 import InactivityLogout from "@/components/InactivityLogout";
 import ConsentBanner from "@/components/ConsentBanner";
 import AttributionCapture from "@/components/AttributionCapture";
 import JsonLd from "@/components/JsonLd";
+import Analytics from "@/components/Analytics";
 import { organizationSchema, websiteSchema } from "@/lib/schema";
 import { routing } from "@/i18n/routing";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
@@ -103,25 +101,7 @@ export default async function LocaleLayout({
             </div>
           </NextIntlClientProvider>
 
-          <Script
-            src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
-            strategy="afterInteractive"
-          />
-          <Script id="ga-init" strategy="afterInteractive">
-            {`
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('consent', 'default', {
-                ad_storage: 'denied',
-                ad_user_data: 'denied',
-                ad_personalization: 'denied',
-                analytics_storage: 'denied',
-                wait_for_update: 500
-              });
-              gtag('js', new Date());
-              gtag('config', '${GA_ID}');
-            `}
-          </Script>
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>

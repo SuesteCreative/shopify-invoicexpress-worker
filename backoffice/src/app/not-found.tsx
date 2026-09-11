@@ -4,6 +4,7 @@ import Link from "next/link";
 import "./globals.css";
 import { sansDisplay, monoFont, generalSans, satoshi } from "./fonts";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
+import Analytics from "@/components/Analytics";
 
 /**
  * The root 404, which has to render its own document.
@@ -51,6 +52,7 @@ export default function NotFound() {
                         Voltar ao início
                     </Link>
                 </main>
+                <Analytics />
             </body>
         </html>
     );

@@ -15,6 +15,7 @@ import { getRole } from "@/lib/admin";
 import InactivityLogout from "@/components/InactivityLogout";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import Analytics from "@/components/Analytics";
 
 // A metadata OBJECT is always safe here. A metadata FILE (icon.*, apple-icon.*,
 // opengraph-image.*) anywhere under this tree is not: nested, Next emits a
@@ -32,9 +33,10 @@ const ADMIN_LOCALE = "pt";
 
 /**
  * The root layout is a passthrough with no <html>, so this surface owns its own
- * document — deliberately a smaller one than the merchant app's. No GA (admin
- * traffic is not analytics), no consent banner (nothing here sets a marketing
- * cookie), no attribution capture, no JSON-LD.
+ * document — deliberately a smaller one than the merchant app's. No consent
+ * banner (nothing here sets a marketing cookie), no attribution capture, no
+ * JSON-LD. GA does report from here, with consent left denied, so the panel is
+ * measured without storing anything on an operator's machine.
  *
  * The role gate lives here rather than in the middleware: it covers every child
  * route including the client-rendered panels, which cannot guard themselves,
@@ -88,6 +90,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                             </div>
                         </div>
                     </NextIntlClientProvider>
+                    <Analytics />
                 </body>
             </html>
         </ClerkProvider>

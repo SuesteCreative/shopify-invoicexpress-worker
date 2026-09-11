@@ -449,6 +449,9 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
      *  Save on an early-bird change would then pin "definitely not legacy" on a
      *  client nobody had looked at. Untouched means untouched. */
     const [legacyTouched, setLegacyTouched] = useState(false);
+    /** What the flag above actually means today: granted is not the same as
+     *  running, and both survive into "converted" and "expired". */
+    const [ebState, setEbState] = useState<string>("none");
     const [loaded, setLoaded] = useState(false);
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -466,6 +469,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                     setTrialEnd(d.subscription.trial_end ? d.subscription.trial_end.split("T")[0] : "");
                     setLegacyPrice(!!d.legacy?.legacy);
                     setLegacySource(d.legacy?.source ?? "unknown");
+                    setEbState(d.early_bird_state ?? "none");
                 } else {
                     setEarlyBird(false);
                     // A default is a suggestion, and this one used to be the date
@@ -526,6 +530,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                 setEarlyBird(d.subscription.early_bird === 1);
                 setTrialEnd(d.subscription.trial_end ? String(d.subscription.trial_end).split("T")[0] : "");
                 if (d.legacy) { setLegacyPrice(!!d.legacy.legacy); setLegacySource(d.legacy.source); }
+                if (d.early_bird_state) setEbState(d.early_bird_state);
                 // Saved: the toggle now matches the server again.
                 setLegacyTouched(false);
                 setLegacyTouched(false);
@@ -569,7 +574,22 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                         disabled={!loaded}
                         className="accent-soon w-4 h-4"
                     />
-                    <span className="text-xs font-bold text-fg">{t("earlyBird")}</span>
+                    <span className="text-xs font-bold text-fg">
+                        {t("earlyBird")}
+                        {/* The checkbox says the deal was GRANTED. This says what
+                            that is worth today, which is a different question and
+                            the one an operator is usually asking. */}
+                        {ebState !== "none" && (
+                            <span className={`ml-2 font-medium ${
+                                ebState === "running" ? "text-accent-hot"
+                                : ebState === "expired" ? "text-destructive"
+                                : "text-fg-40"}`}>
+                                {ebState === "running" ? "a decorrer"
+                                    : ebState === "converted" ? "convertido — já paga"
+                                    : "expirado — bloqueado"}
+                            </span>
+                        )}
+                    </span>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer pb-2">
                     <input

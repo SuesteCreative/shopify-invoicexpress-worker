@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/stripe";
 import { isAdmin } from "@/lib/admin";
-import { primaryConnectionKey, listSubscriptions, getStripe } from "@/lib/stripe";
+import { primaryConnectionKey, listSubscriptions, getStripe, earlyBirdState } from "@/lib/stripe";
 import { resolveTier } from "@/lib/billing-legacy";
 import { keyFromRequest } from "@/lib/subscription-key";
 
@@ -172,6 +172,11 @@ export async function GET(req: NextRequest) {
             // what the fleet currently believes, and `source` is what stops a
             // derivation being read as somebody's decision.
             legacy: await resolveLegacyForUser(db, targetUserId, subs[0] ?? null),
+            // What the early-bird flag means on this row. It records that the
+            // deal was granted and is never turned off, so it survives both the
+            // window closing and the client converting — the console has to say
+            // which of those it is looking at.
+            early_bird_state: earlyBirdState(subs[0] ?? null),
         });
     } catch (e: any) {
         console.error("[admin/subscription GET] error", e);

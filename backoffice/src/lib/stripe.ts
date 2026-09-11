@@ -2,6 +2,21 @@ import Stripe from "stripe";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { DEFAULT_CONNECTION_KEY, shopIsOldest } from "./subscription-key";
 
+/**
+ * The access decision lives in lib/subscription-state, which imports nothing
+ * from the server runtime so it can be tested. Re-exported here because eight
+ * callers already import it from this module, and moving a verdict is not worth
+ * moving eight import lines.
+ */
+export {
+    isSubscriptionBlocked,
+    subscriptionUIState,
+    earlyBirdState,
+    type SubscriptionUIState,
+    type EarlyBirdState,
+} from "./subscription-state";
+
+
 function readEnv(name: string): string | undefined {
     // process.env works for plaintext on next-on-pages
     const fromProc = process.env[name];
@@ -94,6 +109,17 @@ export function pickSubscription(rows: SubscriptionRow[], connectionKey: string)
     return rows.find((r) => r.connection_key === connectionKey) ?? null;
 }
 
+
+/**
+ * Embedded Checkout speaks a newer API than the one this client pins.
+ *
+ * The browser SDK mounts it with `createEmbeddedCheckoutPage`, which only
+ * understands a session created with `ui_mode: "embedded_page"`. That value does
+ * not exist before this API version, and the older `embedded` no longer exists
+ * after it — send the wrong pair and the form mounts as an empty box, with
+ * nothing in the console to say why. Passed per request, so every other call
+ * stays on the pinned version.
+ */
 /**
  * The connection a billing question is about when the caller did not say.
  *
@@ -144,45 +170,5 @@ export async function listAccountConnections(
     return out;
 }
 
-// Gate purely on Stripe status. Trust Stripe to transition trialing → active|past_due|unpaid.
-// Reason: gating on local trial_end timestamp creates a fragile window at exactly midnight
-// where Stripe is processing the first invoice but local check would already block.
-export function isSubscriptionBlocked(sub: SubscriptionRow | null | undefined): boolean {
-    if (!sub) return true;
-    if (["canceled", "unpaid", "incomplete_expired", "past_due", "incomplete"].includes(sub.status)) return true;
-    // Must pay to run: while trialing without a Stripe sub, only early-bird users
-    // inside their trial window keep access. Non-early-bird (or an expired
-    // early-bird trial) is suspended — they must subscribe to activate.
-    if (sub.status === "trialing" && !sub.stripe_subscription_id) {
-        const earlyBirdActive = !!sub.early_bird && !!sub.trial_end && new Date(sub.trial_end) > new Date();
-        if (!earlyBirdActive) return true;
-    }
-    return false;
-}
-
-export function subscriptionUIState(sub: SubscriptionRow | null | undefined): "active" | "trialing_earlybird" | "trialing" | "blocked" | "none" | "exempt" {
-    if (!sub) return "none";
-    if (sub.status === "exempt") return "exempt";
-    if (sub.status === "active") return "active";
-    if (sub.status === "trialing") {
-        if (sub.stripe_subscription_id) return "trialing";  // paying inside a Stripe trial
-        // Only early-bird users inside their window keep trial access; everyone
-        // else (non-early-bird, or expired early-bird) is suspended → blocked.
-        if (sub.early_bird && sub.trial_end && new Date(sub.trial_end) > new Date()) return "trialing_earlybird";
-        return "blocked";
-    }
-    return "blocked";
-}
-
-/**
- * Embedded Checkout speaks a newer API than the one this client pins.
- *
- * The browser SDK mounts it with `createEmbeddedCheckoutPage`, which only
- * understands a session created with `ui_mode: "embedded_page"`. That value does
- * not exist before this API version, and the older `embedded` no longer exists
- * after it — send the wrong pair and the form mounts as an empty box, with
- * nothing in the console to say why. Passed per request, so every other call
- * stays on the pinned version.
- */
 export const EMBEDDED_CHECKOUT_API_VERSION = "2026-04-22.dahlia";
 export const EMBEDDED_CHECKOUT_UI_MODE = "embedded_page";

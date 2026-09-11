@@ -5,6 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { CONNECTION_KEY_TO_SOURCE, keyFromRequest } from "@/lib/subscription-key";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { resolveReturnPath } from "@/lib/oauth-return";
+import { priceLookupFor, resolvePrice } from "@/lib/billing-prices";
 
 export const runtime = "edge";
 
@@ -75,59 +76,16 @@ export async function POST(req: NextRequest) {
                 ? await primaryConnectionKey(db, targetUserId)
                 : keyFromRequest(null, source);
 
-        // Each integration bills its OWN price. Explicit source → lookup mapping;
-        // an unknown source is rejected (400) rather than silently defaulting to the
-        // Shopify price. Lookups resolve lazily so a missing env var only affects the
-        // source that needs it. (stripe-moloni / stripe-ix keys are stable literals.)
-        let lookupOrId: string;
-        switch (source) {
-            case "":
-            case "faturacao":
-            // Lodgify->IX bills the same product at the same price as Shopify->IX.
-            // Only the connection it pays for differs.
-            case "lodgify-ix":
-                lookupOrId = plan === "annual" ? getStripeEnv("STRIPE_PRICE_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_MONTHLY_LOOKUP");
-                break;
-            case "lodgify-moloni":
-                lookupOrId = plan === "annual" ? getStripeEnv("STRIPE_PRICE_LODGIFY_YEARLY_LOOKUP") : getStripeEnv("STRIPE_PRICE_LODGIFY_MONTHLY_LOOKUP");
-                break;
-            case "stripe-moloni":
-                lookupOrId = plan === "annual" ? "stripe-moloni-yearly" : "stripe-moloni-monthly";
-                break;
-            // Connect has its own product, at the price the onboarding page
-            // advertises: 7,50 € a month and 75 € a year. It used to bill the
-            // Stripe→Moloni pair, where the monthly price does not exist at all
-            // (every click answered "Price not found") and the yearly one is an
-            // older 50 €.
-            case "stripe-connect-moloni":
-                lookupOrId = plan === "annual" ? "stripe-connect-moloni-yearly" : "stripe-connect-moloni-monthly";
-                break;
-            // The older Stripe → InvoiceXpress pair keeps its own prices, 5 € a
-            // month and 50 € a year, which is what its merchants signed up on.
-            case "stripe-ix":
-                lookupOrId = plan === "annual" ? "stripe-ix-yearly" : "stripe-ix-monthly";
-                break;
-            // Connect → InvoiceXpress has its own product, at the price the
-            // onboarding pages advertise: 7,50 € a month and 75 € a year.
-            case "stripe-connect-ix":
-                lookupOrId = plan === "annual" ? "stripe-connect-invoicexpress-yearly" : "stripe-connect-invoicexpress-monthly";
-                break;
-            default:
-                return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
+        // Each integration bills its OWN price; an unknown source is rejected
+        // rather than silently defaulting to the Shopify one. The map lives in
+        // lib/billing-prices so the page that PRINTS the amount reads the same
+        // price this charges.
+        const lookupOrId = priceLookupFor(source, plan);
+        if (!lookupOrId) {
+            return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
         }
 
-        // Accept any of: real price ID (price_xxx), custom ID, or lookup_key.
-        // Try retrieve first (works for any valid Stripe ID), then fall back to lookup_keys.
-        let price: any = null;
-        try {
-            price = await stripe.prices.retrieve(lookupOrId);
-        } catch {
-            // not a valid id — try lookup_keys
-        }
-        if (!price) {
-            const prices = await stripe.prices.list({ lookup_keys: [lookupOrId], limit: 1, active: true });
-            price = prices.data[0];
-        }
+        const price: any = await resolvePrice(stripe, lookupOrId);
         if (!price) return NextResponse.json({ error: `Price not found: ${lookupOrId}` }, { status: 500 });
         if (!price.active) return NextResponse.json({ error: `Price ${price.id} is inactive` }, { status: 500 });
         if (price.currency !== "eur") return NextResponse.json({ error: `Price ${price.id} currency must be EUR (got ${price.currency})` }, { status: 500 });

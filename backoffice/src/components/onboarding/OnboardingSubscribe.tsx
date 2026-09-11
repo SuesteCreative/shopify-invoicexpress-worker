@@ -38,6 +38,8 @@ type Props = {
     onSubscribed?: () => void;
 };
 
+type Money = { amount_cents: number; currency: string };
+
 type SessionResponse = {
     client_secret?: string;
     publishable_key?: string | null;
@@ -57,6 +59,19 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(true);
     const [openingHosted, setOpeningHosted] = useState(false);
+    // What this pair actually costs. Asked of the server, which reads the same
+    // Stripe price the checkout charges: the figures used to be written into the
+    // markup, and were only ever true of one product.
+    const [prices, setPrices] = useState<{ monthly: Money | null; annual: Money | null } | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        fetch(`/api/billing/price?source=${encodeURIComponent(source)}`)
+            .then(r => (r.ok ? r.json() : null))
+            .then((d: any) => { if (alive && d) setPrices({ monthly: d.monthly ?? null, annual: d.annual ?? null }); })
+            .catch(() => { /* the card simply shows no figure */ });
+        return () => { alive = false; };
+    }, [source]);
 
     // Set when Stripe brings the merchant back to this page.
     const returnedSessionId = params.get("stripe") === "return" ? params.get("session_id") : null;
@@ -214,6 +229,26 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
         );
     }
 
+    const money = (m: Money | null | undefined) =>
+        m ? new Intl.NumberFormat(locale === "en" ? "en-GB" : "pt-PT", {
+            style: "currency", currency: (m.currency || "eur").toUpperCase(),
+            minimumFractionDigits: m.amount_cents % 100 === 0 ? 0 : 2,
+        }).format(m.amount_cents / 100) : null;
+
+    // "equivale a X/mês", from the yearly price rather than from a sentence
+    // written when the yearly price was 75 €.
+    const monthlyEquivalent = prices?.annual
+        ? money({ amount_cents: Math.round(prices.annual.amount_cents / 12), currency: prices.annual.currency })
+        : null;
+
+    // Only claimed when the year really is cheaper than twelve months of it.
+    const savedPercent = prices?.annual && prices?.monthly && prices.monthly.amount_cents > 0
+        ? (() => {
+            const pct = Math.round((1 - prices.annual!.amount_cents / (prices.monthly!.amount_cents * 12)) * 100);
+            return pct >= 1 ? pct : null;
+        })()
+        : null;
+
     return (
         <div className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -238,22 +273,26 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                                 )}>
                                     {option === "annual" ? tCard("tabAnnual") : tCard("tabMonthly")}
                                 </span>
-                                {option === "annual" && (
+                                {option === "annual" && savedPercent !== null && (
                                     <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent-hot/18 text-accent-hot uppercase tracking-[0.22em] whitespace-nowrap">
-                                        {tCard("save17")}
+                                        {tCard("savePercent", { pct: savedPercent })}
                                     </span>
                                 )}
                             </div>
                             <div className="flex items-baseline gap-1 flex-wrap">
                                 <span className="text-3xl font-medium text-fg tabular-nums">
-                                    {option === "annual" ? "75€" : "7,50€"}
+                                    {money(option === "annual" ? prices?.annual : prices?.monthly) ?? "—"}
                                 </span>
                                 <span className="text-sm text-fg-40 font-medium">
                                     {option === "annual" ? tCard("perYear") : tCard("perMonth")}
                                 </span>
                             </div>
                             <div className="text-[11px] text-fg-40 font-medium mt-2">
-                                {option === "annual" ? tCard("vatAnnual") : tCard("vatMonthly")}
+                                {option === "annual"
+                                    ? monthlyEquivalent
+                                        ? tCard("vatAnnualEquivalent", { amount: monthlyEquivalent })
+                                        : tCard("vatAnnualPlain")
+                                    : tCard("vatMonthly")}
                             </div>
                             {selected && (
                                 <div className={cn(

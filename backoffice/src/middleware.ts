@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
     "/:locale/blog(.*)",
     "/:locale/shopify",
     "/:locale/lodgify",
+    "/:locale/pricing",
     // The client-facing onboarding pages: step one is creating the account, so
     // the page itself has to render without one. Every endpoint they call is
     // still behind auth.
@@ -25,6 +26,7 @@ const isPublicRoute = createRouteMatcher([
     "/blog(.*)",
     "/shopify",
     "/lodgify",
+    "/pricing",
     "/onboarding(.*)",
     "/api/webhooks/clerk",
     "/api/webhooks/stripe",

@@ -824,6 +824,115 @@
             "signIn": "Já tenho conta"
         }
     },
+    "pricingPage": {
+        "meta": {
+            "title": "Preços | Rioko: faturação automática desde 7,50 €/mês",
+            "description": "7,50 € + IVA por mês ou 75 € + IVA por ano, por integração. Sem fees por documento, sem limites de volume, sem cartão para começar. Liga Shopify, Stripe ou Lodgify ao InvoiceXpress, Moloni ou Vendus."
+        },
+        "breadcrumb": {
+            "home": "Início",
+            "page": "Preços"
+        },
+        "hero": {
+            "eyebrow": "Preço",
+            "h1": "Simples. Por integração.",
+            "sub": "Pagas por cada ligação entre uma origem de pagamento e um programa de faturação. Quantos documentos emites não muda o preço.",
+            "notice": "Preços sem IVA · sem cartão para começar · cancela quando quiseres"
+        },
+        "tiers": {
+            "monthly": {
+                "name": "Mensal",
+                "price": "7,50 €",
+                "period": "por mês, + IVA, por integração",
+                "cta": "Começar grátis",
+                "b1": "Uma integração completa",
+                "b2": "Documentos ilimitados",
+                "b3": "NIF, IVA e isenções M01–M99",
+                "b4": "Reembolsos viram notas de crédito",
+                "b5": "Suporte por email"
+            },
+            "yearly": {
+                "name": "Anual",
+                "badge": "Dois meses grátis",
+                "price": "75 €",
+                "period": "por ano, + IVA, por integração",
+                "cta": "Começar grátis",
+                "b1": "Tudo o que o plano mensal inclui",
+                "b2": "75 € em vez de 90 €",
+                "b3": "Prioridade no roadmap",
+                "b4": "Suporte por email, resposta em menos de 24h",
+                "b5": "Uma fatura por ano em vez de doze"
+            },
+            "custom": {
+                "name": "Personalizada",
+                "price": "Sob consulta",
+                "period": "à medida do teu caso",
+                "cta": "Falar connosco",
+                "b1": "Origens fora do catálogo: ERP, marketplaces, sistemas próprios",
+                "b2": "Várias lojas ou vários NIFs na mesma conta",
+                "b3": "Regras fiscais específicas do teu negócio",
+                "b4": "SLA dedicado",
+                "b5": "Onboarding técnico em videochamada"
+            }
+        },
+        "counts": {
+            "title": "O que conta como uma integração",
+            "body": "Uma integração é um par: uma origem de pagamento ligada a um programa de faturação. A tua loja Shopify a emitir no InvoiceXpress é uma integração. Se essa mesma loja passar a emitir também a partir da Stripe, são duas.",
+            "ex1Label": "Uma integração",
+            "ex1Value": "Shopify → InvoiceXpress",
+            "ex2Label": "Duas integrações",
+            "ex2Value": "Shopify → Moloni · Stripe → Moloni",
+            "ex3Label": "Continua a ser uma",
+            "ex3Value": "Lodgify → Vendus, com dez propriedades",
+            "note": "Mudar de programa de faturação dentro da mesma integração não custa nada e não obriga a refazer a ligação."
+        },
+        "included": {
+            "title": "Incluído em qualquer plano",
+            "i1Title": "Documentos sem limite",
+            "i1Body": "Não cobramos por fatura emitida. Uma loja com dez encomendas por mês e uma com dez mil pagam o mesmo.",
+            "i2Title": "Emissão em software certificado",
+            "i2Body": "O documento é emitido no teu InvoiceXpress, Moloni ou Vendus, com ATCUD e série comunicada à AT. A certificação é a do programa.",
+            "i3Title": "Notas de crédito automáticas",
+            "i3Body": "Um reembolso ou um cancelamento gera a nota de crédito correspondente, incluindo devoluções parciais.",
+            "i4Title": "Reconciliação e alertas",
+            "i4Body": "Um varrimento diário procura vendas pagas sem documento e reemite o que faltar. Se algo falhar, recebes email."
+        },
+        "faq": {
+            "title": "Perguntas sobre faturação",
+            "items": [
+                {
+                    "q": "Preciso de cartão para experimentar?",
+                    "a": "Não. Crias a conta, ligas a primeira integração e emites documentos sem introduzir cartão. Só pedimos dados de pagamento quando decides continuar."
+                },
+                {
+                    "q": "O preço muda com o volume de faturas?",
+                    "a": "Não. O preço é por integração ligada, não por documento emitido, e não há limites de volume nem escalões. Dez ou dez mil documentos por mês custam o mesmo."
+                },
+                {
+                    "q": "O que acontece se cancelar?",
+                    "a": "A integração deixa de emitir documentos novos no fim do período já pago. Os documentos já emitidos são teus e estão no teu programa de faturação, que é onde sempre estiveram: o Rioko não os guarda em vez de ti."
+                },
+                {
+                    "q": "Posso mudar de mensal para anual?",
+                    "a": "Sim, a qualquer momento. O plano anual custa 75 € em vez dos 90 € que somariam doze meses."
+                },
+                {
+                    "q": "O preço inclui IVA?",
+                    "a": "Não. Os valores são sem IVA. Sendo um serviço prestado a empresas e profissionais em Portugal, acresce IVA à taxa em vigor, e recebes fatura da Kapta por cada pagamento."
+                },
+                {
+                    "q": "E se a minha origem de pagamento não estiver no catálogo?",
+                    "a": "Fala connosco. Integrações à medida, incluindo ERP, marketplaces e sistemas próprios, são orçamentadas caso a caso no plano Personalizado."
+                }
+            ]
+        },
+        "cta": {
+            "title": "Liga a primeira integração em quatro minutos.",
+            "body": "Sem cartão, sem instalação, sem extensões no checkout.",
+            "start": "Começar grátis",
+            "integrations": "Ver integrações disponíveis"
+        }
+    },
     "privacy": {
         "back": "← Voltar",
         "title": "Política de Privacidade",

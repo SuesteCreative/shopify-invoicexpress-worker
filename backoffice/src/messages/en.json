@@ -824,6 +824,115 @@
             "signIn": "I already have an account"
         }
     },
+    "pricingPage": {
+        "meta": {
+            "title": "Pricing | Rioko: automatic invoicing from €7.50/month",
+            "description": "€7.50 + VAT per month or €75 + VAT per year, per integration. No per-document fees, no volume limits, no card to start. Connect Shopify, Stripe or Lodgify to InvoiceXpress, Moloni or Vendus."
+        },
+        "breadcrumb": {
+            "home": "Home",
+            "page": "Pricing"
+        },
+        "hero": {
+            "eyebrow": "Pricing",
+            "h1": "Simple. Per integration.",
+            "sub": "You pay per connection between a payment source and an invoicing program. How many documents you issue does not change the price.",
+            "notice": "Prices excl. VAT · no card to start · cancel anytime"
+        },
+        "tiers": {
+            "monthly": {
+                "name": "Monthly",
+                "price": "€7.50",
+                "period": "per month, + VAT, per integration",
+                "cta": "Start free",
+                "b1": "One complete integration",
+                "b2": "Unlimited documents",
+                "b3": "VAT ID, VAT and M01–M99 exemptions",
+                "b4": "Refunds become credit notes",
+                "b5": "Email support"
+            },
+            "yearly": {
+                "name": "Yearly",
+                "badge": "Two months free",
+                "price": "€75",
+                "period": "per year, + VAT, per integration",
+                "cta": "Start free",
+                "b1": "Everything the monthly plan includes",
+                "b2": "€75 instead of €90",
+                "b3": "Roadmap priority",
+                "b4": "Email support, under 24h response",
+                "b5": "One invoice a year instead of twelve"
+            },
+            "custom": {
+                "name": "Custom",
+                "price": "On request",
+                "period": "built around your case",
+                "cta": "Talk to us",
+                "b1": "Sources outside the catalog: ERP, marketplaces, in-house systems",
+                "b2": "Several stores or several VAT IDs in one account",
+                "b3": "Fiscal rules specific to your business",
+                "b4": "Dedicated SLA",
+                "b5": "Technical onboarding call"
+            }
+        },
+        "counts": {
+            "title": "What counts as one integration",
+            "body": "An integration is a pair: one payment source connected to one invoicing program. Your Shopify store issuing into InvoiceXpress is one integration. If that same store also starts issuing from Stripe, that is two.",
+            "ex1Label": "One integration",
+            "ex1Value": "Shopify → InvoiceXpress",
+            "ex2Label": "Two integrations",
+            "ex2Value": "Shopify → Moloni · Stripe → Moloni",
+            "ex3Label": "Still one",
+            "ex3Value": "Lodgify → Vendus, across ten properties",
+            "note": "Switching invoicing program within the same integration costs nothing and does not mean redoing the connection."
+        },
+        "included": {
+            "title": "Included on every plan",
+            "i1Title": "Documents with no ceiling",
+            "i1Body": "We do not charge per invoice issued. A store with ten orders a month and one with ten thousand pay the same.",
+            "i2Title": "Issued through certified software",
+            "i2Body": "The document is issued in your InvoiceXpress, Moloni or Vendus, with ATCUD and a series reported to the AT. The certification is the program's.",
+            "i3Title": "Automatic credit notes",
+            "i3Body": "A refund or a cancellation produces the matching credit note, partial refunds included.",
+            "i4Title": "Reconciliation and alerts",
+            "i4Body": "A daily sweep looks for paid sales with no document and reissues whatever is missing. If something fails, you get an email."
+        },
+        "faq": {
+            "title": "Questions about billing",
+            "items": [
+                {
+                    "q": "Do I need a card to try it?",
+                    "a": "No. You create the account, connect the first integration and issue documents without entering a card. We only ask for payment details when you decide to continue."
+                },
+                {
+                    "q": "Does the price change with invoice volume?",
+                    "a": "No. The price is per connected integration, not per document issued, and there are no volume limits or tiers. Ten or ten thousand documents a month cost the same."
+                },
+                {
+                    "q": "What happens if I cancel?",
+                    "a": "The integration stops issuing new documents at the end of the period you already paid for. Documents already issued are yours and sit in your invoicing program, which is where they always were: Rioko does not hold them on your behalf."
+                },
+                {
+                    "q": "Can I move from monthly to yearly?",
+                    "a": "Yes, at any time. The yearly plan is €75 instead of the €90 twelve monthly payments would add up to."
+                },
+                {
+                    "q": "Does the price include VAT?",
+                    "a": "No. Prices are excluding VAT. As a service supplied to businesses and professionals in Portugal, VAT is added at the rate in force, and you get an invoice from Kapta for every payment."
+                },
+                {
+                    "q": "What if my payment source is not in the catalog?",
+                    "a": "Talk to us. Tailor-made integrations, including ERP, marketplaces and in-house systems, are quoted case by case on the Custom plan."
+                }
+            ]
+        },
+        "cta": {
+            "title": "Connect your first integration in four minutes.",
+            "body": "No card, no install, no checkout extensions.",
+            "start": "Start free",
+            "integrations": "See available integrations"
+        }
+    },
     "privacy": {
         "back": "← Back",
         "title": "Privacy Policy",

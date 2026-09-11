@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { ShieldCheck, Activity, Wrench, Settings2, ArrowLeft, Menu, X } from "lucide-react";
+import { LayoutDashboard, ShieldCheck, Activity, Wrench, Settings2, ArrowLeft, Menu, X } from "lucide-react";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -31,7 +31,8 @@ const INACTIVE = "text-fg-60 hover:text-fg hover:bg-fg/5";
 type Item = { href: string; icon: React.ComponentType<{ className?: string }>; label: string };
 
 const ITEMS: Item[] = [
-    { href: "/admin", icon: ShieldCheck, label: "Clientes" },
+    { href: "/admin", icon: LayoutDashboard, label: "Visão geral" },
+    { href: "/admin/clientes", icon: ShieldCheck, label: "Clientes" },
     { href: "/admin/ops", icon: Activity, label: "Operação" },
     { href: "/admin/onboarding-helper", icon: Wrench, label: "Onboarding" },
 ];

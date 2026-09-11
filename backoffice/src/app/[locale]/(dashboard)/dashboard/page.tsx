@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import { useState, useEffect } from "react";
 import { Activity, ClipboardList, Settings2, BookOpen, Plus, Store, Zap, ArrowRight, ExternalLink, FileText, ScrollText, Inbox, Building2 } from "lucide-react";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useUser } from "@clerk/nextjs";
 import { clsx, type ClassValue } from "clsx";
@@ -14,12 +14,12 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-import { RegistrationForm } from "@/components/RegistrationForm";
 import SubscriptionCard from "@/components/SubscriptionCard";
 import { kindLabel } from "@/lib/connection-kinds";
 
 export default function WelcomeDashboard() {
   const t = useTranslations("dashboardHome");
+  const router = useRouter();
   const { user: clerkUser } = useUser();
   const [dbUserName, setDbUserName] = useState("");
   const firstName = (dbUserName || clerkUser?.firstName || clerkUser?.fullName || "").split(" ")[0];
@@ -84,6 +84,13 @@ export default function WelcomeDashboard() {
       .catch(() => setRecentLogs([]));
   }, []);
 
+  // `replace`, not `push`: the onboarding is where this account starts, and a
+  // back button that returns to a dashboard which immediately bounces again is
+  // a trap.
+  useEffect(() => {
+    if (isRegistered === false) router.replace("/onboarding");
+  }, [isRegistered, router]);
+
   const connLabel = (kind: string) =>
     kind === "invoicexpress" ? "InvoiceXpress"
     : kind === "moloni" ? "Moloni"
@@ -118,22 +125,15 @@ export default function WelcomeDashboard() {
     return t("dayAgo", { n: Math.floor(diff / 86400) });
   };
 
-  if (loading) {
+  // An account with no profile yet has nothing to see here: no connection, no
+  // documents, no subscription. It belongs on the onboarding, which asks for the
+  // same details the form used to ask for inline AND for the two platforms to
+  // join, then hands the merchant to the right setup instead of leaving them on
+  // an empty dashboard.
+  if (loading || isRegistered === false) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-accent/20 border-t-accent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (isRegistered === false) {
-    return (
-      <div className="py-6 sm:py-12">
-        <RegistrationForm
-          onComplete={() => setIsRegistered(true)}
-          initialEmail={clerkUser?.primaryEmailAddress?.emailAddress}
-          initialName={clerkUser?.fullName || ""}
-        />
       </div>
     );
   }

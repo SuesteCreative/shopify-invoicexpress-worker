@@ -65,13 +65,16 @@ export async function GET(request: NextRequest) {
         const { env } = getRequestContext();
         const db = (env as any).DB;
 
-        // The membership join needs migration 0039 and is_inactive needs 0046;
-        // before either is applied the same list is served without them.
+        // The membership join needs migration 0039, is_inactive needs 0046 and
+        // the onboarding/privacy columns need 0049; before any of them is
+        // applied the same list is served without them.
         const USERS_SQL = `
       SELECT
         u.id, u.email, u.name, u.role, u.last_login, u.created_at,
         u.nif, u.company_name, u.admin_label, u.fiscal_address, u.phone, u.website, u.registration_completed,
         u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
+        u.privacy_policy_accepted, u.privacy_policy_accepted_at,
+        u.onboarding_source_kind, u.onboarding_destination_kind,
         COALESCE(u.is_inactive, 0) AS is_inactive,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
         i.ix_authorized, i.ix_error,

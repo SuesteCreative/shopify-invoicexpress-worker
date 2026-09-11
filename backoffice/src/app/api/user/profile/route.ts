@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { isDestinationKind, isSourceKind } from "@/lib/connection-kinds";
 
 export const runtime = 'edge';
 
@@ -35,6 +36,9 @@ interface UserProfileData {
     phone?: string;
     website?: string;
     privacy_policy_accepted: boolean;
+    /** The pair picked in the general onboarding. Absent means "leave as is". */
+    onboarding_source_kind?: string | null;
+    onboarding_destination_kind?: string | null;
 }
 
 export async function POST(req: NextRequest) {
@@ -47,8 +51,38 @@ export async function POST(req: NextRequest) {
     const { env } = getRequestContext();
     const db = (env as any).DB;
 
-    const result = await db.prepare(`
-        UPDATE users
+    // An intention, not a connection — but it is written to the client's record,
+    // so it may only ever hold a kind the rest of the system recognises.
+    const source = data.onboarding_source_kind ?? null;
+    const destination = data.onboarding_destination_kind ?? null;
+    if (source !== null && !isSourceKind(source)) {
+        return NextResponse.json({ error: "invalid_source_kind" }, { status: 400 });
+    }
+    if (destination !== null && !isDestinationKind(destination)) {
+        return NextResponse.json({ error: "invalid_destination_kind" }, { status: 400 });
+    }
+
+    const accepted = data.privacy_policy_accepted ? 1 : 0;
+
+    // `privacy_policy_accepted_at` is stamped on the FIRST acceptance and never
+    // moved afterwards: a consent that re-dates itself every time the merchant
+    // corrects their address records nothing. COALESCE on the two onboarding
+    // columns is the opposite on purpose — re-running the onboarding with a
+    // different pair should say so, and a request that omits them changes them
+    // back to nothing.
+    const bind = (sql: string, extra: unknown[]) => db.prepare(sql).bind(
+        data.nif,
+        (data.name || "").trim(),
+        data.company_name,
+        data.fiscal_address,
+        data.phone,
+        data.website,
+        accepted,
+        ...extra,
+        targetUserId,
+    ).run();
+
+    const COLUMNS = `
         SET nif = ?,
             name = COALESCE(NULLIF(?, ''), name),
             company_name = ?,
@@ -56,18 +90,23 @@ export async function POST(req: NextRequest) {
             phone = ?,
             website = ?,
             registration_completed = 1,
-            privacy_policy_accepted = ?
+            privacy_policy_accepted = ?`;
+
+    const result = await bind(`
+        UPDATE users${COLUMNS},
+            privacy_policy_accepted_at = CASE
+                WHEN ? = 1 THEN COALESCE(privacy_policy_accepted_at, CURRENT_TIMESTAMP)
+                ELSE privacy_policy_accepted_at END,
+            onboarding_source_kind = COALESCE(?, onboarding_source_kind),
+            onboarding_destination_kind = COALESCE(?, onboarding_destination_kind)
         WHERE id = ?
-    `).bind(
-        data.nif,
-        (data.name || "").trim(),
-        data.company_name,
-        data.fiscal_address,
-        data.phone,
-        data.website,
-        data.privacy_policy_accepted ? 1 : 0,
-        targetUserId
-    ).run();
+    `, [accepted, source, destination])
+        // Migration 0049 is applied by hand (d1_migrations is frozen), so the
+        // deploy can land before the columns do. The profile still has to save.
+        .catch(async (e: any) => {
+            console.warn("[profile] pre-0049 users table, saving without the onboarding columns:", e?.message);
+            return bind(`UPDATE users${COLUMNS} WHERE id = ?`, []);
+        });
 
     // No row for this id: the Clerk → D1 sync never ran. Saying "success" here
     // is what made the form come back empty on the next login.

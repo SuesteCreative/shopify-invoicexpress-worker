@@ -506,6 +506,19 @@ export function SuperadminPanel() {
                         ) : (
                             <span className="text-[10px] font-black text-soon/50 uppercase tracking-widest italic">{t("registrationPending")}</span>
                         )}
+                        {/* When they agreed to the privacy policy. Every client
+                            who registered before migration 0049 has the flag and
+                            no date, and that is not the same as never agreeing —
+                            hence the middle branch. */}
+                        {user.privacy_policy_accepted_at ? (
+                            <p className="text-[10px] text-fg-40 font-bold uppercase tracking-widest">
+                                {t("privacyAccepted", { date: dateOf(user.privacy_policy_accepted_at) ?? "—" })}
+                            </p>
+                        ) : user.privacy_policy_accepted ? (
+                            <p className="text-[10px] text-fg-40 font-bold uppercase tracking-widest">{t("privacyAcceptedUndated")}</p>
+                        ) : (
+                            <p className="text-[10px] font-black text-soon/60 uppercase tracking-widest italic">{t("privacyPending")}</p>
+                        )}
                     </div>
 
                     {/* Status — ONLY the two platforms this card is about. */}
@@ -518,6 +531,16 @@ export function SuperadminPanel() {
                                         <StatusDot label={kindLabel(user.source)} ok={user.source_ok} err={user.source_err} off={user.source_off} />
                                         <StatusDot label={kindLabel(user.destination)} ok={user.dest_ok} err={user.dest_err} off={user.dest_off} />
                                     </>
+                                ) : user.onboarding_source_kind && user.onboarding_destination_kind ? (
+                                    // No pipe yet, but they said in the onboarding
+                                    // what they came to join. An intention, not a
+                                    // connection: nothing is authorised and nothing
+                                    // is being invoiced.
+                                    <div className="flex items-center gap-1.5" title={t("onboardingIntent")}>
+                                        <PlatformPill kind={user.onboarding_source_kind} />
+                                        <PlatformPill kind={user.onboarding_destination_kind} />
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-soon/70">{t("onboardingIntent")}</span>
+                                    </div>
                                 ) : (
                                     <div className="text-soon/60 text-[10px] font-bold">● OFF</div>
                                 )}

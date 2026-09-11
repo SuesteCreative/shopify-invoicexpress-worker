@@ -1455,7 +1455,11 @@
         "deleteAccountTitle": "Delete the whole account",
         "deleteAccountQuestion": "Delete the WHOLE account?",
         "deleteAccountImpact": "{label}: {connections} connection(s) and {orders} invoiced order(s). The connections are destroyed and invoicing stops. The orders stay on record.",
-        "deleteAccountForce": "Delete account"
+        "deleteAccountForce": "Delete account",
+        "privacyAccepted": "Privacy: {date}",
+        "privacyAcceptedUndated": "Privacy: accepted",
+        "privacyPending": "Privacy not accepted",
+        "onboardingIntent": "picked in onboarding"
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Back to integrations",
@@ -3130,5 +3134,58 @@
         },
         "consequence": "This changes the VAT on documents issued from now on, and the nightly sweep also re-issues the last 30 days. Check with whoever does your accounting before switching it on.",
         "consequenceMoloni": "This changes the VAT on documents issued from now on, and the nightly sweep also re-issues the last 30 days. The destination countries' rates must exist in your Moloni account, or the document is refused. Check with whoever does your accounting before switching it on."
+    },
+    "generalOnboarding": {
+        "meta": {
+            "title": "Onboarding | Rioko",
+            "description": "Set up your Rioko account and connect the platform where you take payments to the software that issues your invoices."
+        },
+        "headerTag": "Rioko · Onboarding",
+        "eyebrow": "First steps",
+        "title": "Let's put your invoicing on autopilot",
+        "subtitle": "Two steps: the details that go on your invoices, and the two platforms you want joined. We take it from there.",
+        "trust1": "Set up in minutes",
+        "trust2": "Your data stays yours",
+        "trust3": "Support in Portuguese and English",
+        "progress": "Step {current} of {total}",
+        "statusDone": "Done",
+        "statusLocked": "Locked",
+        "statusNow": "Now",
+        "continue": "Continue",
+        "loading": "Loading",
+        "account": {
+            "title": "Rioko account",
+            "desc": "Your way into the dashboard and your integrations.",
+            "body": "Create your account so we can keep this setup. It takes under a minute.",
+            "create": "Create account",
+            "haveAccount": "Already have an account?",
+            "signIn": "Sign in",
+            "signedInAs": "Signed in as {email}",
+            "signedInBody": "This is the account the setup is saved to.",
+            "signOut": "Use another account"
+        },
+        "company": {
+            "title": "Company details",
+            "desc": "What identifies your business on the invoices.",
+            "body": "We use these details to identify your business and to bill you. You can change them later on this same page.",
+            "privacyLink": "Read the privacy policy",
+            "acceptedOn": "Accepted on {date}",
+            "update": "Save changes"
+        },
+        "platforms": {
+            "title": "Platforms to connect",
+            "desc": "Where the payments come from, and where the invoices are issued.",
+            "body": "Pick the platform where you take payments and the software that issues the invoices. You can connect more pairs later.",
+            "summaryLabel": "Your connection",
+            "summaryGuided": "This pair has a guided setup of its own. We open it next, with every step in order.",
+            "summaryDirect": "We take you to this pair's configurator, inside the dashboard.",
+            "summaryUnavailable": "This combination is not available yet. Pick another one, or talk to us and we will tell you when it lands.",
+            "ctaGuided": "Open the guided setup",
+            "ctaDirect": "Continue to the dashboard",
+            "note": "Your choice is saved to your account. Leave halfway through and you come back to this point."
+        },
+        "help": {
+            "body": "Any questions before you start? Write to"
+        }
     }
 }

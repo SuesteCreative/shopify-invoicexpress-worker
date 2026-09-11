@@ -6,12 +6,44 @@ import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
 import { grantSeatFromSession } from "@/lib/seats";
 import { notifySubscriptionPaymentFailed } from "@/lib/billing-notify";
 import { DEFAULT_CONNECTION_KEY, keyFromRequest, shopIsOldest } from "@/lib/subscription-key";
+import { callWorkerJson } from "@/lib/worker";
 
 export const runtime = "edge";
 
 function isoFromUnix(unix: number | null | undefined): string | null {
     if (!unix) return null;
     return new Date(unix * 1000).toISOString();
+}
+
+/** Where a webhook that failed to be handled goes to be seen. */
+const OPS_EMAIL = "pedro@kapta.pt";
+
+/**
+ * Tell somebody when an event could not be handled.
+ *
+ * This endpoint answers 200 to Stripe whatever happens, deliberately: a
+ * persistent bug is not fixed by retries, and the event id is already recorded.
+ * The cost of that choice is silence, and silence is what let a wrong bind count
+ * refuse every subscription renewal and cancellation for days with Stripe
+ * reporting success on all of them. Best effort, never in the way of the 200.
+ */
+async function alertHandlerError(event: Stripe.Event, err: any): Promise<void> {
+    await callWorkerJson("/admin/notify", {
+        method: "POST",
+        body: JSON.stringify({
+            recipients: [OPS_EMAIL],
+            subject: `[Rioko] webhook do Stripe falhou: ${event.type}`,
+            body: [
+                `Evento: ${event.type}`,
+                `Id: ${event.id}`,
+                `Erro: ${err?.message ?? String(err)}`,
+                "",
+                "O endpoint respondeu 200 à mesma, portanto o Stripe não volta a tentar.",
+                "Nada foi escrito na base de dados para este evento.",
+            ].join("\n"),
+            from_name: "Rioko Billing",
+        }),
+    });
 }
 
 // Rioko users are provisioned by Clerk and always have an id that starts with
@@ -128,6 +160,15 @@ async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, s
             updated_at = CURRENT_TIMESTAMP
     `).bind(
         userId,
+        // Second, because it is the second column and the second `?`. It was
+        // computed above and never bound when the connection key was added
+        // (a19f25d): eleven placeholders, ten values, so D1 refused EVERY
+        // customer.subscription.* event from that commit until this one. New
+        // subscriptions kept appearing because they arrive through the
+        // checkout.session.completed upsert below, which was bound correctly —
+        // renewals, cancellations, plan changes and current_period_end simply
+        // stopped reaching the database.
+        connectionKey,
         typeof sub.customer === "string" ? sub.customer : sub.customer.id,
         sub.id,
         sub.status,
@@ -505,6 +546,11 @@ export async function POST(req: NextRequest) {
         // Return 200 anyway: we've recorded the event_id in billing_events (idempotency),
         // and Stripe retrying won't help with persistent bugs. Cron retries IX matching.
         // Only signature/parse failures above this catch return 400.
+        //
+        // But say so out loud. Swallowing this in a console nobody reads is how a
+        // wrong bind count in the subscription upsert refused every renewal and
+        // cancellation for days while Stripe showed 200s all the way.
+        await alertHandlerError(event, err).catch(() => { /* the 200 matters more */ });
         return NextResponse.json({ received: true, handler_error: err.message });
     }
 

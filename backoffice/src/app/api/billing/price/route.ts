@@ -2,7 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getDB } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
-import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
+import { priceLookupFor, resolvePrice, resolveBillingSource, isLegacyClient } from "@/lib/billing-prices";
+import { keyFromRequest } from "@/lib/subscription-key";
 
 export const runtime = "edge";
 
@@ -28,9 +29,14 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
     }
 
+    // The connection being subscribed, so a client marked legacy on one pipe is
+    // not quoted the old price on another. `keyFromRequest` maps a source name
+    // to its pair, which is the same map the checkout stamps on the session.
+    const legacy = await isLegacyClient(getDB(), targetUserId, keyFromRequest(null, source));
+
     const stripe = getStripe();
     const read = async (plan: "monthly" | "annual") => {
-        const lookup = priceLookupFor(source, plan);
+        const lookup = priceLookupFor(source, plan, { legacy });
         if (!lookup) return null;
         try {
             const price: any = await resolvePrice(stripe, lookup);
@@ -42,5 +48,5 @@ export async function GET(request: NextRequest) {
     };
 
     const [monthly, annual] = await Promise.all([read("monthly"), read("annual")]);
-    return NextResponse.json({ monthly, annual });
+    return NextResponse.json({ monthly, annual, legacy });
 }

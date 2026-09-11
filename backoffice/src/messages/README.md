@@ -38,6 +38,6 @@ External URLs (mailto, https://...) keep using a plain `<a>`.
 ## Scope status
 
 - **Done (stage 1)**: landing, sign-in, sign-up, privacy, terms, 404.
-- **Pending (stage 2)**: dashboard pages (`app/[locale]/(dashboard)/**`) and shared components (`NavLinks`, `RegistrationForm`, `IntegrationSetupModal`, `ImpersonationBanner`). They still render PT strings under both locales until migrated.
+- **Pending (stage 2)**: dashboard pages (`app/[locale]/(dashboard)/**`) and shared components (`NavLinks`, `IntegrationSetupModal`, `ImpersonationBanner`). They still render PT strings under both locales until migrated.
 
 When migrating a dashboard page: replace each hardcoded literal with a translation key, add it to both JSON files, and swap any `import Link from "next/link"` to `import { Link } from "@/i18n/navigation"`.

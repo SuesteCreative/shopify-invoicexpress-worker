@@ -1573,7 +1573,11 @@
         "deleteAccountTitle": "Apagar a conta inteira",
         "deleteAccountQuestion": "Apagar a conta INTEIRA?",
         "deleteAccountImpact": "{label}: {connections} ligação(ões) e {orders} encomenda(s) facturada(s). As ligações são destruídas e a facturação pára. As encomendas ficam no registo.",
-        "deleteAccountForce": "Apagar conta"
+        "deleteAccountForce": "Apagar conta",
+        "privacyAccepted": "Privacidade: {date}",
+        "privacyAcceptedUndated": "Privacidade: aceite",
+        "privacyPending": "Privacidade por aceitar",
+        "onboardingIntent": "escolhido no onboarding"
     },
     "shopifyIxSetup": {
         "backToIntegrations": "Voltar para Integrações",
@@ -3248,5 +3252,58 @@
         },
         "consequence": "Isto muda o IVA dos documentos emitidos a partir de agora, e o varrimento nocturno também reemite os últimos 30 dias. Confirma com quem trata da tua contabilidade antes de ligar.",
         "consequenceMoloni": "Isto muda o IVA dos documentos emitidos a partir de agora, e o varrimento nocturno também reemite os últimos 30 dias. As taxas dos países de destino têm de existir na tua conta Moloni, senão o documento é recusado. Confirma com quem trata da tua contabilidade antes de ligar."
+    },
+    "generalOnboarding": {
+        "meta": {
+            "title": "Onboarding | Rioko",
+            "description": "Configure a sua conta Rioko e ligue a plataforma onde recebe os pagamentos ao software onde emite as faturas."
+        },
+        "headerTag": "Rioko · Onboarding",
+        "eyebrow": "Primeiros passos",
+        "title": "Vamos pôr a sua faturação em piloto automático",
+        "subtitle": "Dois passos: os dados que entram nas faturas, e as duas plataformas que quer ligar. A partir daí tratamos do resto.",
+        "trust1": "Configuração em minutos",
+        "trust2": "Os seus dados ficam consigo",
+        "trust3": "Suporte em português",
+        "progress": "Passo {current} de {total}",
+        "statusDone": "Concluído",
+        "statusLocked": "Bloqueado",
+        "statusNow": "Agora",
+        "continue": "Continuar",
+        "loading": "A carregar",
+        "account": {
+            "title": "Conta Rioko",
+            "desc": "O acesso ao painel e às suas integrações.",
+            "body": "Crie a sua conta para guardarmos esta configuração. Demora menos de um minuto.",
+            "create": "Criar conta",
+            "haveAccount": "Já tem conta?",
+            "signIn": "Entrar",
+            "signedInAs": "Sessão iniciada como {email}",
+            "signedInBody": "É nesta conta que a configuração fica guardada.",
+            "signOut": "Usar outra conta"
+        },
+        "company": {
+            "title": "Dados da empresa",
+            "desc": "O que identifica a sua empresa nas faturas.",
+            "body": "Usamos estes dados para identificar a sua empresa e para as faturas que lhe emitimos. Pode alterá-los mais tarde nesta mesma página.",
+            "privacyLink": "Ler a política de privacidade",
+            "acceptedOn": "Aceite a {date}",
+            "update": "Guardar alterações"
+        },
+        "platforms": {
+            "title": "Plataformas a ligar",
+            "desc": "De onde vêm os pagamentos, e onde nascem as faturas.",
+            "body": "Escolha a plataforma onde recebe os pagamentos e o software onde as faturas são emitidas. Pode ligar mais combinações depois.",
+            "summaryLabel": "A sua ligação",
+            "summaryGuided": "Esta ligação tem um guia próprio. Abrimo-lo a seguir, com todos os passos por ordem.",
+            "summaryDirect": "Vamos levá-lo ao configurador desta ligação, já dentro do painel.",
+            "summaryUnavailable": "Esta combinação ainda não está disponível. Escolha outra, ou fale connosco e dizemos-lhe quando chega.",
+            "ctaGuided": "Abrir o guia de configuração",
+            "ctaDirect": "Continuar para o painel",
+            "note": "A escolha fica guardada na sua ficha. Se sair a meio, volta a este ponto."
+        },
+        "help": {
+            "body": "Alguma dúvida antes de começar? Escreva para"
+        }
     }
 }

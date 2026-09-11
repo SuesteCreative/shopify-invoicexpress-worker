@@ -4,39 +4,20 @@ export const runtime = "edge";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Store, ClipboardList, Wallet, CreditCard, Landmark, ArrowRight, Lock, CheckCircle2, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Store, ClipboardList, CreditCard, ArrowRight, Lock, CheckCircle2, Trash2, AlertTriangle, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import {
+    INVOICING_PLATFORMS, PAYMENT_PLATFORMS,
+    canConnectPair, configuratorPath,
+} from "@/lib/platforms";
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
-
-// Ships dark: until the platform is live on Rioko's Stripe account the tile is
-// rendered locked, exactly like the payment providers we have not built yet.
-const STRIPE_CONNECT_ENABLED = process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED === "1";
-
-const PAYMENT_PLATFORMS = [
-    { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
-    { id: "stripe", name: "Stripe Legacy", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
-    // The same Stripe, connected in one click instead of by pasting a restricted
-    // key. A separate tile because it is a separate connection: an account can
-    // hold both, and support has to be able to tell which one is being discussed.
-    { id: "stripe_connect", name: "Stripe Connect", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: STRIPE_CONNECT_ENABLED },
-    { id: "eupago", name: "EuPago", icon: Wallet, logo: "/images/eupago-logo.svg", logoW: 30, logoH: 30, active: true },
-    { id: "lodgify", name: "Lodgify", icon: Wallet, logo: "/images/lodgify-logo-white.svg", logoW: 44, logoH: 12, active: true },
-    { id: "easypay", name: "Easypay", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
-    { id: "ifthenpay", name: "Ifthenpay", icon: Landmark, logo: null, logoW: 0, logoH: 0, active: false },
-];
-
-const INVOICING_PLATFORMS = [
-    { id: "invoicexpress", name: "InvoiceXpress", icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoW: 30, logoH: 30, active: true },
-    { id: "moloni", name: "Moloni", icon: ClipboardList, logo: "/images/moloni-logo.svg", logoW: 30, logoH: 30, active: true },
-    { id: "vendus", name: "Vendus", icon: ClipboardList, logo: "/images/vendus-logo.svg", logoW: 30, logoH: 30, active: true },
-];
 
 export default function IntegrationsPage() {
     const t = useTranslations("integrationsIndex");
@@ -96,37 +77,10 @@ export default function IntegrationsPage() {
         });
     }, []);
 
-    // Active combinations:
-    //   shopify   + ix          → /integrations/shopify-ix (legacy IX-direct)
-    //   shopify   + moloni      → /integrations/shopify-moloni (pipeline, B2B EU warning)
-    //   shopify   + vendus      → /integrations/shopify-vendus (pipeline, B2B EU warning)
-    //   stripe    + ix          → /integrations/stripe-ix
-    //   stripe    + moloni      → /integrations/stripe-moloni
-    //   stripe    + vendus      → /integrations/stripe-vendus
-    //   eupago    + ix          → /integrations/eupago-ix (Consumidor Final default)
-    // eupago+moloni / eupago+vendus / easypay / ifthenpay still gated.
-    const canConnect =
-        (selectedPayment === "shopify" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
-        || (selectedPayment === "stripe" && ["invoicexpress", "moloni", "vendus"].includes(selectedInvoicing ?? ""))
-        || (STRIPE_CONNECT_ENABLED && selectedPayment === "stripe_connect" && ["moloni", "invoicexpress"].includes(selectedInvoicing ?? ""))
-        || (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress")
-        || (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress")
-        || (selectedPayment === "lodgify" && selectedInvoicing === "moloni")
-        || (selectedPayment === "lodgify" && selectedInvoicing === "vendus");
-    const configuratorHref = (() => {
-        if (selectedPayment === "lodgify" && selectedInvoicing === "invoicexpress") return "/integrations/lodgify-ix";
-        if (selectedPayment === "lodgify" && selectedInvoicing === "moloni") return "/integrations/lodgify-moloni";
-        if (selectedPayment === "lodgify" && selectedInvoicing === "vendus") return "/integrations/lodgify-vendus";
-        if (selectedPayment === "eupago" && selectedInvoicing === "invoicexpress") return "/integrations/eupago-ix";
-        if (selectedPayment === "stripe_connect" && selectedInvoicing === "moloni") return "/integrations/stripe-connect-moloni";
-        if (selectedPayment === "stripe_connect" && selectedInvoicing === "invoicexpress") return "/integrations/stripe-connect-ix";
-        if (selectedPayment === "stripe" && selectedInvoicing === "moloni") return "/integrations/stripe-moloni";
-        if (selectedPayment === "stripe" && selectedInvoicing === "vendus") return "/integrations/stripe-vendus";
-        if (selectedPayment === "shopify" && selectedInvoicing === "moloni") return "/integrations/shopify-moloni";
-        if (selectedPayment === "shopify" && selectedInvoicing === "vendus") return "/integrations/shopify-vendus";
-        if (selectedPayment === "stripe") return "/integrations/stripe-ix";
-        return "/integrations/shopify-ix";
-    })();
+    // Which pairs exist, and where each one is configured, live in
+    // src/lib/platforms.ts — the same catalogue the general onboarding reads.
+    const canConnect = canConnectPair(selectedPayment, selectedInvoicing);
+    const configuratorHref = configuratorPath(selectedPayment, selectedInvoicing) ?? "/integrations";
 
     const confirmPhrase = pendingDelete
         ? `${pendingDelete.sourceKind}:${pendingDelete.destinationKind}`

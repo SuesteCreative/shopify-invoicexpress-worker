@@ -41,12 +41,22 @@ export function RegistrationForm({ onComplete, initialEmail, initialName }: Regi
         e.preventDefault();
         setLoading(true);
         setSaveError(false);
+        const post = () => fetch("/api/user/profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(formData)
+        });
         try {
-            const res = await fetch("/api/user/profile", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(formData)
-            });
+            let res = await post();
+            // 409 is "there is no row for this account yet": the Clerk → D1 sync
+            // has not run, or has not finished. It is the first screen a new
+            // client sees, and they hit it by being quick — filling the form
+            // before the row lands. Create the row and try once more, instead of
+            // telling them to contact support for a race they cannot see.
+            if (res.status === 409) {
+                await fetch("/api/auth/sync", { method: "POST" }).catch(() => {});
+                res = await post();
+            }
             if (res.ok) {
                 onComplete();
             } else {

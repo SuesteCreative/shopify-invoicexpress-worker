@@ -441,9 +441,42 @@ export class IxBuilder {
       // above are always net, so bring both to net before subtracting.
       const shipNetTotal = effectiveShipIncluded ? grossUnit - shipTaxCollected : grossUnit;
       const untaxedShipNet = shipNetTotal - taxedShipPortions.reduce((acc: number, t: { basisNet: number }) => acc + t.basisNet, 0);
-      // Half a cent: below that it is float noise from dividing by the rate,
-      // above it is a real untaxed portion that has to appear on the document.
-      const hasUntaxedShip = untaxedShipNet > 0.005;
+      // How much of the remainder is rounding rather than a real untaxed band.
+      //
+      // This used to be a flat half cent, on the reasoning that anything below
+      // it was float noise from dividing by the rate. That misreads where the
+      // imprecision comes from: `taxAmt` arrives ALREADY ROUNDED to the cent by
+      // Shopify, and dividing by the rate amplifies that rounding by 1/rate. A
+      // 10% band turns half a cent of rounding into five cents of basis — ten
+      // times the old threshold — so the bound has to come from the bands
+      // themselves, not from a constant.
+      //
+      // Measured on Angel Piercing #4970 (Spain): shipping 12,00 € in two
+      // bands, 21% collecting 1,46 and 10% collecting 0,50. Their bases sum to
+      // 11,952, leaving 4,8 cents of pure rounding — and the old rule published
+      // that as a `Portes de envio — CTT (0%)` line of five cents. One 0% line
+      // is all it takes: `shouldRequestTaxExemptionReason` then stamps the
+      // shop's exemption code on the whole document, so a Spanish CONSUMER sale
+      // went out declaring M05, the export article.
+      const roundingBound = taxedShipPortions.reduce(
+        (acc: number, t: { rate: number }) => acc + 0.5 / t.rate,
+        0,
+      );
+      const remainderIsRounding = untaxedShipNet > 0 && untaxedShipNet <= Math.max(0.005, roundingBound);
+      // Rounding is absorbed back into the taxed bands, in proportion to their
+      // own bases, rather than published as a band of its own. The cents still
+      // have to land somewhere — they are part of what the buyer paid, and
+      // dropping them is what left Angel #4799 short and unbillable — but they
+      // belong to the rates that were actually charged.
+      if (remainderIsRounding) {
+        const basisTotal = taxedShipPortions.reduce((acc: number, t: { basisNet: number }) => acc + t.basisNet, 0);
+        if (basisTotal > 0) {
+          for (const t of taxedShipPortions) {
+            t.basisNet = t.basisNet + untaxedShipNet * (t.basisNet / basisTotal);
+          }
+        }
+      }
+      const hasUntaxedShip = !remainderIsRounding && untaxedShipNet > 0.005;
       const splitShipping = taxedShipPortions.length > 0 && (distinctShipRates.size > 1 || hasUntaxedShip);
       if (!forceZeroTax && forceTaxShipping == null && grossLineDiscount === 0 && splitShipping) {
         for (const t of taxedShipPortions) {

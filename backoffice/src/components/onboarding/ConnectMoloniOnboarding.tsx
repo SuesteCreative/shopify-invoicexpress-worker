@@ -810,6 +810,24 @@ export default function ConnectMoloniOnboarding() {
                         </span>
                     </div>
                     <div className="flex items-center gap-1.5 sm:gap-2">
+                        {/* The way out of the wrong account, from anywhere on
+                            the page. It also lives inside step one, but that step
+                            collapses the moment it is done, and a merchant who
+                            signed up with the wrong email notices later. */}
+                        {isSignedIn && (
+                            <button
+                                type="button"
+                                onClick={() => signOut({ redirectUrl: window.location.pathname })}
+                                title={t("account.signOut")}
+                                aria-label={t("account.signOut")}
+                                className="h-9 px-2.5 sm:px-3 rounded-full border border-hairline text-fg-40 hover:text-fg hover:border-rule transition-colors flex items-center gap-2 max-w-[11rem]"
+                            >
+                                <LogOut className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                                <span className="hidden md:block font-mono text-[10px] uppercase tracking-[0.18em] truncate">
+                                    {user?.primaryEmailAddress?.emailAddress ?? t("account.signOut")}
+                                </span>
+                            </button>
+                        )}
                         <ThemeToggle />
                         <LangToggle />
                     </div>

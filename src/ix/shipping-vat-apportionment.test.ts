@@ -84,15 +84,38 @@ describe("shipping VAT is only charged on the part Shopify taxed", () => {
     expect(shipping[0].name).toBe("Portes de envio — CTT");
   });
 
-  it("still splits a genuinely multi-rate shipping line, and keeps the remainder", () => {
-    // The original F-SHIP case: two positive rates, whose bases fall a couple of
-    // cents short of the line total. Those cents used to vanish.
+  it("splits a multi-rate shipping line and keeps the cents ON the taxed bands", () => {
+    // The original F-SHIP case: two positive rates whose bases fall a couple of
+    // cents short of the line total. Those cents used to vanish, which left the
+    // document short and unbillable (Angel #4799) — so they were given a 0%
+    // sub-line of their own.
+    //
+    // They are now absorbed back into the taxed bands instead. The money still
+    // has to land (the second assertion below is the same one it always was),
+    // but a 0% band is a FISCAL CLAIM, not a rounding bucket: one is enough for
+    // shouldRequestTaxExemptionReason to stamp the shop's exemption code on the
+    // whole document. Angel #4970 went to a Spanish CONSUMER declaring M05, the
+    // export article, on the strength of five cents of rounding.
     const twoRates = [{ rate: 0.21, price: "1.57" }, { rate: 0.10, price: "0.45" }];
     const raw = mixedRateOrder(twoRates);
     raw.shipping_lines[0].price = "12.00";
     const items = new IxBuilder(shopConfig()).buildInvoiceItemsFromRaw(raw) as any[];
     const shipping = items.filter(i => i.name.startsWith("Portes de envio"));
-    expect(shipping.map(i => i.tax)).toEqual([21, 10, 0]);
+    expect(shipping.map(i => i.tax)).toEqual([21, 10]);
+    const net = (i: any) => i.unit_price * i.quantity * (1 - (i.discount ?? 0) / 100);
+    expect(shipping.reduce((s, i) => s + net(i), 0)).toBeCloseTo(12, 2);
+  });
+
+  it("still publishes a 0% band when the shipping really is part untaxed", () => {
+    // The bound is what the bands' own rounding can explain: half a cent of tax
+    // divided by the rate. Here 21% collects 1.05 (basis 5.00) on a 12,00 line,
+    // so seven euros of it carried no tax at all — that is a real untaxed
+    // portion and it belongs on the document.
+    const raw = mixedRateOrder([{ rate: 0.21, price: "1.05" }]);
+    raw.shipping_lines[0].price = "12.00";
+    const items = new IxBuilder(shopConfig()).buildInvoiceItemsFromRaw(raw) as any[];
+    const shipping = items.filter(i => i.name.startsWith("Portes de envio"));
+    expect(shipping.map(i => i.tax)).toEqual([21, 0]);
     const net = (i: any) => i.unit_price * i.quantity * (1 - (i.discount ?? 0) / 100);
     expect(shipping.reduce((s, i) => s + net(i), 0)).toBeCloseTo(12, 2);
   });

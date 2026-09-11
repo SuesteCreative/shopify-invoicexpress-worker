@@ -9,7 +9,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useTranslations } from "next-intl";
 
-const cn = (...inputs: any[]) => inputs.filter(Boolean).join(" ");
+import { cn } from "@/lib/utils";
 
 export default function InvoicesPage() {
     const t = useTranslations("invoices");

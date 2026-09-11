@@ -5,13 +5,9 @@ import { useState, type ReactNode } from "react";
 import { Check, Lock, Circle, HelpCircle, Info, ShieldCheck, Loader2, X, Settings2, ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import type { LucideIcon } from "lucide-react";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 export type StepDef = {
     id: number;

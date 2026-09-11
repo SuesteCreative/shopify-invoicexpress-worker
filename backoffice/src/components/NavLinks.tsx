@@ -4,13 +4,9 @@ import { useState, useEffect } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { Activity, ShieldCheck, BookOpen, Zap, ScrollText, Receipt, Users } from "lucide-react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { kindLabel } from "@/lib/connection-kinds";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 interface ActiveIntegration {
     id: string;

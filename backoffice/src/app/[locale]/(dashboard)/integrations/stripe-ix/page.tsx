@@ -7,8 +7,6 @@ import { useState, useEffect } from "react";
 import { Check, Lock, ChevronRight, CreditCard, ClipboardList, Loader2, Circle, HelpCircle, Info, ShieldCheck, Webhook, AlertTriangle, Zap, BookOpen, X, Copy, ArrowLeft } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { useUser } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import SubscriptionCard from "@/components/SubscriptionCard";
@@ -16,9 +14,7 @@ import { RIOKO_CONFIG } from "@/lib/config";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_SOURCE_ENABLED === "1";
 const WEBHOOK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/webhooks/stripe`;

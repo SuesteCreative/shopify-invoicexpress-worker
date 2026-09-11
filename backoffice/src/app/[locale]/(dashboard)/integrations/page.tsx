@@ -8,16 +8,12 @@ import { Store, ClipboardList, CreditCard, ArrowRight, Lock, CheckCircle2, Trash
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import {
     INVOICING_PLATFORMS, PAYMENT_PLATFORMS,
     canConnectPair, configuratorPath,
 } from "@/lib/platforms";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 export default function IntegrationsPage() {
     const t = useTranslations("integrationsIndex");

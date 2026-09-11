@@ -8,12 +8,8 @@ import { motion } from "framer-motion";
 import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw, CheckCheck, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
 import SuspendedBanner from "@/components/SuspendedBanner";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 interface BillingEvent {
     id: string;

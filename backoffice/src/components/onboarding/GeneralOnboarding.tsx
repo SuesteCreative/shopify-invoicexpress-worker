@@ -9,8 +9,6 @@ import {
     AlertTriangle, ArrowRight, Building2, Check, ChevronDown, Globe, Loader2, Lock,
     LogOut, MapPin, Phone, Plug, ShieldCheck, Sparkles, User, UserPlus,
 } from "lucide-react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { Link, useRouter } from "@/i18n/navigation";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -21,9 +19,7 @@ import {
     afterOnboardingPath, canConnectPair, invoicingPlatform, onboardingPath, paymentPlatform,
 } from "@/lib/platforms";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 /**
  * The onboarding a new client meets right after signing up.

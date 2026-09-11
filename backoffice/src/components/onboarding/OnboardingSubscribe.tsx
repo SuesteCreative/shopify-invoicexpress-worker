@@ -6,12 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
 import { AlertTriangle, Check, Loader2, ShieldCheck } from "lucide-react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 /**
  * The payment step of an onboarding page: the card form on the page itself.

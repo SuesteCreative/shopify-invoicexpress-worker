@@ -7,12 +7,8 @@ import { Activity, ClipboardList, Settings2, BookOpen, Plus, Store, Zap, ArrowRi
 import { Link, useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useUser } from "@clerk/nextjs";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 import SubscriptionCard from "@/components/SubscriptionCard";
 import { kindLabel } from "@/lib/connection-kinds";

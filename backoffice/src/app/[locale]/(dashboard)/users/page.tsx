@@ -7,12 +7,8 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Users, UserPlus, Loader2, Trash2, ShieldCheck, Eye, Mail, Crown, AlertCircle, Lock, UserRound } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 interface Member {
     id: string;

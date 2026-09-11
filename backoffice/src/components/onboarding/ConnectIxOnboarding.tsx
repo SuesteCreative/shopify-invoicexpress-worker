@@ -11,8 +11,6 @@ import {
     Globe, Loader2, Lock, LogOut, MapPin, Phone, Settings2, ShieldCheck, Sparkles, User,
     UserPlus,
 } from "lucide-react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { Link } from "@/i18n/navigation";
 import OnboardingSubscribe from "@/components/onboarding/OnboardingSubscribe";
 import { ThemedLogo } from "@/components/ThemedLogo";
@@ -24,9 +22,7 @@ import { RETURN_SLUG_ONBOARDING_CONNECT_IX } from "@/lib/oauth-return";
 import { VAT_EXEMPTION_OPTIONS } from "@/lib/vat-exemptions";
 import { ixSubdomain } from "@/lib/ix-account";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 /**
  * The client-facing onboarding for Stripe Connect → InvoiceXpress.

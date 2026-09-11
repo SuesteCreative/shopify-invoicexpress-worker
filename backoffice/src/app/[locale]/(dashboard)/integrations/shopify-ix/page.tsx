@@ -8,15 +8,11 @@ import { Check, Lock, ChevronRight, Store, ClipboardList, Settings2, Loader2, Ci
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { useUser } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import SubscriptionCard from "@/components/SubscriptionCard";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 export default function ShopifyIXIntegration() {
     const t = useTranslations("shopifyIxSetup");

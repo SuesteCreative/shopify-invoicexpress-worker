@@ -9,8 +9,6 @@ import {
     AlertTriangle, ArrowRight, Building2, Check, ChevronDown, Copy, Globe, KeyRound,
     Loader2, Lock, LogOut, MapPin, Phone, Settings2, ShieldCheck, Sparkles, User, UserPlus,
 } from "lucide-react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { Link } from "@/i18n/navigation";
 import OnboardingSubscribe from "@/components/onboarding/OnboardingSubscribe";
 import { ThemedLogo } from "@/components/ThemedLogo";
@@ -25,9 +23,7 @@ import { moloniCallbackUri } from "@/lib/moloni-oauth";
 import { VAT_EXEMPTION_OPTIONS } from "@/lib/vat-exemptions";
 import { ixSubdomain } from "@/lib/ix-account";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 /**
  * The client-facing onboarding for Lodgify, to InvoiceXpress or to Moloni.

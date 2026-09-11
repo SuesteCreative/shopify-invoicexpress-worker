@@ -5,12 +5,8 @@ import { motion } from "framer-motion";
 import { CreditCard, Check, AlertTriangle, Clock, Sparkles, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from "@/lib/utils";
 
 type UIState = "active" | "trialing_earlybird" | "trialing" | "blocked" | "none" | "exempt";
 

@@ -28,6 +28,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
         { path: "/shopify", priority: 0.9, changeFrequency: "weekly" as const },
         { path: "/lodgify", priority: 0.9, changeFrequency: "weekly" as const },
         { path: "/pricing", priority: 0.9, changeFrequency: "monthly" as const },
+        {
+            path: "/invoicexpress-vs-moloni-vs-vendus",
+            priority: 0.8,
+            changeFrequency: "monthly" as const,
+        },
         { path: "/blog", priority: 0.8, changeFrequency: "weekly" as const },
         { path: "/privacy", priority: 0.3, changeFrequency: "yearly" as const },
         { path: "/terms", priority: 0.3, changeFrequency: "yearly" as const },

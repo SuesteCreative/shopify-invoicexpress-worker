@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { guidedOnboardings, platformName } from "@/lib/platforms";
+import { RIOKO_CONFIG } from "@/lib/config";
 import {
     ArrowLeft, Wrench, ShieldAlert, AlertTriangle, Info,
     KeyRound, Link2, Settings2, CheckCircle2, LifeBuoy,
@@ -579,7 +580,7 @@ export function OnboardingHelperPanel() {
                     headers={["Campo", "Valor"]}
                     rows={[
                         ["App name", <>Nome do cliente (ex: <Code>Rioko — NomeDoCliente</Code>)</>],
-                        ["App URL", <>Link da empresa no Konnector (ex: <Code>https://kapta-teste.konnector.pt/</Code>)</>],
+                        ["App URL", <><Code key="appurl1">{RIOKO_CONFIG.appUrl}</Code> — o link do Konnector que aqui estava está morto (certificado inválido)</>],
                         ["Embed app in Shopify admin", <strong key="embed" className="text-destructive">DESLIGADO</strong>],
                         ["Allowed redirection URL(s)", <Code key="redirect">https://example.com/</Code>],
                         ["Scopes (Admin API)", <Code key="scopes">{SCOPES}</Code>],
@@ -911,7 +912,7 @@ export function OnboardingHelperPanel() {
                         headers={["Campo", "Valor"]}
                         rows={[
                             ["App name", <>Nome do cliente (ex: <Code>Rioko — NomeDoCliente</Code>)</>],
-                            ["App URL", <>Link da empresa (ex: <Code>https://kapta-teste.konnector.pt/</Code>)</>],
+                            ["App URL", <><Code key="appurl">{RIOKO_CONFIG.appUrl}</Code> — não é usado pelo fluxo, mas a Shopify exige um URL vivo</>],
                             ["Embed app in Shopify admin", <strong key="embed" className="text-destructive">DESLIGADO</strong>],
                             ["Allowed redirection URL(s)", <Code key="redirect">{shopifyCallbackUri()}</Code>],
                             ["Scopes (Admin API)", <Code key="scopes">{SCOPES}</Code>],

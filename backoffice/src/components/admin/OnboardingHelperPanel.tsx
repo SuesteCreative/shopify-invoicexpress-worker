@@ -220,6 +220,15 @@ const TOC = [
     { id: "parte-g", label: "G — Troubleshooting" },
 ];
 
+const TOC_M2 = [
+    { id: "m2-app", label: "A — Criar App" },
+    { id: "m2-install", label: "B — Instalar" },
+    { id: "m2-done", label: "C — Feito sozinho" },
+    { id: "m2-rioko", label: "D — Integrador Rioko" },
+    { id: "m2-verify", label: "E — Verificação Final" },
+    { id: "m2-trouble", label: "F — Troubleshooting" },
+];
+
 const WEBHOOKS = [
     { event: "Order creation", pt: "Criação de encomenda", note: "orders/create", key: "orders-created" },
     { event: "Order edit", pt: "Atualização de encomenda", note: "orders/updated", key: "orders-updated" },
@@ -369,6 +378,10 @@ export function OnboardingHelperPanel() {
     const [targetUser, setTargetUser] = useState("");
     const [busy, setBusy] = useState(false);
     const [startError, setStartError] = useState<string | null>(null);
+    // Shown rather than followed: whoever presses Install has to be signed in to
+    // the store's admin, and that is often the client and not the operator. A
+    // link can be sent; a redirect cannot.
+    const [installUrl, setInstallUrl] = useState("");
     const [outcome, setOutcome] = useState<{ status: string; detail: string } | null>(null);
 
     useEffect(() => {
@@ -398,6 +411,7 @@ export function OnboardingHelperPanel() {
 
     const startMethod2 = async () => {
         setStartError(null);
+        setInstallUrl("");
         setBusy(true);
         try {
             const res = await fetch("/api/admin/shopify-oauth/start", {
@@ -415,7 +429,7 @@ export function OnboardingHelperPanel() {
                 setStartError([data?.error, data?.reason].filter(Boolean).join(" ") || `Erro ${res.status}`);
                 return;
             }
-            window.location.href = data.authorize_url;
+            setInstallUrl(data.authorize_url);
         } catch (e: any) {
             setStartError(String(e?.message ?? e));
         } finally {
@@ -872,19 +886,59 @@ export function OnboardingHelperPanel() {
                 subtitle="O redirect aponta para nós, por isso o code chega ao servidor: o token é trocado aqui e os 4 webhooks são criados pela Admin API na mesma ida. Só para lojas novas."
                 accent="emerald"
             >
+                <div className="flex flex-wrap gap-2 px-3 pt-2">
+                    {TOC_M2.map((item) => (
+                        <a
+                            key={item.id}
+                            href={`#${item.id}`}
+                            className="text-[11px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border border-hairline bg-surface-2 text-fg-60 hover:text-fg hover:border-accent/40 transition-colors"
+                        >
+                            {item.label}
+                        </a>
+                    ))}
+                </div>
+
                 <Section id="m2-app" icon={<Settings2 className="w-5 h-5" />} title="Criar App no Dev Dashboard" eyebrow="Parte A" accent="emerald">
                     <p className="text-sm text-fg-60">
-                        Igual à Parte A do Método 1 com <strong className="text-fg">uma diferença</strong>: o redirect é nosso, não o <Code>example.com</Code>.
+                        A app é criada pelo cliente, no admin da loja dele. <strong className="text-fg">Não é preciso conta de Partner.</strong>
                     </p>
+                    <ol className="space-y-2 text-sm text-fg-60 list-decimal list-inside">
+                        <li>No admin da Shopify, clicar no <strong className="text-fg">nome da loja</strong> no canto superior direito, ícone <Code>{"</>"}</Code> → <strong className="text-fg">View Dev Dashboard</strong>.</li>
+                        <li><strong className="text-fg">Create app</strong> (se pedir, <em>Allow custom app development</em>) → dar nome → <strong className="text-fg">Create app</strong>.</li>
+                        <li>Abre o menu <strong className="text-fg">Create Version</strong>. Preencher com os valores da tabela abaixo e deixar tudo o resto como está.</li>
+                    </ol>
                     <DataTable
                         headers={["Campo", "Valor"]}
                         rows={[
                             ["App name", <>Nome do cliente (ex: <Code>Rioko — NomeDoCliente</Code>)</>],
+                            ["App URL", <>Link da empresa (ex: <Code>https://kapta-teste.konnector.pt/</Code>)</>],
                             ["Embed app in Shopify admin", <strong key="embed" className="text-destructive">DESLIGADO</strong>],
                             ["Allowed redirection URL(s)", <Code key="redirect">{shopifyCallbackUri()}</Code>],
                             ["Scopes (Admin API)", <Code key="scopes">{SCOPES}</Code>],
                         ]}
                     />
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-2">Lançar a versão e recolher as credenciais</h3>
+                        <ol className="space-y-2 text-sm text-fg-60 list-decimal list-inside">
+                            <li>Canto superior/inferior direito → <strong className="text-fg">Launch</strong>. Nome da versão <Code>V1</Code> → <strong className="text-fg">Launch</strong> outra vez.</li>
+                            <li>
+                                Separador <strong className="text-fg">Settings</strong> da app, copiar:
+                                <ul className="list-disc list-inside mt-1 ml-1">
+                                    <li><strong className="text-fg">Client ID</strong> (API key)</li>
+                                    <li><strong className="text-fg">Client Secret</strong></li>
+                                </ul>
+                            </li>
+                            <li>
+                                Domínio nativo da loja: no dashboard normal da Shopify (não no Dev Dashboard) → <strong className="text-fg">Settings</strong> → <strong className="text-fg">Domains</strong> → o <Code>.myshopify.com</Code> (ex: <Code>quickstart-66f9e5ef.myshopify.com</Code>).
+                            </li>
+                        </ol>
+                    </div>
+                    <WarnBox>
+                        Os scopes <Code>write_webhooks</Code> / <Code>read_webhooks</Code> <strong>não existem e não são precisos</strong>: criar uma subscrição exige só o scope do tópico, e o <Code>read_orders</Code> cobre os quatro.
+                    </WarnBox>
+                    <DangerBox>
+                        <strong>Não instalar a app pelo botão da lista.</strong> A instalação faz-se pelo botão da Parte B, que é o que leva o <Code>state</Code> e traz o code de volta a nós.
+                    </DangerBox>
                     <Output
                         label="Allowed redirection URL — colar exactamente assim"
                         text={shopifyCallbackUri()}
@@ -899,8 +953,28 @@ export function OnboardingHelperPanel() {
 
                 <Section id="m2-install" icon={<KeyRound className="w-5 h-5" />} title="Instalar na loja" eyebrow="Parte B" accent="emerald">
                     <p className="text-sm text-fg-60">
-                        Os três campos são partilhados com o Método 1. O botão guarda as credenciais na conta escolhida e abre o ecrã de consentimento da Shopify.
+                        Os três campos são partilhados com o Método 1: preencher num lado preenche o outro. O que acontece ao carregar no botão:
                     </p>
+                    <ol className="space-y-1.5 text-sm text-fg-60 list-decimal list-inside">
+                        <li>As credenciais ficam guardadas na conta escolhida, com um <Code>state</Code> válido 15 minutos.</li>
+                        <li>Abre o ecrã de consentimento da Shopify. Quem carrega em <strong className="text-fg">Install</strong> tem de estar autenticado no admin <em>dessa</em> loja: pode ser o cliente, no browser dele.</li>
+                        <li>A Shopify devolve o code a <Code>{shopifyCallbackUri()}</Code>. Sem página de erro, sem copiar nada da barra de endereço.</li>
+                        <li>O servidor troca o code por token, grava-o, e cria os 4 webhooks. A tab onde o link foi aberto volta a esta página com o resultado.</li>
+                    </ol>
+                    <InfoBox>
+                        Por isso o botão <strong>gera um link em vez de saltar logo</strong>: se for o cliente a instalar, copia-se o link e manda-se. A autorização vale à mesma, porque o que liga o code à conta é o <Code>state</Code> e não a sessão de quem carrega.
+                    </InfoBox>
+
+                    <DangerBox>
+                        <strong>Nunca correr numa loja que já está a facturar pelo Método 1.</strong> Uma app só vê as subscrições da própria app, nunca as que foram criadas à mão,
+                        por isso ligar isto por cima criaria um <strong>segundo</strong> conjunto: documentos a dobrar e alertas de assinatura em catadupa, exactamente o que aconteceu
+                        a 21/05/2026 na Soul Krave e na Estrela Jewelry Studio e passou três meses sem ninguém notar. O servidor recusa com <Code>409</Code> qualquer conta que já
+                        tenha webhook secret ou webhooks activos: para migrar, apagar primeiro os 4 manuais na loja e limpar a ligação.
+                    </DangerBox>
+                    <WarnBox>
+                        A loja de testes <Code>quickstart-66f9e5ef.myshopify.com</Code> <strong>não valida este caminho</strong>: não tem aprovação de protected customer data
+                        e usa token <Code>shpua_</Code>, por isso recusa a criação dos webhooks mesmo quando tudo está certo. Dá falso negativo.
+                    </WarnBox>
 
                     <div>
                         <label className="block text-[11px] font-bold uppercase tracking-wider text-fg-40 mb-1.5">Conta Rioko de destino</label>
@@ -931,10 +1005,31 @@ export function OnboardingHelperPanel() {
                         className="inline-flex items-center gap-2 rounded-xl border border-accent-hot/40 bg-accent-hot/10 px-5 py-3 text-sm font-bold text-accent-hot hover:bg-accent-hot/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                        Instalar na loja
+                        Guardar e gerar link de instalação
                     </button>
 
                     {startError && <DangerBox>{startError}</DangerBox>}
+
+                    {installUrl && (
+                        <div className="space-y-4">
+                            <Output
+                                label="Link de instalação — abrir ou enviar ao cliente"
+                                text={installUrl}
+                                copied={copiedKey === "m2-install-url"}
+                                onCopy={() => copy("m2-install-url", installUrl)}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => window.open(installUrl, "_blank", "noopener")}
+                                className="inline-flex items-center gap-2 rounded-xl bg-accent text-on-accent px-4 py-2.5 text-[12px] font-bold uppercase tracking-wide hover:bg-accent/85 transition-all active:scale-95"
+                            >
+                                <ExternalLink className="w-4 h-4" /> Abrir em nova tab
+                            </button>
+                            <WarnBox>
+                                Válido <strong>15 minutos</strong>. Passado esse tempo o link deixa de servir e há que carregar no botão outra vez.
+                            </WarnBox>
+                        </div>
+                    )}
 
                     {outcome?.status === "connected" && (
                         <div className="bg-accent-hot/8 border border-accent-hot/30 rounded-2xl p-4 flex items-start gap-3">
@@ -957,24 +1052,119 @@ export function OnboardingHelperPanel() {
                     )}
                 </Section>
 
-                <Section id="m2-check" icon={<CheckCircle2 className="w-5 h-5" />} title="O que fica feito" eyebrow="Parte C" accent="emerald">
+                <Section id="m2-done" icon={<Zap className="w-5 h-5" />} title="O que ficou feito sozinho" eyebrow="Parte C" accent="emerald">
                     <ul className="space-y-1.5 text-sm text-fg-60 list-disc list-inside">
                         <li><Code>shpat_…</Code> guardado na conta, sem ninguém colar nada.</li>
-                        <li>Os 4 webhooks criados e apontados a <Code>{WEBHOOK_BASE}</Code>.</li>
                         <li>Versão da API gravada como <Code>{API_VERSION}</Code>.</li>
-                        <li>Steps 1 e 2 do wizard do cliente ficam <strong className="text-fg">saltados</strong>. O cliente só faz a parte do InvoiceXpress e as definições de faturação.</li>
-                        <li>O <strong className="text-fg">Webhook Signing Secret da loja não é usado</strong>: estes webhooks pertencem à app e são assinados com o client secret, que é o que fica guardado.</li>
+                        <li>Os 4 webhooks criados e apontados a <Code>{WEBHOOK_BASE}</Code>:</li>
                     </ul>
-                    <DangerBox>
-                        <strong>Nunca correr numa loja que já está a facturar pelo Método 1.</strong> Uma app só vê as subscrições da própria app, nunca as que foram criadas à mão,
-                        por isso ligar isto por cima criaria um <strong>segundo</strong> conjunto: documentos a dobrar e alertas de assinatura em catadupa, exactamente o que aconteceu
-                        a 21/05/2026 na Soul Krave e na Estrela Jewelry Studio e passou três meses sem ninguém notar. O servidor recusa com <Code>409</Code> qualquer conta que já
-                        tenha webhook secret ou webhooks activos: para migrar, apagar primeiro os 4 manuais na loja e limpar a ligação.
-                    </DangerBox>
-                    <WarnBox>
-                        A loja de testes <Code>quickstart-66f9e5ef.myshopify.com</Code> <strong>não valida este caminho</strong>: não tem aprovação de protected customer data
-                        e usa token <Code>shpua_</Code>, por isso recusa a criação dos webhooks mesmo quando tudo está certo. Dá falso negativo.
-                    </WarnBox>
+                    <div className="rounded-2xl border border-hairline overflow-hidden">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="bg-surface-2">
+                                    <th className="text-left px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-fg-40">Tópico</th>
+                                    <th className="text-left px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-fg-40">URL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {WEBHOOKS.map((wh) => (
+                                    <tr key={wh.key} className="border-t border-hairline/60">
+                                        <td className="px-4 py-3 align-top text-fg-60 whitespace-nowrap">
+                                            <Code>{wh.note}</Code>
+                                            <div className="text-[11px] text-fg-40 mt-1">{wh.pt}</div>
+                                        </td>
+                                        <td className="px-4 py-3 align-top text-fg-60"><Code>{`${WEBHOOK_BASE}/${wh.key}`}</Code></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <InfoBox>
+                        Os <strong>Steps 1 e 2</strong> do integrador ficam feitos: não há token para colar nem webhooks para criar à mão, e o
+                        <strong> Webhook Signing Secret da loja não é usado</strong>. Estes webhooks pertencem à app e são assinados com o client secret,
+                        que é o que ficou guardado. O cliente entra no integrador já com os dois primeiros passos verdes.
+                    </InfoBox>
+                </Section>
+
+                <Section id="m2-rioko" icon={<Settings2 className="w-5 h-5" />} title="Configurar o Integrador Rioko (2 passos)" eyebrow="Parte D" accent="emerald">
+                    <p className="text-sm text-fg-60">
+                        Abrir <a href="https://rioko.online/integrations/shopify-ix" target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">rioko.online/integrations/shopify-ix</a> com a conta do cliente.
+                        Os passos 1 e 2 já estão feitos pela Parte B; sobram estes.
+                    </p>
+
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-2">3 · Conexão InvoiceXpress</h3>
+                        <DataTable
+                            headers={["Campo", "Valor"]}
+                            rows={[
+                                ["Nome da Conta", <>Slug antes de <Code>.invoicexpress.com</Code> (ex: <Code>ultramegasonico</Code>)</>],
+                                ["Chave API", "IX → Definições da Conta → Integrações / API"],
+                                ["Ambiente", <><Code>production</Code> ou <Code>sandbox</Code></>],
+                            ]}
+                        />
+                    </div>
+
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-2">4 · Definições de Integração</h3>
+                        <DataTable
+                            headers={["Definição", "Descrição"]}
+                            rows={[
+                                ["IVA Incluído", "Toggle ON se preços Shopify já incluem IVA"],
+                                ["Auto Finalizar", <>Recomendado <strong key="off" className="text-fg">DESLIGADO</strong> nas primeiras faturas</>],
+                                ["Tipo de Fatura", <><Code>Fatura-Recibo</Code> (default) ou <Code>Fatura</Code></>],
+                                ["Prazo Pagamento (dias)", "Apenas se Tipo = Fatura"],
+                                ["Série de Faturação", <>Vazio = série pré-definida no IX (ou ex: <Code>WEB</Code>)</>],
+                                ["Razão de Isenção (IVA 0%)", <>Default <Code>M01</Code> — códigos M01 a M99 disponíveis</>],
+                            ]}
+                        />
+                    </div>
+                </Section>
+
+                <Section id="m2-verify" icon={<CheckCircle2 className="w-5 h-5" />} title="Verificação Final" eyebrow="Parte E" accent="emerald">
+                    <ul className="space-y-1.5 text-sm text-fg-60 list-disc list-inside">
+                        <li>Badge <strong className="text-fg">Autorizado</strong> nos três cartões: Shopify, Webhooks e InvoiceXpress.</li>
+                        <li>
+                            O cartão Webhooks tem de ficar verde <strong className="text-fg">sozinho</strong>, sem ninguém carregar em &quot;Confirmar Instalação Manual&quot;
+                            nem forçar a flag. É a diferença que prova que os webhooks são da app: a validação lê <Code>webhooks.json</Code>, onde os manuais nunca aparecem
+                            e estes aparecem.
+                        </li>
+                        <li>
+                            Encomenda de teste paga na loja → aparece nos Logs, no Invoices Hub, e no InvoiceXpress do cliente.
+                            É isto que prova que o HMAC bate com o client secret.
+                        </li>
+                    </ul>
+                </Section>
+
+                <Section id="m2-trouble" icon={<LifeBuoy className="w-5 h-5" />} title="Troubleshooting" eyebrow="Parte F" accent="amber">
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-1.5"><Code>409</Code> ao gerar o link</h3>
+                        <p className="text-sm text-fg-60">
+                            A conta já tem webhook secret ou webhooks activos, ou seja está a facturar pelo Método 1. É recusa deliberada, não avaria. Ver o aviso na Parte B.
+                        </p>
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-1.5">Ecrã de consentimento recusa antes de aparecer</h3>
+                        <ul className="space-y-1 text-sm text-fg-60 list-disc list-inside">
+                            <li>O redirect na app não é byte a byte <Code>{shopifyCallbackUri()}</Code>.</li>
+                            <li>Mexeu-se em redirect URLs ou scopes e não se lançou nova versão: a app continua a correr a antiga.</li>
+                            <li><strong className="text-fg">Embed app in Shopify admin</strong> ligado consome o code. Desligar.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-1.5">Volta com <Code>Pedido expirado</Code> ou <Code>Pedido desconhecido</Code></h3>
+                        <p className="text-sm text-fg-60">O link vale 15 minutos e o <Code>state</Code> é de uso único. Gerar outro na Parte B.</p>
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-1.5">Volta com <Code>Assinatura inválida no regresso</Code></h3>
+                        <p className="text-sm text-fg-60">O Client Secret colado não é o da app que está a autorizar. Reconfirmar em Settings da app.</p>
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-fg mb-1.5">Token guardado mas webhooks incompletos</h3>
+                        <p className="text-sm text-fg-60">
+                            Repetir a Parte B para a mesma conta: a criação lê primeiro o que já existe e só cria o que falta, por isso repetir nunca duplica.
+                            Se falharem sempre os quatro com <em>not approved to subscribe to webhook topics containing protected customer data</em>, a app não tem a aprovação.
+                        </p>
+                    </div>
                 </Section>
             </Method>
 

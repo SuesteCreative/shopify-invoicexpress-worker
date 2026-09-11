@@ -92,6 +92,8 @@ const CONFIGURATOR_PATHS: Record<string, string> = {
 const ONBOARDING_PATHS: Record<string, string> = {
     "stripe_connect:invoicexpress": "/onboarding/stripe-connect-ix",
     "stripe_connect:moloni": "/onboarding/stripe-connect-moloni",
+    "lodgify:invoicexpress": "/onboarding/lodgify-ix",
+    "lodgify:moloni": "/onboarding/lodgify-moloni",
 };
 
 /** Stripe Connect is behind a flag: an unset flag makes its pairs unreachable. */

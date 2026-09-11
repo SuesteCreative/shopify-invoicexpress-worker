@@ -5,6 +5,7 @@ import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
 import { isStripeConnectEnabled, resolveTargetUser } from "@/lib/stripe-connect";
 import { moloniCallbackUri } from "@/lib/moloni-oauth";
+import { normalizeReturnSlug } from "@/lib/oauth-return";
 
 export const runtime = "edge";
 
@@ -19,8 +20,6 @@ const MOLONI_AUTHORIZE_URL = "https://www.moloni.pt/ac/root/oauth/";
  * states that one developer app may authorise third-party accounts.
  */
 export async function POST(request: NextRequest) {
-    if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });
-
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
@@ -28,7 +27,22 @@ export async function POST(request: NextRequest) {
         client_id?: string;
         client_secret?: string;
         environment?: string;
+        source_kind?: string;
+        return_slug?: string;
+        return_locale?: string;
     };
+
+    // Which of the merchant's connections is being authorised. It used to be
+    // hardcoded to stripe_connect, which is why Lodgify could never reach
+    // Moloni: the row exists, the flow just refused to look at it. Absent still
+    // means stripe_connect, so every link already sent out keeps working.
+    const sourceKind = body.source_kind === "lodgify" ? "lodgify" : "stripe_connect";
+
+    // The kill switch belongs to Stripe Connect, not to Moloni. Flipping Connect
+    // off must not take a Lodgify merchant's invoicing with it.
+    if (sourceKind === "stripe_connect" && !isStripeConnectEnabled()) {
+        return NextResponse.json({ error: "Disabled" }, { status: 404 });
+    }
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -36,11 +50,13 @@ export async function POST(request: NextRequest) {
 
     const row: any = await db
         .prepare(`SELECT id, destination_config_json FROM connections
-                   WHERE user_id = ? AND source_kind = 'stripe_connect' LIMIT 1`)
-        .bind(authResult.targetUserId)
+                   WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`)
+        .bind(authResult.targetUserId, sourceKind)
         .first();
     if (!row) {
-        return NextResponse.json({ error: "Ligue primeiro o Stripe." }, { status: 404 });
+        return NextResponse.json({
+            error: sourceKind === "lodgify" ? "Ligue primeiro o Lodgify." : "Ligue primeiro o Stripe.",
+        }, { status: 404 });
     }
 
     const stored = row.destination_config_json ? JSON.parse(row.destination_config_json) : {};
@@ -67,12 +83,23 @@ export async function POST(request: NextRequest) {
         patch.moloni_environment = body.environment;
     }
 
+    // Where the callback puts the merchant down. The Stripe flow writes this
+    // when it starts, so Moloni-only flows (Lodgify) had nothing to read and
+    // every merchant came back on the Stripe wizard. A slug through the fixed
+    // map in oauth-return, never a path from the request.
+    const returnSlug = normalizeReturnSlug(body.return_slug);
+    const sourcePatch = returnSlug
+        ? JSON.stringify({ return_slug: returnSlug, return_locale: body.return_locale === "en" ? "en" : "pt" })
+        : null;
+
     await db.prepare(
         `UPDATE connections
             SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
+                source_config_json = CASE WHEN ? IS NULL THEN source_config_json
+                    ELSE json_patch(COALESCE(source_config_json, '{}'), ?) END,
                 oauth_state = ?, oauth_state_expires_at = ?, updated_at = ?
           WHERE id = ?`
-    ).bind(JSON.stringify(patch), state, expiresAt, now, row.id).run();
+    ).bind(JSON.stringify(patch), sourcePatch, sourcePatch, state, expiresAt, now, row.id).run();
 
     // The same URL for every merchant and every connection: a Moloni developer
     // app holds exactly one callback, so a URL that changed per connection was a

@@ -18,6 +18,13 @@ describe("platform pair routing", () => {
         expect(configuratorPath(null, "moloni")).toBeNull();
     });
 
+    it("sends Lodgify to its own guided onboarding, either destination", () => {
+        expect(afterOnboardingPath("lodgify", "invoicexpress")).toBe("/onboarding/lodgify-ix");
+        expect(afterOnboardingPath("lodgify", "moloni")).toBe("/onboarding/lodgify-moloni");
+        // Vendus has no guided page, so it still lands on the configurator.
+        expect(afterOnboardingPath("lodgify", "vendus")).toBe("/integrations/lodgify-vendus");
+    });
+
     it("sends a pair with no guided onboarding to its own configurator", () => {
         expect(onboardingPath("shopify", "invoicexpress")).toBeNull();
         expect(afterOnboardingPath("shopify", "invoicexpress")).toBe("/integrations/shopify-ix");

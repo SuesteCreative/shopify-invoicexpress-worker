@@ -15,8 +15,6 @@ export const runtime = "edge";
  * with the old one.
  */
 export async function GET(request: NextRequest) {
-    if (!isStripeConnectEnabled()) return NextResponse.json({ error: "Disabled" }, { status: 404 });
-
     // Which page the merchant started on. Only known once the row is read, so
     // until then the wizard is the answer. Request-local: a module variable
     // would leak one merchant's page into the next request's redirect.
@@ -46,6 +44,13 @@ export async function GET(request: NextRequest) {
     const row = await findPendingMoloniConnection(db, authResult.targetUserId, params.get("state"));
     if (!row) {
         return backToWizard("error", "A autorização expirou ou já foi usada. Carregue outra vez em autorizar.");
+    }
+
+    // The kill switch is Stripe Connect's, and it is checked here rather than at
+    // the door: which connection this code belongs to is only known once the row
+    // is read. A Lodgify merchant's Moloni authorisation is none of its business.
+    if (row.source_kind === "stripe_connect" && !isStripeConnectEnabled()) {
+        return backToWizard("error", "Integração indisponível.");
     }
 
     const startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {};

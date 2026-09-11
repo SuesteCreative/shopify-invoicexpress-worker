@@ -3305,5 +3305,90 @@
         "help": {
             "body": "Alguma dúvida antes de começar? Escreva para"
         }
+    },
+    "lodgifyOnboarding": {
+        "meta": {
+            "titleIx": "Onboarding Lodgify e InvoiceXpress | Rioko",
+            "titleMoloni": "Onboarding Lodgify e Moloni | Rioko",
+            "descriptionIx": "Ligue o Lodgify ao InvoiceXpress e passe a emitir a fatura de cada reserva sem lhe tocar.",
+            "descriptionMoloni": "Ligue o Lodgify ao Moloni e passe a emitir a fatura de cada reserva sem lhe tocar."
+        },
+        "eyebrow": "Ligação guiada",
+        "titleIx": "Do Lodgify para o InvoiceXpress, sem copiar nada",
+        "titleMoloni": "Do Lodgify para o Moloni, sem copiar nada",
+        "subtitle": "Seis passos. No fim, cada reserva paga sai faturada em seu nome, com a série e o IVA que escolher aqui.",
+        "trust1": "A chave fica cifrada",
+        "trust2": "Cancela quando quiser",
+        "trust3": "Suporte em português",
+        "progress": "Passo {current} de {total}",
+        "allDone": "Tudo pronto",
+        "statusDone": "Concluído",
+        "statusNow": "A fazer agora",
+        "statusLocked": "Por desbloquear",
+        "continue": "Continuar",
+        "loading": "A carregar",
+        "account": {
+            "title": "Conta Rioko",
+            "desc": "O acesso ao painel e a esta configuração.",
+            "body": "Crie a sua conta para guardarmos esta configuração. Demora menos de um minuto.",
+            "create": "Criar conta",
+            "haveAccount": "Já tem conta?",
+            "signIn": "Entrar",
+            "signedInAs": "Sessão iniciada como {email}",
+            "signedInBody": "É nesta conta que a ligação fica guardada.",
+            "signOut": "Usar outra conta"
+        },
+        "company": {
+            "title": "Dados da empresa",
+            "desc": "Quem é o titular da conta.",
+            "body": "Usamos estes dados para identificar a sua empresa e para as faturas que lhe emitimos. Não são os dados que saem nas faturas dos seus hóspedes, esses vêm da reserva.",
+            "privacyLink": "Política de Privacidade",
+            "update": "Gravar alterações"
+        },
+        "lodgify": {
+            "title": "Ligar o Lodgify",
+            "desc": "Uma chave API, e mais nada.",
+            "savedTitle": "Lodgify ligado",
+            "savedBody": "Lemos as reservas de meia em meia hora e faturamos as que estiverem pagas. Nada tem de ser feito do seu lado."
+        },
+        "destination": {
+            "titleIx": "Ligar o InvoiceXpress",
+            "descIx": "A conta onde as faturas são emitidas.",
+            "titleMoloni": "Ligar o Moloni",
+            "descMoloni": "Autorização por OAuth, sem partilhar palavra-passe.",
+            "ixIntroTitle": "A conta que emite as faturas",
+            "ixIntroBody": "O nome da conta é o que aparece no endereço do InvoiceXpress. A chave API está em Definições, Integrações, Chave de API.",
+            "ixAccountHint": "Só o nome, sem https nem o resto do endereço.",
+            "ixApiKeyHint": "Fica cifrada e nunca é mostrada outra vez.",
+            "ixVerified": "InvoiceXpress verificado",
+            "ixVerifiedBody": "A chave respondeu. É desta conta que as faturas vão sair.",
+            "ixVerifyFailed": "O InvoiceXpress recusou esta chave. Confirme o nome da conta e a chave, e tente outra vez.",
+            "moloniStep1": "Entre na sua área de cliente Moloni e abra a zona de programador.",
+            "moloniAuthorizedBody": "O Moloni já autorizou o Rioko. Pode seguir para as definições de faturação."
+        },
+        "settings": {
+            "title": "Definições de faturação",
+            "desc": "Série, tipo de documento, IVA e isenção.",
+            "body": "Isto decide como sai cada documento desta ligação. Pode mudar tudo mais tarde no painel.",
+            "partialLabel": "Faturar sinais e pagamentos parciais",
+            "partialHint": "Emite um documento por cada pagamento recebido, em vez de esperar que a reserva esteja integralmente paga.",
+            "vatNote": "O alojamento em Portugal leva 6% por defeito, a taxa reduzida da Lista I. Confirme com quem trata da sua contabilidade antes de mudar.",
+            "finish": "Guardar definições",
+            "saveFailed": "Não foi possível guardar as definições. Tente outra vez."
+        },
+        "subscribe": {
+            "title": "Subscrição",
+            "desc": "O último passo, e o que liga a faturação.",
+            "body": "A subscrição é por ligação. Enquanto não estiver activa, as reservas são lidas mas nenhuma fatura é emitida.",
+            "note": "Pode cancelar quando quiser, a partir do painel."
+        },
+        "finished": {
+            "title": "Está tudo ligado",
+            "body": "As próximas reservas pagas passam a sair faturadas automaticamente.",
+            "cta": "Abrir o painel"
+        },
+        "help": {
+            "body": "Alguma dúvida? Escreva para"
+        }
     }
 }

@@ -29,6 +29,8 @@ const REFRESH_TOKEN_TTL_DAYS = 14;
 
 export type MoloniConnectionRow = {
     id: string;
+    /** Whose connection this is: the callback's kill-switch check needs it. */
+    source_kind?: string | null;
     destination_config_json?: string | null;
     source_config_json?: string | null;
 };
@@ -50,7 +52,7 @@ export async function findPendingMoloniConnection(
     const now = new Date().toISOString();
     if (state) {
         const byState = await db
-            .prepare(`SELECT id, destination_config_json, source_config_json FROM connections
+            .prepare(`SELECT id, source_kind, destination_config_json, source_config_json FROM connections
                        WHERE user_id = ? AND oauth_state = ? AND oauth_state_expires_at > ?
                        LIMIT 1`)
             .bind(targetUserId, state, now)
@@ -58,7 +60,7 @@ export async function findPendingMoloniConnection(
         if (byState) return byState as MoloniConnectionRow;
     }
     const pending = await db
-        .prepare(`SELECT id, destination_config_json, source_config_json FROM connections
+        .prepare(`SELECT id, source_kind, destination_config_json, source_config_json FROM connections
                    WHERE user_id = ? AND destination_kind = 'moloni'
                      AND oauth_state IS NOT NULL AND oauth_state_expires_at > ?
                    ORDER BY updated_at DESC LIMIT 1`)

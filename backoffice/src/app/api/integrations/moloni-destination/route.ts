@@ -63,6 +63,10 @@ function redactConfig(cfg: Record<string, unknown>) {
         moloni_document_set_id: cfg.moloni_document_set_id ?? null,
         moloni_document_set_name: cfg.moloni_document_set_name ?? null,
         moloni_document_type: cfg.moloni_document_type ?? "invoice",
+        // Whether the OAuth round trip landed. The token itself never leaves the
+        // server; this is the only thing a wizard needs to know.
+        moloni_authorized: !!cfg.moloni_refresh_token,
+        moloni_oauth_error: cfg.moloni_oauth_error ?? null,
         moloni_environment: cfg.moloni_environment ?? "production",
         vat_included: cfg.vat_included !== false,
         auto_finalize: cfg.auto_finalize === true,

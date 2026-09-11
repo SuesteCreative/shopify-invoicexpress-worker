@@ -3305,5 +3305,90 @@
         "help": {
             "body": "Any questions before you start? Write to"
         }
+    },
+    "lodgifyOnboarding": {
+        "meta": {
+            "titleIx": "Lodgify and InvoiceXpress onboarding | Rioko",
+            "titleMoloni": "Lodgify and Moloni onboarding | Rioko",
+            "descriptionIx": "Connect Lodgify to InvoiceXpress and have every booking invoiced without touching it.",
+            "descriptionMoloni": "Connect Lodgify to Moloni and have every booking invoiced without touching it."
+        },
+        "eyebrow": "Guided set-up",
+        "titleIx": "From Lodgify to InvoiceXpress, nothing to copy",
+        "titleMoloni": "From Lodgify to Moloni, nothing to copy",
+        "subtitle": "Six steps. At the end, every paid booking is invoiced in your name, on the series and VAT you pick here.",
+        "trust1": "Your key is encrypted",
+        "trust2": "Cancel whenever you want",
+        "trust3": "Support in Portuguese and English",
+        "progress": "Step {current} of {total}",
+        "allDone": "All done",
+        "statusDone": "Done",
+        "statusNow": "Up next",
+        "statusLocked": "Locked",
+        "continue": "Continue",
+        "loading": "Loading",
+        "account": {
+            "title": "Rioko account",
+            "desc": "Your way into the dashboard and into this setup.",
+            "body": "Create your account so we can keep this setup. It takes under a minute.",
+            "create": "Create account",
+            "haveAccount": "Already have an account?",
+            "signIn": "Sign in",
+            "signedInAs": "Signed in as {email}",
+            "signedInBody": "This is the account the connection is saved to.",
+            "signOut": "Use another account"
+        },
+        "company": {
+            "title": "Company details",
+            "desc": "Who holds the account.",
+            "body": "We use these details to identify your business and to bill you. They are not what appears on your guests invoices, that comes from the booking.",
+            "privacyLink": "Privacy Policy",
+            "update": "Save changes"
+        },
+        "lodgify": {
+            "title": "Connect Lodgify",
+            "desc": "One API key, nothing else.",
+            "savedTitle": "Lodgify connected",
+            "savedBody": "We read your bookings every half hour and invoice the ones that are paid. Nothing else is needed on your side."
+        },
+        "destination": {
+            "titleIx": "Connect InvoiceXpress",
+            "descIx": "The account the invoices are issued from.",
+            "titleMoloni": "Connect Moloni",
+            "descMoloni": "Authorised through OAuth, no password shared.",
+            "ixIntroTitle": "The account that issues the invoices",
+            "ixIntroBody": "The account name is the one in your InvoiceXpress address. The API key is under Settings, Integrations, API key.",
+            "ixAccountHint": "The name only, no https and no rest of the address.",
+            "ixApiKeyHint": "Stored encrypted and never shown again.",
+            "ixVerified": "InvoiceXpress verified",
+            "ixVerifiedBody": "The key answered. This is the account your invoices will come from.",
+            "ixVerifyFailed": "InvoiceXpress refused this key. Check the account name and the key, then try again.",
+            "moloniStep1": "Sign in to your Moloni customer area and open the developer section.",
+            "moloniAuthorizedBody": "Moloni has authorised Rioko. You can move on to the invoicing settings."
+        },
+        "settings": {
+            "title": "Invoicing settings",
+            "desc": "Series, document type, VAT and exemption.",
+            "body": "This decides how every document on this connection comes out. You can change all of it later in the dashboard.",
+            "partialLabel": "Invoice deposits and partial payments",
+            "partialHint": "Issues a document for each payment received instead of waiting for the booking to be paid in full.",
+            "vatNote": "Accommodation in Portugal defaults to 6%, the reduced rate. Check with your accountant before changing it.",
+            "finish": "Save settings",
+            "saveFailed": "We could not save the settings. Please try again."
+        },
+        "subscribe": {
+            "title": "Subscription",
+            "desc": "The last step, and the one that turns invoicing on.",
+            "body": "The subscription is per connection. Until it is active, bookings are read but no invoice is issued.",
+            "note": "You can cancel whenever you want, from the dashboard."
+        },
+        "finished": {
+            "title": "Everything is connected",
+            "body": "From now on, paid bookings are invoiced automatically.",
+            "cta": "Open the dashboard"
+        },
+        "help": {
+            "body": "Any questions? Write to"
+        }
     }
 }

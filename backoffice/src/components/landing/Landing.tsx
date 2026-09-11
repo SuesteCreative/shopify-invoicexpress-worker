@@ -26,6 +26,7 @@ import {
 import { LangToggle } from "./LangToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LegalLinks } from "@/components/LegalLinks";
+import { SiteLinks } from "@/components/SiteLinks";
 
 // ─────────────────────────────────────────────────────────────
 // Design tokens
@@ -1990,6 +1991,7 @@ function Footer() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+          <SiteLinks className="text-[12px]" style={{ color: FG_60 }} />
           <LegalLinks className="text-[12px]" style={{ color: FG_60 }} />
           <button
             type="button"

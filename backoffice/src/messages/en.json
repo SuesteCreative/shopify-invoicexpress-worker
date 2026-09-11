@@ -463,7 +463,12 @@
             "cookies": "Cookie settings",
             "developedBy": "Developed by",
             "disputes": "Dispute Resolution",
-            "complaints": "Complaints Book"
+            "complaints": "Complaints Book",
+            "navShopify": "Shopify",
+            "navLodgify": "Lodgify",
+            "navPricing": "Pricing",
+            "navCompare": "InvoiceXpress vs Moloni vs Vendus",
+            "navBlog": "Blog"
         }
     },
     "shopifyLanding": {

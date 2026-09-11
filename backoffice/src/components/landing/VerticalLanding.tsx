@@ -32,6 +32,7 @@ import {
 import { LangToggle } from "./LangToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LegalLinks } from "@/components/LegalLinks";
+import { SiteLinks } from "@/components/SiteLinks";
 import { VERTICALS, type VerticalVariant } from "./vertical-config";
 
 // ─────────────────────────────────────────────────────────────
@@ -1786,6 +1787,7 @@ function FooterSlim() {
           <Link href="/" style={{ color: FAINT }}>
             {tNav("hub")}
           </Link>
+          <SiteLinks style={{ color: FAINT }} />
           <LegalLinks style={{ color: FAINT }} />
         </nav>
       </div>

@@ -10,7 +10,6 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
-import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
@@ -753,7 +752,7 @@ export default function StripeMoloniIntegration() {
                         </div>
                     ) : showSubCta && (
                         <div className="space-y-4">
-                            {subBlocked ? <SuspendedBanner /> : <TrialBanner trialEnd={subData?.trial_end} />}
+                            {!subBlocked && <TrialBanner trialEnd={subData?.trial_end} />}
                             <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{tB("subscribeHeading")}</h2>
                             <div className="grid sm:grid-cols-2 gap-4">
                                 <div className="rounded-2xl p-5 flex flex-col gap-4 border border-hairline bg-surface-2/30">

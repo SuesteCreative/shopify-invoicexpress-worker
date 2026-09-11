@@ -9,7 +9,6 @@ import { CreditCard, Loader2, Check, ChevronRight, Settings2, Zap, Info, ShieldC
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
-import SuspendedBanner from "@/components/SuspendedBanner";
 import TrialBanner from "@/components/TrialBanner";
 import { RETURN_SLUG_WIZARD_IX } from "@/lib/oauth-return";
 import TaxRegistrations from "@/components/TaxRegistrations";
@@ -507,7 +506,7 @@ export default function StripeConnectIxIntegration() {
         <div className="max-w-5xl mx-auto space-y-8 pb-24">
             {showSubCta && (
                 <div className="space-y-4">
-                    {subBlocked ? <SuspendedBanner /> : <TrialBanner trialEnd={subData?.trial_end} />}
+                    {!subBlocked && <TrialBanner trialEnd={subData?.trial_end} />}
                     <div className="glass rounded-2xl border-hairline p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
                             <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("subscribeHeading")}</p>

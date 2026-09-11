@@ -8,6 +8,7 @@ import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { IntegrationSetupModal } from "@/components/IntegrationSetupModal";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { Sidebar } from "@/components/Sidebar";
+import AccountSuspendedNotice from "@/components/AccountSuspendedNotice";
 
 export default async function DashboardLayout({
     children,
@@ -52,6 +53,7 @@ export default async function DashboardLayout({
                 />
 
                 <main className="flex-1 overflow-y-auto relative z-10 px-4 py-6 md:px-12 md:py-16">
+                    <AccountSuspendedNotice />
                     {children}
                 </main>
             </div>

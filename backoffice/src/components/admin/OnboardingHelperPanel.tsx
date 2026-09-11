@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
+import { guidedOnboardings, platformName } from "@/lib/platforms";
 import {
     ArrowLeft, Wrench, ShieldAlert, AlertTriangle, Info,
     KeyRound, Link2, Settings2, CheckCircle2, LifeBuoy,
@@ -15,14 +16,23 @@ const API_VERSION = "2026-04";
 
 const WEBHOOK_BASE = "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify";
 
-// Páginas públicas de onboarding (link que se manda ao cliente antes de ele ter conta).
-// Ao criar uma nova página de onboarding, acrescentar aqui a entrada.
+// Páginas públicas de onboarding (link que se manda ao cliente antes de ele ter
+// conta). A lista das guiadas vem de src/lib/platforms.ts, que é onde o próprio
+// onboarding geral decide para onde encaminha: acrescentar um par lá faz o link
+// aparecer aqui sozinho.
+const GENERAL_ONBOARDING = {
+    href: "/onboarding",
+    label: "Onboarding geral (qualquer cliente novo)",
+    hint: "Dados da empresa, escolha das duas plataformas e encaminhamento para o guia do par escolhido.",
+};
+
 const ONBOARDING_LINKS: { href: string; label: string; hint: string }[] = [
-    {
-        href: "/onboarding/stripe-connect-moloni",
-        label: "Stripe Connect → Moloni (OAuth v2)",
-        hint: "Seis passos: conta, dados da empresa, Stripe Connect, Moloni OAuth v2, definições e subscrição.",
-    },
+    GENERAL_ONBOARDING,
+    ...guidedOnboardings().map(entry => ({
+        href: entry.path,
+        label: `${platformName(entry.source)} → ${platformName(entry.destination)}`,
+        hint: "Seis passos: conta, dados da empresa, origem, destino, definições de faturação e subscrição.",
+    })),
 ];
 
 function cleanShop(raw: string) {

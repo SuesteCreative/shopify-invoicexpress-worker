@@ -113,6 +113,22 @@ export function onboardingPath(source: string | null, destination: string | null
     return ONBOARDING_PATHS[pairKey(source, destination)] ?? null;
 }
 
+/**
+ * Every pair that has a guided page, for the panel that hands these links out.
+ *
+ * Derived from the map above rather than typed out again: the admin page used
+ * to keep its own list, and it still advertised one page after three more had
+ * been built.
+ */
+export function guidedOnboardings(): { source: string; destination: string; path: string }[] {
+    return Object.keys(ONBOARDING_PATHS)
+        .map(key => {
+            const [source, destination] = key.split(":");
+            return { source, destination, path: onboardingPath(source, destination) ?? "" };
+        })
+        .filter(entry => entry.path !== "");
+}
+
 /** True when the two platforms can actually be connected to each other. */
 export function canConnectPair(source: string | null, destination: string | null): boolean {
     return configuratorPath(source, destination) !== null;

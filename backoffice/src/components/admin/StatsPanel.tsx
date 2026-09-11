@@ -83,7 +83,11 @@ function Bars({ data, tone = "accent", format }: {
 
     return (
         <div className="overflow-x-auto">
-            <div className="flex items-end gap-1.5 h-40 min-w-fit">
+            {/* items-stretch, NOT items-end. With items-end each column is sized
+                to its own content, so the flex-1 track below collapses to zero
+                height and every bar's percentage resolves against nothing: the
+                month labels render and the bars are invisible. */}
+            <div className="flex items-stretch gap-1.5 h-40 min-w-fit">
                 {data.map((d) => (
                     <div key={d.label} className="flex flex-col items-center gap-2 group min-w-[26px]">
                         <div className="flex-1 flex items-end w-full">

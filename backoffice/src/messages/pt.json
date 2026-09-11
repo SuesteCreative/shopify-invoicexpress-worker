@@ -3146,6 +3146,7 @@
             "title": "Subscrever",
             "desc": "7,50 € por mês, ou 75 € por ano",
             "body": "O pagamento acontece na página segura do Stripe. A ligação já está feita: a subscrição é o que a mantém a emitir.",
+            "inviteRefused": "O link que recebeste já foi usado ou expirou. Podes subscrever aqui normalmente, ou falar connosco para receberes outro.",
             "note": "Preços sem IVA, acrescido à taxa legal. Cancela quando quiser no painel, sem período mínimo."
         }
     },
@@ -3215,6 +3216,7 @@
             "title": "Subscrever",
             "desc": "7,50 € por mês, ou 75 € por ano",
             "body": "O pagamento é feito na página segura do Stripe. A ligação já está montada: a subscrição é o que a mantém a emitir.",
+            "inviteRefused": "O link que recebeste já foi usado ou expirou. Podes subscrever aqui normalmente, ou falar connosco para receberes outro.",
             "note": "Preços sem IVA, acrescido à taxa legal. Cancela quando quiser, a partir do painel, sem período mínimo."
         }
     },
@@ -3383,6 +3385,7 @@
             "title": "Subscrição",
             "desc": "O último passo, e o que liga a faturação.",
             "body": "A subscrição é por ligação. Enquanto não estiver activa, as reservas são lidas mas nenhuma fatura é emitida.",
+            "inviteRefused": "O link que recebeste já foi usado ou expirou. Podes subscrever aqui normalmente, ou falar connosco para receberes outro.",
             "note": "Pode cancelar quando quiser, a partir do painel."
         },
         "finished": {

@@ -23,8 +23,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** The writers of `subscriptions`, which is where this already went wrong. */
 const FILES = [
     "../app/api/webhooks/stripe/route.ts",
-    "../app/api/admin/link-subscription/route.ts",
     "../app/api/admin/subscription/route.ts",
+    "../app/api/admin/onboarding-invites/route.ts",
+    "../app/api/onboarding/invite/claim/route.ts",
+    "./link-subscription.ts",
 ];
 
 interface Statement { sql: string; placeholders: number; bound: number; line: number }
@@ -72,12 +74,21 @@ function countTopLevelArgs(src: string, start: number): { count: number; end: nu
 
 function statementsIn(source: string): Statement[] {
     const out: Statement[] = [];
-    const marker = ".prepare(`";
+    const marker = ".prepare(";
     let from = 0;
     for (;;) {
         const at = source.indexOf(marker, from);
         if (at === -1) break;
-        const sqlStart = at + marker.length;
+        from = at + marker.length;
+
+        // The SQL may sit on the next line: the repo writes it both ways, and a
+        // scanner that only understands one of them skips real statements while
+        // reporting success.
+        let i = from;
+        while (i < source.length && /\s/.test(source[i])) i++;
+        if (source[i] !== "`") continue;
+
+        const sqlStart = i + 1;
         const sqlEnd = source.indexOf("`", sqlStart);
         if (sqlEnd === -1) break;
         const sql = source.slice(sqlStart, sqlEnd);
@@ -86,12 +97,11 @@ function statementsIn(source: string): Statement[] {
         // Only statements bound right here. `.bind(...)` applied to a variable
         // elsewhere is out of reach of a static check, and saying so is better
         // than guessing.
-        const after = source.slice(sqlEnd + 1, sqlEnd + 40);
-        const bindAt = after.indexOf(".bind(");
-        if (bindAt === -1 || /[A-Za-z0-9_]/.test(after.slice(0, bindAt).replace(/[\s)]/g, ""))) continue;
+        let j = sqlEnd + 1;
+        while (j < source.length && /[\s)]/.test(source[j])) j++;
+        if (!source.startsWith(".bind(", j)) continue;
 
-        const argsStart = sqlEnd + 1 + bindAt + ".bind(".length;
-        const { count } = countTopLevelArgs(source, argsStart);
+        const { count } = countTopLevelArgs(source, j + ".bind(".length);
         out.push({
             sql,
             placeholders: (sql.match(/\?/g) ?? []).length,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { guidedOnboardings, platformName } from "@/lib/platforms";
 import {
@@ -204,6 +204,125 @@ const WEBHOOKS = [
     { event: "Refund create", pt: "Criação de reembolso", note: "refunds/create", key: "refunds-create" },
 ];
 
+/**
+ * The link for one client, with their payment already settled.
+ *
+ * Creating it writes an intention, nothing else: no Stripe call, no subscription
+ * row. When the client signs up through the link, the subscription named here
+ * starts paying for the pair chosen here, and the last step of their onboarding
+ * says "covered" instead of asking for a card.
+ *
+ * The first section of this panel that talks to the server. The others are pure
+ * string builders.
+ */
+function InviteBuilder({ copiedKey, copy }: { copiedKey: string | null; copy: (key: string, text: string) => void }) {
+    const PAIRS = guidedOnboardings();
+    const [label, setLabel] = useState("");
+    const [pair, setPair] = useState(`${PAIRS[0]?.source}:${PAIRS[0]?.destination}`);
+    const [subscriptionId, setSubscriptionId] = useState("");
+    const [validDays, setValidDays] = useState("30");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const [url, setUrl] = useState("");
+    const [invites, setInvites] = useState<any[] | null>(null);
+
+    const load = () => {
+        fetch("/api/admin/onboarding-invites")
+            .then(r => (r.ok ? r.json() : { invites: [] }))
+            .then((d: any) => setInvites(d.invites ?? []))
+            .catch(() => setInvites([]));
+    };
+    useEffect(load, []);
+
+    const create = async () => {
+        const [source_kind, destination_kind] = pair.split(":");
+        setBusy(true);
+        setError("");
+        setUrl("");
+        try {
+            const res = await fetch("/api/admin/onboarding-invites", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    label: label.trim(),
+                    source_kind,
+                    destination_kind,
+                    stripe_subscription_id: subscriptionId.trim(),
+                    valid_days: Number(validDays) || 30,
+                }),
+            });
+            const json: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json.error ?? `HTTP ${res.status}`);
+                return;
+            }
+            setUrl(json.url);
+            load();
+        } catch (e: any) {
+            setError(e?.message ?? "Erro de rede");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <Section id="convite" icon={<Link2 className="w-5 h-5" />} title="Link para um cliente com subscrição" eyebrow="Links" accent="emerald">
+            <WarnBox>
+                O cliente que abrir este link não vê o passo do pagamento: a subscrição indicada
+                <strong> passa a pagar a ligação escolhida</strong>, e deixa de pagar aquela onde estava.
+                Se ele quiser manter as duas ligações a funcionar, isto não serve.
+            </WarnBox>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+                <Field label="Empresa" value={label} placeholder="Cake Art Magazine" onChange={(e) => setLabel(e.target.value)} />
+                <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-fg-40 mb-1.5">Ligação</label>
+                    <select
+                        value={pair}
+                        onChange={(e) => setPair(e.target.value)}
+                        className="w-full rounded-xl bg-surface-2 border border-hairline px-3 py-2.5 text-sm font-mono text-fg focus:border-accent outline-none transition-colors"
+                    >
+                        {PAIRS.map(p => (
+                            <option key={`${p.source}:${p.destination}`} value={`${p.source}:${p.destination}`}>
+                                {platformName(p.source)} → {platformName(p.destination)}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <Field label="Subscrição Stripe" value={subscriptionId} placeholder="sub_1RPLcL…" onChange={(e) => setSubscriptionId(e.target.value)} />
+                <Field label="Validade (dias)" value={validDays} inputMode="numeric" onChange={(e) => setValidDays(e.target.value)} />
+            </div>
+
+            <button
+                type="button"
+                onClick={create}
+                disabled={busy || !label.trim() || !subscriptionId.trim()}
+                className="w-full rounded-xl bg-fg text-surface py-3 text-[11px] font-black uppercase tracking-[0.18em] transition-all hover:bg-accent-hot disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+                {busy ? "A gerar…" : "Gerar link"}
+            </button>
+
+            {error && <DangerBox>{error}</DangerBox>}
+
+            <Output label="Link a enviar" text={url} copied={copiedKey === "invite"} onCopy={() => copy("invite", url)} />
+
+            {invites && invites.length > 0 && (
+                <DataTable
+                    headers={["Empresa", "Ligação", "Estado", "Validade"]}
+                    rows={invites.map((i: any) => [
+                        i.label,
+                        `${platformName(i.source_kind)} → ${platformName(i.destination_kind)}`,
+                        i.claimed_at
+                            ? `usado ${i.claimed_company || i.claimed_email || i.claimed_by_user_id}`
+                            : new Date(i.expires_at) < new Date() ? "expirado" : "por usar",
+                        new Date(i.expires_at).toLocaleDateString("pt-PT"),
+                    ])}
+                />
+            )}
+        </Section>
+    );
+}
+
 export function OnboardingHelperPanel() {
     // Shared across all builders — paste once, autofills everywhere.
     const [shopDomain, setShopDomain] = useState("");
@@ -306,6 +425,8 @@ export function OnboardingHelperPanel() {
                     ))}
                 </div>
             </div>
+
+            <InviteBuilder copiedKey={copiedKey} copy={copy} />
 
             {/* Page header */}
             <div className="glass rounded-[2rem] p-6 sm:p-10 border-hairline space-y-4">

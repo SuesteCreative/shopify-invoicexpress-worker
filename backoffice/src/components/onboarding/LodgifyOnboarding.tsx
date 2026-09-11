@@ -17,6 +17,7 @@ import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LangToggle } from "@/components/landing/LangToggle";
 import { LegalLinks } from "@/components/LegalLinks";
+import { useOnboardingInvite } from "@/lib/use-onboarding-invite";
 import {
     RETURN_SLUG_ONBOARDING_LODGIFY_IX, RETURN_SLUG_ONBOARDING_LODGIFY_MOLONI,
 } from "@/lib/oauth-return";
@@ -135,7 +136,7 @@ function PrimaryButton({
     );
 }
 
-export default function LodgifyOnboarding({ destination }: { destination: Destination }) {
+export default function LodgifyOnboarding({ destination, invite }: { destination: Destination; invite?: string }) {
     const isIx = destination === "invoicexpress";
     const CONNECTION_KEY = `${SOURCE_KIND}:${destination}`;
     const RETURN_SLUG = isIx ? RETURN_SLUG_ONBOARDING_LODGIFY_IX : RETURN_SLUG_ONBOARDING_LODGIFY_MOLONI;
@@ -154,6 +155,10 @@ export default function LodgifyOnboarding({ destination }: { destination: Destin
     const params = useSearchParams();
 
     const [loading, setLoading] = useState(true);
+    // Set when an invite link was handed to this merchant and the server would
+    // not honour it. Shown in the subscription step; never in the way of paying.
+    const [inviteError, setInviteError] = useState("");
+    const claimInvite = useOnboardingInvite(invite);
     const [openStep, setOpenStep] = useState<StepId | null>(null);
 
     // Server-side truth for every step: the Moloni step leaves the site, and a
@@ -285,7 +290,11 @@ export default function LodgifyOnboarding({ destination }: { destination: Destin
         if (!clerkLoaded) return;
         if (!isSignedIn) { setLoading(false); return; }
         setForm(f => ({ ...f, name: f.name || user?.fullName || "" }));
-        load().finally(() => setLoading(false));
+        // The invite, if this page was reached through one, before the first
+        // read: claiming it is what makes the subscription step read "covered".
+        claimInvite()
+            .then(r => { if (r.state === "refused") setInviteError(r.reason); })
+            .finally(() => load().finally(() => setLoading(false)));
     }, [clerkLoaded, isSignedIn, user, load]);
 
     // Whatever the Moloni callback came back with, shown inside its own step.
@@ -995,6 +1004,9 @@ export default function LodgifyOnboarding({ destination }: { destination: Destin
         ) : (
             <div className="space-y-5">
                 <Notice tone="info"><p>{t("subscribe.body")}</p></Notice>
+                {/* An invite that the server would not honour. Said plainly, and
+                    the ordinary way to pay stays right below it. */}
+                {inviteError && <Notice tone="bad"><p>{t("subscribe.inviteRefused")}</p></Notice>}
                 <OnboardingSubscribe
                     source={isIx ? "lodgify-ix" : "lodgify-moloni"}
                     connectionKey={CONNECTION_KEY}

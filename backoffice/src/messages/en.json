@@ -3146,6 +3146,7 @@
             "title": "Subscribe",
             "desc": "7.50 € per month, or 75 € per year",
             "body": "Payment happens on Stripe's secure page. The connection is already built: the subscription is what keeps it issuing.",
+            "inviteRefused": "The link you were sent has already been used, or has expired. You can subscribe here as usual, or ask us for a new one.",
             "note": "Prices exclude VAT, added at the legal rate. Cancel whenever you like from the dashboard, with no minimum term."
         }
     },
@@ -3215,6 +3216,7 @@
             "title": "Subscribe",
             "desc": "7.50 € per month, or 75 € per year",
             "body": "Payment happens on Stripe's secure page. The connection is already built: the subscription is what keeps it issuing.",
+            "inviteRefused": "The link you were sent has already been used, or has expired. You can subscribe here as usual, or ask us for a new one.",
             "note": "Prices exclude VAT, added at the legal rate. Cancel whenever you like from the dashboard, with no minimum term."
         }
     },
@@ -3383,6 +3385,7 @@
             "title": "Subscription",
             "desc": "The last step, and the one that turns invoicing on.",
             "body": "The subscription is per connection. Until it is active, bookings are read but no invoice is issued.",
+            "inviteRefused": "The link you were sent has already been used, or has expired. You can subscribe here as usual, or ask us for a new one.",
             "note": "You can cancel whenever you want, from the dashboard."
         },
         "finished": {

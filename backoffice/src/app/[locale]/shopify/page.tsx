@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { setRequestLocale, getTranslations } from "next-intl/server";
-import ShopifyLanding from "@/components/landing/ShopifyLanding";
+import VerticalLanding from "@/components/landing/VerticalLanding";
+import { VERTICALS } from "@/components/landing/vertical-config";
 import JsonLd from "@/components/JsonLd";
 import {
   breadcrumbSchema,
@@ -106,7 +107,7 @@ export default async function ShopifyLandingPage({
           { name: tCrumb("page"), url: `${SITE}/${locale}/shopify` },
         ])}
       />
-      <ShopifyLanding />
+      <VerticalLanding variant={VERTICALS.shopify} />
     </div>
   );
 }

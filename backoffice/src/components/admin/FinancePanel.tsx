@@ -79,8 +79,18 @@ interface Finance {
     }[];
     settled_after_failure: number;
     price_catalogue: {
-        source: string; plan: string; lookup: string | null; found: boolean;
-        active: boolean | null; amount_cents: number | null; interval: string | null;
+        source: string; product_name: string; plan: string; lookup: string | null;
+        status: "ok" | "archived" | "missing" | "no_key";
+        amount_cents: number | null; expected_cents: number;
+    }[];
+}
+
+interface CreateResult {
+    dry_run: boolean;
+    prices: {
+        lookup: string; product_name: string; amount_cents: number; interval: string;
+        product_id?: string | null; product_created?: boolean;
+        price_id?: string; created?: boolean; error?: string;
     }[];
 }
 
@@ -178,6 +188,33 @@ export function FinancePanel() {
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState("");
     const [onlyPaying, setOnlyPaying] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [createResult, setCreateResult] = useState<CreateResult | null>(null);
+
+    /** Dry run first, always: a Stripe price cannot be deleted once created,
+     *  only archived, so what would be written is shown before it is. */
+    const createPrices = async (confirm: boolean) => {
+        setCreating(true);
+        try {
+            const res = await fetch("/api/admin/finance/prices", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirm }),
+            });
+            const body = await res.json() as CreateResult & { error?: string };
+            if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+            setCreateResult(body);
+            if (confirm) {
+                // The catalogue above is stale by construction once we write.
+                const fresh = await fetch("/api/admin/finance").then((r) => r.json()) as Finance;
+                setData(fresh);
+            }
+        } catch (e) {
+            setError(String((e as Error).message ?? e));
+        } finally {
+            setCreating(false);
+        }
+    };
     const [marking, setMarking] = useState<string | null>(null);
 
     const load = () =>
@@ -365,7 +402,7 @@ export function FinancePanel() {
                         <tbody>
                             {(data.price_catalogue ?? []).map((p) => (
                                 <tr key={`${p.source}:${p.plan}`} className="border-b border-hairline/40 last:border-0">
-                                    <td className="py-2 pr-4 text-fg whitespace-nowrap">{p.source}</td>
+                                    <td className="py-2 pr-4 text-fg whitespace-nowrap">{p.product_name}</td>
                                     <td className="py-2 pr-4 font-mono text-[11px] text-fg-40 whitespace-nowrap">
                                         {p.plan === "annual" ? "anual" : "mensal"}
                                     </td>
@@ -373,29 +410,65 @@ export function FinancePanel() {
                                         {p.lookup ?? "—"}
                                     </td>
                                     <td className="py-2 pr-4 font-mono text-[11px] text-fg tabular-nums whitespace-nowrap">
-                                        {p.amount_cents != null ? eur(p.amount_cents) : ""}
+                                        {p.amount_cents != null ? eur(p.amount_cents) : (
+                                            <span className="text-fg-40">{eur(p.expected_cents)}</span>
+                                        )}
                                     </td>
                                     <td className="py-2 text-right whitespace-nowrap">
-                                        {!p.lookup ? (
-                                            <span className="font-mono text-[10px] text-fg-40">sem chave</span>
-                                        ) : !p.found ? (
-                                            <span className="font-mono text-[10px] text-destructive">POR CRIAR</span>
-                                        ) : p.active === false ? (
-                                            <span className="font-mono text-[10px] text-soon">arquivado</span>
-                                        ) : (
-                                            <span className="font-mono text-[10px] text-accent-hot">ok</span>
-                                        )}
+                                        {p.status === "no_key" ? <span className="font-mono text-[10px] text-fg-40">sem chave</span>
+                                            : p.status === "missing" ? <span className="font-mono text-[10px] text-destructive">POR CRIAR</span>
+                                            : p.status === "archived" ? <span className="font-mono text-[10px] text-soon">arquivado</span>
+                                            : <span className="font-mono text-[10px] text-accent-hot">ok</span>}
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
-                {(data.price_catalogue ?? []).some((p) => p.lookup && !p.found) && (
-                    <p className="text-[11px] text-destructive">
-                        Os marcados POR CRIAR não existem no Stripe. Cria-os com a lookup key exacta
-                        da terceira coluna, em euros, e o checkout desse par passa a funcionar.
-                    </p>
+                {(data.price_catalogue ?? []).some((p) => p.status === "missing") && (
+                    <div className="space-y-3 pt-1">
+                        <p className="text-[11px] text-destructive">
+                            Os marcados POR CRIAR não existem no Stripe, e o checkout desse par falha
+                            no momento de pagar. São criados com a lookup key da terceira coluna, em
+                            euros e sem IVA incluído — a taxa é o checkout que a junta.
+                        </p>
+                        {createResult && (
+                            <div className="rounded-2xl p-4 bg-surface-2 border border-hairline space-y-1">
+                                <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">
+                                    {createResult.dry_run ? "Simulação — nada foi escrito" : "Criado no Stripe"}
+                                </p>
+                                {createResult.prices.length === 0 && (
+                                    <p className="text-[11px] text-fg-40">Nada em falta.</p>
+                                )}
+                                {createResult.prices.map((cp) => (
+                                    <p key={cp.lookup} className="font-mono text-[11px] text-fg">
+                                        {cp.error
+                                            ? <span className="text-destructive">{cp.lookup}: {cp.error}</span>
+                                            : <>{cp.lookup} · {cp.product_name} · {eur(cp.amount_cents)}/{cp.interval === "year" ? "ano" : "mês"}
+                                                {cp.product_created && <span className="text-soon"> · produto novo</span>}
+                                                {cp.price_id && <span className="text-accent-hot"> · {cp.price_id}</span>}</>}
+                                    </p>
+                                ))}
+                            </div>
+                        )}
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => createPrices(false)}
+                                disabled={creating}
+                                className="px-4 py-2 rounded-xl text-sm font-medium border border-hairline text-fg hover:bg-fg/5 transition-all disabled:opacity-40"
+                            >
+                                {creating ? "A verificar…" : "Simular"}
+                            </button>
+                            <button
+                                onClick={() => createPrices(true)}
+                                disabled={creating || !createResult?.dry_run}
+                                title={!createResult?.dry_run ? "Simula primeiro" : undefined}
+                                className="px-4 py-2 rounded-xl text-sm font-medium bg-fg text-surface hover:bg-accent hover:text-on-accent transition-all disabled:opacity-40"
+                            >
+                                Criar no Stripe
+                            </button>
+                        </div>
+                    </div>
                 )}
             </Card>
 

@@ -7,8 +7,7 @@ import { subscriptionUIState } from "@/lib/stripe";
 import { priceBook } from "@/lib/price-book";
 import { REVENUE_BY_MONTH } from "@/lib/admin-stats-sql";
 import { resolveTier } from "@/lib/billing-legacy";
-import { priceLookupFor } from "@/lib/billing-prices";
-import { CONNECTION_KEY_TO_SOURCE } from "@/lib/subscription-key";
+import { requiredPrices, statusOf } from "@/lib/price-catalogue";
 import {
     PAYMENTS_BY_ACCOUNT, REFUNDS_BY_ACCOUNT, SUBSCRIPTION_LINES,
     TRIALS_ENDING, OUTSTANDING_PAYMENTS, SETTLED_AFTER_FAILURE,
@@ -42,45 +41,6 @@ const soft = <T,>(p: Promise<T>, fallback: T, label: string): Promise<T> =>
         console.error(`[admin/finance] ${label} failed:`, e?.message ?? e);
         return fallback;
     });
-
-/**
- * Every price the checkout can ask Stripe for, and whether it is there.
- *
- * A merchant who picks a pair whose price was never created gets a 500 at the
- * moment they try to pay, and nothing before that point says so — the pair
- * looks configurable right up to the card form. Stripe→Moloni monthly was
- * exactly this for months. Asked live rather than listed in a comment, because
- * a comment cannot notice somebody archiving a price.
- */
-function requiredPrices(book: Map<string, any>) {
-    const sources = [...new Set(Object.values(CONNECTION_KEY_TO_SOURCE))].sort();
-    const out: any[] = [];
-
-    for (const source of sources) {
-        for (const plan of ["monthly", "annual"] as const) {
-            let lookup: string | null = null;
-            try {
-                lookup = priceLookupFor(source, plan);
-            } catch {
-                // The Shopify pair reads its keys from the environment, and
-                // getStripeEnv throws when one is unset. That is itself the
-                // answer: the price cannot be resolved.
-                lookup = null;
-            }
-            const price = lookup ? book.get(lookup) : null;
-            out.push({
-                source,
-                plan,
-                lookup,
-                found: !!price,
-                active: price?.active ?? null,
-                amount_cents: price?.unit_amount ?? null,
-                interval: price?.recurring?.interval ?? null,
-            });
-        }
-    }
-    return out;
-}
 
 export async function GET() {
     try {
@@ -266,7 +226,21 @@ export async function GET() {
             price_book_size: prices.size,
             accounts,
             /** The catalogue check: which pairs a merchant could not pay for. */
-            price_catalogue: requiredPrices(prices),
+            // One list, shared with the endpoint that creates the missing ones,
+            // so the page can never advertise a lookup key the creator would
+            // not use.
+            price_catalogue: requiredPrices().map((r) => {
+                const price = r.lookup ? prices.get(r.lookup) : null;
+                return {
+                    source: r.source,
+                    product_name: r.productName,
+                    plan: r.plan,
+                    lookup: r.lookup,
+                    status: statusOf(r, price),
+                    amount_cents: price?.unit_amount ?? null,
+                    expected_cents: r.amountCents,
+                };
+            }),
             trials_ending: rows(trialRows).map((t) => ({
                 user_id: t.user_id,
                 account: accountLabel(t, t.email),

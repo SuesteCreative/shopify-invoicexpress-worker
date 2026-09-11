@@ -413,6 +413,10 @@ export function OnboardingHelperPanel() {
     // the store's admin, and that is often the client and not the operator. A
     // link can be sent; a redirect cannot.
     const [installUrl, setInstallUrl] = useState("");
+    // Echoed by the server, never read from the constants above: those are baked
+    // into this bundle at build time, so a tab open across a deploy shows what
+    // we USED to ask for while the link asks for something else.
+    const [installAsks, setInstallAsks] = useState<{ scopes: string; redirect_uri: string } | null>(null);
     const [outcome, setOutcome] = useState<{ status: string; detail: string } | null>(null);
 
     useEffect(() => {
@@ -443,6 +447,7 @@ export function OnboardingHelperPanel() {
     const startMethod2 = async () => {
         setStartError(null);
         setInstallUrl("");
+        setInstallAsks(null);
         setBusy(true);
         try {
             const res = await fetch("/api/admin/shopify-oauth/start", {
@@ -461,6 +466,7 @@ export function OnboardingHelperPanel() {
                 return;
             }
             setInstallUrl(data.authorize_url);
+            setInstallAsks({ scopes: String(data.scopes ?? ""), redirect_uri: String(data.redirect_uri ?? "") });
         } catch (e: any) {
             setStartError(String(e?.message ?? e));
         } finally {
@@ -987,6 +993,16 @@ export function OnboardingHelperPanel() {
                         copied={copiedKey === "m2-redirect"}
                         onCopy={() => copy("m2-redirect", shopifyCallbackUri())}
                     />
+                    <Output
+                        label="Scopes — colar exactamente assim"
+                        text={SCOPES}
+                        copied={copiedKey === "m2-scopes"}
+                        onCopy={() => copy("m2-scopes", SCOPES)}
+                    />
+                    <DangerBox>
+                        <strong>Preencher não chega: tem de haver Launch.</strong> Enquanto a versão ficar em rascunho, a app continua a correr a anterior,
+                        e a Shopify recusa o redirect com <Code>The redirect_uri is not whitelisted</Code> ainda antes do ecrã de consentimento.
+                    </DangerBox>
                     <InfoBox>
                         Tem de ser <strong>byte a byte</strong> este valor, incluindo a ausência de barra final. A Shopify compara a string e recusa antes do ecrã de consentimento.
                         Depois de mexer em redirect URLs ou scopes: <strong>nova versão</strong> e <strong>Launch</strong>, senão a app continua a correr a versão antiga.
@@ -1052,8 +1068,25 @@ export function OnboardingHelperPanel() {
 
                     {startError && <DangerBox>{startError}</DangerBox>}
 
-                    {installUrl && (
+                    {installUrl && installAsks && (
                         <div className="space-y-4">
+                            <WarnBox>
+                                <strong>Confere isto na app antes de abrir o link.</strong> São os dois valores que a Shopify compara, e tem de ser na
+                                <strong> versão lançada</strong>, não no rascunho. Um redirect ou um scope que só exista num rascunho por lançar dá
+                                <Code>The redirect_uri is not whitelisted</Code> ou recusa de scope, e a Shopify nem chega a devolver-nos o erro.
+                            </WarnBox>
+                            <Output
+                                label="Allowed redirection URL(s) — tem de estar assim na versão activa"
+                                text={installAsks.redirect_uri}
+                                copied={copiedKey === "m2-asks-redirect"}
+                                onCopy={() => copy("m2-asks-redirect", installAsks.redirect_uri)}
+                            />
+                            <Output
+                                label="Scopes que este link pede — a versão activa tem de ter exactamente estes"
+                                text={installAsks.scopes}
+                                copied={copiedKey === "m2-asks-scopes"}
+                                onCopy={() => copy("m2-asks-scopes", installAsks.scopes)}
+                            />
                             <Output
                                 label="Link de instalação — abrir ou enviar ao cliente"
                                 text={installUrl}

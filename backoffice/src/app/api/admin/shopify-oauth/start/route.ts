@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/admin";
 import { newOAuthState } from "@/lib/oauth-state";
-import { buildAuthorizeUrl, cleanShopDomain } from "@/lib/shopify-oauth";
+import { buildAuthorizeUrl, cleanShopDomain, shopifyCallbackUri, SHOPIFY_SCOPES } from "@/lib/shopify-oauth";
 
 export const runtime = "edge";
 
@@ -95,5 +95,14 @@ export async function POST(request: NextRequest) {
         ).bind(crypto.randomUUID(), targetUserId, shop, clientId, clientSecret, state, expiresAt).run();
     }
 
-    return NextResponse.json({ authorize_url: buildAuthorizeUrl(shop, clientId, state), shop });
+    // The two values echoed back are the ones the app's ACTIVE version has to
+    // match, and they come from here rather than from the page's own constants:
+    // a tab left open across a deploy renders the old ones, which is how a link
+    // asking for a scope we no longer request got generated at all.
+    return NextResponse.json({
+        authorize_url: buildAuthorizeUrl(shop, clientId, state),
+        shop,
+        scopes: SHOPIFY_SCOPES,
+        redirect_uri: shopifyCallbackUri(),
+    });
 }

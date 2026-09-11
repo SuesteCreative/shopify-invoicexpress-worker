@@ -39,6 +39,9 @@ import { checkSubscriptionGate } from "./services/subscription-gate";
 import type { IRequestConfig } from "./storage";
 import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
 import { runSubscriptionPausedNotices } from "./services/subscription-paused-notice";
+import { probeConnectionTax, runStripeTaxProbeSweep } from "./services/stripe-tax-probe";
+import { runRunInNotices } from "./services/run-in-notice";
+import { renderRunInPage, handleRunInAnswer } from "./handlers/run-in";
 import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts, externalIdFromEvent } from "./handlers/admin-stripe";
 import { sendDevModeEmail } from "./handlers/notify";
 import { sendEmail as sendEmailDirect } from "./services/email";
@@ -2250,6 +2253,55 @@ app.post("/admin/billing/paused-notices", async (c) => {
   } catch (e) {
     return errorResponse(c, e, "Failed to run paused-subscription notices");
   }
+})
+
+/**
+ * Ask Stripe what this connection's payments look like, now.
+ *
+ * Called by the backoffice the moment a connection is activated, and by the
+ * nightly sweep after that. Answers a verdict; only ever changes one thing, and
+ * only on evidence: `stripe_tax_from_source` when the account demonstrably
+ * charges tax.
+ */
+app.post("/admin/connection/tax-probe", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ user_id?: string; destination_kind?: string }>().catch(() => ({} as any));
+  if (!body.user_id) return c.json({ error: "user_id is required" }, 400);
+  try {
+    const row: any = await c.env.DB.prepare(
+      `SELECT id, user_id, destination_kind, source_config_json, destination_config_json
+         FROM connections
+        WHERE user_id = ? AND source_kind = 'stripe_connect'
+          ${body.destination_kind ? "AND destination_kind = ?" : ""}
+        ORDER BY updated_at DESC LIMIT 1`
+    ).bind(...(body.destination_kind ? [body.user_id, body.destination_kind] : [body.user_id])).first();
+    if (!row) return c.json({ error: "No stripe_connect connection for this user" }, 404);
+    return c.json(await probeConnectionTax(c.env, row));
+  } catch (e) {
+    return errorResponse(c, e, "Failed to probe the connection's tax setup");
+  }
+})
+
+app.post("/admin/run-in/notices", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ dry_run?: boolean; user_id?: string }>().catch(() => ({} as any));
+  try {
+    return c.json(await runRunInNotices(c.env, { dryRun: body.dry_run !== false, userId: body.user_id }));
+  } catch (e) {
+    return errorResponse(c, e, "Failed to run the run-in notices");
+  }
+})
+
+// The merchant's own answer to the run-in question. No admin key and no
+// session: the token in the path is the authority, exactly as the OAuth state
+// is on the other side of the round trip.
+app.get("/runin/:token", (c) => renderRunInPage(c.env, c.req.param("token")))
+
+app.post("/runin/:token", async (c) => {
+  const form = await c.req.parseBody().catch(() => ({} as any));
+  return handleRunInAnswer(c.env, c.req.param("token"), String((form as any)?.answer ?? ""));
 })
 
 app.post("/admin/stripe/reemit", async (c) => {
@@ -4473,6 +4525,28 @@ export default {
         console.log(`[Cron] Early-bird reminders: ${r.sent} sent, ${r.failed} failed (${r.checked} due)`);
       } catch (e: any) {
         console.error(`[Cron] Early-bird reminders failed: ${e.message}`);
+      }
+    }
+
+    // Re-read, daily, whether each Connect account charges tax. Once a day and
+    // not once at onboarding, because a merchant who enables Stripe Tax a week
+    // later would otherwise keep being invoiced at 0% until somebody noticed by
+    // hand. Rows whose flag is already on drop out of the query.
+    if ((env as any).STRIPE_TAX_PROBE_ENABLED === "1") {
+      try {
+        const r = await runStripeTaxProbeSweep(env);
+        console.log(`[Cron] Stripe tax probe: ${r.checked} checked, ${r.taxed} turned on — ${JSON.stringify(r.verdicts)}`);
+      } catch (e: any) {
+        console.error(`[Cron] Stripe tax probe failed: ${e.message}`);
+      }
+    }
+
+    if ((env as any).RUN_IN_ENABLED === "1") {
+      try {
+        const r = await runRunInNotices(env, { dryRun: false });
+        console.log(`[Cron] Run-in notices: ${r.asked} asked, ${r.reminded} reminded, ${r.escalated} escalated (${r.checked} checked)`);
+      } catch (e: any) {
+        console.error(`[Cron] Run-in notices failed: ${e.message}`);
       }
     }
 

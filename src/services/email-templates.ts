@@ -1601,6 +1601,65 @@ export function renderAccountInviteEmail(input: AccountInviteInput): RenderedTem
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Run-in check — the first documents a Stripe Connect connection ever issues.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface RunInCheckInput {
+  /** Where the yes/no answer is given. Carries the one-shot token. */
+  answerUrl: string;
+  merchantName?: string;
+  /** "Stripe → Moloni" and friends. */
+  connectionLabel: string;
+  documents: number;
+  /** A reminder says so, so the merchant is not read the same email twice. */
+  reminder?: boolean;
+  dashboardUrl?: string;
+  helpUrl?: string;
+}
+
+/**
+ * Asked once, reminded once, and never answered on the merchant's behalf.
+ *
+ * A finalized document is communicated to the AT and is undone only by a credit
+ * note, so the first ones a connection issues are held as drafts until somebody
+ * who knows the business has looked at them. This is that question.
+ */
+export function renderRunInCheckEmail(input: RunInCheckInput): RenderedTemplate {
+  const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
+  const n = input.documents;
+
+  const bodyHtml = [
+    paragraph(input.reminder
+      ? `Continuamos à espera da sua confirmação sobre as primeiras faturas de <strong>${escapeHtml(input.connectionLabel)}</strong>.`
+      : `A sua integração <strong>${escapeHtml(input.connectionLabel)}</strong> já emitiu ${n} ${n === 1 ? "documento" : "documentos"}.`),
+    calloutBox(
+      "Estão todos em rascunho, de propósito",
+      "Um documento fechado é comunicado à AT e só se corrige por nota de crédito. "
+      + "Por isso os primeiros ficam em rascunho até alguém que conhece o negócio os ver.",
+    ),
+    paragraph("Abra-os no seu programa de faturação e confirme três coisas: o valor bate certo com o que recebeu, o IVA está como esperava, e o cliente está identificado como deve."),
+    ctaButton("Já verifiquei, avançar", input.answerUrl),
+    paragraph(`<span style="font-size:13px;color:${P().muted}">Se alguma coisa estiver errada, use o mesmo link e escolha "há algo errado". Não fechamos nada e falamos consigo.</span>`),
+  ].join("");
+
+  return {
+    subject: input.reminder
+      ? `Lembrete: confirme as primeiras faturas de ${input.connectionLabel}`
+      : `Confirme as primeiras ${n} faturas de ${input.connectionLabel}`,
+    html: shell({
+      title: input.reminder ? "Lembrete: as suas primeiras faturas" : "Confirme as suas primeiras faturas",
+      preheader: `${n} ${n === 1 ? "documento" : "documentos"} em rascunho à sua espera`,
+      bodyHtml,
+      merchantName: input.merchantName,
+      connectionLabel: input.connectionLabel,
+      helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
+      dashboardUrl,
+      footerNote: "Verificação de arranque · Enviado uma vez, com um lembrete",
+    }),
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Subscription payment failed — the client-facing dunning email.
 // ──────────────────────────────────────────────────────────────────────────
 

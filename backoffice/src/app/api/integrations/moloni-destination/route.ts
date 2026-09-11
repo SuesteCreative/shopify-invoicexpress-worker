@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 
@@ -314,6 +315,13 @@ export async function POST(request: NextRequest) {
            status = excluded.status,
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, sourceKind, JSON.stringify(destinationConfig), status, now, now).run();
+
+    // Going live is the first moment we can ask Stripe what this merchant's
+    // payments actually look like, and the answer decides whether their VAT is
+    // read from the source or left at 0.
+    if (sourceKind === "stripe_connect" && status === "active") {
+        probeConnectionTaxInBackground(authResult.targetUserId, "moloni");
+    }
 
     const response: Record<string, unknown> = { ok: true };
     if (sourceKind === "shopify") {

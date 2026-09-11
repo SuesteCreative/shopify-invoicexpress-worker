@@ -16,6 +16,7 @@ import { refundReference, documentReference } from "../services/document-referen
 import { buildAdapterCtx } from "../services/adapter-ctx";
 import { logDocumentEvent, explainPlatformError } from "../services/document-log";
 import { connectionLabelOf } from "../services/connection-context";
+import { runInHoldsFinalize } from "../services/run-in";
 import { httpStatusOf } from "../services/platform-error";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
 import { forcedDocTypeForSettlement } from "../services/lodgify-amounts";
@@ -681,9 +682,17 @@ async function runPipelineCore(
       // a credit note, so the one thing a sandbox must not be able to produce
       // is a real one. Drafts are the entire point of testing.
       const isTestConnection = (ctx.sourceConfig as any)?.livemode === false;
+      // A Stripe Connect connection whose merchant has never confirmed a
+      // document keeps issuing drafts, whatever it — or a tag rule — asks for.
+      // Read HERE and not off `ctx.config`, because `applyTagRoute` rewrites
+      // `auto_finalize` on the context and a `finalize_mode='finalize'` rule
+      // would otherwise walk straight past the run-in.
+      const runInHold = await runInHoldsFinalize(env, source, config.user_id, destination);
       const finalizeInSameFlow = !sourceAdapter.capabilities.emitsSeparatePaidEvent
-        && ctx.config.auto_finalize === 1 && !holdReason && !isTestConnection;
-      let response = holdReason ? `Created (draft — ${holdReason})` : "Created";
+        && ctx.config.auto_finalize === 1 && !holdReason && !isTestConnection && !runInHold;
+      let response = holdReason
+        ? `Created (draft — ${holdReason})`
+        : (runInHold && ctx.config.auto_finalize === 1 ? "Created (draft — rodagem por confirmar)" : "Created");
       if (finalizeInSameFlow) {
         await destAdapter.finalize(invoiceId, ctx);
         await logDocumentEvent(env, {
@@ -756,6 +765,14 @@ async function runPipelineCore(
 
       if (ctx.config.auto_finalize !== 1) {
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Auto-finalize disabled", status: 200 });
+        return;
+      }
+
+      // The same run-in hold as the `created` branch, and after the stored route
+      // for the same reason. Both branches or neither: a gate only one of them
+      // applies is exactly the shape of the livemode bug this repo already had.
+      if (await runInHoldsFinalize(env, source, config.user_id, destination)) {
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Rodagem por confirmar — mantido em rascunho", status: 200 });
         return;
       }
 

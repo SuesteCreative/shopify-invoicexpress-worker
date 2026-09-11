@@ -34,6 +34,12 @@ export interface Env {
   // the restricted-key flow installs on each merchant's account.
   STRIPE_CONNECT_WEBHOOK_SECRET?: string;
   STRIPE_CONNECT_WEBHOOK_SECRET_TEST?: string;
+  // "1" runs the daily probe that reads each Connect account and turns
+  // `stripe_tax_from_source` on where the payments show tax being charged.
+  STRIPE_TAX_PROBE_ENABLED?: string;
+  // "1" holds a new Connect connection's documents as drafts until its merchant
+  // confirms the first five. Off means every connection certifies as before.
+  RUN_IN_ENABLED?: string;
   // Moloni OAuth app credentials, used only when a connection does not carry its
   // own (i.e. if one Rioko-owned Moloni app can authorise third-party accounts).
   MOLONI_APP_CLIENT_ID?: string;

@@ -7,6 +7,7 @@ import {
     Search, Wrench, Clock, EyeOff,
 } from "lucide-react";
 import { kindLabel } from "@/lib/connection-kinds";
+import { DunningCard } from "@/components/admin/DunningCard";
 
 /**
  * What the fleet is worth, and what each client in it has paid.
@@ -526,6 +527,8 @@ export function FinancePanel() {
                     )}
                 </Card>
             </div>
+
+            <DunningCard />
 
             <div className="space-y-4">
                 <div className="flex flex-wrap gap-3 items-center">

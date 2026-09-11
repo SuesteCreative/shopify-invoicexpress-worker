@@ -228,6 +228,8 @@ export async function GET() {
                 currency: f.currency ?? "eur",
                 created_at: f.created_at,
                 attempts: num(f.attempts),
+                reason: f.reason ?? null,
+                description: f.description ?? null,
             })),
             /** Failures that the retry collected. Shown as context so the list
              *  above reads as the exception it is. */

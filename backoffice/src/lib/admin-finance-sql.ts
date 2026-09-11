@@ -103,7 +103,13 @@ export const OUTSTANDING_PAYMENTS = `
            MAX(b.amount_cents) AS amount_cents,
            MIN(b.currency)     AS currency,
            MAX(b.created_at)   AS created_at,
-           COUNT(*)            AS attempts
+           COUNT(*)            AS attempts,
+           -- What the invoice was FOR. Without it, a 1,85 EUR line and a
+           -- 9,23 EUR line look like the same kind of problem; one is an extra
+           -- seat and the other a monthly renewal nobody collected, and telling
+           -- them apart is the first thing anyone asks.
+           MIN(json_extract(b.raw_json, '$.billing_reason'))            AS reason,
+           MIN(json_extract(b.raw_json, '$.lines.data[0].description')) AS description
     FROM billing_events b
     WHERE b.type = 'invoice.payment_failed'
       AND b.stripe_object_id IS NOT NULL
@@ -133,8 +139,17 @@ export const SETTLED_AFTER_FAILURE = `
     )
 `;
 
-/** Seat purchases, which never produce a Stripe invoice and so never land in
- *  the payment ledger. `account_seats` is the only record they have. */
+/**
+ * Seat purchases.
+ *
+ * The Checkout path buys a seat in `mode: payment`, which emits no Stripe
+ * invoice at all, so those never reach the payment ledger and this table is
+ * their only record. Not all of them take that path, though — Alliance Jiu
+ * Jitsu's seat was billed as a manual invoice (`billing_reason: "manual"`,
+ * line "Rioko 2.0 || Extra User") and therefore DID produce billing events.
+ * Adding this total to ledger revenue can double-count such a seat; it is a
+ * euro and a half, and worth knowing before it is a larger number.
+ */
 export const SEATS_BY_ACCOUNT = `
   SELECT account_id AS user_id, COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS cents
   FROM account_seats

@@ -67,6 +67,7 @@ interface Finance {
     outstanding_payments: {
         id: string; invoice_id: string; user_id: string; account: string;
         amount_cents: number; currency: string; created_at: string; attempts: number;
+        reason: string | null; description: string | null;
     }[];
     settled_after_failure: number;
 }
@@ -85,6 +86,14 @@ const monthLabel = (ym: string) => {
     const [y, m] = ym.split("-");
     const names = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
     return `${names[Number(m) - 1] ?? m} ${y?.slice(2) ?? ""}`;
+};
+
+/** Stripe's own word for why an invoice exists, when the line has no name. */
+const REASON_LABEL: Record<string, string> = {
+    subscription_cycle: "renovação",
+    subscription_create: "início da subscrição",
+    subscription_update: "alteração da subscrição",
+    manual: "factura avulsa",
 };
 
 const STATE_LABEL: Record<string, string> = {
@@ -279,13 +288,16 @@ export function FinancePanel() {
                     ) : (
                         <div className="space-y-2">
                             {data.outstanding_payments.map((f) => (
-                                <div key={f.id} className="flex items-baseline justify-between gap-3">
-                                    <Link href={`/admin/users/${f.user_id}/dev-mode`} className="text-sm text-fg hover:text-accent-ink truncate">
-                                        {f.account}
-                                        {f.attempts > 1 && (
-                                            <span className="ml-2 font-mono text-[10px] text-fg-40">{n(f.attempts)} tentativas</span>
-                                        )}
-                                    </Link>
+                                <div key={f.id} className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <Link href={`/admin/users/${f.user_id}/dev-mode`} className="text-sm text-fg hover:text-accent-ink truncate block">
+                                            {f.account}
+                                        </Link>
+                                        <div className="font-mono text-[10px] text-fg-40 truncate">
+                                            {f.description ?? REASON_LABEL[f.reason ?? ""] ?? "factura"}
+                                            {f.attempts > 1 && <> · {n(f.attempts)} tentativas</>}
+                                        </div>
+                                    </div>
                                     <span className="font-mono text-[11px] text-destructive shrink-0">
                                         {eur(f.amount_cents)} · {dateOf(f.created_at)}
                                     </span>

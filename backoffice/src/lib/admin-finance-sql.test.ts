@@ -24,7 +24,7 @@ function db() {
         CREATE TABLE billing_events (
             id TEXT PRIMARY KEY, user_id TEXT, type TEXT NOT NULL,
             stripe_object_id TEXT, payment_intent_id TEXT,
-            amount_cents INTEGER, currency TEXT, status TEXT, created_at TEXT
+            amount_cents INTEGER, currency TEXT, status TEXT, created_at TEXT, raw_json TEXT
         );
         CREATE TABLE users (
             id TEXT PRIMARY KEY, email TEXT, name TEXT, company_name TEXT,
@@ -202,5 +202,39 @@ describe("what is actually owed", () => {
             VALUES ('evt_f', 'user_a', 'invoice.payment_failed', 'in_A', 923, 'eur', '2026-09-10T18:00:00.000Z');
         `);
         expect(d.all(OUTSTANDING_PAYMENTS)[0].company_name).toBe("Pleasant Venture Lda");
+    });
+});
+
+describe("what an outstanding invoice was for", () => {
+    it("carries the line description, which is what tells a seat from a renewal", () => {
+        const d = db();
+        // The two real ones: 1,85 EUR is a seat, 9,23 EUR is a month of Shopify
+        // into InvoiceXpress. Same card, entirely different problems.
+        d.exec(`
+            INSERT INTO users (id, email, company_name, role) VALUES
+              ('user_a', 'a@x.pt', 'Alliance', 'user'),
+              ('user_b', 'b@x.pt', 'Pleasant Venture Lda', 'user');
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, amount_cents, currency, created_at, raw_json) VALUES
+              ('evt_a', 'user_a', 'invoice.payment_failed', 'in_A', 185, 'eur', '2026-09-05T10:00:00.000Z',
+               '{"billing_reason":"manual","lines":{"data":[{"description":"Rioko 2.0 || Extra User"}]}}'),
+              ('evt_b', 'user_b', 'invoice.payment_failed', 'in_B', 923, 'eur', '2026-09-10T10:00:00.000Z',
+               '{"billing_reason":"subscription_cycle","lines":{"data":[{"description":"1 × Rioko 2.0 || Shopify - InvoiceXpress (a EUR7.50/month)"}]}}');
+        `);
+
+        const byInvoice = Object.fromEntries(d.all(OUTSTANDING_PAYMENTS).map((r) => [r.invoice_id, r]));
+        expect(byInvoice.in_A).toMatchObject({ reason: "manual", description: "Rioko 2.0 || Extra User" });
+        expect(byInvoice.in_B.reason).toBe("subscription_cycle");
+    });
+
+    it("survives a row whose payload was never stored", () => {
+        const d = db();
+        d.exec(`
+            INSERT INTO users (id, email, role) VALUES ('user_a', 'a@x.pt', 'user');
+            INSERT INTO billing_events (id, user_id, type, stripe_object_id, amount_cents, currency, created_at, raw_json)
+            VALUES ('evt_a', 'user_a', 'invoice.payment_failed', 'in_A', 923, 'eur', '2026-09-10T10:00:00.000Z', NULL);
+        `);
+        const [row] = d.all(OUTSTANDING_PAYMENTS);
+        expect(row.invoice_id).toBe("in_A");
+        expect(row.description).toBeNull();
     });
 });

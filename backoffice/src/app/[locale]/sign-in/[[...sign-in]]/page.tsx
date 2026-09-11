@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { SignIn } from "@clerk/nextjs";
 import { getTranslations } from "next-intl/server";
 import { LangToggle } from "@/components/landing/LangToggle";
@@ -6,6 +7,13 @@ import { normalizeReturnSlug, resolveReturnPath } from "@/lib/oauth-return";
 import { LegalLinks } from "@/components/LegalLinks";
 
 export const runtime = "edge";
+
+// Auth screens carry nothing worth ranking, and an indexed sign-in page
+// competes with the landing page for the brand query. robots.txt alone does not
+// settle it — a disallowed URL can still be indexed from links, just without a
+// snippet — so say noindex on the page itself.
+export const metadata: Metadata = { robots: { index: false, follow: false } };
+
 
 export default async function Page({
     params,

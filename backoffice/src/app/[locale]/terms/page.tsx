@@ -13,7 +13,16 @@ export async function generateMetadata({
 }) {
     const { locale } = await params;
     const t = await getTranslations({ locale, namespace: "metadata" });
-    return { title: t("termsTitle") };
+    return {
+        title: t("termsTitle"),
+        // Both locales are genuinely translated, but the page shipped with
+        // neither canonical nor hreflang while the sitemap listed it with
+        // both — sitemap and page disagreeing is worse than either alone.
+        alternates: {
+            canonical: `/${locale}/terms`,
+            languages: { pt: "/pt/terms", en: "/en/terms", "x-default": "/pt/terms" },
+        },
+    };
 }
 
 const LEGAL_RICH = {

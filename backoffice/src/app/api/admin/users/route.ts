@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin, isSuperAdmin, getRole, getImpersonationId } from "@/lib/admin";
+import { isAdmin, getRole, getImpersonationId } from "@/lib/admin";
 import { subscriptionUIState } from "@/lib/stripe";
 import { accountLabel } from "@/lib/labels";
 
@@ -306,7 +306,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
     try {
         const { userId } = await auth();
-        if (!userId || !(await isSuperAdmin(userId))) {
+        if (!userId || !(await isAdmin(userId))) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 

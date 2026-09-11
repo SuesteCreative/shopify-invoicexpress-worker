@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { isAdmin } from "@/lib/admin";
 import { redirect } from "next/navigation";
-import { OpsPanel } from "./OpsPanel";
+import { OpsPanel } from "@/components/admin/OpsPanel";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";

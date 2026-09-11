@@ -4,7 +4,7 @@ import { RIOKO_CONFIG } from "@/lib/config";
 import { newOAuthState } from "@/lib/oauth-state";
 import { normalizeReturnSlug, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
-import { isSuperAdmin } from "@/lib/admin";
+import { isAdmin } from "@/lib/admin";
 
 export const runtime = "edge";
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     // Test mode is an operator tool, not a merchant choice: a sandbox
     // connection issues nothing certified and exists to exercise the flow.
     const wantsTest = body.mode === "test";
-    if (wantsTest && !(await isSuperAdmin(authResult.userId))) {
+    if (wantsTest && !(await isAdmin(authResult.userId))) {
         return NextResponse.json({ error: "Test mode is restricted" }, { status: 403 });
     }
     const mode = wantsTest ? "test" as const : "live" as const;

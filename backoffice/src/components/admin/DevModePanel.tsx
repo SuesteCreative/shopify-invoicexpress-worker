@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Link } from "@/i18n/navigation";
+// next/link, not the i18n one: the back-link points at /admin, which is
+// deliberately not locale-prefixed.
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import {
     buildRecoveryRequest, recordIdPayload, usesLegacyShopifyRoutes, connKey,
@@ -153,7 +155,7 @@ export function DevModePanel({ target }: { target: Target }) {
         <div className="space-y-10 animate-in fade-in duration-500">
             {/* Header */}
             <div className="flex flex-col gap-6">
-                <Link href="/superadmin" className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest w-fit">
+                <Link href="/admin/clientes" className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest w-fit">
                     <ArrowLeft className="w-3 h-3" /> {t("back")}
                 </Link>
                 <div className="flex items-end justify-between flex-wrap gap-4">

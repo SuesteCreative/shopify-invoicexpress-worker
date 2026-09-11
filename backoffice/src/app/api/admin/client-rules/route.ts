@@ -1,7 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isHiperadmin, isSuperAdmin } from "@/lib/admin";
+import { isHiperadmin, isAdmin } from "@/lib/admin";
 import { redactConfigJson, FISCAL_CONFIG_KEYS } from "@/lib/redact";
 
 export const runtime = "edge";
@@ -91,7 +91,7 @@ async function auditConfigChange(
 
 export async function GET() {
   const { userId } = await auth();
-  if (!userId || !(await isSuperAdmin(userId))) {
+  if (!userId || !(await isAdmin(userId))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

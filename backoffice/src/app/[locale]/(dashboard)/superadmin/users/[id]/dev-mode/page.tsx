@@ -1,8 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
-import { isAdmin } from "@/lib/admin";
-import { getRequestContext } from "@cloudflare/next-on-pages";
+import { isAdmin, getDevModeTarget } from "@/lib/admin";
 import { redirect, notFound } from "next/navigation";
-import { DevModePanel } from "./DevModePanel";
+import { DevModePanel } from "@/components/admin/DevModePanel";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -14,37 +13,8 @@ export default async function DevModePage({ params }: { params: Promise<{ id: st
     }
 
     const { id } = await params;
-    const { env } = getRequestContext();
-    const db = (env as any).DB;
-
-    const target: any = await db.prepare(`
-      SELECT u.id, u.name, u.email, u.role, u.nif, u.company_name,
-             COALESCE(u.is_inactive, 0) AS is_inactive,
-             i.shopify_domain, i.shopify_authorized, i.ix_authorized,
-             i.shopify_error, i.ix_error, i.dev_notify_emails
-      FROM users u
-      LEFT JOIN integrations i ON u.id = i.user_id
-      WHERE u.id = ?
-    `).bind(id).first();
-
+    const target = await getDevModeTarget(id);
     if (!target) notFound();
 
-    return (
-        <DevModePanel
-            target={{
-                id: target.id,
-                name: target.name,
-                email: target.email,
-                role: target.role,
-                nif: target.nif,
-                company_name: target.company_name,
-                shopify_domain: target.shopify_domain,
-                shopify_authorized: !!target.shopify_authorized,
-                ix_authorized: !!target.ix_authorized,
-                shopify_error: target.shopify_error,
-                ix_error: target.ix_error,
-                is_inactive: Number(target.is_inactive) === 1,
-            }}
-        />
-    );
+    return <DevModePanel target={target} />;
 }

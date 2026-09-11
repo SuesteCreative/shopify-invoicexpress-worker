@@ -351,7 +351,7 @@ export function OpsPanel() {
 
                     {incident.user_id && (
                       <a
-                        href={`/superadmin/users/${incident.user_id}/dev-mode`}
+                        href={`/admin/users/${incident.user_id}/dev-mode`}
                         className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent-ink hover:underline"
                       >
                         <Wrench className="w-3 h-3" /> {t("openDevMode")}

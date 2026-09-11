@@ -44,6 +44,17 @@ const isCrawlerFile = createRouteMatcher([
     "/robots.txt",
 ]);
 
+/** The admin surface, rioko.online/admin.
+ *
+ *  Deliberately not locale-prefixed, so the intl middleware must never see it:
+ *  with `localePrefix: "always"` it would redirect /admin to /pt/admin, and no
+ *  such route exists. Same escape hatch as the crawler files above.
+ *
+ *  Only a session is required here. The ROLE check lives in app/admin/layout.tsx
+ *  because reading D1 from the middleware runtime fails open on purpose (see
+ *  isReadOnlyWrite below) — and a gate that fails open is not a gate. */
+const isAdminSurface = createRouteMatcher(["/admin(.*)"]);
+
 /** A read-only extra user (migration 0039) may call any GET and no write. The
  *  authoritative check lives in resolveAccountUser(); this one only turns it into
  *  a clean 403 before the route runs, and skips itself if D1 is unreachable from
@@ -69,6 +80,16 @@ export default clerkMiddleware(async (auth, req) => {
     const { pathname } = req.nextUrl;
 
     if (isCrawlerFile(req)) return;
+
+    // Before isPublicRoute, and that ordering is load-bearing. That list holds
+    // "/:locale", whose regex matches ANY single-segment path — /admin included.
+    // It is harmless today because a bare /dashboard is only ever a redirect to
+    // /pt/dashboard, which is protected. /admin is a real route, so reaching
+    // isPublicRoute would skip auth.protect() on the panel's own front door.
+    if (isAdminSurface(req)) {
+        await auth.protect();
+        return;
+    }
 
     if (pathname.startsWith("/api")) {
         if (!isPublicRoute(req)) {

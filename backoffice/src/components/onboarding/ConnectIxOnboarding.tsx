@@ -7,7 +7,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import {
-    AlertTriangle, ArrowRight, Building2, Check, ChevronDown, CreditCard, ExternalLink,
+    AlertTriangle, ArrowRight, Building2, Check, ChevronDown, CreditCard,
     Globe, Loader2, Lock, LogOut, MapPin, Phone, Settings2, ShieldCheck, Sparkles, User,
     UserPlus,
 } from "lucide-react";
@@ -261,7 +261,7 @@ export default function ConnectIxOnboarding() {
 
     const ixHref = ixSubdomain(ixAccount)
         ? `https://${ixSubdomain(ixAccount)}.app.invoicexpress.com/users/account`
-        : "https://www.invoicexpress.com/";
+        : "https://web.invoicexpress.com/users/sign_in";
 
     const saveProfile = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -593,7 +593,23 @@ export default function ConnectIxOnboarding() {
                 <Notice tone="info">
                     <p className="font-medium text-fg">{t("ix.introTitle")}</p>
                     <ol className="list-decimal pl-4 space-y-1.5 mt-1.5">
-                        <li>{t("ix.step1")}</li>
+                        {/* The word "InvoiceXpress" carries the link, as "Moloni"
+                            does on the sibling page. It opens their own sign-in,
+                            or the API page of the account already typed. */}
+                        <li>
+                            {t.rich("ix.step1", {
+                                link: chunks => (
+                                    <a
+                                        href={ixHref}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-accent-ink font-medium underline underline-offset-2 hover:text-accent-hover transition-colors"
+                                    >
+                                        {chunks}
+                                    </a>
+                                ),
+                            })}
+                        </li>
                         <li>{t("ix.step2")}</li>
                         <li>{t("ix.step3")}</li>
                     </ol>
@@ -616,19 +632,6 @@ export default function ConnectIxOnboarding() {
                         />
                     </Field>
                 </div>
-
-                {/* The key is copied from InvoiceXpress's own page, in their own
-                    tab. Nothing of theirs is typed here but the key itself:
-                    framing that login inside this page would mean a password
-                    handed to a site that is not InvoiceXpress. */}
-                <a
-                    href={ixHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-3.5 rounded-2xl border border-hairline text-fg-60 font-mono text-[10px] uppercase tracking-[0.18em] flex items-center justify-center gap-2 transition-colors hover:border-rule hover:text-fg"
-                >
-                    <ExternalLink className="w-3.5 h-3.5" /> {t("ix.openIx")}
-                </a>
 
                 {ixError && <Notice tone="bad"><p>{ixError}</p></Notice>}
                 {ixVerified && (

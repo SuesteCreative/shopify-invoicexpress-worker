@@ -51,7 +51,8 @@ export const REFUND_ROWS = `
   SELECT COALESCE(payment_intent_id, stripe_object_id, id) AS obj,
          MIN(created_at)                                   AS created_at,
          MAX(amount_cents)                                 AS amount_cents,
-         MIN(currency)                                     AS currency
+         MIN(currency)                                     AS currency,
+         MIN(user_id)                                      AS user_id
   FROM billing_events
   WHERE type = 'charge.refunded' AND amount_cents IS NOT NULL AND created_at IS NOT NULL
   GROUP BY COALESCE(payment_intent_id, stripe_object_id, id)

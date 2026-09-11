@@ -768,9 +768,22 @@ async function runPipelineCore(
         return;
       }
 
+      // A sandbox connection never certifies, on THIS branch too.
+      //
+      // The guard was written on `created` alone, which left the hole it was
+      // built to close: a test-mode event arriving as `paid` — an
+      // `invoice.paid`, or any Shopify-shaped source that separates the two —
+      // walked past it and closed the draft for real. A finalized document is
+      // AT-communicated and undoable only by credit note, out of money that
+      // does not exist.
+      if ((ctx.sourceConfig as any)?.livemode === false) {
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Ligação de teste — mantido em rascunho", status: 200 });
+        return;
+      }
+
       // The same run-in hold as the `created` branch, and after the stored route
       // for the same reason. Both branches or neither: a gate only one of them
-      // applies is exactly the shape of the livemode bug this repo already had.
+      // applies is exactly the shape of the livemode bug above.
       if (await runInHoldsFinalize(env, source, config.user_id, destination)) {
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Rodagem por confirmar — mantido em rascunho", status: 200 });
         return;

@@ -98,28 +98,46 @@ export async function handleRunInAnswer(env: Env, token: string, answer: string)
   // Oldest transaction first, because both destinations refuse a document dated
   // behind the last one already closed: finalizing the newest first raises the
   // series floor over everything beneath it.
-  const summary: any = await finalizeConnectionDrafts(env, resolved.ctx, { limit: 100 } as any);
-  const errors = Number(summary?.errors ?? 0);
+  //
+  // Paged, because `finalizeConnectionDrafts` caps a call at 100 rows — well
+  // below Cloudflare's 1000-subrequest ceiling, since each row costs a GET,
+  // often a PUT and a state change. A merchant who took a fortnight to answer
+  // can easily have more than 100 waiting, and closing the first hundred while
+  // reporting "done" would be a lie with a fiscal tail.
+  //
+  // Three pages is the ceiling one request can afford. Anything past that is
+  // ours to finish with the admin tool, and the page says so rather than
+  // pretending.
+  let finalized = 0, errors = 0, afterRowid: number | null = null, hasMore = false;
+  for (let pageNo = 0; pageNo < 3; pageNo++) {
+    const summary: any = await finalizeConnectionDrafts(env, resolved.ctx, { limit: 100, after_rowid: afterRowid } as any);
+    finalized += Number(summary?.finalized ?? 0);
+    errors += Number(summary?.errors ?? 0);
+    hasMore = !!summary?.has_more;
+    afterRowid = summary?.next_after_rowid ?? null;
+    if (!hasMore || afterRowid == null) break;
+  }
 
-  if (errors === 0) {
-    // Automatic finalization is granted only now, and as a JSON boolean —
-    // projectConnectionBehaviour ignores a number here.
-    await env.DB.prepare(
-      `UPDATE connections SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?), updated_at = ?
-        WHERE id = ?`
-    ).bind(JSON.stringify({ auto_finalize: true }), new Date().toISOString(), conn.id).run();
+  // No flag is flipped here, and that is deliberate. Enrolment already required
+  // `auto_finalize === true` — the connection has always WANTED to certify, and
+  // what stopped it was this answer being missing. Recording the "yes" above is
+  // what lifts the hold; patching the flag as well would look like the grant and
+  // be a no-op, which is worse than doing nothing.
+  const closed = `${finalized} ${finalized === 1 ? "documento" : "documentos"}`;
 
+  if (errors === 0 && !hasMore) {
     return page("Confirmado",
       `<h1>Feito</h1>`
-      + `<p>Fechámos ${Number(summary?.finalized ?? 0)} ${Number(summary?.finalized ?? 0) === 1 ? "documento" : "documentos"} de ${label}, do mais antigo para o mais recente.</p>`
+      + `<p>Fechámos ${closed} de ${label}, do mais antigo para o mais recente.</p>`
       + `<p>A partir de agora as faturas seguintes são fechadas automaticamente, sem lhe perguntarmos outra vez.</p>`);
   }
 
-  // Errors leave auto_finalize where it was. Granting it now would mean the
-  // next sale certifies automatically on a connection that just failed to
-  // certify by hand.
   return page("Quase",
     `<h1>Obrigado — falta uma parte</h1>`
-    + `<p>Fechámos ${Number(summary?.finalized ?? 0)}, mas ${errors} ${errors === 1 ? "ficou" : "ficaram"} por fechar e ninguém as vai fechar às escondidas.</p>`
-    + `<p>Já sabemos disto e vamos tratar. Se quiser acelerar: <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> ou <a href="${SUPPORT_CALL}">marcar 15 minutos</a>.</p>`);
+    + `<p>Fechámos ${closed}`
+    + (errors ? `, mas ${errors} ${errors === 1 ? "ficou" : "ficaram"} por fechar` : "")
+    + (hasMore ? " e ainda há mais à espera" : "")
+    + `. Ninguém as vai fechar às escondidas.</p>`
+    + `<p>As faturas novas passam a ser fechadas automaticamente; estas ficam connosco e vamos tratar delas. `
+    + `Se quiser acelerar: <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> ou <a href="${SUPPORT_CALL}">marcar 15 minutos</a>.</p>`);
 }

@@ -4,7 +4,10 @@ import { useState, useEffect, useMemo } from "react";
 import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off, Pencil, Eye, Moon, Mail, Filter } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
-import { Link } from "@/i18n/navigation";
+// next/link, not the i18n one: every href below points inside /admin, which is
+// deliberately not locale-prefixed. The i18n Link would emit /pt/admin/... and
+// that is a 404 — the middleware bypass covers /admin only.
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { kindLabel } from "@/lib/connection-kinds";
 
@@ -562,7 +565,7 @@ export function SuperadminPanel() {
                         )}
 
                         {!isSelf && (
-                            <Link href={`/superadmin/users/${user.id}/dev-mode`}
+                            <Link href={`/admin/users/${user.id}/dev-mode`}
                                 className="bg-accent/10 text-accent-ink border border-accent/20 px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent/18 transition-all active:scale-95">
                                 <Wrench className="w-3 h-3" /> {t("devMode")}
                             </Link>
@@ -696,7 +699,7 @@ export function SuperadminPanel() {
                                 {t("impersonate")}
                             </button>
                         )}
-                        <Link href={`/superadmin/users/${inv.account_id}/dev-mode`}
+                        <Link href={`/admin/users/${inv.account_id}/dev-mode`}
                             className="bg-accent/10 text-accent-ink border border-accent/20 px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent/18 transition-all active:scale-95">
                             <Wrench className="w-3 h-3" /> {t("devMode")}
                         </Link>

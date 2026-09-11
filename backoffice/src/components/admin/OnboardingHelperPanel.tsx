@@ -105,6 +105,22 @@ function Method({ eyebrow, title, subtitle, accent = "sky", children }: {
     );
 }
 
+/** Both methods create the same app and hit the same gate, so they say it once. */
+function OldOrdersNote() {
+    return (
+        <WarnBox>
+            <strong><Code>read_all_orders</Code> não entra na lista</strong> e é de propósito: é um scope protegido, que a Shopify só concede por pedido.
+            Colado numa versão sem essa aprovação, o Dev Dashboard responde <em>Contains invalid scopes</em> e não deixa lançar.
+            <br />
+            O que custa até estar concedido: a Admin API esconde encomendas com <strong>mais de 60 dias</strong>, por isso o varrimento de reconciliação
+            e qualquer reemissão de backlog não vêem nada para trás disso. A facturação corrente não é afectada, porque o webhook traz a encomenda consigo.
+            <br />
+            Para pedir: <strong>Request access</strong> no topo da secção API access do Dev Dashboard. Concedido, acrescenta-se numa nova versão e
+            reemite-se o token, que é o que passa a ter o scope.
+        </WarnBox>
+    );
+}
+
 function InfoBox({ children }: { children: React.ReactNode }) {
     return (
         <div className="bg-accent/5 border border-accent/20 rounded-2xl p-4 flex items-start gap-3">
@@ -370,6 +386,11 @@ export function OnboardingHelperPanel() {
     const [shopDomain, setShopDomain] = useState("");
     const [clientId, setClientId] = useState("");
 
+    // Editable because two populations of app exist: the ones Shopify has
+    // granted read_all_orders and the ones it has not. Asking for it on an app
+    // without the grant fails before the consent screen; dropping it on an app
+    // that HAS it silently costs that store every order older than 60 days.
+    const [scopes, setScopes] = useState(SCOPES);
     const [stateParam, setStateParam] = useState("kapta123");
     const [redirectUri, setRedirectUri] = useState("https://example.com/");
 
@@ -461,10 +482,10 @@ export function OnboardingHelperPanel() {
         if (!shop || !clientId) return "";
         return `https://${shop}/admin/oauth/authorize`
             + `?client_id=${encodeURIComponent(clientId)}`
-            + `&scope=${SCOPES}`
+            + `&scope=${scopes || SCOPES}`
             + `&redirect_uri=${encodeURIComponent(redirectUri || "https://example.com/")}`
             + `&state=${encodeURIComponent(stateParam || "kapta123")}`;
-    }, [shop, clientId, redirectUri, stateParam]);
+    }, [shop, clientId, redirectUri, stateParam, scopes]);
 
     const curlPs = useMemo(() => {
         if (!shop || !clientId || !clientSecret || !authCode) return "";
@@ -600,6 +621,7 @@ export function OnboardingHelperPanel() {
                     Os scopes <Code>write_webhooks</Code> / <Code>read_webhooks</Code> <strong>não existem</strong>. Criar uma subscrição exige só o scope do tópico, e o <Code>read_orders</Code> cobre os quatro.
                     Neste método os webhooks são criados à mão <strong>por opção</strong>, não por falta de permissão: quem os cria pela API é o Método 2.
                 </WarnBox>
+                <OldOrdersNote />
                 <div>
                     <h3 className="text-sm font-bold text-fg mb-2">Versão e Release</h3>
                     <ol className="space-y-2 text-sm text-fg-60 list-decimal list-inside">
@@ -633,6 +655,10 @@ export function OnboardingHelperPanel() {
                         <Field label="State" value={stateParam} onChange={(e) => setStateParam(e.target.value)} />
                     </div>
                     <Field label="Redirect URI" value={redirectUri} onChange={(e) => setRedirectUri(e.target.value)} />
+                    <Field label="Scopes" value={scopes} onChange={(e) => setScopes(e.target.value)} />
+                    <p className="text-xs text-fg-40 -mt-2">
+                        Tem de bater certo com os scopes da versão activa da app. Se a app <strong className="text-fg-60">tiver</strong> a aprovação de <Code>read_all_orders</Code>, acrescentar aqui: sem ele, o token novo deixa de ler encomendas com mais de 60 dias.
+                    </p>
 
                     <Output label="URL gerado" text={authorizeUrl} copied={copiedKey === "b-output"} onCopy={() => copy("b-output", authorizeUrl)} />
 
@@ -951,6 +977,7 @@ export function OnboardingHelperPanel() {
                     <WarnBox>
                         Os scopes <Code>write_webhooks</Code> / <Code>read_webhooks</Code> <strong>não existem e não são precisos</strong>: criar uma subscrição exige só o scope do tópico, e o <Code>read_orders</Code> cobre os quatro.
                     </WarnBox>
+                    <OldOrdersNote />
                     <DangerBox>
                         <strong>Não instalar a app pelo botão da lista.</strong> A instalação faz-se pelo botão da Parte B, que é o que leva o <Code>state</Code> e traz o code de volta a nós.
                     </DangerBox>

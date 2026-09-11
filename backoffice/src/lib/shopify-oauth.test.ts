@@ -68,6 +68,14 @@ describe("buildAuthorizeUrl", () => {
         expect(shopifyCallbackUri()).toBe("https://rioko.online/api/shopify/oauth/callback");
     });
 
+    it("leaves read_all_orders out, because asking for it unapproved fails the install", () => {
+        // Shopify gates it behind Request access and the Dev Dashboard refuses a
+        // version containing it, so an authorize URL asking for it never reaches
+        // a consent screen. Re-adding it here would break every new onboarding.
+        expect(SHOPIFY_SCOPES).not.toContain("read_all_orders");
+        expect(SHOPIFY_SCOPES).toContain("read_orders");
+    });
+
     it("takes whatever the operator pasted", () => {
         expect(cleanShopDomain("https://demo-store.myshopify.com/admin/settings/general"))
             .toBe("demo-store.myshopify.com");

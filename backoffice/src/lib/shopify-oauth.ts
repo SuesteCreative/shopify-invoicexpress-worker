@@ -33,7 +33,27 @@ export function shopifyCallbackUri(): string {
     return `${RIOKO_CONFIG.appUrl}${SHOPIFY_CALLBACK_PATH}`;
 }
 
-export const SHOPIFY_SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_all_orders,read_products";
+/**
+ * What we ask for at install.
+ *
+ * `read_all_orders` is NOT here, and its absence is deliberate. Shopify gates it
+ * behind an approval — the Dev Dashboard refuses to accept it in a version and
+ * answers "Contains invalid scopes" until the app has been granted it through
+ * Request access — so an authorize URL asking for it on an unapproved app fails
+ * before the consent screen. Everything the live pipeline needs works without
+ * it: webhooks deliver their own payload, and `read_orders` reads back the last
+ * 60 days.
+ *
+ * What it costs until it is granted: the Admin API hides orders OLDER than 60
+ * days, so the reconciliation sweep and any backlog re-issue see nothing beyond
+ * that window. The worker already names this exact cause when an order cannot
+ * be found (src/services/shopify-orders.ts).
+ */
+export const SHOPIFY_SCOPES = "read_customers,read_discounts,read_order_edits,read_orders,read_products";
+
+/** Granted per app by Shopify, never typed in blind. Appended to the scopes of
+ *  an app that has the approval — see the builder in the onboarding helper. */
+export const SHOPIFY_SCOPE_OLD_ORDERS = "read_all_orders";
 
 /** REST version used by this flow. Keep on a SUPPORTED version (review yearly):
  *  a retired one answers 404 {"errors":"Not Found"} even with a valid token. */

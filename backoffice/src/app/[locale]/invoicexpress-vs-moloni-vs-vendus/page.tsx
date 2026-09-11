@@ -3,6 +3,7 @@ import { setRequestLocale, getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import JsonLd from "@/components/JsonLd";
 import { LegalLinks } from "@/components/LegalLinks";
+import { SiteLinks } from "@/components/SiteLinks";
 import { LangToggle } from "@/components/landing/LangToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { breadcrumbSchema, faqSchema } from "@/lib/schema";
@@ -260,6 +261,7 @@ export default async function ComparePage({ params }: Props) {
                 </section>
 
                 <footer className="mt-20 flex flex-wrap items-center justify-center gap-3 border-t border-hairline pt-8 text-xs text-fg-40">
+                    <SiteLinks className="transition-colors hover:text-fg-60" />
                     <LegalLinks className="transition-colors hover:text-fg-60" />
                 </footer>
             </div>

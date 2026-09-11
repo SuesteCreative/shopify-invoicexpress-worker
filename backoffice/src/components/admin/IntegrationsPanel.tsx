@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
     Loader2, AlertTriangle, Search, Trash2, RotateCcw, Pause, Play,
-    Wrench, X, CheckCircle2, CircleDashed, Ban,
+    Wrench, X, CheckCircle2, CircleDashed, Ban, UserCog,
 } from "lucide-react";
 import { kindLabel } from "@/lib/connection-kinds";
+import { merchantIntegrationHref } from "@/lib/merchant-routes";
 
 /**
  * Every integration in the fleet, whether anyone finished setting it up.
@@ -57,6 +58,16 @@ interface LegacyImpact {
 /** The phrase the server demands. Identical for both row shapes, because the
  *  legacy pipe IS shopify:invoicexpress — named once so it cannot drift. */
 const confirmPhrase = (row: Row) => `${row.source}:${row.destination}`;
+
+/**
+ * Where this integration lives in the merchant's own app.
+ *
+ * The route is kebab-cased and the kind is not, and InvoiceXpress is `ix` in a
+ * path and `invoicexpress` everywhere else. Getting either wrong lands an
+ * impersonated admin on a 404 wearing somebody else's session, which is the
+ * worst place to discover a typo.
+ */
+const merchantHref = (row: Row) => merchantIntegrationHref(row.source, row.destination);
 
 const n = (v: number) => new Intl.NumberFormat("pt-PT").format(v);
 
@@ -150,9 +161,42 @@ export function IntegrationsPanel() {
             setTyped("");
             setForceImpact(null);
             await load();
+
+            // The server answers `already_gone` when it found nothing to act on.
+            // For a destructive action an operator explicitly asked for, that is
+            // not success — it means the list they clicked was out of date, and
+            // it looked exactly like a delete that silently did nothing. Said
+            // AFTER the reload, because load() clears the error on its way out.
+            if (body?.already_gone) {
+                setError("Não havia nada sobre que agir — a lista estava desactualizada. Foi recarregada.");
+            }
         } catch (e) {
             setError(String((e as Error).message ?? e));
         } finally {
+            setBusy(null);
+        }
+    };
+
+    /**
+     * Become this client, and land on this integration.
+     *
+     * A full navigation, not a router push: the cookie is set server-side and a
+     * client-side transition would keep rendering the admin's own identity. The
+     * banner in the merchant shell is what says whose account this is, and the
+     * way back out.
+     */
+    const impersonate = async (row: Row) => {
+        setBusy(row.id);
+        try {
+            const res = await fetch("/api/admin/impersonate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetId: row.user_id }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            window.location.href = merchantHref(row);
+        } catch (e) {
+            setError(String((e as Error).message ?? e));
             setBusy(null);
         }
     };
@@ -353,6 +397,20 @@ export function IntegrationsPanel() {
 
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-1 justify-end">
+                                            {/* An orphan has no account left to
+                                                become — impersonating a deleted
+                                                user resolves to nothing. */}
+                                            {!r.orphan && (
+                                                <button
+                                                    onClick={() => impersonate(r)}
+                                                    disabled={busy === r.id}
+                                                    title="Entrar como este cliente, nesta integração"
+                                                    className="p-2 rounded-lg text-fg-40 hover:text-soon hover:bg-soon/10 transition-colors disabled:opacity-40"
+                                                >
+                                                    {busy === r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCog className="w-4 h-4" />}
+                                                </button>
+                                            )}
+
                                             <Link
                                                 href={`/admin/users/${r.user_id}/dev-mode`}
                                                 title="Abrir a ficha do cliente"
@@ -404,9 +462,10 @@ export function IntegrationsPanel() {
             <p className="text-[11px] text-fg-40 leading-relaxed">
                 Apagar e repor tocam apenas na integração: credenciais, definições e a autorização
                 do Stripe. As facturas já emitidas e os registos que as guardam ficam intactos — é
-                o que impede uma nova configuração de refacturar um ano de vendas. A linha legada
-                Shopify → InvoiceXpress não se apaga aqui: não é uma linha própria, são colunas da
-                conta, e removê-la é apagar a configuração original do cliente.
+                o que impede uma nova configuração de refacturar um ano de vendas. Na linha legada
+                Shopify → InvoiceXpress os dois verbos pesam mais: repor limpa as credenciais e deixa
+                as definições fiscais da conta intactas, apagar remove a linha inteira e leva-as com
+                ela — e recusa enquanto o cano tiver documentos emitidos.
             </p>
 
             {pending && (

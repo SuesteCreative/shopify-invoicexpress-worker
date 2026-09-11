@@ -583,7 +583,8 @@ export function OnboardingHelperPanel() {
             {/* Parte A */}
             <Section id="parte-a" icon={<Settings2 className="w-5 h-5" />} title="Criar App no Shopify Dev Dashboard" eyebrow="Parte A" accent="sky">
                 <p className="text-sm text-fg-60">
-                    Aceder a <a href="https://partners.shopify.com/" target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">partners.shopify.com</a> → <strong>Apps</strong> → <strong>Create app</strong> → manualmente.
+                    No admin da Shopify do cliente: <strong className="text-fg">nome da loja</strong> no canto superior direito, ícone <Code>{"</>"}</Code> → <strong className="text-fg">View Dev Dashboard</strong> → <strong className="text-fg">Create app</strong>.
+                    <strong className="text-fg"> Não é preciso conta de Partner</strong>, e não é o fluxo de custom app com &quot;Reveal token once&quot;.
                 </p>
                 <DataTable
                     headers={["Campo", "Valor"]}
@@ -596,7 +597,8 @@ export function OnboardingHelperPanel() {
                     ]}
                 />
                 <WarnBox>
-                    Os scopes <Code>write_webhooks</Code> / <Code>read_webhooks</Code> <strong>não são pedidos</strong> — webhooks serão criados manualmente no Passo 2 do integrador.
+                    Os scopes <Code>write_webhooks</Code> / <Code>read_webhooks</Code> <strong>não existem</strong>. Criar uma subscrição exige só o scope do tópico, e o <Code>read_orders</Code> cobre os quatro.
+                    Neste método os webhooks são criados à mão <strong>por opção</strong>, não por falta de permissão: quem os cria pela API é o Método 2.
                 </WarnBox>
                 <div>
                     <h3 className="text-sm font-bold text-fg mb-2">Versão e Release</h3>
@@ -772,7 +774,10 @@ export function OnboardingHelperPanel() {
                     </div>
 
                     <p className="text-sm text-fg-60 mt-3 mb-2"><strong className="text-fg">2.2 — No integrador Rioko:</strong> introduzir o Webhook Signing Secret copiado na Parte D.</p>
-                    <p className="text-xs text-fg-40">Clicar <strong className="text-fg-60">Confirmar Instalação Manual</strong> (não usar &quot;Instalar Webhooks&quot; — o token não tem <Code>write_webhooks</Code>).</p>
+                    <p className="text-xs text-fg-40">
+                        Clicar <strong className="text-fg-60">Confirmar Instalação Manual</strong>. O antigo &quot;Instalar Webhooks&quot; responde <Code>410</Code>: criava um segundo conjunto,
+                        da app, assinado com outro segredo, e todas as entregas desse conjunto eram rejeitadas. Para ter os webhooks criados pela API, é o Método 2.
+                    </p>
                 </div>
 
                 <div>

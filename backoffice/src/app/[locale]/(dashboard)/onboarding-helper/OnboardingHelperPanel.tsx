@@ -15,6 +15,16 @@ const API_VERSION = "2026-04";
 
 const WEBHOOK_BASE = "https://shopify-invoicexpress-worker.pedrotovarporto.workers.dev/webhooks/shopify";
 
+// Páginas públicas de onboarding (link que se manda ao cliente antes de ele ter conta).
+// Ao criar uma nova página de onboarding, acrescentar aqui a entrada.
+const ONBOARDING_LINKS: { href: string; label: string; hint: string }[] = [
+    {
+        href: "/onboarding/stripe-connect-moloni",
+        label: "Stripe Connect → Moloni (OAuth v2)",
+        hint: "Seis passos: conta, dados da empresa, Stripe Connect, Moloni OAuth v2, definições e subscrição.",
+    },
+];
+
 function cleanShop(raw: string) {
     if (!raw) return "";
     return raw
@@ -258,6 +268,34 @@ export function OnboardingHelperPanel() {
                 <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
                 Voltar ao Dashboard
             </Link>
+
+            {/* Links de onboarding público */}
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-4">
+                <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-surface-2 border border-hairline flex items-center justify-center shrink-0 text-accent-hot">
+                        <Link2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <div className="text-[10px] font-black text-fg-40 uppercase tracking-[0.2em] mb-1">Links de onboarding</div>
+                        <h2 className="text-2xl font-black text-fg">Páginas para enviar ao cliente</h2>
+                    </div>
+                </div>
+                <div className="ml-0 sm:ml-16 space-y-3">
+                    {ONBOARDING_LINKS.map((item) => (
+                        <Link
+                            key={item.href}
+                            href={item.href}
+                            className="flex items-start gap-3 rounded-2xl border border-hairline bg-surface-2 px-4 py-3 hover:border-accent/40 transition-colors group"
+                        >
+                            <ExternalLink className="w-4 h-4 text-accent-ink shrink-0 mt-0.5" />
+                            <div>
+                                <div className="text-sm font-bold text-fg group-hover:text-accent-ink transition-colors">{item.label}</div>
+                                <div className="text-xs text-fg-60 mt-0.5">{item.hint}</div>
+                            </div>
+                        </Link>
+                    ))}
+                </div>
+            </div>
 
             {/* Page header */}
             <div className="glass rounded-[2rem] p-6 sm:p-10 border-hairline space-y-4">

@@ -143,6 +143,105 @@ export async function resetConnection(
     return { ok: true, revoked_at_stripe: revokedAtStripe };
 }
 
+/* ───────────────── the legacy Shopify → InvoiceXpress pipe ─────────────────
+ *
+ * It is not a `connections` row. It is a set of columns on the account's
+ * `integrations` row, which also carries around thirty-five fiscal settings —
+ * VAT inclusion, exemption reasons, retention, auto-finalize. So the two verbs
+ * mean different things here than they do for a connection, and the difference
+ * is the whole reason these are separate functions rather than a flag:
+ *
+ *  - reset clears the credentials and leaves the fiscal settings alone, which
+ *    is what you want for a client starting their setup again;
+ *  - delete removes the row, fiscal settings included, which is only ever right
+ *    for a row nobody finished — a test entry, an abandoned onboarding.
+ */
+
+/** What deleting this row would take with it, so an operator sees it first. */
+export interface LegacyImpact {
+    configured: boolean;
+    shopify_domain: string | null;
+    ix_account_name: string | null;
+    documents: number;
+}
+
+export async function legacyImpact(db: D1Database, userId: string): Promise<LegacyImpact | null> {
+    const row: any = await db.prepare(
+        `SELECT shopify_domain, ix_account_name FROM integrations WHERE user_id = ? LIMIT 1`
+    ).bind(userId).first();
+    if (!row) return null;
+
+    const docs: any = await db.prepare(
+        `SELECT COUNT(*) AS n FROM processed_orders
+          WHERE user_id = ? AND invoice_id IS NOT NULL
+            AND (source_kind IS NULL OR source_kind = 'shopify')`
+    ).bind(userId).first().catch(() => ({ n: 0 }));
+
+    return {
+        configured: !!(row.shopify_domain || row.ix_account_name),
+        shopify_domain: row.shopify_domain ?? null,
+        ix_account_name: row.ix_account_name ?? null,
+        documents: Number(docs?.n ?? 0),
+    };
+}
+
+/** Clear the credentials, keep the row and every fiscal setting on it. */
+export async function resetLegacyIntegration(db: D1Database, userId: string): Promise<DeleteResult> {
+    const res: any = await db.prepare(
+        `UPDATE integrations
+            SET shopify_domain = NULL, shopify_token = NULL, shopify_webhook_secret = NULL,
+                ix_account_name = NULL, ix_api_key = NULL,
+                shopify_authorized = 0, ix_authorized = 0, webhooks_active = 0,
+                shopify_error = NULL, ix_error = NULL,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ?`
+    ).bind(userId).run();
+
+    if ((res?.meta?.changes ?? 0) === 0) return { ok: true, already_gone: true };
+    return { ok: true };
+}
+
+/**
+ * Remove the legacy integration row outright.
+ *
+ * Takes the account's fiscal settings with it, so it is guarded: a pipe that
+ * has issued documents refuses unless the caller says `force`, and says what is
+ * attached rather than asking "are you sure?", which nobody reads. Same shape
+ * as the account delete in /api/admin/users, and for the same reason — an
+ * account was once deleted whole because nothing had asked.
+ *
+ * `processed_orders` and the documents themselves stay, exactly as elsewhere.
+ */
+export async function deleteLegacyIntegration(
+    db: D1Database,
+    userId: string,
+    force = false,
+): Promise<DeleteResult | { ok: false; requires_force: true; impact: LegacyImpact }> {
+    const impact = await legacyImpact(db, userId);
+    if (!impact) return { ok: true, already_gone: true };
+
+    if (!force && impact.documents > 0) {
+        return { ok: false, requires_force: true, impact };
+    }
+
+    await db.prepare("DELETE FROM integrations WHERE user_id = ?").bind(userId).run();
+    return { ok: true };
+}
+
+/** The legacy pipe's kill switch, which the worker's pause gate already reads. */
+export async function setLegacyPaused(
+    db: D1Database,
+    userId: string,
+    paused: boolean,
+): Promise<{ ok: boolean; already_gone?: true }> {
+    const res: any = await db.prepare(
+        `UPDATE integrations SET is_paused = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`
+    ).bind(paused ? 1 : 0, userId).run();
+
+    if ((res?.meta?.changes ?? 0) === 0) return { ok: true, already_gone: true };
+    return { ok: true };
+}
+
 /** Pause or resume. `paused` is the kill switch the pipeline already honours. */
 export async function setConnectionStatus(
     db: D1Database,

@@ -5,7 +5,10 @@ import { isAdmin, isHiperadmin } from "@/lib/admin";
 import { accountLabel } from "@/lib/labels";
 import { subscriptionUIState } from "@/lib/stripe";
 import { isSourceKind, isDestinationKind } from "@/lib/connection-kinds";
-import { deleteConnection, resetConnection, setConnectionStatus } from "@/lib/connection-lifecycle";
+import {
+    deleteConnection, resetConnection, setConnectionStatus,
+    deleteLegacyIntegration, resetLegacyIntegration, setLegacyPaused,
+} from "@/lib/connection-lifecycle";
 
 export const runtime = "edge";
 
@@ -39,6 +42,10 @@ interface SubRow {
     trial_end: string | null;
     early_bird: number | null;
     stripe_subscription_id: string | null;
+    /** The checkout's own contact snapshot. It survives a Clerk-side deletion,
+     *  which is the only thing left naming an orphaned connection. */
+    name: string | null;
+    email: string | null;
 }
 
 const rows = (r: any): any[] => (r?.results ?? []) as any[];
@@ -81,7 +88,8 @@ export async function GET() {
             ).all().catch(() => ({ results: [] })),
             db.prepare(CONN_SQL).all().catch(() => db.prepare(CONN_SQL_LEGACY).all()),
             db.prepare(
-                `SELECT user_id, connection_key, status, trial_end, early_bird, stripe_subscription_id
+                `SELECT user_id, connection_key, status, trial_end, early_bird,
+                        stripe_subscription_id, name, email
                  FROM subscriptions`
             ).all().catch(() => ({ results: [] })),
             db.prepare(
@@ -119,6 +127,20 @@ export async function GET() {
             docsByPipe.set(`${o.user_id}::${o.source_kind}::${o.destination_kind}`, Number(o.n));
         }
 
+        /**
+         * What to call an account whose `users` row is gone.
+         *
+         * The Clerk webhook's "deep delete" only removed `integrations` and
+         * `users`, so a connection could outlive its owner with nothing but a
+         * Clerk id naming it — unreadable, and impossible to tell apart from
+         * any other. The subscription's checkout snapshot survives that path,
+         * so it is the last thing that knows who this was.
+         */
+        const orphanLabel = (userId_: string): string | null => {
+            const s = (subsByUser.get(userId_) ?? []).find((x) => x.name || x.email);
+            return s?.name || s?.email || null;
+        };
+
         /** The verdict the worker's gate would reach for this pipe. */
         const subStateFor = (userId_: string, key: string, role: string | null) => {
             if (role === "superadmin" || role === "hiperadmin") return "exempt";
@@ -144,8 +166,8 @@ export async function GET() {
                 kind: "connection",
                 id: c.id,
                 user_id: c.user_id,
-                account: u ? accountLabel(u, u.email) : c.user_id,
-                email: u?.email ?? null,
+                account: u ? accountLabel(u, u.email) : (orphanLabel(c.user_id) ?? c.user_id),
+                email: u?.email ?? orphanLabel(c.user_id),
                 account_inactive: Number(u?.is_inactive ?? 0) === 1,
                 account_role: u?.role ?? "user",
                 /** An account row that no longer exists. Real, and worth seeing. */
@@ -178,7 +200,7 @@ export async function GET() {
                 kind: "legacy",
                 id: `legacy::${i.user_id}`,
                 user_id: i.user_id,
-                account: u ? accountLabel(u, u.email) : i.user_id,
+                account: u ? accountLabel(u, u.email) : (orphanLabel(i.user_id) ?? i.user_id),
                 email: u?.email ?? null,
                 account_inactive: Number(u?.is_inactive ?? 0) === 1,
                 account_role: u?.role ?? "user",
@@ -198,11 +220,9 @@ export async function GET() {
                 created_at: i.created_at ?? null,
                 updated_at: i.updated_at ?? null,
                 sub_state: subStateFor(i.user_id, LEGACY_KEY, u?.role ?? null),
-                // The legacy pipe is a column set on the `integrations` row, not
-                // a row of its own — "deleting" it means clearing an account's
-                // original setup, which is the account-level delete's job, not
-                // this table's.
-                can_delete: false,
+                // Its verbs mean something different — see connection-lifecycle:
+                // reset keeps the fiscal settings, delete takes them with it.
+                can_delete: true,
             });
         }
 
@@ -235,15 +255,18 @@ export async function POST(request: NextRequest) {
 
         const body = await request.json() as {
             action?: string;
+            kind?: string;
             targetUserId?: string;
             source_kind?: string;
             destination_kind?: string;
             confirm?: string;
+            force?: boolean;
         };
 
         const { action, targetUserId, source_kind: src, destination_kind: dest } = body;
+        const legacy = body.kind === "legacy";
         if (!targetUserId) return NextResponse.json({ error: "Missing targetUserId" }, { status: 400 });
-        if (!isSourceKind(src) || !isDestinationKind(dest)) {
+        if (!legacy && (!isSourceKind(src) || !isDestinationKind(dest))) {
             return NextResponse.json({ error: "Unknown connection kind" }, { status: 400 });
         }
 
@@ -251,33 +274,48 @@ export async function POST(request: NextRequest) {
         const db = (env as any).DB;
         if (!db) return NextResponse.json({ error: "No database binding" }, { status: 500 });
 
-        // Never let an operator act on an admin's own integrations by accident,
-        // and keep superadmins out of hiperadmin accounts — the same
-        // invisibility rule /api/admin/users applies to the client list.
+        // Keep superadmins out of hiperadmin accounts — the same invisibility
+        // rule /api/admin/users applies to the client list. An orphan has no
+        // users row to read a role from, and is nobody's account to protect.
         const target: any = await db.prepare("SELECT role FROM users WHERE id = ?").bind(targetUserId).first();
         if (target?.role === "hiperadmin" && !(await isHiperadmin(userId))) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
         }
 
+        const what = legacy ? LEGACY_KEY : `${src}:${dest}`;
+        const say = (result: unknown) => {
+            console.warn(`[admin/integrations] ${action} ${what} on ${targetUserId} by ${userId}`);
+            return NextResponse.json(result as any);
+        };
+
         if (action === "pause" || action === "resume") {
-            const result = await setConnectionStatus(db, targetUserId, src, dest, action === "pause" ? "paused" : "active");
-            console.warn(`[admin/integrations] ${action} ${src}:${dest} on ${targetUserId} by ${userId}`);
-            return NextResponse.json(result);
+            const paused = action === "pause";
+            return say(legacy
+                ? await setLegacyPaused(db, targetUserId, paused)
+                : await setConnectionStatus(db, targetUserId, src!, dest!, paused ? "paused" : "active"));
         }
 
         if (action !== "delete" && action !== "reset") {
             return NextResponse.json({ error: "Unknown action" }, { status: 400 });
         }
-        if (body.confirm !== `${src}:${dest}`) {
+        if (body.confirm !== what) {
             return NextResponse.json({ error: "Confirmation does not match this connection" }, { status: 400 });
         }
 
-        const result = action === "delete"
-            ? await deleteConnection(db, targetUserId, src, dest)
-            : await resetConnection(db, targetUserId, src, dest);
+        if (legacy) {
+            if (action === "reset") return say(await resetLegacyIntegration(db, targetUserId));
 
-        console.warn(`[admin/integrations] ${action} ${src}:${dest} on ${targetUserId} by ${userId}`);
-        return NextResponse.json(result);
+            // Deleting the legacy row takes the account's fiscal settings with
+            // it, so a pipe that has issued documents refuses and reports what
+            // is attached. The operator confirms against real numbers.
+            const result = await deleteLegacyIntegration(db, targetUserId, !!body.force);
+            if ("requires_force" in result) return NextResponse.json(result, { status: 409 });
+            return say(result);
+        }
+
+        return say(action === "delete"
+            ? await deleteConnection(db, targetUserId, src!, dest!)
+            : await resetConnection(db, targetUserId, src!, dest!));
     } catch (error: any) {
         console.error("[admin/integrations] POST failed:", error?.message ?? error);
         return NextResponse.json({ error: "action_failed" }, { status: 500 });

@@ -118,9 +118,38 @@ export async function POST(req: Request) {
         const { id } = evt.data;
         console.log(`[Clerk Webhook] Deleting user: ${id}`);
 
-        // Deep delete
-        await db.prepare("DELETE FROM integrations WHERE user_id = ?").bind(id).run();
-        await db.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
+        /**
+         * Everything keyed to the account, not just the two tables this used to
+         * remember.
+         *
+         * It deleted `integrations` and `users` and called itself a deep delete,
+         * which left `connections` behind: a live pipe, still holding Stripe
+         * credentials, still able to invoice, and belonging to a user row that
+         * no longer existed — so invisible to every page that joins to `users`.
+         * One such orphan was found in production on 11/09/2026, created the
+         * same minute its account was.
+         *
+         * Deliberately kept: `processed_orders`, `document_events` and `logs`.
+         * Those are the record of documents actually issued, and what made that
+         * orphan explicable at all. Same rule the admin delete follows.
+         */
+        for (const sql of [
+            "DELETE FROM tag_routing_rules WHERE user_id = ?",
+            "DELETE FROM product_mappings WHERE user_id = ?",
+            "DELETE FROM connections WHERE user_id = ?",
+            "DELETE FROM subscriptions WHERE user_id = ?",
+            "DELETE FROM account_members WHERE account_id = ?",
+            "DELETE FROM integrations WHERE user_id = ?",
+            "DELETE FROM users WHERE id = ?",
+        ]) {
+            // A table missing from an older database must not abort the rest:
+            // half a deletion is how the orphan above came to exist.
+            try {
+                await db.prepare(sql).bind(id).run();
+            } catch (e: any) {
+                console.warn(`[Clerk Webhook] ${sql.split(" ")[2]} cleanup skipped:`, e?.message ?? e);
+            }
+        }
     }
 
     return new Response("OK", { status: 200 });

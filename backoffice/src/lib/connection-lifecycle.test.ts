@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { deleteConnection, resetConnection, setConnectionStatus } from "./connection-lifecycle";
+import {
+    deleteConnection, resetConnection, setConnectionStatus,
+    deleteLegacyIntegration, resetLegacyIntegration, setLegacyPaused,
+} from "./connection-lifecycle";
 
 /**
  * These three functions are the destructive end of the admin console, and the
@@ -125,6 +128,115 @@ describe("resetConnection", () => {
         const h = harness();
         await resetConnection(h.db, "user_a", "stripe", "moloni");
         expect(h.count("processed_orders")).toBe(1);
+    });
+});
+
+/**
+ * The legacy pipe is columns on the account's `integrations` row, not a row of
+ * its own — and that row also carries the account's fiscal settings. Which of
+ * those two survives is the entire difference between reset and delete, so the
+ * fixture below holds both kinds of column.
+ */
+function legacyDb(opts: { documents?: number } = {}) {
+    const nodeSqlite = "node:sqlite";
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DatabaseSync } = require(nodeSqlite);
+    const sqlite = new DatabaseSync(":memory:");
+
+    sqlite.exec(`
+        CREATE TABLE integrations (
+            id TEXT PRIMARY KEY, user_id TEXT,
+            shopify_domain TEXT, shopify_token TEXT, shopify_webhook_secret TEXT,
+            ix_account_name TEXT, ix_api_key TEXT,
+            shopify_authorized INTEGER DEFAULT 0, ix_authorized INTEGER DEFAULT 0,
+            webhooks_active INTEGER DEFAULT 0,
+            shopify_error TEXT, ix_error TEXT,
+            is_paused INTEGER DEFAULT 0,
+            -- account configuration, which a reset must never touch
+            vat_included INTEGER DEFAULT 1, ix_exemption_reason TEXT, auto_finalize INTEGER DEFAULT 1,
+            updated_at TEXT
+        );
+        CREATE TABLE processed_orders (id TEXT PRIMARY KEY, user_id TEXT, source_kind TEXT, invoice_id TEXT);
+
+        INSERT INTO integrations
+          (id, user_id, shopify_domain, shopify_token, ix_account_name, ix_api_key,
+           shopify_authorized, ix_authorized, vat_included, ix_exemption_reason)
+        VALUES ('i1', 'user_a', 'shop.myshopify.com', 'shpat_x', 'conta-ix', 'key_x', 1, 1, 1, 'M10');
+    `);
+
+    for (let i = 0; i < (opts.documents ?? 0); i++) {
+        sqlite.exec(`INSERT INTO processed_orders (id, user_id, source_kind, invoice_id) VALUES ('o${i}', 'user_a', 'shopify', 'inv_${i}');`);
+    }
+
+    const db = {
+        prepare(sql: string) {
+            const stmt = sqlite.prepare(sql);
+            let bound: unknown[] = [];
+            const api = {
+                bind(...args: unknown[]) { bound = args; return api; },
+                async first() { return stmt.get(...bound) ?? null; },
+                async run() {
+                    const r = stmt.run(...bound);
+                    return { meta: { changes: Number(r.changes ?? 0) } };
+                },
+            };
+            return api;
+        },
+    } as any;
+
+    return {
+        db,
+        integration: (uid: string) => sqlite.prepare("SELECT * FROM integrations WHERE user_id = ?").get(uid) as any,
+        countOrders: () => Number((sqlite.prepare("SELECT COUNT(*) AS n FROM processed_orders").get() as any).n),
+    };
+}
+
+describe("the legacy Shopify pipe", () => {
+    it("reset clears the credentials and keeps every fiscal setting", async () => {
+        const h = legacyDb();
+        await resetLegacyIntegration(h.db, "user_a");
+
+        const r = h.integration("user_a");
+        expect(r.shopify_domain).toBeNull();
+        expect(r.ix_api_key).toBeNull();
+        expect(Number(r.shopify_authorized)).toBe(0);
+        // The part that must survive: this is the account's tax configuration,
+        // not the integration's credentials.
+        expect(Number(r.vat_included)).toBe(1);
+        expect(r.ix_exemption_reason).toBe("M10");
+    });
+
+    it("delete refuses while documents exist, and says how many", async () => {
+        const h = legacyDb({ documents: 3 });
+        const res: any = await deleteLegacyIntegration(h.db, "user_a");
+
+        expect(res.ok).toBe(false);
+        expect(res.requires_force).toBe(true);
+        expect(res.impact.documents).toBe(3);
+        expect(h.integration("user_a")).toBeTruthy();
+    });
+
+    it("delete goes ahead on a row nobody ever configured", async () => {
+        const h = legacyDb({ documents: 0 });
+        const res: any = await deleteLegacyIntegration(h.db, "user_a");
+        expect(res.ok).toBe(true);
+        expect(h.integration("user_a")).toBeUndefined();
+    });
+
+    it("force deletes the configuration and still keeps the documents", async () => {
+        const h = legacyDb({ documents: 3 });
+        const res: any = await deleteLegacyIntegration(h.db, "user_a", true);
+        expect(res.ok).toBe(true);
+        expect(h.integration("user_a")).toBeUndefined();
+        expect(h.countOrders()).toBe(3);
+    });
+
+    it("pauses and resumes with the flag the worker's gate reads", async () => {
+        const h = legacyDb();
+        await setLegacyPaused(h.db, "user_a", true);
+        expect(Number(h.integration("user_a").is_paused)).toBe(1);
+        await setLegacyPaused(h.db, "user_a", false);
+        expect(Number(h.integration("user_a").is_paused)).toBe(0);
     });
 });
 

@@ -46,6 +46,18 @@ interface Row {
 
 type Pending = { row: Row; action: "delete" | "reset" };
 
+/** What the server reports when a legacy delete would take too much with it. */
+interface LegacyImpact {
+    configured: boolean;
+    shopify_domain: string | null;
+    ix_account_name: string | null;
+    documents: number;
+}
+
+/** The phrase the server demands. Identical for both row shapes, because the
+ *  legacy pipe IS shopify:invoicexpress — named once so it cannot drift. */
+const confirmPhrase = (row: Row) => `${row.source}:${row.destination}`;
+
 const n = (v: number) => new Intl.NumberFormat("pt-PT").format(v);
 
 const dateOf = (s: string | null) => {
@@ -91,6 +103,7 @@ export function IntegrationsPanel() {
 
     const [pending, setPending] = useState<Pending | null>(null);
     const [typed, setTyped] = useState("");
+    const [forceImpact, setForceImpact] = useState<LegacyImpact | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -106,7 +119,7 @@ export function IntegrationsPanel() {
 
     useEffect(() => { void load(); }, [load]);
 
-    const act = async (row: Row, action: "delete" | "reset" | "pause" | "resume") => {
+    const act = async (row: Row, action: "delete" | "reset" | "pause" | "resume", force = false) => {
         setBusy(row.id);
         try {
             const res = await fetch("/api/admin/integrations", {
@@ -114,16 +127,28 @@ export function IntegrationsPanel() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     action,
+                    kind: row.kind,
                     targetUserId: row.user_id,
                     source_kind: row.source,
                     destination_kind: row.destination,
-                    confirm: `${row.source}:${row.destination}`,
+                    confirm: confirmPhrase(row),
+                    force,
                 }),
             });
             const body = await res.json() as any;
+
+            // 409: deleting this legacy row would take the account's fiscal
+            // settings with it and it has issued documents. Show what is
+            // attached and let the operator decide against real numbers.
+            if (res.status === 409 && body?.requires_force) {
+                setForceImpact(body.impact ?? null);
+                return;
+            }
             if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+
             setPending(null);
             setTyped("");
+            setForceImpact(null);
             await load();
         } catch (e) {
             setError(String((e as Error).message ?? e));
@@ -336,7 +361,7 @@ export function IntegrationsPanel() {
                                                 <Wrench className="w-4 h-4" />
                                             </Link>
 
-                                            {r.kind === "connection" && r.status !== "draft" && (
+                                            {r.status !== "draft" && (
                                                 <button
                                                     onClick={() => act(r, r.status === "paused" ? "resume" : "pause")}
                                                     disabled={busy === r.id}
@@ -390,8 +415,9 @@ export function IntegrationsPanel() {
                     typed={typed}
                     setTyped={setTyped}
                     busy={busy === pending.row.id}
-                    onCancel={() => { setPending(null); setTyped(""); }}
-                    onConfirm={() => act(pending.row, pending.action)}
+                    forceImpact={forceImpact}
+                    onCancel={() => { setPending(null); setTyped(""); setForceImpact(null); }}
+                    onConfirm={() => act(pending.row, pending.action, !!forceImpact)}
                 />
             )}
         </div>
@@ -403,17 +429,19 @@ export function IntegrationsPanel() {
  * server checks it either way — this is the part that makes a human read which
  * connection they are about to act on before it happens.
  */
-function ConfirmDialog({ pending, typed, setTyped, busy, onCancel, onConfirm }: {
+function ConfirmDialog({ pending, typed, setTyped, busy, forceImpact, onCancel, onConfirm }: {
     pending: Pending;
     typed: string;
     setTyped: (v: string) => void;
     busy: boolean;
+    forceImpact: LegacyImpact | null;
     onCancel: () => void;
     onConfirm: () => void;
 }) {
     const { row, action } = pending;
-    const phrase = `${row.source}:${row.destination}`;
+    const phrase = confirmPhrase(row);
     const destructive = action === "delete";
+    const legacy = row.kind === "legacy";
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-scrim backdrop-blur-sm" role="dialog" aria-modal="true">
@@ -434,15 +462,41 @@ function ConfirmDialog({ pending, typed, setTyped, busy, onCancel, onConfirm }: 
 
                 <div className={`rounded-2xl p-4 text-[13px] leading-relaxed ${destructive ? "bg-destructive/5 border border-destructive/20 text-fg" : "bg-soon/5 border border-soon/20 text-fg"}`}>
                     {destructive ? (
-                        <>A ligação desaparece, com as regras de tag e os mapeamentos de produto dela.</>
+                        legacy ? (
+                            <>A integração legada desaparece, <strong>e com ela as definições fiscais da
+                            conta</strong> — IVA incluído, motivos de isenção, retenção, finalização
+                            automática. Só é o que queres numa entrada que ninguém chegou a configurar.</>
+                        ) : (
+                            <>A ligação desaparece, com as regras de tag e os mapeamentos de produto dela.</>
+                        )
                     ) : (
-                        <>As credenciais e as definições são limpas e a ligação volta a rascunho, mantendo a linha e o histórico.</>
+                        legacy ? (
+                            <>As credenciais Shopify e InvoiceXpress são limpas. A linha fica, e com ela
+                            todas as definições fiscais da conta.</>
+                        ) : (
+                            <>As credenciais e as definições são limpas e a ligação volta a rascunho, mantendo a linha e o histórico.</>
+                        )
                     )}
                     {row.source === "stripe_connect" && " A autorização no Stripe do cliente é revogada."}
                     {row.documents > 0 && (
                         <> As <strong>{n(row.documents)}</strong> facturas já emitidas ficam onde estão.</>
                     )}
                 </div>
+
+                {forceImpact && (
+                    <div className="rounded-2xl p-4 bg-destructive/10 border border-destructive/40 text-[13px] text-fg space-y-1">
+                        <p className="font-medium text-destructive">Esta integração já emitiu documentos.</p>
+                        <p>
+                            {n(forceImpact.documents)} {forceImpact.documents === 1 ? "factura emitida" : "facturas emitidas"}
+                            {forceImpact.shopify_domain && <> · {forceImpact.shopify_domain}</>}
+                            {forceImpact.ix_account_name && <> · {forceImpact.ix_account_name}</>}
+                        </p>
+                        <p className="text-fg-40">
+                            As facturas ficam onde estão. O que desaparece é a configuração.
+                            Confirma outra vez para avançar mesmo assim.
+                        </p>
+                    </div>
+                )}
 
                 <div className="space-y-2">
                     <label className="block font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">
@@ -466,7 +520,7 @@ function ConfirmDialog({ pending, typed, setTyped, busy, onCancel, onConfirm }: 
                         className={`px-4 py-2 rounded-xl text-sm font-medium text-on-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 ${destructive ? "bg-destructive" : "bg-soon"}`}
                     >
                         {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {destructive ? "Apagar" : "Repor"}
+                        {destructive ? (forceImpact ? "Apagar mesmo assim" : "Apagar") : "Repor"}
                     </button>
                 </div>
             </div>

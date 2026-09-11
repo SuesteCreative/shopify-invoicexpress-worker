@@ -43,6 +43,12 @@
     // Nightly renewal of Moloni OAuth refresh tokens (they expire after 14 idle
     // days). Pointless until the first OAuth connection exists.
     "MOLONI_TOKEN_REFRESH_ENABLED": "1",
+    // Both ship DARK. The probe only ever turns `stripe_tax_from_source` on for
+    // an account that demonstrably charges tax; the run-in holds a new Connect
+    // connection's documents as drafts until its merchant has checked five.
+    // With these at "0" nothing behaves differently for anyone.
+    "STRIPE_TAX_PROBE_ENABLED": "0",
+    "RUN_IN_ENABLED": "0",
     "RESEND_FROM_EMAIL": "noreply@rioko.online",
     "KAPTA_DEV_EMAILS": "pedrotovarporto@gmail.com",
     "INCIDENT_DIGEST_ENABLED": "0",

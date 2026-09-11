@@ -158,6 +158,86 @@ moment is flipping the flags, and step 1 above undoes that without a deploy.
 
 ---
 
+## Exercising a LIVE connection without spending money
+
+A merchant's own past payments are the test data. Nothing here needs a new card
+charge, and the first two steps write nothing at all.
+
+**Before any of it, check two booleans** on the connection: `auto_finalize` must
+be `false` and `send_email` / `ix_send_email` must be off. They are the whole
+difference between a deletable draft and an AT-communicated document plus an
+email to the merchant's own customer.
+
+### 1. Preview the selection — writes nothing
+
+```
+POST /admin/connection/backfill
+  x-api-key: $ADMIN_API_KEY
+  {"user_id":"<uid>","source":"stripe_connect","destination":"moloni",
+   "from":"2026-08-01T00:00:00Z","to":"2026-09-01T00:00:00Z",
+   "dry_run":true,"limit":50}
+```
+
+Exercises the Connect credential resolution (platform key + `Stripe-Account`),
+the PaymentIntent listing and the billing rules, and reports each payment's real
+paid total. It does not touch the destination.
+
+### 2. Preview the finalization — still writes nothing
+
+```
+POST /admin/connection/finalize-drafts
+  {"user_id":"<uid>","source":"stripe_connect","destination":"moloni",
+   "dry_run":true,"limit":20,"date_strategy":"closest_available"}
+```
+
+The only dry run that reads the document at the destination AND the paid total
+at Stripe, runs the money gate and walks the date-candidate loop. It answers
+"would this close, and on what date" without closing anything.
+
+### 3. One real draft, from a payment that already happened
+
+```
+POST /admin/connection/backfill
+  {"user_id":"<uid>","source":"stripe_connect","destination":"moloni",
+   "from":"<one-hour window>","to":"…","limit":1,
+   "ignore_cutoff":true,"dry_run":false,
+   "reason":"pipeline smoke test","triggered_by":"pedro"}
+```
+
+Pick a payment from **before** `invoice_cutoff`, so you are not consuming a
+document the nightly heal owes the merchant. `ignore_cutoff` is what unlocks it,
+and it is the right flag rather than a forced re-emit: it destroys nothing and
+leaves the reference guard armed.
+
+This runs the whole thing — pause gate, subscription gate, the order claim,
+normalize, `decideVat`, `findByReference`, tag routing, the currency guard,
+`createDraft`.
+
+**What it leaves behind on Moloni:** the draft, plus a customer record and a
+product record in the merchant's live account. `createDraft` inserts those
+before the document exists, and deleting the draft does not remove them.
+
+**Cleanup, both halves:**
+
+```
+POST /admin/connection/delete-draft   {"user_id":…,"external_id":"pi_…","reason":"smoke test"}
+POST /admin/reconciliation/decision   → mark that payment NOT_NEEDED
+```
+
+The second is not optional. `runStripeHeal` runs at 04:00 and re-invoices
+anything un-invoiced in the last 30 days; the `NOT_NEEDED` decision is the only
+thing that permanently excludes a payment from it.
+
+### Not available on a Connect connection
+
+`/admin/stripe/replay` and `/admin/stripe/webhooks/*` hardcode
+`source_kind='stripe'` and need a `restricted_key`, which a Connect connection
+does not have. Re-posting a stored event body to `/webhooks/stripe/connect` is
+impossible: the signature is checked first and there is a 5-minute `t=` window.
+Stripe's own dashboard "Resend" is the only event-level replay, and it re-signs.
+
+---
+
 ## Test mode
 
 **Yes, Stripe Connect can be exercised against a sandbox.** Nothing about the

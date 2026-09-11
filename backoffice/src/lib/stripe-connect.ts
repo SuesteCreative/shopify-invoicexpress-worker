@@ -1,5 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
+import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest } from "next/server";
+import { callWorkerJson } from "@/lib/worker";
 import { resolveAccountUser } from "@/lib/account";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { RIOKO_CONFIG } from "@/lib/config";
@@ -58,6 +60,27 @@ export function moloniRedirectUri(connectionId: string): string {
  * state — test mode simply is not offered.
  */
 export type StripeMode = "live" | "test";
+
+/**
+ * Ask the worker to read this merchant's Stripe account the moment they go live.
+ *
+ * The worker and not here: only it holds `STRIPE_PLATFORM_SECRET_KEY`, and only
+ * it can turn `stripe_tax_from_source` on from what it finds. Backgrounded
+ * through `waitUntil`, because a merchant pressing "activate" should not wait
+ * on two Stripe reads, and a probe that fails changes nothing — the nightly
+ * sweep asks the same question again tomorrow.
+ */
+export function probeConnectionTaxInBackground(userId: string, destinationKind: string): void {
+    const work = callWorkerJson("/admin/connection/tax-probe", {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, destination_kind: destinationKind }),
+    }).catch(() => undefined);
+    try {
+        getRequestContext().ctx.waitUntil(work);
+    } catch {
+        // Outside a request scope (a build-time import, a test): let it run loose.
+    }
+}
 
 export function stripeConnectCredentials(mode: StripeMode) {
     const suffix = mode === "test" ? "_TEST" : "";

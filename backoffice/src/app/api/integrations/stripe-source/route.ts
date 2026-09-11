@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
+import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 
 export const runtime = "edge";
 
@@ -146,6 +147,12 @@ export async function POST(request: NextRequest) {
         hasFiscal ? JSON.stringify(fiscalPatch) : null, status, now, now,
         hasFiscal ? 1 : 0, status,
     ).run();
+
+    // Same as the Moloni wizard: activation is the first moment we can ask
+    // Stripe what this merchant's payments look like.
+    if (sourceKind === "stripe_connect" && status === "active") {
+        probeConnectionTaxInBackground(authResult.targetUserId, destinationKind);
+    }
 
     return NextResponse.json({ ok: true });
 }

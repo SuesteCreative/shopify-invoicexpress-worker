@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
     const row: any = await db
-        .prepare(`SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at
+        .prepare(`SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at,
+                         tax_probe_at, tax_probe_verdict, runin_asked_at, runin_answer
                     FROM connections WHERE user_id = ? AND source_kind = 'stripe_connect' LIMIT 1`)
         .bind(authResult.targetUserId)
         .first();
@@ -55,6 +56,18 @@ export async function GET(request: NextRequest) {
                 scope: src.scope ?? null,
                 connected_at: src.connected_at ?? null,
                 deauthorized_at: src.deauthorized_at ?? null,
+            },
+            // What Stripe says this account does about tax, and whether anyone
+            // has checked a document yet. Both are read-only here: the probe
+            // writes the verdict, the merchant's own answer writes the run-in.
+            tax_probe: {
+                verdict: row.tax_probe_verdict ?? null,
+                at: row.tax_probe_at ?? null,
+                tax_from_source: dest.stripe_tax_from_source === true,
+            },
+            run_in: {
+                asked_at: row.runin_asked_at ?? null,
+                answer: row.runin_answer ?? null,
             },
             moloni: {
                 authorized: !!dest.moloni_refresh_token,

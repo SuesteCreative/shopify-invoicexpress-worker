@@ -505,7 +505,7 @@ export async function runWeeklyPatternReport(
   return { ok: true, totalIncidents: rows.length, patterns: report.patterns.length };
 }
 
-async function resolveMerchantEmails(env: Env, userId?: string | null): Promise<string[]> {
+export async function resolveMerchantEmails(env: Env, userId?: string | null): Promise<string[]> {
   if (!userId) return [];
   // A parked account is dormant on purpose: nothing is being invoiced for them,
   // so every warning we would send is about work nobody intends to do. No

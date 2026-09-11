@@ -938,6 +938,124 @@
             "integrations": "See available integrations"
         }
     },
+    "comparePage": {
+        "meta": {
+            "title": "InvoiceXpress, Moloni or Vendus: which to pick for automatic invoicing | Rioko",
+            "description": "A practical comparison of the three certified Portuguese invoicing programs Rioko connects to Shopify, Stripe and Lodgify: document types, foreign currency, simplified invoices, and which one fits which case."
+        },
+        "breadcrumb": {
+            "home": "Home",
+            "page": "InvoiceXpress vs Moloni vs Vendus"
+        },
+        "hero": {
+            "eyebrow": "Comparison",
+            "h1": "InvoiceXpress, Moloni or Vendus?",
+            "sub": "All three are invoicing programs certified by the Portuguese tax authority, and all three issue valid documents. The choice is rarely about which is best: it is about which fits your case.",
+            "disclosure": "Disclosure: Rioko integrates with all three and charges the same for any of them. We have no commercial preference and this page does not pick a winner."
+        },
+        "common": {
+            "title": "What all three share",
+            "body": "Before the differences, it is worth saying what does not differ. On these points the three are equivalent, which is why the choice is rarely dramatic.",
+            "i1Title": "AT certification",
+            "i1Body": "All three are certified by the Portuguese tax authority. The document they issue is valid, whatever the sale came from.",
+            "i2Title": "ATCUD and reported series",
+            "i2Body": "All support series reported to the AT and stamp the ATCUD onto the document. Reporting the series is something you do once, in the program's own account.",
+            "i3Title": "Public API",
+            "i3Body": "All three expose an API that allows documents to be issued by integration, which is what Rioko uses. Nothing gets installed on your site.",
+            "i4Title": "Credit notes",
+            "i4Body": "A refund or cancellation produces the matching credit note in any of the three, partial refunds included."
+        },
+        "table": {
+            "title": "Where they differ in practice",
+            "note": "This table describes what the Rioko integration does with each program today, not each product's full feature catalog. For anything outside automatic invoicing, check with each vendor.",
+            "colFeature": "Criterion",
+            "rows": [
+                {
+                    "feature": "Invoice (FT)",
+                    "ix": "Yes",
+                    "moloni": "Yes",
+                    "vendus": "Yes"
+                },
+                {
+                    "feature": "Invoice-receipt (FR)",
+                    "ix": "Yes",
+                    "moloni": "Yes",
+                    "vendus": "Yes"
+                },
+                {
+                    "feature": "Simplified invoice",
+                    "ix": "Not through the integration",
+                    "moloni": "Yes, up to €1,000 (art. 40 CIVA)",
+                    "vendus": "Not through the integration"
+                },
+                {
+                    "feature": "Automatic credit note",
+                    "ix": "Yes",
+                    "moloni": "Yes",
+                    "vendus": "Yes"
+                },
+                {
+                    "feature": "Sale in foreign currency",
+                    "ix": "Converted to euro at the ECB rate for the date",
+                    "moloni": "Issued in the currency paid, with native fields",
+                    "vendus": "Euro"
+                },
+                {
+                    "feature": "Series per document type",
+                    "ix": "One series per document type",
+                    "moloni": "Series configurable per document",
+                    "vendus": "Series configurable per document"
+                }
+            ]
+        },
+        "choose": {
+            "title": "How to choose",
+            "c1Title": "You already use one of them",
+            "c1Body": "Stay with it. Your accountant already knows it, the history is already there and the series are already reported. Switching programs for the sake of automation trades a solved problem for an unsolved one.",
+            "c2Title": "You sell outside the euro area",
+            "c2Body": "Moloni is the only one of the three that, through the Rioko integration, issues in the currency actually paid using the document's native fields. With InvoiceXpress the sale is restated in euro at the ECB rate for the day. If most of your sales are in euro, this does not affect you.",
+            "c3Title": "You sell over the counter and online",
+            "c3Body": "Vendus grew up around the point of sale, so it is the most natural fit if you have a physical shop and want counter and online invoicing in one place.",
+            "c4Title": "Low-value invoices to consumers",
+            "c4Body": "If you issue many small documents to individuals, the simplified invoice saves steps, and Moloni is the one that supports it through the integration, within the legal €1,000 limit."
+        },
+        "rioko": {
+            "title": "What does not change, whichever you pick",
+            "body": "Rioko connects to all three the same way and charges the same for any of them: €7.50 + VAT per month or €75 + VAT per year, per integration. VAT ID detection, VAT calculation, M01–M99 exemptions, idempotency and the daily reconciliation sweep are identical in all three cases. You can also switch destination later without redoing the connection to your store or gateway.",
+            "cta": "See available integrations"
+        },
+        "faq": {
+            "title": "Frequently asked",
+            "items": [
+                {
+                    "q": "Which is the best invoicing program for Portugal?",
+                    "a": "There is no best in the abstract. InvoiceXpress, Moloni and Vendus are all AT-certified and issue equally valid documents. The choice depends on what you already use, whether you issue in foreign currency, whether you also sell over the counter, and which document types you need."
+                },
+                {
+                    "q": "Can I switch programs after setting up Rioko?",
+                    "a": "Yes. The destination is a setting on the integration: you change it in the dashboard without redoing the connection to Shopify, Stripe or Lodgify. Documents already issued stay where they were issued."
+                },
+                {
+                    "q": "Does Rioko charge more for one program than another?",
+                    "a": "No. The price is per integration and identical for all three destinations. We receive no commission from any of them for this page or for any particular choice."
+                },
+                {
+                    "q": "Do I need to report the series to the AT before starting?",
+                    "a": "Yes, and that is done in the invoicing program's account, not in Rioko. An unreported series is the single most common reason an integration stalls at launch."
+                },
+                {
+                    "q": "Can I use two programs at once?",
+                    "a": "You can, with one integration for each. It makes sense if you invoice under different VAT IDs, or if you keep online and counter separate. Each integration is billed separately."
+                }
+            ]
+        },
+        "cta": {
+            "title": "Pick the program. We handle the rest.",
+            "body": "Connect your first integration in four minutes, no card.",
+            "start": "Start free",
+            "pricing": "See pricing"
+        }
+    },
     "privacy": {
         "back": "← Back",
         "title": "Privacy Policy",

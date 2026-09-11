@@ -938,6 +938,124 @@
             "integrations": "Ver integrações disponíveis"
         }
     },
+    "comparePage": {
+        "meta": {
+            "title": "InvoiceXpress, Moloni ou Vendus: qual escolher para faturação automática | Rioko",
+            "description": "Comparação prática dos três programas de faturação certificados que o Rioko liga a Shopify, Stripe e Lodgify: tipos de documento, moeda estrangeira, faturas simplificadas e em que caso cada um encaixa melhor."
+        },
+        "breadcrumb": {
+            "home": "Início",
+            "page": "InvoiceXpress vs Moloni vs Vendus"
+        },
+        "hero": {
+            "eyebrow": "Comparação",
+            "h1": "InvoiceXpress, Moloni ou Vendus?",
+            "sub": "Os três são software de faturação certificado pela Autoridade Tributária e os três emitem documentos válidos. A escolha raramente é sobre qual é melhor: é sobre qual encaixa no teu caso.",
+            "disclosure": "Divulgação: o Rioko integra com os três e cobra o mesmo por qualquer um deles. Não temos preferência comercial e esta página não elege um vencedor."
+        },
+        "common": {
+            "title": "O que os três têm em comum",
+            "body": "Antes das diferenças, convém dizer o que não difere. Nestes pontos os três são equivalentes, e é por isso que a escolha não costuma ser dramática.",
+            "i1Title": "Certificação da AT",
+            "i1Body": "Os três são programas certificados pela Autoridade Tributária. O documento que emitem é válido, seja qual for a origem da venda.",
+            "i2Title": "ATCUD e séries comunicadas",
+            "i2Body": "Todos suportam séries comunicadas à AT e carimbam o ATCUD no documento. A comunicação da série é feita por ti, na conta do programa, uma vez.",
+            "i3Title": "API pública",
+            "i3Body": "Os três expõem uma API que permite emitir documentos por integração, que é o que o Rioko usa. Não é preciso instalar nada no teu site.",
+            "i4Title": "Notas de crédito",
+            "i4Body": "Um reembolso ou cancelamento gera a nota de crédito correspondente em qualquer um dos três, incluindo devoluções parciais."
+        },
+        "table": {
+            "title": "Onde diferem, na prática",
+            "note": "A tabela descreve o que a integração do Rioko faz com cada programa hoje, não o catálogo completo de funcionalidades de cada produto. Para funcionalidades fora da faturação automática, consulta cada fornecedor.",
+            "colFeature": "Critério",
+            "rows": [
+                {
+                    "feature": "Fatura (FT)",
+                    "ix": "Sim",
+                    "moloni": "Sim",
+                    "vendus": "Sim"
+                },
+                {
+                    "feature": "Fatura-recibo (FR)",
+                    "ix": "Sim",
+                    "moloni": "Sim",
+                    "vendus": "Sim"
+                },
+                {
+                    "feature": "Fatura simplificada",
+                    "ix": "Não, pela integração",
+                    "moloni": "Sim, até 1.000 € (art. 40.º CIVA)",
+                    "vendus": "Não, pela integração"
+                },
+                {
+                    "feature": "Nota de crédito automática",
+                    "ix": "Sim",
+                    "moloni": "Sim",
+                    "vendus": "Sim"
+                },
+                {
+                    "feature": "Venda em moeda estrangeira",
+                    "ix": "Convertida para euro à taxa do BCE da data",
+                    "moloni": "Emitida na moeda paga, com campos nativos",
+                    "vendus": "Euro"
+                },
+                {
+                    "feature": "Séries por tipo de documento",
+                    "ix": "Uma série por tipo de documento",
+                    "moloni": "Série configurável por documento",
+                    "vendus": "Série configurável por documento"
+                }
+            ]
+        },
+        "choose": {
+            "title": "Como escolher",
+            "c1Title": "Já usas um deles",
+            "c1Body": "Fica com esse. O teu contabilista já o conhece, o histórico já lá está e as séries já estão comunicadas. Mudar de programa por causa da automação é trocar um problema resolvido por um por resolver.",
+            "c2Title": "Vendes fora da zona euro",
+            "c2Body": "O Moloni é o único dos três que, pela integração do Rioko, emite na moeda efetivamente paga com os campos nativos do documento. Com o InvoiceXpress a venda é reexpressa em euro à taxa do BCE do dia. Se a maioria das tuas vendas é em euro, isto não te afeta.",
+            "c3Title": "Vendes ao balcão e online",
+            "c3Body": "O Vendus nasceu à volta do ponto de venda, por isso é o mais natural se tens loja física e queres a faturação do online e do balcão no mesmo sítio.",
+            "c4Title": "Faturas de valor baixo a consumidor final",
+            "c4Body": "Se emites muitos documentos pequenos a particulares, a fatura simplificada poupa passos, e é o Moloni que a suporta pela integração, dentro do limite legal de 1.000 €."
+        },
+        "rioko": {
+            "title": "O que não muda, escolhas o que escolheres",
+            "body": "O Rioko liga-se aos três da mesma maneira e cobra o mesmo por qualquer um: 7,50 € + IVA por mês ou 75 € + IVA por ano, por integração. A deteção de NIF, o cálculo do IVA, as isenções M01–M99, a idempotência e a reconciliação diária são iguais nos três casos. Também podes mudar de destino mais tarde sem refazer a ligação à tua loja ou gateway.",
+            "cta": "Ver integrações disponíveis"
+        },
+        "faq": {
+            "title": "Perguntas frequentes",
+            "items": [
+                {
+                    "q": "Qual é o melhor programa de faturação para Portugal?",
+                    "a": "Não há um melhor em absoluto. InvoiceXpress, Moloni e Vendus são certificados pela AT e emitem documentos igualmente válidos. A escolha depende do que já usas, de emitires ou não em moeda estrangeira, de venderes ou não ao balcão, e do tipo de documento que precisas."
+                },
+                {
+                    "q": "Posso mudar de programa depois de configurar o Rioko?",
+                    "a": "Sim. O destino é uma definição da integração: mudas no painel sem refazer a ligação à Shopify, à Stripe ou ao Lodgify. Os documentos já emitidos ficam onde foram emitidos."
+                },
+                {
+                    "q": "O Rioko cobra mais por um programa do que por outro?",
+                    "a": "Não. O preço é por integração e é o mesmo para os três destinos. Não recebemos comissão de nenhum deles por esta página nem por uma escolha em particular."
+                },
+                {
+                    "q": "Preciso de comunicar a série à AT antes de começar?",
+                    "a": "Sim, e isso é feito na conta do programa de faturação, não no Rioko. Uma série por comunicar é o motivo mais comum para uma integração ficar bloqueada no arranque."
+                },
+                {
+                    "q": "Posso usar dois programas ao mesmo tempo?",
+                    "a": "Podes, com uma integração para cada. Faz sentido, por exemplo, se faturas sob NIFs diferentes ou se separas o online do balcão. Cada integração é cobrada à parte."
+                }
+            ]
+        },
+        "cta": {
+            "title": "Escolhe o programa. Nós tratamos do resto.",
+            "body": "Liga a primeira integração em quatro minutos, sem cartão.",
+            "start": "Começar grátis",
+            "pricing": "Ver preços"
+        }
+    },
     "privacy": {
         "back": "← Voltar",
         "title": "Política de Privacidade",

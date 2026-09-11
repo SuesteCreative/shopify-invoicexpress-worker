@@ -257,6 +257,7 @@ function InviteBuilder({ copiedKey, copy }: { copiedKey: string | null; copy: (k
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [url, setUrl] = useState("");
+    const [legacy, setLegacy] = useState(false);
     const [invites, setInvites] = useState<any[] | null>(null);
 
     const load = () => {
@@ -290,6 +291,7 @@ function InviteBuilder({ copiedKey, copy }: { copiedKey: string | null; copy: (k
                 return;
             }
             setUrl(json.url);
+            setLegacy(!!json.legacy_price);
             load();
         } catch (e: any) {
             setError(e?.message ?? "Erro de rede");
@@ -338,6 +340,13 @@ function InviteBuilder({ copiedKey, copy }: { copiedKey: string | null; copy: (k
             {error && <DangerBox>{error}</DangerBox>}
 
             <Output label="Link a enviar" text={url} copied={copiedKey === "invite"} onCopy={() => copy("invite", url)} />
+
+            {url && legacy && (
+                <InfoBox>
+                    Esta subscrição está no <strong>preço antigo</strong>. O cliente mantém-no, e a ligação nova
+                    fica marcada como legacy assim que ele abrir o link.
+                </InfoBox>
+            )}
 
             {invites && invites.length > 0 && (
                 <DataTable

@@ -4,6 +4,7 @@ import { getDB, getStripe } from "@/lib/stripe";
 import { isAdmin } from "@/lib/admin";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { invitePath, isPairInvitable, newInviteToken } from "@/lib/onboarding-invites";
+import { tierOf } from "@/lib/billing-legacy";
 
 export const runtime = "edge";
 
@@ -76,7 +77,9 @@ export async function POST(req: NextRequest) {
     const stripe = getStripe();
     let sub: any;
     try {
-        sub = await stripe.subscriptions.retrieve(subscriptionId);
+        // Expanded: the price is what says whether this client is on the old
+        // plan, and the operator should know that before sending the link.
+        sub = await stripe.subscriptions.retrieve(subscriptionId, { expand: ["items.data.price"] });
     } catch (e: any) {
         return NextResponse.json({ error: `Stripe subscription not found: ${e.message}` }, { status: 404 });
     }
@@ -121,6 +124,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
         ok: true,
         token,
+        // 5 €/50 €. The client keeps it, and the claim marks the row so every
+        // admin surface says so without having to work it out.
+        legacy_price: tierOf(sub.items?.data?.[0]?.price) === "legacy",
         expires_at: expiresAt,
         url: `${RIOKO_CONFIG.appUrl}/pt${path}`,
         url_en: `${RIOKO_CONFIG.appUrl}/en${path}`,

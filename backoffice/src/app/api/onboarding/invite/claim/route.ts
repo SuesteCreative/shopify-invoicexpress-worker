@@ -4,6 +4,7 @@ import { getDB, getStripe } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
 import { linkSubscriptionToConnection } from "@/lib/link-subscription";
 import { inviteRefusal, isValidToken, type OnboardingInvite } from "@/lib/onboarding-invites";
+import { tierOf } from "@/lib/billing-legacy";
 
 export const runtime = "edge";
 
@@ -65,6 +66,26 @@ export async function POST(req: NextRequest) {
 
     await linkSubscriptionToConnection({ db, stripe, userId: targetUserId, sub, connectionKey });
 
+    // A client arriving on an old price keeps it, and the row that now carries
+    // that subscription has to say so. The price comes on the subscription
+    // itself, so no catalogue lookup is needed — and `legacy_price` is the
+    // operator-facing answer (0054), which every admin surface reads before it
+    // tries to derive anything.
+    //
+    // Only the legacy case is written. Marking the rest as `current` would turn
+    // a derivation into a decision nobody made.
+    const legacy = tierOf(sub.items?.data?.[0]?.price) === "legacy";
+    if (legacy) {
+        await db
+            .prepare(
+                `UPDATE subscriptions SET legacy_price = 1, updated_at = CURRENT_TIMESTAMP
+                  WHERE user_id = ? AND connection_key = ?`
+            )
+            .bind(targetUserId, connectionKey)
+            .run()
+            .catch((e: any) => console.warn("[invite/claim] legacy mark failed:", e?.message ?? e));
+    }
+
     // Every other row this subscription used to pay for is now unreachable by
     // webhook: the metadata points here. Left alone it would stay `active` for
     // ever and keep its gate open through a cancellation — and it can belong to
@@ -93,6 +114,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
         ok: true,
         connection_key: connectionKey,
+        legacy_price: legacy,
         retired_rows: (retired as any)?.meta?.changes ?? 0,
     });
 }

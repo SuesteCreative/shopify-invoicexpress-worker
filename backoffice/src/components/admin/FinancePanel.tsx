@@ -78,6 +78,10 @@ interface Finance {
         reason: string | null; description: string | null;
     }[];
     settled_after_failure: number;
+    price_catalogue: {
+        source: string; plan: string; lookup: string | null; found: boolean;
+        active: boolean | null; amount_cents: number | null; interval: string | null;
+    }[];
 }
 
 const eur = (cents: number) =>
@@ -351,6 +355,49 @@ export function FinancePanel() {
                     )}
                 </Card>
             </div>
+
+            <Card
+                title="Catálogo de preços"
+                hint="Cada par que um comerciante pode escolher precisa de um preço no Stripe. Sem ele, o checkout falha no momento de pagar e nada antes disso avisa."
+            >
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[560px]">
+                        <tbody>
+                            {(data.price_catalogue ?? []).map((p) => (
+                                <tr key={`${p.source}:${p.plan}`} className="border-b border-hairline/40 last:border-0">
+                                    <td className="py-2 pr-4 text-fg whitespace-nowrap">{p.source}</td>
+                                    <td className="py-2 pr-4 font-mono text-[11px] text-fg-40 whitespace-nowrap">
+                                        {p.plan === "annual" ? "anual" : "mensal"}
+                                    </td>
+                                    <td className="py-2 pr-4 font-mono text-[10px] text-fg-40 truncate max-w-[260px]">
+                                        {p.lookup ?? "—"}
+                                    </td>
+                                    <td className="py-2 pr-4 font-mono text-[11px] text-fg tabular-nums whitespace-nowrap">
+                                        {p.amount_cents != null ? eur(p.amount_cents) : ""}
+                                    </td>
+                                    <td className="py-2 text-right whitespace-nowrap">
+                                        {!p.lookup ? (
+                                            <span className="font-mono text-[10px] text-fg-40">sem chave</span>
+                                        ) : !p.found ? (
+                                            <span className="font-mono text-[10px] text-destructive">POR CRIAR</span>
+                                        ) : p.active === false ? (
+                                            <span className="font-mono text-[10px] text-soon">arquivado</span>
+                                        ) : (
+                                            <span className="font-mono text-[10px] text-accent-hot">ok</span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                {(data.price_catalogue ?? []).some((p) => p.lookup && !p.found) && (
+                    <p className="text-[11px] text-destructive">
+                        Os marcados POR CRIAR não existem no Stripe. Cria-os com a lookup key exacta
+                        da terceira coluna, em euros, e o checkout desse par passa a funcionar.
+                    </p>
+                )}
+            </Card>
 
             <div className="grid lg:grid-cols-2 gap-6">
                 <Card title="Testes a acabar" hint="Early birds sem subscrição no Stripe, nos próximos 30 dias.">

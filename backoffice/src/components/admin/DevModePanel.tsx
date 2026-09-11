@@ -441,6 +441,14 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
      *  Off by default; on is a deliberate answer that beats what the price says. */
     const [legacyPrice, setLegacyPrice] = useState(false);
     const [legacySource, setLegacySource] = useState<string>("unknown");
+    /** Whether the operator actually moved the toggle in this session.
+     *
+     *  Without it, saving a trial date would also write whatever the toggle
+     *  happened to be showing — and when the plan could not be derived (Stripe
+     *  unreachable, a lookup key stored as a price id) it shows OFF. Pressing
+     *  Save on an early-bird change would then pin "definitely not legacy" on a
+     *  client nobody had looked at. Untouched means untouched. */
+    const [legacyTouched, setLegacyTouched] = useState(false);
     const [loaded, setLoaded] = useState(false);
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -498,7 +506,13 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
             const res = await fetch("/api/admin/subscription", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user_id: targetUserId, early_bird: earlyBird, trial_end: trialEndIso, legacy_price: legacyPrice }),
+                body: JSON.stringify({
+                    user_id: targetUserId,
+                    early_bird: earlyBird,
+                    trial_end: trialEndIso,
+                    // Omitted when untouched; the endpoint leaves the column alone.
+                    ...(legacyTouched ? { legacy_price: legacyPrice } : {}),
+                }),
             });
             const d: any = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -512,6 +526,9 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                 setEarlyBird(d.subscription.early_bird === 1);
                 setTrialEnd(d.subscription.trial_end ? String(d.subscription.trial_end).split("T")[0] : "");
                 if (d.legacy) { setLegacyPrice(!!d.legacy.legacy); setLegacySource(d.legacy.source); }
+                // Saved: the toggle now matches the server again.
+                setLegacyTouched(false);
+                setLegacyTouched(false);
             }
             setSavedAt(Date.now());
         } catch (e: any) {
@@ -558,7 +575,7 @@ function SubscriptionAdminCard({ targetUserId, targetRole, cutoffs, onCutoffSave
                     <input
                         type="checkbox"
                         checked={legacyPrice}
-                        onChange={e => { setLegacyPrice(e.target.checked); setLegacySource("override"); }}
+                        onChange={e => { setLegacyPrice(e.target.checked); setLegacySource("override"); setLegacyTouched(true); }}
                         disabled={!loaded}
                         className="accent-soon w-4 h-4"
                     />

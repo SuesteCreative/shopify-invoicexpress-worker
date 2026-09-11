@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, getRole, getImpersonationId } from "@/lib/admin";
 import { subscriptionUIState } from "@/lib/stripe";
 import { accountLabel } from "@/lib/labels";
+import { priceBook } from "@/lib/price-book";
+import { currentPriceCents, sunsetAt, tierOf } from "@/lib/billing-legacy";
 
 export const runtime = "edge";
 
@@ -31,6 +33,8 @@ interface SubRow {
     current_period_end: string | null;
     early_bird: number | null;
     stripe_subscription_id: string | null;
+    /** A price id or a lookup key; the price book is indexed by both. */
+    price_id: string | null;
 }
 
 const LEGACY_KEY = "shopify:invoicexpress";
@@ -121,9 +125,14 @@ export async function GET(request: NextRequest) {
 
         const subRows = await db.prepare(
             `SELECT user_id, connection_key, status, plan, trial_end, current_period_end,
-                    early_bird, stripe_subscription_id
+                    early_bird, stripe_subscription_id, price_id
              FROM subscriptions`
         ).all();
+
+        // What each subscription costs, so a card can say who is still on the
+        // old price and until when. One request for the whole catalogue; a
+        // Stripe outage costs the badge, not the page.
+        const prices = await priceBook();
 
         // Invited extra users get their own group on the page: an invite is
         // neither an account nor an integration, and reads as a broken shop in
@@ -184,6 +193,14 @@ export async function GET(request: NextRequest) {
                         early_bird: sub?.early_bird,
                         stripe_subscription_id: sub?.stripe_subscription_id,
                     } as any);
+                // The price ladder this line sits on, and the day the old one
+                // ends for it. A client who signed up at 5 € stays at 5 € until
+                // the subscription they bought runs out.
+                const price = sub?.price_id ? prices.get(sub.price_id) : null;
+                const tier = tierOf(price);
+                const interval = price?.recurring?.interval
+                    ?? (sub?.plan === "annual" ? "year" : sub?.plan === "monthly" ? "month" : null);
+
                 return {
                     ...entry,
                     sub_status: sub?.status ?? null,
@@ -194,6 +211,11 @@ export async function GET(request: NextRequest) {
                     sub_stripe_id: sub?.stripe_subscription_id ?? null,
                     sub_inherited: inherited,
                     sub_state,
+                    sub_tier: tier,
+                    sub_unit_amount_cents: price?.unit_amount ?? null,
+                    sub_interval: interval,
+                    sub_sunset_at: sunsetAt({ tier, interval, currentPeriodEnd: sub?.current_period_end }),
+                    sub_next_price_cents: tier === "legacy" ? currentPriceCents(interval) : null,
                 };
             };
 

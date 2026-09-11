@@ -3,13 +3,15 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/admin";
 import { accountLabel } from "@/lib/labels";
-import { getStripe, subscriptionUIState } from "@/lib/stripe";
+import { subscriptionUIState } from "@/lib/stripe";
+import { priceBook } from "@/lib/price-book";
 import { REVENUE_BY_MONTH } from "@/lib/admin-stats-sql";
 import {
     PAYMENTS_BY_ACCOUNT, REFUNDS_BY_ACCOUNT, SUBSCRIPTION_LINES,
     TRIALS_ENDING, OUTSTANDING_PAYMENTS, SETTLED_AFTER_FAILURE,
     SEATS_BY_ACCOUNT, monthlyCents,
 } from "@/lib/admin-finance-sql";
+import { currentPriceCents, sunsetAt, tierOf } from "@/lib/billing-legacy";
 
 export const runtime = "edge";
 
@@ -37,46 +39,6 @@ const soft = <T,>(p: Promise<T>, fallback: T, label: string): Promise<T> =>
         console.error(`[admin/finance] ${label} failed:`, e?.message ?? e);
         return fallback;
     });
-
-/**
- * Everything Stripe knows about what things cost, in one request.
- *
- * Indexed by BOTH the price id and its lookup key, because `subscriptions.
- * price_id` holds either. Checkout resolves a lookup key like
- * `shopify-ix-monthly` into a real price and, depending on the path it took,
- * stores one or the other — so nine of the fleet's live subscriptions carry a
- * lookup key in a column named for an id. Keying on `p.id` alone silently
- * priced all of them at zero.
- *
- * Archived prices are included deliberately: a client stays on the plan they
- * signed up to long after it stops being sold, and leaving those out would
- * understate MRR by exactly the legacy accounts that have paid longest.
- */
-async function priceBook(): Promise<Map<string, any>> {
-    const book = new Map<string, any>();
-    const add = (p: any) => {
-        book.set(p.id, p);
-        if (p.lookup_key) book.set(p.lookup_key, p);
-    };
-
-    try {
-        const stripe = getStripe();
-        // The whole catalogue is a couple of dozen prices and changes almost
-        // never, so a page or two is the whole answer. Asking per subscription
-        // would be one round trip per client on a page that lists all of them.
-        let page = await stripe.prices.list({ limit: 100 });
-        page.data.forEach(add);
-        let guard = 0;
-        while (page.has_more && guard++ < 5) {
-            page = await stripe.prices.list({ limit: 100, starting_after: page.data.at(-1)?.id });
-            page.data.forEach(add);
-        }
-    } catch (e: any) {
-        // A missing key or a Stripe outage costs the forecast, not the page.
-        console.error("[admin/finance] price book failed:", e?.message ?? e);
-    }
-    return book;
-}
 
 export async function GET() {
     try {
@@ -144,6 +106,13 @@ export async function GET() {
                 unresolved.set(s.price_id, (unresolved.get(s.price_id) ?? 0) + 1);
             }
 
+            // Which price ladder this line sits on, and when the old one ends
+            // for it. Read from the Stripe price, never from a table written
+            // here: three price points are in circulation.
+            const tier = billing ? tierOf(price) : "unknown";
+            const interval = price?.recurring?.interval ?? (s.plan === "annual" ? "year" : s.plan === "monthly" ? "month" : null);
+            const sunset = sunsetAt({ tier, interval, currentPeriodEnd: s.current_period_end });
+
             entry.lines.push({
                 connection_key: s.connection_key,
                 status: s.status,
@@ -151,12 +120,17 @@ export async function GET() {
                 plan: s.plan ?? null,
                 price_id: s.price_id ?? null,
                 monthly_cents: monthly,
-                /** Stripe archives a price when it stops being sold, but a client
-                 *  stays on the one they signed up to. That is what "legacy"
-                 *  means here, and it is the only reliable signal for it. */
-                price_legacy: !!price && price.active === false,
+                tier,
+                unit_amount_cents: price?.unit_amount ?? null,
+                interval,
+                sunset_at: sunset,
+                next_price_cents: sunset ? currentPriceCents(interval) : null,
+                /** Kept for the per-line pill that already reads it. Archived in
+                 *  Stripe was the first proxy for "old price"; the amount is the
+                 *  rule itself, so the flag now follows `tier`. */
+                price_legacy: tier === "legacy",
                 price_amount_cents: price?.unit_amount ?? null,
-                price_interval: price?.recurring?.interval ?? null,
+                price_interval: interval,
                 current_period_end: s.current_period_end ?? null,
                 trial_end: s.trial_end ?? null,
                 early_bird: Number(s.early_bird ?? 0) === 1,
@@ -167,6 +141,34 @@ export async function GET() {
             mrrCents += monthly;
             byAccount.set(s.user_id, entry);
         }
+
+        // What the two ladders are worth, and who is still on the old one. The
+        // legacy total is not a forecast of loss: those clients are expected to
+        // subscribe again at the current price, and the difference is what the
+        // move is worth if they all do.
+        const tiers = { legacy: { mrr_cents: 0, lines: 0 }, current: { mrr_cents: 0, lines: 0 }, unknown: { mrr_cents: 0, lines: 0 } };
+        const sunsets: any[] = [];
+        for (const a of byAccount.values()) {
+            for (const l of a.lines) {
+                const bucket = (tiers as any)[l.tier] ?? tiers.unknown;
+                bucket.mrr_cents += l.monthly_cents;
+                if (l.monthly_cents > 0) bucket.lines += 1;
+                if (l.sunset_at) {
+                    sunsets.push({
+                        user_id: a.user_id,
+                        account: a.account,
+                        connection_key: l.connection_key,
+                        plan: l.plan,
+                        interval: l.interval,
+                        unit_amount_cents: l.unit_amount_cents,
+                        next_price_cents: l.next_price_cents,
+                        sunset_at: l.sunset_at,
+                        cancel_at_period_end: l.cancel_at_period_end,
+                    });
+                }
+            }
+        }
+        sunsets.sort((x, y) => String(x.sunset_at).localeCompare(String(y.sunset_at)));
 
         const accounts = [...byAccount.values()].map((a) => {
             const p = paid.get(a.user_id);
@@ -204,6 +206,9 @@ export async function GET() {
             lifetime_net_cents: subscriptionNet + seatTotal,
             mrr_cents: mrrCents,
             arr_cents: mrrCents * 12,
+            tiers,
+            /** Legacy lines by the date each stops being billed at the old price. */
+            sunsets,
             /** Subscriptions Stripe is billing whose price we could not read —
              *  MRR is short by whatever they are worth, and saying so is the
              *  difference between a forecast and a guess. */

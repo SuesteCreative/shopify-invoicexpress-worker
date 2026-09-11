@@ -63,6 +63,13 @@ interface Finance {
     unresolved_prices: { price_id: string; n: number }[];
     price_book_size: number;
     accounts: Account[];
+    tiers: Record<"legacy" | "current" | "unknown", { mrr_cents: number; lines: number }>;
+    sunsets: {
+        user_id: string; account: string; connection_key: string;
+        plan: string | null; interval: string | null;
+        unit_amount_cents: number | null; next_price_cents: number | null;
+        sunset_at: string; cancel_at_period_end: boolean;
+    }[];
     trials_ending: { user_id: string; account: string; connection_key: string; trial_end: string }[];
     outstanding_payments: {
         id: string; invoice_id: string; user_id: string; account: string;
@@ -258,6 +265,55 @@ export function FinancePanel() {
                     {data.seat_cents > 0 && <> · lugares extra {eur(data.seat_cents)}, que não passam pelo livro de pagamentos</>}
                 </p>
             </Card>
+
+            <div className="grid lg:grid-cols-2 gap-6">
+                <Card
+                    title="Preço antigo e preço actual"
+                    hint="Quem assinou a 5 €/50 € ficou nesse preço. Acaba no fim da subscrição; as mensais a 01/01/2027."
+                >
+                    <div className="space-y-2 text-[12px]">
+                        <div className="flex items-baseline justify-between gap-3">
+                            <span className="text-fg-60">Preço actual · {n(data.tiers.current.lines)} {data.tiers.current.lines === 1 ? "subscrição" : "subscrições"}</span>
+                            <span className="font-mono text-fg">{eur(data.tiers.current.mrr_cents)}/mês</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                            <span className="text-fg-60">Preço antigo · {n(data.tiers.legacy.lines)} {data.tiers.legacy.lines === 1 ? "subscrição" : "subscrições"}</span>
+                            <span className="font-mono text-soon">{eur(data.tiers.legacy.mrr_cents)}/mês</span>
+                        </div>
+                        {data.tiers.unknown.mrr_cents > 0 && (
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-fg-60">Preço por identificar</span>
+                                <span className="font-mono text-fg-40">{eur(data.tiers.unknown.mrr_cents)}/mês</span>
+                            </div>
+                        )}
+                    </div>
+                </Card>
+
+                <Card
+                    title="Subscrições a terminar no preço antigo"
+                    hint="Por ordem de data. No fim, cancela-se e pede-se a subscrição ao preço actual."
+                >
+                    {data.sunsets.length === 0 ? (
+                        <p className="text-[11px] text-fg-40">Nenhuma no preço antigo.</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {data.sunsets.map((s) => (
+                                <div key={`${s.user_id}:${s.connection_key}`} className="flex items-baseline justify-between gap-3">
+                                    <Link href={`/admin/users/${s.user_id}/dev-mode`} className="text-sm text-fg hover:text-accent-ink truncate">
+                                        {s.account}
+                                    </Link>
+                                    <span className="font-mono text-[11px] shrink-0 text-fg-40">
+                                        {s.unit_amount_cents != null && <>{eur(s.unit_amount_cents)}</>}
+                                        {s.next_price_cents != null && <> → {eur(s.next_price_cents)}</>}
+                                        {" · "}
+                                        <span className={s.cancel_at_period_end ? "text-accent-hot" : "text-soon"}>{dateOf(s.sunset_at)}</span>
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </Card>
+            </div>
 
             <div className="grid lg:grid-cols-2 gap-6">
                 <Card title="Testes a acabar" hint="Early birds sem subscrição no Stripe, nos próximos 30 dias.">

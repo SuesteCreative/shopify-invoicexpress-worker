@@ -450,6 +450,18 @@ export function SuperadminPanel() {
                             )}
                             <RoleBadge role={targetRole} t={t} />
                             <SubBadge state={user.sub_state} t={t} />
+                            {/* Still on the price they signed up at. The date is
+                                when that ends: the period already paid for, or
+                                01/01/2027 for a monthly. */}
+                            {user.sub_tier === "legacy" && (
+                                <span
+                                    title={user.sub_next_price_cents ? `Depois: ${(user.sub_next_price_cents / 100).toFixed(2).replace(".", ",")} €` : undefined}
+                                    className="px-2 py-0.5 rounded-md bg-soon/12 text-soon text-[10px] font-black uppercase tracking-widest border border-soon/30"
+                                >
+                                    legacy {user.sub_unit_amount_cents != null ? `${(user.sub_unit_amount_cents / 100).toFixed(2).replace(".", ",")} €` : ""}
+                                    {user.sub_sunset_at ? ` · ${dateOf(user.sub_sunset_at) ?? ""}` : ""}
+                                </span>
+                            )}
                             {/* The pipe this card IS: payment platform, then invoicing software. */}
                             {user.source && <PlatformPill kind={user.source} />}
                             {user.destination && <PlatformPill kind={user.destination} />}

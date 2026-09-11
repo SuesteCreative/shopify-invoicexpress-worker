@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { LayoutDashboard, ShieldCheck, Activity, Wrench, Settings2, ArrowLeft, Menu, X } from "lucide-react";
+import { LayoutDashboard, ShieldCheck, Zap, Activity, Wrench, Settings2, ArrowLeft, Menu, X } from "lucide-react";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -33,6 +33,7 @@ type Item = { href: string; icon: React.ComponentType<{ className?: string }>; l
 const ITEMS: Item[] = [
     { href: "/admin", icon: LayoutDashboard, label: "Visão geral" },
     { href: "/admin/clientes", icon: ShieldCheck, label: "Clientes" },
+    { href: "/admin/integracoes", icon: Zap, label: "Integrações" },
     { href: "/admin/ops", icon: Activity, label: "Operação" },
     { href: "/admin/onboarding-helper", icon: Wrench, label: "Onboarding" },
 ];

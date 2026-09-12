@@ -184,6 +184,8 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
     // Step 4 — the destination.
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
+    /** A key is stored, so leaving the field blank keeps it. */
+    const [ixKeyStored, setIxKeyStored] = useState(false);
     const [clientId, setClientId] = useState("");
     const [clientSecret, setClientSecret] = useState("");
     const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
@@ -250,8 +252,10 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
             // InvoiceXpress credentials live on the account's legacy row: one IX
             // account per Rioko account, shared by every connection filing into it.
             if (integ?.ix_account_name) setIxAccount(String(integ.ix_account_name));
-            if (integ?.ix_api_key) setIxApiKey(String(integ.ix_api_key));
-            setIxSaved(!!integ?.ix_account_name && !!integ?.ix_api_key);
+            // The key itself stays on the server; `has_ix_api_key` is the
+            // presence answer, which is all this step ever read it for.
+            setIxKeyStored(!!integ?.has_ix_api_key);
+            setIxSaved(!!integ?.ix_account_name && !!integ?.has_ix_api_key);
             setIxVerified(integ?.ix_authorized === 1);
             if (typeof fiscal.vat_included === "boolean") setVatIncluded(fiscal.vat_included);
             if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
@@ -411,7 +415,9 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
      */
     const saveIx = async () => {
         const account = ixSubdomain(ixAccount);
-        if (!account || !ixApiKey.trim()) {
+        // Blank with one already stored means "keep it": the POST reads a blank
+        // key as unchanged, so a resumed onboarding need not re-type it.
+        if (!account || (!ixApiKey.trim() && !ixKeyStored)) {
             setDestError(tIx("errorIxRequired"));
             return;
         }
@@ -770,7 +776,7 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
                     <Field label={tIx("ixApiKeyLabel")} hint={t("destination.ixApiKeyHint")}>
                         <input
                             type="password" autoComplete="off" spellCheck={false}
-                            className={cn(INPUT_CLASS, "font-mono")} placeholder={tIx("ixApiKeyPlaceholder")}
+                            className={cn(INPUT_CLASS, "font-mono")} placeholder={ixKeyStored ? "••••••••••••" : tIx("ixApiKeyPlaceholder")}
                             value={ixApiKey} onChange={e => setIxApiKey(e.target.value)}
                         />
                     </Field>
@@ -785,7 +791,7 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
                 )}
 
                 <div className="space-y-3">
-                    <PrimaryButton onClick={saveIx} busy={busy === "destination"} disabled={!ixAccount.trim() || !ixApiKey.trim()}>
+                    <PrimaryButton onClick={saveIx} busy={busy === "destination"} disabled={!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)}>
                         {tIx("verifyConnection")} <ArrowRight className="w-4 h-4" aria-hidden />
                     </PrimaryButton>
                     {ixSaved && (

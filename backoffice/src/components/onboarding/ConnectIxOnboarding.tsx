@@ -163,6 +163,8 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
     // Step 4 — the InvoiceXpress account these documents are issued from.
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
+    /** A key is stored, so leaving the field blank keeps it. */
+    const [ixKeyStored, setIxKeyStored] = useState(false);
     const [ixVerified, setIxVerified] = useState(false);
 
     // Step 5 — invoicing settings, which belong to THIS connection.
@@ -211,8 +213,10 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
         // InvoiceXpress credentials live on the legacy row: one IX account per
         // Rioko account, shared by every connection that files into it.
         if (integ?.ix_account_name) setIxAccount(String(integ.ix_account_name));
-        if (integ?.ix_api_key) setIxApiKey(String(integ.ix_api_key));
-        setIxSaved(!!integ?.ix_account_name && !!integ?.ix_api_key);
+        // The key itself stays on the server; `has_ix_api_key` is the presence
+        // answer, which is all this step ever read it for.
+        setIxKeyStored(!!integ?.has_ix_api_key);
+        setIxSaved(!!integ?.ix_account_name && !!integ?.has_ix_api_key);
         setIxVerified(integ?.ix_authorized === 1);
 
         // The fiscal identity this connection states for itself. Absent means
@@ -339,7 +343,9 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
      */
     const saveIx = async () => {
         const account = ixSubdomain(ixAccount);
-        if (!account || !ixApiKey.trim()) return;
+        // Blank with one already stored means "keep it": the POST reads a blank
+        // key as unchanged, so a resumed onboarding need not re-type it.
+        if (!account || (!ixApiKey.trim() && !ixKeyStored)) return;
         setBusy("ix");
         setIxError("");
         setIxVerified(false);
@@ -631,7 +637,7 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
                     <Field label={tIx("fieldIxApiKeyLabel")} hint={t("ix.apiKeyHint")}>
                         <input
                             type="password" className={cn(INPUT_CLASS, "font-mono")}
-                            placeholder={tIx("fieldIxApiKeyPlaceholder")}
+                            placeholder={ixKeyStored ? "••••••••••••" : tIx("fieldIxApiKeyPlaceholder")}
                             value={ixApiKey}
                             onChange={e => { setIxApiKey(e.target.value); setIxVerified(false); }}
                         />
@@ -647,7 +653,7 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
                 )}
 
                 <div className="space-y-3">
-                    <PrimaryButton onClick={saveIx} busy={busy === "ix"} disabled={!ixAccount.trim() || !ixApiKey.trim()}>
+                    <PrimaryButton onClick={saveIx} busy={busy === "ix"} disabled={!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)}>
                         {t("ix.save")} <ArrowRight className="w-4 h-4" />
                     </PrimaryButton>
                     {ixSaved && (

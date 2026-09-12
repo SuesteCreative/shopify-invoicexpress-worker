@@ -35,6 +35,13 @@ export default function ShopifyIXIntegration() {
     const [shopifyDomain, setShopifyDomain] = useState("");
     const [shopifyToken, setShopifyToken] = useState("");
     const [shopifyWebhookSecret, setShopifyWebhookSecret] = useState("");
+    // The three credentials this row holds never come back from the GET any
+    // more — only whether they are set. Blank means "keep what is stored", both
+    // here and in the POST, so a wizard reopened to change a toggle cannot
+    // erase a token by saving a field it was never given.
+    const [shopifyTokenStored, setShopifyTokenStored] = useState(false);
+    const [webhookSecretStored, setWebhookSecretStored] = useState(false);
+    const [ixKeyStored, setIxKeyStored] = useState(false);
     const [shopifyApiVersion, setShopifyApiVersion] = useState("2026-01");
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
@@ -110,11 +117,11 @@ export default function ShopifyIXIntegration() {
             .then((data: any) => {
                 if (data._user_name) setDbUserName(data._user_name);
                 setShopifyDomain(data.shopify_domain || "");
-                if (data.shopify_token) setShopifyToken(data.shopify_token);
-                if (data.shopify_webhook_secret) setShopifyWebhookSecret(data.shopify_webhook_secret);
+                setShopifyTokenStored(!!data.has_shopify_token);
+                setWebhookSecretStored(!!data.has_shopify_webhook_secret);
                 if (data.shopify_api_version) setShopifyApiVersion(data.shopify_api_version);
                 if (data.ix_account_name) setIxAccount(data.ix_account_name);
-                if (data.ix_api_key) setIxApiKey(data.ix_api_key);
+                setIxKeyStored(!!data.has_ix_api_key);
                 if (data.ix_environment) setIxEnvironment(data.ix_environment);
                 if (data.ix_exemption_reason) setExemptionReason(data.ix_exemption_reason);
                 if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
@@ -141,10 +148,10 @@ export default function ShopifyIXIntegration() {
                 if (data.user_id) setTargetUserId(data.user_id);
 
                 // Smart step resume 
-                if (data.shopify_authorized && data.ix_authorized && data.ix_api_key) setStep(5);
-                else if (data.ix_api_key && data.shopify_token) setStep(4);
+                if (data.shopify_authorized && data.ix_authorized && data.has_ix_api_key) setStep(5);
+                else if (data.has_ix_api_key && data.has_shopify_token) setStep(4);
                 else if (data.webhooks_active) setStep(3);
-                else if (data.shopify_token) setStep(2);
+                else if (data.has_shopify_token) setStep(2);
                 else setStep(1);
             })
             .finally(() => setLoading(false));
@@ -152,7 +159,7 @@ export default function ShopifyIXIntegration() {
 
     // --- Step 1: Save Shopify credentials & validate ---
     const handleShopifyConnect = async () => {
-        if (!shopifyDomain || !shopifyToken) return;
+        if (!shopifyDomain || (!shopifyToken && !shopifyTokenStored)) return;
         setSaving(true);
         try {
             const saveRes = await fetch("/api/integrations", {
@@ -198,7 +205,7 @@ export default function ShopifyIXIntegration() {
     // --- Step 2: Install webhooks & verify ---
     // --- Step 2: confirm the webhooks were installed by hand ---
     const handleWebhooksConfirm = async () => {
-        if (!shopifyWebhookSecret) return;
+        if (!shopifyWebhookSecret && !webhookSecretStored) return;
         setSaving(true);
         try {
             await fetch("/api/integrations", {
@@ -229,11 +236,11 @@ export default function ShopifyIXIntegration() {
 
     // --- Step 3: Save IX credentials & validate ---
     const handleIxConnect = async () => {
-        if (!ixAccount || !ixApiKey) return;
+        if (!ixAccount || (!ixApiKey && !ixKeyStored)) return;
         setSaving(true);
         try {
             if (ixSequenceName.trim()) {
-                const seqRes = await fetch(`/api/integrations/sequences?account=${ixAccount}&apiKey=${ixApiKey}&environment=${ixEnvironment}`);
+                const seqRes = await fetch("/api/integrations/sequences-user");
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
                     const wanted = ixSequenceName.trim().toLowerCase();
@@ -241,7 +248,10 @@ export default function ShopifyIXIntegration() {
                     // "Cannot read properties of undefined" and aborted the save
                     // for every merchant who had typed a series.
                     const found = seqs.find(s => String(s.serie ?? s.name ?? "").toLowerCase() === wanted);
-                    if (!found) {
+                    // An empty list means "could not tell" — no credentials
+                    // stored yet, or IX did not answer. Warning on a failed
+                    // lookup is worse than not warning.
+                    if (seqs.length && !found) {
                         if (!confirm(t("confirmSequenceMissing", { name: ixSequenceName }))) {
                             setSaving(false);
                             return;
@@ -285,7 +295,7 @@ export default function ShopifyIXIntegration() {
         setSaving(true);
         try {
             if (ixSequenceName.trim()) {
-                const seqRes = await fetch(`/api/integrations/sequences?account=${ixAccount}&apiKey=${ixApiKey}&environment=${ixEnvironment}`);
+                const seqRes = await fetch("/api/integrations/sequences-user");
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
                     const wanted = ixSequenceName.trim().toLowerCase();
@@ -293,7 +303,10 @@ export default function ShopifyIXIntegration() {
                     // "Cannot read properties of undefined" and aborted the save
                     // for every merchant who had typed a series.
                     const found = seqs.find(s => String(s.serie ?? s.name ?? "").toLowerCase() === wanted);
-                    if (!found) {
+                    // An empty list means "could not tell" — no credentials
+                    // stored yet, or IX did not answer. Warning on a failed
+                    // lookup is worse than not warning.
+                    if (seqs.length && !found) {
                         if (!confirm(t("confirmSequenceMissing", { name: ixSequenceName }))) {
                             setSaving(false);
                             return;
@@ -440,31 +453,31 @@ export default function ShopifyIXIntegration() {
             icon: Store, logo: "/images/shopify-logo.webp", logoWidth: 80, isAuthorized: shopifyAuthorized, errorMsg: shopifyError,
             fields: [
                 { label: t("fieldDomainLabel"), value: shopifyDomain, setter: setShopifyDomain, placeholder: t("fieldDomainPlaceholder"), type: "text", helpAnchor: "shopify-domain" },
-                { label: t("fieldTokenLabel"), value: shopifyToken, setter: setShopifyToken, placeholder: t("fieldTokenPlaceholder"), type: "password", helpAnchor: "shopify-token" },
+                { label: t("fieldTokenLabel"), value: shopifyToken, setter: setShopifyToken, placeholder: shopifyTokenStored ? "••••••••••••" : t("fieldTokenPlaceholder"), type: "password", helpAnchor: "shopify-token" },
                 { label: t("fieldApiVersionLabel"), value: shopifyApiVersion, setter: setShopifyApiVersion, placeholder: t("fieldApiVersionPlaceholder"), type: "text", helpAnchor: "shopify-api-version" }
             ],
-            action: handleShopifyConnect, actionLabel: t("verifyConnection"), isDisabled: !shopifyDomain || !shopifyToken,
+            action: handleShopifyConnect, actionLabel: t("verifyConnection"), isDisabled: !shopifyDomain || (!shopifyToken && !shopifyTokenStored),
         },
         {
             id: 2, title: t("step2Title"), description: t("step2Desc"),
             icon: Webhook, logo: "/images/shopify-logo.webp", logoWidth: 80, isAuthorized: webhooksActive,
             errorMsg: webhookStatus === "error" ? t("webhookInstallError") : "",
-            fields: [{ label: t("fieldWebhookSecretLabel"), value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: t("fieldWebhookSecretPlaceholder"), type: "password", helpAnchor: "shopify-webhook" }],
+            fields: [{ label: t("fieldWebhookSecretLabel"), value: shopifyWebhookSecret, setter: setShopifyWebhookSecret, placeholder: webhookSecretStored ? "••••••••••••" : t("fieldWebhookSecretPlaceholder"), type: "password", helpAnchor: "shopify-webhook" }],
             // The primary action confirms the MANUAL installation. It used to
             // create the webhooks through the Admin API, which produced a second
             // set signed with a secret Rioko does not hold — see the comment on
             // /api/integrations/activate, which now refuses.
-            action: handleWebhooksConfirm, actionLabel: t("confirmManualInstall"), isDisabled: !shopifyWebhookSecret, isWebhookStep: true,
+            action: handleWebhooksConfirm, actionLabel: t("confirmManualInstall"), isDisabled: !shopifyWebhookSecret && !webhookSecretStored, isWebhookStep: true,
         },
         {
             id: 3, title: t("step3Title"), description: t("step3Desc"),
             icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoWidth: 80, isAuthorized: ixAuthorized, errorMsg: ixError,
             fields: [
                 { label: t("fieldIxAccountLabel"), value: ixAccount, setter: setIxAccount, placeholder: t("fieldIxAccountPlaceholder"), type: "text", helpAnchor: "ix-account" },
-                { label: t("fieldIxApiKeyLabel"), value: ixApiKey, setter: setIxApiKey, placeholder: t("fieldIxApiKeyPlaceholder"), type: "password", helpAnchor: "ix-api-key" },
+                { label: t("fieldIxApiKeyLabel"), value: ixApiKey, setter: setIxApiKey, placeholder: ixKeyStored ? "••••••••••••" : t("fieldIxApiKeyPlaceholder"), type: "password", helpAnchor: "ix-api-key" },
                 { label: t("fieldIxEnvLabel"), value: ixEnvironment, setter: setIxEnvironment, placeholder: t("fieldIxEnvPlaceholder"), type: "text", helpAnchor: "ix-environment", helpLabel: t("helpWhatIs") }
             ],
-            action: handleIxConnect, actionLabel: t("verifyConnection"), isDisabled: !ixAccount || !ixApiKey,
+            action: handleIxConnect, actionLabel: t("verifyConnection"), isDisabled: !ixAccount || (!ixApiKey && !ixKeyStored),
         },
         {
             id: 4, title: t("step4Title"), description: t("step4Desc"),
@@ -775,7 +788,7 @@ export default function ShopifyIXIntegration() {
                                             ))
                                         )}
                                         {s.isWebhookStep && (
-                                            <><div className="md:col-span-2 flex items-start gap-4 bg-accent/5 border border-accent/20 rounded-2xl px-6 py-4"><Webhook className="w-5 h-5 text-accent-ink shrink-0 mt-0.5" /><div><p className="text-sm font-bold text-accent-ink">{t("webhooksWhatTitle")}</p><p className="text-[11px] text-fg-60 mt-1 leading-relaxed" dangerouslySetInnerHTML={{ __html: t("webhooksWhatBody").replace(/<span>/g, '<span class="text-accent-ink font-semibold">') }} /></div></div><div className="md:col-span-2 flex items-start gap-4 bg-surface-2/50 border border-hairline rounded-2xl px-6 py-4"><AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" /><div className="flex-1"><p className="text-sm font-bold text-soon">{t("tokenNoReadOrdersTitle")}</p><p className="text-[11px] text-fg-60 mt-1 mb-3 leading-relaxed" dangerouslySetInnerHTML={{ __html: t("tokenNoReadOrdersBody").replace(/<code>/g, '<code class="bg-surface-2 px-1 rounded">') }} /><div className="flex flex-wrap gap-3"><button onClick={handleWebhooksConfirm} disabled={saving || !shopifyWebhookSecret} className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-soon/10 text-soon border border-soon/20 hover:bg-soon/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">{saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}{t("confirmManualInstall")}</button><a href="/help#shopify-webhook" target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-surface-2 text-fg border border-hairline hover:bg-surface-2 transition-all"><BookOpen className="w-3.5 h-3.5" />{t("howTo")}</a></div></div></div></>
+                                            <><div className="md:col-span-2 flex items-start gap-4 bg-accent/5 border border-accent/20 rounded-2xl px-6 py-4"><Webhook className="w-5 h-5 text-accent-ink shrink-0 mt-0.5" /><div><p className="text-sm font-bold text-accent-ink">{t("webhooksWhatTitle")}</p><p className="text-[11px] text-fg-60 mt-1 leading-relaxed" dangerouslySetInnerHTML={{ __html: t("webhooksWhatBody").replace(/<span>/g, '<span class="text-accent-ink font-semibold">') }} /></div></div><div className="md:col-span-2 flex items-start gap-4 bg-surface-2/50 border border-hairline rounded-2xl px-6 py-4"><AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" /><div className="flex-1"><p className="text-sm font-bold text-soon">{t("tokenNoReadOrdersTitle")}</p><p className="text-[11px] text-fg-60 mt-1 mb-3 leading-relaxed" dangerouslySetInnerHTML={{ __html: t("tokenNoReadOrdersBody").replace(/<code>/g, '<code class="bg-surface-2 px-1 rounded">') }} /><div className="flex flex-wrap gap-3"><button onClick={handleWebhooksConfirm} disabled={saving || (!shopifyWebhookSecret && !webhookSecretStored)} className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-soon/10 text-soon border border-soon/20 hover:bg-soon/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">{saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}{t("confirmManualInstall")}</button><a href="/help#shopify-webhook" target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 bg-surface-2 text-fg border border-hairline hover:bg-surface-2 transition-all"><BookOpen className="w-3.5 h-3.5" />{t("howTo")}</a></div></div></div></>
                                         )}
                                     </div>
                                 )}

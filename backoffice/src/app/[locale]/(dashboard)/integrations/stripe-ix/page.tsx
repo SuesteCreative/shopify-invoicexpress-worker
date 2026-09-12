@@ -53,6 +53,8 @@ export default function StripeIXIntegration() {
     // IX form state
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
+    /** A key is stored, so leaving the field blank keeps it. */
+    const [ixKeyStored, setIxKeyStored] = useState(false);
     const [ixEnvironment, setIxEnvironment] = useState("production");
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
@@ -71,10 +73,11 @@ export default function StripeIXIntegration() {
     });
     const [ixError, setIxError] = useState("");
 
-    // Carry-over Shopify fields (so POST /api/integrations doesn't clobber them)
+    // Carry-over Shopify fields. The two credentials are NOT among them: the
+    // POST falls back to the stored value for every column it is not given, so
+    // a Stripe wizard has no reason to hold the shop's Admin token — and since
+    // the GET stopped sending it, no way to.
     const [shopifyDomain, setShopifyDomain] = useState("");
-    const [shopifyToken, setShopifyToken] = useState("");
-    const [shopifyWebhookSecret, setShopifyWebhookSecret] = useState("");
     const [shopifyApiVersion, setShopifyApiVersion] = useState("2026-01");
 
     const exemptionOptions = [
@@ -119,11 +122,10 @@ export default function StripeIXIntegration() {
         ]).then(([integ, stripe]: any) => {
             if (integ._user_name) setDbUserName(integ._user_name);
             if (integ.shopify_domain) setShopifyDomain(integ.shopify_domain);
-            if (integ.shopify_token) setShopifyToken(integ.shopify_token);
-            if (integ.shopify_webhook_secret) setShopifyWebhookSecret(integ.shopify_webhook_secret);
             if (integ.shopify_api_version) setShopifyApiVersion(integ.shopify_api_version);
             if (integ.ix_account_name) setIxAccount(integ.ix_account_name);
-            if (integ.ix_api_key) setIxApiKey(integ.ix_api_key);
+            // The key itself stays on the server; this only says one is stored.
+            setIxKeyStored(!!integ.has_ix_api_key);
             if (integ.ix_environment) setIxEnvironment(integ.ix_environment);
             if (integ.ix_exemption_reason) setExemptionReason(integ.ix_exemption_reason);
             if (integ.vat_included !== undefined) setVatIncluded(integ.vat_included === 1);
@@ -276,11 +278,13 @@ export default function StripeIXIntegration() {
     };
 
     const handleIxConnect = async () => {
-        if (!ixAccount || !ixApiKey) return;
+        // Blank with one already stored means "keep it": the POST reads a blank
+        // key as unchanged.
+        if (!ixAccount || (!ixApiKey && !ixKeyStored)) return;
         setSaving(true);
         try {
             if (ixSequenceName.trim()) {
-                const seqRes = await fetch(`/api/integrations/sequences?account=${ixAccount}&apiKey=${ixApiKey}&environment=${ixEnvironment}`);
+                const seqRes = await fetch("/api/integrations/sequences-user");
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
                     const wanted = ixSequenceName.trim().toLowerCase();
@@ -288,7 +292,11 @@ export default function StripeIXIntegration() {
                     // "Cannot read properties of undefined" and aborted the save
                     // for every merchant who had typed a series.
                     const found = seqs.find(s => String(s.serie ?? s.name ?? "").toLowerCase() === wanted);
-                    if (!found) {
+                    // An empty list means "could not tell" — no credentials
+                    // stored yet, or IX did not answer. Warning about a missing
+                    // series on the strength of a failed lookup is worse than
+                    // not warning at all.
+                    if (seqs.length && !found) {
                         if (!confirm(t("confirmSequenceMissing", { name: ixSequenceName }))) {
                             setSaving(false);
                             return;
@@ -324,8 +332,7 @@ export default function StripeIXIntegration() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    shopify_domain: shopifyDomain, shopify_token: shopifyToken,
-                    shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
+                    shopify_domain: shopifyDomain, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
                     vat_included: vatIncluded, auto_finalize: autoFinalize,
                     ix_payment_term: ixPaymentTerm,
@@ -670,7 +677,7 @@ export default function StripeIXIntegration() {
                                                 </div>
                                                 <div className="space-y-3">
                                                     <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("fieldIxApiKeyLabel")}</label>
-                                                    <input type="password" value={ixApiKey} onChange={(e) => setIxApiKey(e.target.value)} placeholder={t("fieldIxApiKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                                                    <input type="password" value={ixApiKey} onChange={(e) => setIxApiKey(e.target.value)} placeholder={ixKeyStored ? "••••••••••••" : t("fieldIxApiKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                                                 </div>
                                                 <div className="space-y-3">
                                                     <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("fieldIxEnvLabel")}</label>
@@ -785,7 +792,7 @@ export default function StripeIXIntegration() {
 
                                                 <div className="md:col-span-2 pt-4 flex items-center gap-4">
                                                     <button onClick={() => setStep(step - 1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
-                                                    <button onClick={handleIxConnect} disabled={saving || !ixAccount || !ixApiKey} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                                                    <button onClick={handleIxConnect} disabled={saving || !ixAccount || (!ixApiKey && !ixKeyStored)} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-fg disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                                                         {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t("verifyConnection")} <ChevronRight className="w-4 h-4" /></>}
                                                     </button>
                                                 </div>

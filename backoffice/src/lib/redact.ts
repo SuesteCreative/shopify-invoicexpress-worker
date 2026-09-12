@@ -106,6 +106,45 @@ const PRESENCE_ONLY_KEYS = [
   "vendus_api_key", "restricted_key", "webhook_secret", "hmac_secret", "api_key",
 ] as const;
 
+/**
+ * The columns of `connections` a merchant's browser may receive.
+ *
+ * `SELECT *` is not a projection, it is whatever the last migration added — and
+ * on this table that is a Moloni refresh token, a Stripe restricted key, a
+ * Lodgify API key, a webhook secret, the live OAuth nonce and the run-in token
+ * that answers a PUBLIC route. /api/connections handed all of it to the browser
+ * of anyone signed in to the account, read-only invited members included.
+ *
+ * An allowlist for the same reason the config redaction above is one: the column
+ * added by the next migration must leak nothing until somebody names it here.
+ * Nothing on this list is a credential, and nothing on it needs to be — what the
+ * UI actually wants to know about credentials is whether they are there, which
+ * is what `destination_ready` answers.
+ */
+export const CONNECTION_PUBLIC_COLUMNS = [
+  "id",
+  "user_id",
+  "source_kind",
+  "destination_kind",
+  "status",
+  "admin_label",
+  "invoice_cutoff",
+  "created_at",
+  "updated_at",
+  // Onboarding bookkeeping (0047/0050): when the Moloni token was last renewed,
+  // the Stripe Tax probe's verdict, and the run-in answer. Timestamps and
+  // verdicts — never the tokens they are about.
+  "last_token_refresh_at",
+  "tax_probe_at",
+  "tax_probe_verdict",
+  "runin_asked_at",
+  "runin_reminded_at",
+  "runin_answer",
+] as const;
+
+/** The same list, ready to drop into a SELECT. */
+export const CONNECTION_PUBLIC_SELECT = CONNECTION_PUBLIC_COLUMNS.join(", ");
+
 export interface RedactedConfig {
   /** Fiscal settings, verbatim. */
   fiscal: Record<string, unknown>;

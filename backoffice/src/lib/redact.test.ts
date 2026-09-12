@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { redactConnectionConfig, redactConfigJson, FISCAL_CONFIG_KEYS } from "./redact";
+import {
+  redactConnectionConfig, redactConfigJson, FISCAL_CONFIG_KEYS,
+  CONNECTION_PUBLIC_COLUMNS,
+} from "./redact";
 
 /**
  * The rules console sends a connection's configuration to a browser, and that
@@ -73,6 +76,27 @@ describe("redactConnectionConfig", () => {
     const suspicious = FISCAL_CONFIG_KEYS.filter((k) =>
       /secret|password|token|api_key|hmac|restricted/.test(k));
     expect(suspicious).toEqual([]);
+  });
+});
+
+describe("CONNECTION_PUBLIC_COLUMNS", () => {
+  it("names no column that holds a credential", () => {
+    // The columns /api/connections used to ship to the browser under SELECT *.
+    const secrets = [
+      "source_config_json", "destination_config_json", "behavior_json",
+      "oauth_state", "oauth_state_expires_at",
+      "runin_token", "runin_token_expires_at",
+    ];
+    for (const column of secrets) {
+      expect(CONNECTION_PUBLIC_COLUMNS).not.toContain(column);
+    }
+  });
+
+  it("keeps anything secret-shaped off the list", () => {
+    // `last_token_refresh_at` is WHEN a token was renewed, not the token.
+    const suspicious = CONNECTION_PUBLIC_COLUMNS.filter((c) =>
+      /secret|token|config_json|password|api_key|state/.test(c));
+    expect(suspicious).toEqual(["last_token_refresh_at"]);
   });
 });
 

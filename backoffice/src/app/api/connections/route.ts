@@ -2,6 +2,8 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { missingDestinationCredentials } from "@/lib/destination-credentials";
+import { CONNECTION_PUBLIC_SELECT } from "@/lib/redact";
 import {
     SOURCE_KINDS, DESTINATION_KINDS, CONNECTION_STATUSES,
     isSourceKind, isDestinationKind,
@@ -30,12 +32,27 @@ export async function GET(request: NextRequest) {
         const db = (env as any).DB;
         if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
+        // Never `SELECT *`: the config blobs on this table are credentials, and
+        // this response goes to a browser. CONNECTION_PUBLIC_SELECT is the
+        // allowlist — see lib/redact.ts.
         const rows = await db
-            .prepare("SELECT * FROM connections WHERE user_id = ? ORDER BY created_at ASC")
+            .prepare(`SELECT ${CONNECTION_PUBLIC_SELECT} FROM connections WHERE user_id = ? ORDER BY created_at ASC`)
             .bind(auth.targetUserId)
             .all();
 
-        return NextResponse.json({ connections: rows.results ?? [] });
+        // `status` says what the merchant asked for; `destination_ready` says
+        // whether it can actually issue. An active connection whose destination
+        // has no credentials is the state that let three accounts sit quietly
+        // uninvoiced, and every caller of this endpoint was showing it as
+        // "Autorizado" because the row said active.
+        const connections = await Promise.all(((rows.results ?? []) as any[]).map(async (c) => ({
+            ...c,
+            destination_ready: !(await missingDestinationCredentials(
+                db, auth.targetUserId!, String(c.source_kind), String(c.destination_kind),
+            )),
+        })));
+
+        return NextResponse.json({ connections });
     } catch (error: any) {
         console.error("[connections] GET error:", error);
         return NextResponse.json({ error: `Internal Server Error: ${error.message}` }, { status: 500 });
@@ -99,7 +116,8 @@ export async function POST(request: NextRequest) {
         ).run();
 
         const row: any = await db.prepare(
-            "SELECT * FROM connections WHERE user_id = ? AND source_kind = ? AND destination_kind = ?"
+            `SELECT ${CONNECTION_PUBLIC_SELECT} FROM connections
+              WHERE user_id = ? AND source_kind = ? AND destination_kind = ?`
         ).bind(authResult.targetUserId, body.source_kind, body.destination_kind).first();
 
         return NextResponse.json({ connection: row });

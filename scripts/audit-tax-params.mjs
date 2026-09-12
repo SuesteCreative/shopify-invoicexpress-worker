@@ -146,11 +146,18 @@ function findings(r) {
     if (nonZeroProd.length) out.push(`REGIME: ${cfg.ix_exemption_reason} nao liquida IVA, mas artigos saem a ${nonZeroProd.join(", ")}`);
     if (nonZeroShip.length) out.push(`REGIME: ${cfg.ix_exemption_reason} nao liquida IVA, mas portes saem a ${nonZeroShip.join(", ")}`);
   }
-  if (cfg.force_tax_rate != null && cfg.force_shipping_tax_rate == null && r.shippingOrders > 0) {
-    out.push(`PORTES LIVRES: artigos impostos a ${cfg.force_tax_rate}%, portes sem regra (observado: ${[...r.shipRates.keys()].join(", ") || "-"})`);
+  // Portes a 23% sobre artigos a 6% ou isentos NAO e um achado: a taxa normal e
+  // o defeito do transporte, e so se impoe outra quando o comerciante o declara.
+  // O que importa e o par incompleto num regime que nao liquida nada: impor 0%
+  // num dos dois campos e deixar o outro livre protege metade das linhas, e a
+  // metade desprotegida so esta a zero enquanto a loja nao cobrar imposto.
+  const exemptRegime = cfg.force_tax_rate === 0 || cfg.force_shipping_tax_rate === 0
+    || ZERO_ONLY_CODES.has(String(cfg.ix_exemption_reason));
+  if (exemptRegime && cfg.force_tax_rate === 0 && cfg.force_shipping_tax_rate == null) {
+    out.push(`PAR INCOMPLETO: artigos impostos a 0% mas portes livres, logo 23% assim que a loja cobrar imposto no transporte (observado: ${[...r.shipRates.keys()].join(", ") || "-"})`);
   }
-  if (cfg.force_tax_rate == null && cfg.force_shipping_tax_rate != null) {
-    out.push(`ARTIGOS LIVRES: portes impostos a ${cfg.force_shipping_tax_rate}%, artigos sem regra (observado: ${[...r.prodRates.keys()].join(", ") || "-"})`);
+  if (exemptRegime && cfg.force_shipping_tax_rate === 0 && cfg.force_tax_rate == null) {
+    out.push(`PAR INCOMPLETO: portes impostos a 0% mas artigos livres (observado: ${[...r.prodRates.keys()].join(", ") || "-"})`);
   }
   // On the Shopify path the line math reads the ORDER's `taxes_included`, never
   // this column. Its only effect here is as the third precondition of
@@ -161,14 +168,6 @@ function findings(r) {
   }
   if (cfg.b2b_reverse_charge === 1 && cfg.oss_enabled !== 1) {
     out.push("AUTOLIQUIDACAO MORTA: b2b_reverse_charge=1 mas oss_enabled!=1, resolveReverseCharge devolve skip sempre");
-  }
-  // Shipping follows the supply it carries. Portes at 23% on a document whose
-  // every article is exempt or reduced is the shape of both the art. 14 book
-  // seller and the 6% ticket office, and it totals perfectly either way.
-  const maxProd = Math.max(0, ...[...r.prodRates.keys()].map(parseFloat));
-  const overShip = [...r.shipRates.keys()].filter((k) => parseFloat(k) > maxProd);
-  if (overShip.length && r.prodRates.size) {
-    out.push(`PORTES ACIMA DOS ARTIGOS: artigos no maximo ${key(maxProd)}, portes a ${overShip.join(", ")}`);
   }
   if (r.nearMiss.size) {
     out.push(`ISBN QUASE VALIDO: ${r.nearMiss.size} SKU(s) falharam a regra do livro e sairam a taxa de merch -> ${[...r.nearMiss.values()].slice(0, 5).join(" | ")}`);

@@ -6,6 +6,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { primaryConnectionKey } from "@/lib/stripe";
 import { DEFAULT_CONNECTION_KEY } from "@/lib/subscription-key";
 import { ixCredentialsPresent } from "@/lib/destination-credentials";
+import { stripIntegrationSecrets } from "@/lib/redact";
 import { auditFieldDiff } from "@/lib/config-audit";
 
 export const runtime = "edge";
@@ -55,8 +56,19 @@ export async function GET(request: NextRequest) {
         // stored row is left alone, so re-validating still restores it.
         const ixCredsPresent = ixCredentialsPresent(integration as any);
 
+        // The credentials on this row never reach a browser.
+        //
+        // It spread the row whole, and the row is the account's Shopify Admin
+        // token, its webhook secret, the InvoiceXpress key EVERY connection
+        // files with, and the OAuth app secret (0053). Any signed-in member of
+        // the account received all of it, read-only seats included.
+        //
+        // What comes back instead is `has_<column>` — whether the credential is
+        // set, which is the only thing the wizards ever asked. The POST below
+        // treats a blank as unchanged, so a form rendering with the field empty
+        // cannot erase what is stored.
         return NextResponse.json({
-            ...(integration || {}),
+            ...stripIntegrationSecrets(integration),
             ...(integration ? { ix_authorized: ixCredsPresent ? (integration as any).ix_authorized : 0 } : {}),
             _user_id: targetUserId,
             _user_name: userRecord?.name || null,
@@ -163,6 +175,13 @@ export async function POST(request: NextRequest) {
             // withdraws `ix_authorized`.
             const statedIxAccount = typeof ix_account_name === "string" && ix_account_name.trim() ? ix_account_name : undefined;
             const statedIxKey = typeof ix_api_key === "string" && ix_api_key.trim() ? ix_api_key : undefined;
+            // The Shopify pair, on the same rule, and now for a second reason:
+            // the GET stopped sending these to the browser, so every wizard
+            // POSTs them blank on any save that is not the one where they were
+            // typed. Without this, opening the settings and changing a VAT
+            // toggle would clear the shop's Admin token.
+            const statedShopifyToken = typeof shopify_token === "string" && shopify_token.trim() ? shopify_token : undefined;
+            const statedWebhookSecret = typeof shopify_webhook_secret === "string" && shopify_webhook_secret.trim() ? shopify_webhook_secret : undefined;
             const finalIxAccount = statedIxAccount ?? existing.ix_account_name;
             const finalIxKey = statedIxKey ?? existing.ix_api_key;
             const finalIxAuthorized =
@@ -193,8 +212,8 @@ export async function POST(request: NextRequest) {
                 // the rest did not.
                 .bind(
                     shopify_domain !== undefined ? clean_shopify_domain : existing.shopify_domain,
-                    shopify_token !== undefined ? (shopify_token || null) : existing.shopify_token,
-                    shopify_webhook_secret !== undefined ? (shopify_webhook_secret || null) : existing.shopify_webhook_secret,
+                    statedShopifyToken ?? existing.shopify_token,
+                    statedWebhookSecret ?? existing.shopify_webhook_secret,
                     shopify_api_version !== undefined ? (shopify_api_version || "2026-01") : (existing.shopify_api_version ?? "2026-01"),
                     finalIxAccount,
                     finalIxKey,
@@ -230,8 +249,10 @@ export async function POST(request: NextRequest) {
                 existing,
                 {
                     shopify_domain: shopify_domain !== undefined ? clean_shopify_domain : existing.shopify_domain,
-                    shopify_token: shopify_token !== undefined ? (shopify_token || null) : existing.shopify_token,
-                    shopify_webhook_secret: shopify_webhook_secret !== undefined ? (shopify_webhook_secret || null) : existing.shopify_webhook_secret,
+                    // Same values the UPDATE above binds, or the trail records a
+                    // clearing that never happened.
+                    shopify_token: statedShopifyToken ?? existing.shopify_token,
+                    shopify_webhook_secret: statedWebhookSecret ?? existing.shopify_webhook_secret,
                     ix_account_name: finalIxAccount,
                     ix_api_key: finalIxKey,
                     ix_authorized: finalIxAuthorized,

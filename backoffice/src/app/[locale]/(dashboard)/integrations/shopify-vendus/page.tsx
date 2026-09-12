@@ -39,6 +39,8 @@ export default function ShopifyVendusIntegration() {
     // Shopify
     const [shopifyDomain, setShopifyDomain] = useState("");
     const [shopifyToken, setShopifyToken] = useState("");
+    /** A token is stored, so leaving the field blank keeps it. */
+    const [shopifyTokenStored, setShopifyTokenStored] = useState(false);
     const [shopifyApiVersion, setShopifyApiVersion] = useState("2026-01");
     const [shopifyAuthorized, setShopifyAuthorized] = useState(false);
     const [shopifyError, setShopifyError] = useState("");
@@ -79,7 +81,9 @@ export default function ShopifyVendusIntegration() {
                     if (data._viewer_role) setUserRole(data._viewer_role);
                     if (data.user_id) setTargetUserId(data.user_id);
                     if (data.shopify_domain) setShopifyDomain(data.shopify_domain);
-                    if (data.shopify_token) setShopifyToken(data.shopify_token);
+                    // The token itself no longer leaves the server; this only
+                    // says one is stored, which is what the field shows.
+                    setShopifyTokenStored(!!data.has_shopify_token);
                     if (data.shopify_api_version) setShopifyApiVersion(data.shopify_api_version);
                     shopOk = !!data.shopify_domain && data.shopify_authorized === 1;
                     setShopifyAuthorized(shopOk);
@@ -119,7 +123,9 @@ export default function ShopifyVendusIntegration() {
 
     const handleShopifyStep = async () => {
         setShopifyError("");
-        if (!shopifyDomain.trim() || !shopifyToken.trim()) { setShopifyError(t("errorShopifyRequired")); return; }
+        // Blank with one already stored means "keep it": the POST reads a blank
+        // token as unchanged.
+        if (!shopifyDomain.trim() || (!shopifyToken.trim() && !shopifyTokenStored)) { setShopifyError(t("errorShopifyRequired")); return; }
         setSaving(true);
         try {
             const saveRes = await fetch("/api/integrations", {
@@ -282,14 +288,14 @@ export default function ShopifyVendusIntegration() {
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("shopifyTokenLabel")}</label>
-                        <input type="password" value={shopifyToken} onChange={(e) => setShopifyToken(e.target.value)} placeholder="shpat_••••••••" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <input type="password" value={shopifyToken} onChange={(e) => setShopifyToken(e.target.value)} placeholder={shopifyTokenStored ? "••••••••••••" : "shpat_••••••••"} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
                     </div>
                     <div className="md:col-span-2 space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("shopifyApiVersionLabel")}</label>
                         <input type="text" value={shopifyApiVersion} onChange={(e) => setShopifyApiVersion(e.target.value)} placeholder="2026-01" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
                     </div>
                     <div className="md:col-span-2 pt-4">
-                        <button onClick={handleShopifyStep} disabled={saving || !shopifyDomain.trim() || !shopifyToken.trim()} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-on-accent disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                        <button onClick={handleShopifyStep} disabled={saving || !shopifyDomain.trim() || (!shopifyToken.trim() && !shopifyTokenStored)} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-on-accent disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t("verifyConnection")} <ChevronRight className="w-4 h-4" /></>}
                         </button>
                         {shopifyError && <p className="text-[11px] text-destructive font-bold text-center mt-4">{shopifyError}</p>}

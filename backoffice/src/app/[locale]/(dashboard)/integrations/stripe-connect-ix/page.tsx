@@ -82,6 +82,8 @@ export default function StripeConnectIxIntegration() {
     // InvoiceXpress
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
+    /** A key is stored, so leaving the field blank keeps it. */
+    const [ixKeyStored, setIxKeyStored] = useState(false);
     const [ixEnvironment, setIxEnvironment] = useState("production");
     const [ixError, setIxError] = useState("");
 
@@ -118,9 +120,11 @@ export default function StripeConnectIxIntegration() {
         // InvoiceXpress credentials live on the legacy row: one IX account per
         // Rioko account, shared by every connection that files into it.
         if (integ?.ix_account_name) setIxAccount(String(integ.ix_account_name));
-        if (integ?.ix_api_key) setIxApiKey(String(integ.ix_api_key));
         if (integ?.ix_environment) setIxEnvironment(String(integ.ix_environment));
-        const hasIxKey = !!integ?.ix_account_name && !!integ?.ix_api_key;
+        // The key itself stays on the server; `has_ix_api_key` says whether one
+        // is stored, which is all this page ever did with it.
+        const hasIxKey = !!integ?.ix_account_name && !!integ?.has_ix_api_key;
+        setIxKeyStored(!!integ?.has_ix_api_key);
         setIxCredsSaved(hasIxKey);
 
         const conn = connect?.connection;
@@ -214,7 +218,9 @@ export default function StripeConnectIxIntegration() {
     });
 
     const handleSaveIx = async () => {
-        if (!ixAccount.trim() || !ixApiKey.trim()) return;
+        // The body below already omits a blank key, so a stored one survives a
+        // save that only changes the account name or the environment.
+        if (!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)) return;
         setSaving(true);
         setIxError("");
         try {
@@ -402,7 +408,7 @@ export default function StripeConnectIxIntegration() {
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{tIx("fieldIxApiKeyLabel")}</label>
-                        <input type="password" value={ixApiKey} onChange={(e) => setIxApiKey(e.target.value)} placeholder={tIx("fieldIxApiKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium font-mono focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
+                        <input type="password" value={ixApiKey} onChange={(e) => setIxApiKey(e.target.value)} placeholder={ixKeyStored ? "••••••••••••" : tIx("fieldIxApiKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium font-mono focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
                     </div>
 
                     <div className="space-y-3">
@@ -471,7 +477,7 @@ export default function StripeConnectIxIntegration() {
 
                     <div className="md:col-span-2 pt-2 flex items-center gap-4">
                         <button onClick={() => setStep(1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{tIx("back")}</button>
-                        <button onClick={handleSaveIx} disabled={saving || !ixAccount.trim() || !ixApiKey.trim()} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                        <button onClick={handleSaveIx} disabled={saving || !ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {tIx("update")}</>}
                         </button>
                     </div>

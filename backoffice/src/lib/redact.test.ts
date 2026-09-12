@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   redactConnectionConfig, redactConfigJson, FISCAL_CONFIG_KEYS,
-  CONNECTION_PUBLIC_COLUMNS,
+  CONNECTION_PUBLIC_COLUMNS, stripIntegrationSecrets,
 } from "./redact";
 
 /**
@@ -97,6 +97,69 @@ describe("CONNECTION_PUBLIC_COLUMNS", () => {
     const suspicious = CONNECTION_PUBLIC_COLUMNS.filter((c) =>
       /secret|token|config_json|password|api_key|state/.test(c));
     expect(suspicious).toEqual(["last_token_refresh_at"]);
+  });
+});
+
+describe("stripIntegrationSecrets", () => {
+  // A real row, with the columns /api/integrations used to spread whole.
+  const ROW = {
+    id: "int_1",
+    user_id: "user_abc",
+    shopify_domain: "loja.myshopify.com",
+    shopify_token: "shpat_livetoken",
+    shopify_webhook_secret: "whsec_live",
+    shopify_api_version: "2026-01",
+    shopify_client_id: "cid_public",
+    shopify_client_secret: "cs_live",
+    shopify_oauth_state: "nonce123",
+    shopify_oauth_state_expires_at: "2026-09-12T10:00:00Z",
+    ix_account_name: "conta",
+    ix_api_key: "ix_live_key",
+    ix_sequence_name: "FR-25",
+    ix_exemption_reason: "M05",
+    vat_included: 1,
+    only_invoice_when_paid: 1,
+  };
+
+  it("returns no credential, in any column", () => {
+    const serialized = JSON.stringify(stripIntegrationSecrets(ROW));
+    for (const secret of ["shpat_livetoken", "whsec_live", "cs_live", "ix_live_key", "nonce123", "cid_public"]) {
+      expect(serialized).not.toContain(secret);
+    }
+  });
+
+  it("still says whether each credential is set", () => {
+    const safe = stripIntegrationSecrets(ROW);
+    expect(safe.has_shopify_token).toBe(true);
+    expect(safe.has_shopify_webhook_secret).toBe(true);
+    expect(safe.has_ix_api_key).toBe(true);
+    expect(stripIntegrationSecrets({ ...ROW, ix_api_key: "" }).has_ix_api_key).toBe(false);
+    expect(stripIntegrationSecrets({ ...ROW, shopify_token: null }).has_shopify_token).toBe(false);
+  });
+
+  it("leaves the fiscal settings the wizards render exactly as they are", () => {
+    const safe = stripIntegrationSecrets(ROW);
+    expect(safe.shopify_domain).toBe("loja.myshopify.com");
+    expect(safe.ix_account_name).toBe("conta");
+    expect(safe.ix_sequence_name).toBe("FR-25");
+    expect(safe.ix_exemption_reason).toBe("M05");
+    expect(safe.vat_included).toBe(1);
+    expect(safe.only_invoice_when_paid).toBe(1);
+    // `user_id` must not read as a client id and vanish from the payload.
+    expect(safe.user_id).toBe("user_abc");
+  });
+
+  it("catches a credential column nobody has added yet", () => {
+    // The property the pattern buys: the column added by the next migration is
+    // stripped on the day it lands, not on the day somebody remembers.
+    const safe = stripIntegrationSecrets({ lodgify_api_key: "live", moloni_password: "hunter2" });
+    expect(JSON.stringify(safe)).not.toContain("hunter2");
+    expect(safe.has_lodgify_api_key).toBe(true);
+    expect(safe.has_moloni_password).toBe(true);
+  });
+
+  it("survives the absent row of an account with no integration", () => {
+    expect(stripIntegrationSecrets(null)).toEqual({});
   });
 });
 

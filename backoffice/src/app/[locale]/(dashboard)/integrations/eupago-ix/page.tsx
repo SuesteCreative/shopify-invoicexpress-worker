@@ -53,6 +53,8 @@ export default function EuPagoIxIntegration() {
     // IX
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
+    /** A key is stored, so leaving the field blank keeps it. */
+    const [ixKeyStored, setIxKeyStored] = useState(false);
     const [ixEnvironment, setIxEnvironment] = useState("production");
     const [ixAuthorized, setIxAuthorized] = useState(false);
     const [ixError, setIxError] = useState("");
@@ -91,7 +93,9 @@ export default function EuPagoIxIntegration() {
                     if (data.user_id) setTargetUserId(data.user_id);
                     setOwnedByShopify(!!data.shopify_domain);
                     if (data.ix_account_name) setIxAccount(data.ix_account_name);
-                    if (data.ix_api_key) setIxApiKey(data.ix_api_key);
+                    // The key itself no longer leaves the server; this is what
+                    // renders the dots and lets a save skip re-typing it.
+                    setIxKeyStored(!!data.has_ix_api_key);
                     if (data.ix_environment) setIxEnvironment(data.ix_environment);
                     if (data.ix_exemption_reason) setExemptionReason(data.ix_exemption_reason);
                     if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
@@ -193,7 +197,8 @@ export default function EuPagoIxIntegration() {
 
     const handleIxStep = async () => {
         setIxError("");
-        if (!ixAccount.trim() || !ixApiKey.trim()) { setIxError(t("errorIxRequired")); return; }
+        // Blank key + one already stored = keep it; the POST reads it that way.
+        if (!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)) { setIxError(t("errorIxRequired")); return; }
         setSaving(true);
         try {
             const saveRes = await fetch("/api/integrations", {
@@ -410,7 +415,7 @@ export default function EuPagoIxIntegration() {
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("ixApiKeyLabel")}</label>
-                        <input type="password" value={ixApiKey} onChange={(e) => setIxApiKey(e.target.value)} placeholder={t("ixApiKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
+                        <input type="password" value={ixApiKey} onChange={(e) => setIxApiKey(e.target.value)} placeholder={ixKeyStored ? "••••••••••••" : t("ixApiKeyPlaceholder")} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
                     </div>
                     <div className="md:col-span-2 space-y-3">
                         <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("ixEnvLabel")}</label>

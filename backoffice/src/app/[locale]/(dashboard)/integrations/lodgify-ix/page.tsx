@@ -53,6 +53,8 @@ export default function LodgifyIxIntegration() {
     // IX
     const [ixAccount, setIxAccount] = useState("");
     const [ixApiKey, setIxApiKey] = useState("");
+    /** A key is stored, so leaving the field blank keeps it. */
+    const [ixKeyStored, setIxKeyStored] = useState(false);
     const [ixEnvironment, setIxEnvironment] = useState("production");
     const [ixAuthorized, setIxAuthorized] = useState(false);
     const [ixError, setIxError] = useState("");
@@ -90,7 +92,10 @@ export default function LodgifyIxIntegration() {
                     if (data.user_id) setTargetUserId(data.user_id);
                     setOwnedByShopify(!!data.shopify_domain);
                     if (data.ix_account_name) setIxAccount(data.ix_account_name);
-                    if (data.ix_api_key) setIxApiKey(data.ix_api_key);
+                    // The key itself no longer leaves the server. `has_ix_api_key`
+                    // is what the field renders as dots and what lets this page
+                    // save without asking for it again.
+                    setIxKeyStored(!!data.has_ix_api_key);
                     if (data.ix_environment) setIxEnvironment(data.ix_environment);
                     if (data.ix_exemption_reason) setExemptionReason(data.ix_exemption_reason);
                     if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
@@ -196,7 +201,9 @@ export default function LodgifyIxIntegration() {
 
     const handleIxStep = async () => {
         setIxError("");
-        if (!ixAccount.trim() || !ixApiKey.trim()) { setIxError(t("errorIxRequired")); return; }
+        // A blank key with one already stored means "keep it" — the POST reads it
+        // that way too. Only an account with no key at all still has to type one.
+        if (!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)) { setIxError(t("errorIxRequired")); return; }
         setSaving(true);
         try {
             const saveRes = await fetch("/api/integrations", {
@@ -415,7 +422,7 @@ export default function LodgifyIxIntegration() {
                             type="password"
                             value={ixApiKey}
                             onChange={(e) => setIxApiKey(e.target.value)}
-                            placeholder={t("ixApiKeyPlaceholder")}
+                            placeholder={ixKeyStored ? "••••••••••••" : t("ixApiKeyPlaceholder")}
                             className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono"
                         />
                     </div>

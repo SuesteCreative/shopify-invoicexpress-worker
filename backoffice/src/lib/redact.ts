@@ -145,6 +145,44 @@ export const CONNECTION_PUBLIC_COLUMNS = [
 /** The same list, ready to drop into a SELECT. */
 export const CONNECTION_PUBLIC_SELECT = CONNECTION_PUBLIC_COLUMNS.join(", ");
 
+/**
+ * The legacy `integrations` row is the other shape credentials live in: not a
+ * JSON blob but columns, one row per account, and it is the row /api/integrations
+ * used to spread whole into a browser — the Shopify Admin token, the webhook
+ * secret, the InvoiceXpress key EVERY connection files with, and the OAuth app
+ * secret and nonce from migration 0053.
+ *
+ * A pattern rather than a list of names, because the column is the leak: the
+ * forty fiscal settings on this row are what the wizards render, so an allowlist
+ * of names would have to be maintained against every migration and would break a
+ * wizard quietly each time somebody forgot. Every credential this table has ever
+ * held is named after what it is, so name-shaped is the check that also catches
+ * the one added next year.
+ */
+const INTEGRATION_SECRET_COLUMN = /(^|_)(token|secret|api_key|password|client_id|oauth_state)($|_)/;
+
+/**
+ * The row as a browser may see it: every credential column replaced by
+ * `has_<column>`, which is all a wizard ever needed — whether a credential is
+ * set, never what it is.
+ *
+ * Paired with "blank means unchanged" in the POST: a form that renders with the
+ * field empty must not be able to erase what is stored.
+ */
+export function stripIntegrationSecrets(
+  row: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const safe: Record<string, unknown> = {};
+  for (const [column, value] of Object.entries(row ?? {})) {
+    if (INTEGRATION_SECRET_COLUMN.test(column)) {
+      safe[`has_${column}`] = value != null && String(value).trim() !== "";
+      continue;
+    }
+    safe[column] = value;
+  }
+  return safe;
+}
+
 export interface RedactedConfig {
   /** Fiscal settings, verbatim. */
   fiscal: Record<string, unknown>;

@@ -44,6 +44,7 @@ saber o que lá tem de estar.
 | Entidade | Papel | Dados | Evidência |
 |---|---|---|---|
 | **Resend** | email transaccional (principal) | emails de comerciantes e de clientes finais | `src/services/email.ts:80` |
+| **Resend** | newsletters (Broadcasts) | nome próprio e email dos comerciantes, guardados como contactos na Resend, que passa a ser a detentora do cancelamento de subscrição e da lista de supressão | `src/services/newsletter.ts` |
 | **MailChannels** | email (fallback) | idem | `src/services/email.ts:129` |
 | **Anthropic** | diagnóstico de incidentes e relatório de padrões | conteúdo de incidentes, **passado por `redactDeep`** | `api.anthropic.com`, `src/services/anthropic.redact.test.ts` |
 | **Clerk** | autenticação do backoffice | identidade dos comerciantes | `@clerk/nextjs` |

@@ -32,6 +32,17 @@ const wq = (sql) => {
 // A positive rate under one of these is a contradiction, not a preference.
 const ZERO_ONLY_CODES = new Set(["M10", "M07", "M11", "M12", "M13"]);
 
+// EU-27, to tell an export apart from an intra-Community supply. The two take
+// different articles and the shop states only one code for both.
+const EU = new Set(["AT","BE","BG","CY","CZ","DE","DK","EE","ES","FI","FR","GR","HR","HU","IE","IT","LT","LU","LV","MT","NL","PL","PT","RO","SE","SI","SK"]);
+
+// What each code actually names, so a mismatch can be stated rather than hinted.
+const CODE_MEANS = {
+  M05: { name: "Isento artigo 14.º do CIVA", covers: "fora-UE", gloss: "exportação e assimiladas" },
+  M16: { name: "Isento artigo 14.º do RITI", covers: "UE", gloss: "transmissão intracomunitária de bens" },
+  M40: { name: "Autoliquidação artigo 6.º n.º 6", covers: "UE", gloss: "serviços a sujeito passivo de outro Estado-membro" },
+};
+
 const NUMERIC_COLS = [
   "force_tax_rate", "force_shipping_tax_rate", "vat_included", "oss_enabled",
   "b2b_reverse_charge", "auto_finalize", "pos_mode", "is_paused",
@@ -97,7 +108,7 @@ async function checkShop(shop) {
   const builder = new IxBuilder(cfg, undefined, ovr);
 
   const { orders, httpErr } = await fetchPaidOrders(cfg);
-  const prodRates = new Map(), shipRates = new Map(), detail = new Map(), nearMiss = new Map();
+  const prodRates = new Map(), shipRates = new Map(), detail = new Map(), nearMiss = new Map(), zeroDest = new Map();
   let n = 0, threw = 0, shippingOrders = 0;
 
   for (const o of orders) {
@@ -109,6 +120,12 @@ async function checkShop(shop) {
     unmute();
     if (!items) continue;
     if ((o.shipping_lines ?? []).some((sl) => Number(sl?.price ?? 0) > 0)) shippingOrders++;
+    // Where a zero-rated line actually went. The shop states ONE exemption code
+    // and it is stamped on every 0% line regardless, so the code is only right
+    // for as long as every zero line is the thing the code names: M05 names an
+    // export under art. 14, and an intra-EU sale is not one.
+    const cc = String(o.shipping_address?.country_code ?? o.billing_address?.country_code ?? "").toUpperCase();
+    const dest = !cc ? "?" : cc === "PT" ? "PT" : EU.has(cc) ? "UE" : "fora-UE";
     // Line items and built items are positionally unrelated (zero-priced lines
     // are dropped), so match on the name the builder stamped.
     const byName = new Map();
@@ -119,6 +136,7 @@ async function checkShop(shop) {
       const k = key(Number.isFinite(raw) ? raw : 0);
       (isShip ? shipRates : prodRates).set(k, ((isShip ? shipRates : prodRates).get(k) ?? 0) + 1);
       if (isShip) continue;
+      if (parseFloat(k) === 0) zeroDest.set(dest, (zeroDest.get(dest) ?? 0) + 1);
       const li = byName.get(String(it.name ?? "").split(" / ")[0]) ?? byName.get(String(it.name ?? ""));
       const why = li ? whyRate(li, ovr, cfg) : "?";
       // The reduced rate hangs off the SKU being a well-formed ISBN-13. A digit
@@ -133,7 +151,7 @@ async function checkShop(shop) {
       detail.set(row, (detail.get(row) ?? 0) + 1);
     }
   }
-  return { dom: shop.shopify_domain, cfg, overrides, httpErr, n, threw, shippingOrders, prodRates, shipRates, detail, nearMiss };
+  return { dom: shop.shopify_domain, cfg, overrides, httpErr, n, threw, shippingOrders, prodRates, shipRates, detail, nearMiss, zeroDest };
 }
 
 function findings(r) {
@@ -169,6 +187,14 @@ function findings(r) {
   if (cfg.b2b_reverse_charge === 1 && cfg.oss_enabled !== 1) {
     out.push("AUTOLIQUIDACAO MORTA: b2b_reverse_charge=1 mas oss_enabled!=1, resolveReverseCharge devolve skip sempre");
   }
+  const meansIt = CODE_MEANS[String(cfg.ix_exemption_reason)];
+  if (meansIt) {
+    const wrong = [...r.zeroDest.entries()].filter(([d, n]) => n > 0 && d !== meansIt.covers && d !== "?");
+    const total = [...r.zeroDest.values()].reduce((a, b) => a + b, 0);
+    if (wrong.length && total > 0) {
+      out.push(`CODIGO NAO COBRE O DESTINO: ${cfg.ix_exemption_reason} e ${meansIt.gloss} (${meansIt.covers}), mas ha linhas a 0% para ${wrong.map(([d, n]) => `${d} x${n}`).join(", ")}`);
+    }
+  }
   if (r.nearMiss.size) {
     out.push(`ISBN QUASE VALIDO: ${r.nearMiss.size} SKU(s) falharam a regra do livro e sairam a taxa de merch -> ${[...r.nearMiss.values()].slice(0, 5).join(" | ")}`);
   }
@@ -195,6 +221,7 @@ for (const s of shops) {
   if (r.httpErr) { console.log(`   ! Shopify ${r.httpErr} - sem amostra\n`); continue; }
   const fmt = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}x${v}`).join("  ") || "-";
   console.log(`   ${r.n} encomendas | artigos: ${fmt(r.prodRates)} | portes: ${fmt(r.shipRates)}${r.threw ? ` | ${r.threw} recusadas pela guarda` : ""}`);
+  if (r.zeroDest.size) console.log(`   linhas a 0% por destino: ${fmt(r.zeroDest)}`);
   const f = findings(r);
   if (f.length) flagged.push(r.dom);
   for (const line of f) console.log(`   ! ${line}`);

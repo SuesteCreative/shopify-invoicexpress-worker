@@ -963,10 +963,31 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4">
+                    {/*
+                      * `tLod`, not `tIx`: this switch means DIFFERENT things at the
+                      * two destinations and is rendered on both. On Moloni it is a
+                      * real inclusion switch — moloni-destination.ts divides the
+                      * price by (1 + rate/100) when it is on. On InvoiceXpress the
+                      * destination never reads the flag at all; it only gates the
+                      * VAT engine. Reading the IX namespace here showed IX wording
+                      * on a Moloni onboarding, where it happened to be true by
+                      * accident and would have become false the moment the IX copy
+                      * was corrected.
+                      *
+                      * ponytail: this switch's copy lives in nine per-wizard i18n
+                      * namespaces and is rendered from fourteen sites, so the same
+                      * legal statement exists in nine versions and a new wizard
+                      * copies whichever neighbour it starts from — which is how
+                      * this site ended up on the wrong one. TaxRegistrations.tsx
+                      * already solved exactly this for the registration toggles by
+                      * owning both the markup and the copy in one component.
+                      * Upgrade path is the same move here; not taken now because it
+                      * touches fourteen files with two different switch shapes.
+                      */}
                     <Switch
                         checked={vatIncluded} onChange={setVatIncluded}
-                        label={tIx("vatIncluded")}
-                        hint={vatIncluded ? tIx("vatIncludedOn") : tIx("vatIncludedOff")}
+                        label={tLod("vatIncluded")}
+                        hint={vatIncluded ? tLod("vatIncludedOn") : tLod("vatIncludedOff")}
                     />
                     <Switch
                         checked={autoFinalize} onChange={setAutoFinalize}

@@ -196,6 +196,28 @@ export interface DestinationDocument {
    * document carries no exemption.
    */
   exemption_code?: string | null;
+  /**
+   * Who the destination says the document was issued TO, in the two facts an
+   * exemption code can contradict.
+   *
+   * An exemption code is not free-standing: M40 and M16 assert the buyer is a
+   * taxable person in another member state, M05 asserts the sale left the EU.
+   * Whether those assertions hold is a fact about the BUYER, and until now no
+   * reader carried one — so a code could be stamped on a buyer who contradicts
+   * it and nothing anywhere could tell. Measured on WHM, 09/09/2026: M40 on a
+   * French private consumer with no VAT number, on every document.
+   *
+   * Filled by each adapter from its native field, exactly like `exemption_code`,
+   * so `checkRegimeClaim` stays destination-agnostic.
+   *
+   * The null/"" distinction decides whether the check runs at all, and it is the
+   * whole safety of it: `null` is "this destination did not tell us", `""` is
+   * "the destination holds none". Reading an unknown as an absence would invent
+   * a contradiction out of a field the adapter simply does not populate.
+   */
+  buyer_country?: string | null;
+  /** See `buyer_country`. `null` = unknown, `""` = destination holds none. */
+  buyer_tax_id?: string | null;
   /** Native payload, for destination-internal code that needs the full record. */
   raw: unknown;
 }

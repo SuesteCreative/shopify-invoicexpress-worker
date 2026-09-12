@@ -198,6 +198,19 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       // known", not as a code: reported literally it makes the verify sweep
       // announce a drift from "M10" to "" on a document nobody touched.
       exemption_code: resolveExemptionCode(d.tax_exemption, null),
+      // The buyer facts an exemption code can contradict. IX carries them on the
+      // document itself, so this costs no extra call.
+      //
+      // `client` absent is not the same as a client with nothing in it: the
+      // first means IX did not hand us the block (null, check skipped), the
+      // second that IX holds a client with no country/tax id ("", checkable).
+      // Collapsing the two is how a missing field becomes a fabricated finding.
+      //
+      // NOTE: `country` here is IX's NAME for the country ("France"), not an
+      // ISO2 code — see toIxCountryName in ix/builder.ts, which converts on the
+      // way in. euCountryFromStored() in document-verify.ts reads both.
+      buyer_country: d.client ? String(d.client.country ?? "").trim() : null,
+      buyer_tax_id: d.client ? String(d.client.fiscal_id ?? "").trim() : null,
       raw: d,
     };
   }

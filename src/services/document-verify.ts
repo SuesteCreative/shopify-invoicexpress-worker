@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import type { AdapterCtx, DestinationAdapter } from "../adapters/types";
+import { EU_COUNTRIES } from "../ix/eu-countries";
 import { logDocumentEvent } from "./document-log";
 import { reportIncident } from "./incidents";
 
@@ -153,6 +154,152 @@ export function compareIntent(
   return drifts;
 }
 
+/**
+ * Codes that assert something about the BUYER, and what contradicts each.
+ *
+ * This is the whole precision of the check, so it is deliberately tiny.
+ *
+ * An exemption code is a claim, and claims come in two kinds. `M07` (art. 9.º),
+ * `M10` (art. 53.º), `M01`, `M99` say something about the SELLER — they are true
+ * whatever the buyer does, and a shop legitimately on one of them would be
+ * warned about every sale it ever makes. Eleven of the thirteen live connections
+ * are exactly that, so a check that did not draw this line would be a phantom
+ * generator, which is the failure mode this fleet has been burned by more than
+ * any other. Seller-side codes are therefore never examined.
+ *
+ * `M16` / `M40` / a shop's own `ix_b2b_exemption_reason` say the buyer is a
+ * taxable person in another member state. That is a claim about the buyer's
+ * IDENTITY, and the document carries the facts to test it: a country and a tax
+ * id. `M05` (export) is deliberately absent — it is a claim about where the
+ * goods WENT, and no destination hands that back. See the note at the M05 site.
+ *
+ * What is NOT asserted, on purpose: that M40 on a non-EU buyer is wrong. The
+ * repo contradicts itself there — `ossExemptionCode` (adapters/tax-rates.ts)
+ * stamps M40 on a zero-rated non-EU sale by default, while
+ * scripts/audit-tax-params.mjs reports that same pairing as a finding. Both can
+ * be right: M05 is art. 14.º CIVA (export of GOODS), M40 is art. 6.º n.º 6 a)
+ * (SERVICES to a taxable person outside PT, EU or not). Which applies depends on
+ * what the merchant sells, and that is an accountant's call, not a sweep's.
+ */
+const BUYER_CLAIMING_CODES = new Set(["M16", "M40"]);
+
+/**
+ * The EU-27 as InvoiceXpress spells them, derived from the same ISO list the
+ * invoicing path uses so the two cannot drift apart.
+ *
+ * IX stores a client's country by NAME ("France"), not as an ISO2 code —
+ * `toIxCountryName` (ix/builder.ts) converts on the way in and there is no
+ * inverse. Comparing `EU_COUNTRIES.has("France")` is therefore always false, and
+ * the M05 rule would have been dead on arrival without this: silent, passing its
+ * tests, and finding nothing for ever.
+ */
+function euCountryNames(): Set<string> {
+  const names = new Set<string>();
+  for (const cc of EU_COUNTRIES) {
+    names.add(cc.toLowerCase());
+    try {
+      const n = new Intl.DisplayNames(["en"], { type: "region" }).of(cc);
+      if (n) names.add(n.toLowerCase());
+    } catch {
+      // Intl unavailable: the ISO2 forms above still work. Never throw from a
+      // verifier — see property 1 at the top of this file.
+    }
+  }
+  // IX's own spelling of CZ, which Intl renders as "Czechia". Both are the same
+  // member state and both appear in the fleet's documents.
+  names.add("czech republic");
+  return names;
+}
+
+const EU_COUNTRY_NAMES = euCountryNames();
+
+/**
+ * Does the document's own exemption code contradict the buyer it was issued to?
+ *
+ * Pure, and separate from `compareIntent` because it answers a different
+ * question. `compareIntent` asks "did the destination store what we sent"; a
+ * wrong regime stored faithfully passes that check for ever. This asks whether
+ * what we sent was a claim the document itself disproves.
+ *
+ * Measured on WHM, 09/09/2026: eight documents, every one 0 % with M40 —
+ * "autoliquidação, serviços a sujeito passivo de outro Estado-membro" — issued
+ * to private consumers with no VAT number anywhere (zero `tax_ids` across 403
+ * Stripe payments that year). Nobody chose that code per sale: the rate engine
+ * was unregistered, so nothing decided, and `shouldRequestTaxExemptionReason`
+ * stamped the connection's global code because IX demands one for any zero line.
+ * The exemption was what was left when nothing decided, and no counter, log or
+ * incident said a word.
+ *
+ * Every branch fails CLOSED — an absent fact yields no finding, never a finding.
+ */
+export function checkRegimeClaim(stored: {
+  exemption_code?: string | null;
+  buyer_country?: string | null;
+  buyer_tax_id?: string | null;
+}): FieldDrift[] {
+  const code = String(stored.exemption_code ?? "").trim().toUpperCase();
+  // No code means no claim: a fully-taxed document asserts nothing to contradict.
+  if (!code || !BUYER_CLAIMING_CODES.has(code)) return [];
+
+  const drifts: FieldDrift[] = [];
+
+  const countryRaw = String(stored.buyer_country ?? "").trim();
+  const inEu = countryRaw ? EU_COUNTRY_NAMES.has(countryRaw.toLowerCase()) : null;
+
+  // M16/M40 assert a taxable person IN ANOTHER MEMBER STATE. Two facts have to
+  // fail together before this is a contradiction, and requiring both is what
+  // keeps it honest:
+  //
+  //   - no tax id on the document. `null` is "the destination did not tell us"
+  //     and is not evidence of absence — only "" is.
+  //   - the buyer is in the EU. Outside it, whether M40 is the right code is
+  //     genuinely contested: `ossExemptionCode` (adapters/tax-rates.ts) stamps
+  //     M40 on a zero-rated non-EU sale by default, and a merchant selling
+  //     SERVICES may be right to (art. 6.º n.º 6 al. a) is not limited to the
+  //     EU), while audit-tax-params.mjs reports the same pairing as a finding
+  //     because for GOODS it should be M05. Not a sweep's call.
+  //
+  // Measured before this second condition existed: the check fired on all eight
+  // WHM documents, seven of which are US/CH/GT/KH/AZ/AE/UK — sales the merchant
+  // has deliberately decided to invoice under M40. One true finding and seven
+  // arguments is how a useful signal gets switched off.
+  if ((code === "M16" || code === "M40") && stored.buyer_tax_id === "" && inEu === true) {
+    drifts.push({
+      field: "exemption_code",
+      sent: code,
+      stored: `cliente em ${countryRaw}, sem NIF`,
+      meaning:
+        `${code} declara autoliquidação por o comprador ser um sujeito passivo de outro Estado-membro, `
+        + `mas o documento não traz número de IVA nenhum e o comprador está na UE (${countryRaw}). `
+        + `Ou é um particular — e então a venda não é autoliquidação, é uma venda à distância que tributa `
+        + `no país dele — ou o número existe e não chegou ao documento. `
+        + `Confirmar antes de finalizar: num documento fechado a menção é uma declaração à AT.`,
+    });
+  }
+
+  // M05 is art. 14.º CIVA — the sale left the EU. A buyer inside it did not.
+  // M05 (art. 14.º CIVA, export) is deliberately NOT checked here, and this is
+  // the second thing a live dry run caught.
+  //
+  // Export is about where the goods WENT. The only country on a destination
+  // document is the client's, which is the BILLING address (buildInvoiceClient
+  // prefers billing; see rioko-invoice-address-priority). A Portuguese customer
+  // shipping to Brazil is a legitimate M05 export whose client record says
+  // "Portugal" — so judging export from this field marks correct documents as
+  // wrong. Measured 12/09/2026: 4 of 15 sampled Angel Piercings documents and 3
+  // of 15 Bikini Books ones, none of them provably wrong.
+  //
+  // scripts/audit-tax-params.mjs already answers this question properly, from
+  // the ORDER's `shipping_address.country_code ?? billing_address.country_code`
+  // (:127), and reports it as CODIGO NAO COBRE O DESTINO.
+  //
+  // ponytail: a billing-only fact cannot decide a destination-based regime.
+  // Upgrade path is a `buyer_shipping_country` on DestinationDocument, the day
+  // a destination hands one back — InvoiceXpress does not.
+
+  return drifts;
+}
+
 export interface VerifyArgs {
   env: Env;
   adapter: DestinationAdapter;
@@ -232,6 +379,52 @@ export async function verifyCreatedDocument(args: VerifyArgs): Promise<VerifyOut
 
   const label = args.orderRef ?? String(externalId);
   const docName = stored.number ?? invoiceId;
+
+  // The regime claim is logged SEPARATELY from the drifts above, and always as a
+  // lead, because it is a different kind of statement.
+  //
+  // A drift says "the destination holds something other than what we sent" — a
+  // verdict, provable from two recorded values. A regime finding says "the code
+  // on this document does not fit the buyer on it", which is read off today's
+  // document against today's rules. That is the literal definition of
+  // `drift_lead` ("a mismatch against today's configuration — a lead, not a
+  // verdict"), so it stays info-severity, raises no incident and sends the
+  // merchant nothing. Folding it into `drifts` would have promoted it to `drift`
+  // on the nightly sweep — which runs with `history: false` — and turned a
+  // question for an accountant into a 04:00 alert.
+  //
+  // Kept out of the returned `drifts` for the same reason: the caller counts
+  // those as drifted documents.
+  try {
+    const regime = checkRegimeClaim(stored);
+    if (regime.length > 0) {
+      await logDocumentEvent(env, {
+        ...base,
+        event: "drift_lead",
+        // One lead per document, ever. The sweep already excludes anything with
+        // a verdict row, but a re-verified document must not stack duplicates.
+        dedupKey: `regime_lead:${invoiceId}`,
+        summary:
+          `Documento ${docName} da venda ${label}: ${regime.map(d => d.meaning).join(" ")} `
+          + `É uma pista, não um veredicto — o regime depende do que a loja vende e de quem é o comprador. `
+          + `Confirmar com a contabilidade antes de mexer no documento.`,
+        detail: {
+          invoiceId,
+          state: stored.state,
+          kind: "regime_claim",
+          exemption_code: stored.exemption_code ?? null,
+          buyer_country: stored.buyer_country ?? null,
+          buyer_has_tax_id: stored.buyer_tax_id ? true : stored.buyer_tax_id === "" ? false : null,
+          findings: regime,
+          unconfirmed: true,
+        },
+      });
+    }
+  } catch (e: any) {
+    // Never let the regime check cost a verification. The document exists and is
+    // correct-or-not regardless of what this found — property 1 at the top.
+    console.warn(`[DocumentVerify] regime check failed for ${invoiceId}: ${String(e?.message ?? e).slice(0, 200)}`);
+  }
 
   if (drifts.length === 0) {
     await logDocumentEvent(env, {

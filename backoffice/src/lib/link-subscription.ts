@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
+import { loadBillingIdentity } from "@/lib/billing-identity";
 
 /**
  * Point an existing Stripe subscription at one connection, and make the account
@@ -85,6 +86,53 @@ export async function linkSubscriptionToConnection(opts: {
         sub.cancel_at_period_end ? 1 : 0,
     ).run();
 
+    // The fiscal identity, from the Stripe customer.
+    //
+    // These columns are normally a copy of what the client typed into the
+    // Checkout Session — and a client who arrives by invite never sees one, so
+    // the row used to be written without a single one of them. That is not a
+    // cosmetic gap: it is the identity the Kapta document is matched on, and
+    // without it a payment matches on amount and date alone, which is how a
+    // 50,00 EUR payment landed on another client's cancelled invoice.
+    //
+    // Stripe holds it because the subscription was sold through a Payment Link,
+    // which collects name, email and (with tax id collection on) the NIF.
+    // COALESCE throughout: a row filled by a real checkout is never overwritten
+    // by a thinner Customer record.
+    try {
+        const customer: any = customerId
+            ? await stripe.customers.retrieve(customerId, { expand: ["tax_ids"] })
+            : null;
+        if (customer && !customer.deleted) {
+            const addr = customer.address || null;
+            // Stripe stores a Portuguese VAT number as "PT123456789"; the Kapta
+            // documents carry the nine digits. Anything else is not a NIF and
+            // must not be offered to the matcher as if it were.
+            const raw = String(customer.tax_ids?.data?.find((t: any) => t.value)?.value || "")
+                .replace(/^PT/i, "").trim();
+            const nif = /^\d{9}$/.test(raw) ? raw : null;
+            await db.prepare(`
+                UPDATE subscriptions SET
+                    nif = COALESCE(NULLIF(nif, ''), ?),
+                    name = COALESCE(NULLIF(name, ''), ?),
+                    email = COALESCE(NULLIF(email, ''), ?),
+                    phone = COALESCE(NULLIF(phone, ''), ?),
+                    address = COALESCE(NULLIF(address, ''), ?),
+                    city = COALESCE(NULLIF(city, ''), ?),
+                    zip = COALESCE(NULLIF(zip, ''), ?),
+                    country = COALESCE(NULLIF(country, ''), ?),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND connection_key = ?
+            `).bind(
+                nif, customer.name || null, customer.email || null, customer.phone || null,
+                addr?.line1 || null, addr?.city || null, addr?.postal_code || null, addr?.country || null,
+                userId, connectionKey,
+            ).run();
+        }
+    } catch (e: any) {
+        console.warn("[link-subscription] customer identity fill failed:", e?.message ?? e);
+    }
+
     // Release any connection paused pending payment + stamp the invoice cutoff.
     try {
         const subStart = isoFromUnix((sub as any).start_date);
@@ -113,7 +161,7 @@ export async function linkSubscriptionToConnection(opts: {
         const pi = inv?.payment_intent;
         const piId = typeof pi === "string" ? pi : pi?.id;
         if (inv && inv.status === "paid" && piId) {
-            const subRow: any = await db.prepare("SELECT nif, name, email, address FROM subscriptions WHERE user_id = ?").bind(userId).first();
+            const subRow = await loadBillingIdentity(db, userId);
             const custEmail = typeof sub.customer === "object" ? sub.customer?.email : null;
             const custName = typeof sub.customer === "object" ? sub.customer?.name : null;
 

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe, getStripeEnv, getDB, listAccountConnections } from "@/lib/stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
+import { loadBillingIdentity } from "@/lib/billing-identity";
 import { grantSeatFromSession } from "@/lib/seats";
 import { notifySubscriptionPaymentFailed } from "@/lib/billing-notify";
 import { DEFAULT_CONNECTION_KEY, keyFromRequest, shopIsOldest } from "@/lib/subscription-key";
@@ -520,7 +521,7 @@ export async function POST(req: NextRequest) {
                 // For paid invoices: try IX matching. Errors here MUST NOT bubble (cron retries).
                 if (event.type === "invoice.paid" && piId) {
                     try {
-                        const sub: any = await db.prepare("SELECT nif, name, email, address, zip FROM subscriptions WHERE user_id = ?").bind(userId).first();
+                        const sub = await loadBillingIdentity(db, userId);
                         const match = await matchStripeChargeToIX({
                             payment_intent_id: piId,
                             candidate: {
@@ -583,7 +584,7 @@ export async function POST(req: NextRequest) {
 
                 // Try to match IX credit note for this refund
                 try {
-                    const subRow: any = await db.prepare("SELECT nif, name, email, address, zip FROM subscriptions WHERE user_id = ?").bind(userId).first();
+                    const subRow = await loadBillingIdentity(db, userId);
                     const match = await matchStripeChargeToIX({
                         payment_intent_id: piId,
                         doc_type: "credit_note",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/stripe";
 import { matchStripeChargeToIX } from "@/lib/invoicexpress-kapta";
+import { BILLING_IDENTITY_COLUMNS } from "@/lib/billing-identity";
 
 export const runtime = "edge";
 
@@ -19,14 +20,16 @@ export async function GET(req: NextRequest) {
     const pending: any = await db.prepare(`
         SELECT e.id, e.user_id, e.type, e.stripe_object_id, e.payment_intent_id, e.amount_cents,
                e.created_at,
-               s.nif, s.email, s.name, s.address, s.zip
+${BILLING_IDENTITY_COLUMNS}
         FROM billing_events e
         LEFT JOIN subscriptions s ON s.user_id = e.user_id
+        LEFT JOIN users u ON u.id = e.user_id
         WHERE e.ix_invoice_id IS NULL
           AND e.type IN ('invoice.paid', 'charge.refunded')
           AND e.status IN ('paid', 'refunded')
           AND e.amount_cents > 0
           AND e.created_at > datetime('now', '-30 days')
+        GROUP BY e.id
         ORDER BY e.created_at DESC
         LIMIT 100
     `).all();

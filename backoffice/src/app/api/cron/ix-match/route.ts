@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const db = getDB();
     const pending: any = await db.prepare(`
         SELECT e.id, e.user_id, e.type, e.stripe_object_id, e.payment_intent_id, e.amount_cents,
-               e.created_at,
+               e.created_at, json_extract(e.raw_json, '$.number') AS stripe_invoice_number,
 ${BILLING_IDENTITY_COLUMNS}
         FROM billing_events e
         LEFT JOIN subscriptions s ON s.user_id = e.user_id
@@ -43,6 +43,9 @@ ${BILLING_IDENTITY_COLUMNS}
             const isRefund = row.type === "charge.refunded";
             const result = await matchStripeChargeToIX({
                 payment_intent_id: row.payment_intent_id,
+                // Stripe's invoice number is the reference Kapta stamps on the
+                // document, so this is an exact hit where the heuristic was a guess.
+                invoice_number: isRefund ? null : (row.stripe_invoice_number || null),
                 doc_type: isRefund ? "credit_note" : "invoice",
                 extra_refs: isRefund && row.stripe_object_id ? [row.stripe_object_id] : [],
                 candidate: {

@@ -168,10 +168,17 @@ export async function linkSubscriptionToConnection(opts: {
             await db.prepare(`
                 INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, payment_intent_id, amount_cents, currency, status, raw_json)
                 VALUES (?, ?, 'invoice.paid', ?, ?, ?, ?, 'paid', ?)
-            `).bind(inv.id, userId, inv.id, piId, inv.amount_paid || 0, inv.currency || "eur", JSON.stringify({ manual_link: true, subscription: sub.id })).run();
+            `).bind(
+                inv.id, userId, inv.id, piId, inv.amount_paid || 0, inv.currency || "eur",
+                // The invoice NUMBER goes in, not just the subscription id: it is the
+                // reference Kapta stamps on the document, and without it a retry of
+                // this event by the nightly cron has nothing exact left to search on.
+                JSON.stringify({ manual_link: true, subscription: sub.id, number: inv.number || null }),
+            ).run();
 
             const match = await matchStripeChargeToIX({
                 payment_intent_id: piId,
+                invoice_number: inv.number || null,
                 candidate: {
                     nif: subRow?.nif || null,
                     email: subRow?.email || custEmail || null,

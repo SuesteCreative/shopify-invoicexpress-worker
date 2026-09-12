@@ -13,6 +13,9 @@ export interface KaptaDocSummary {
     number: string | null;
     /** Document state — "finalized", "canceled", "settled", "draft"… */
     state: string | null;
+    /** What the document carries as its reference. For a Kapta service invoice
+     * this is Stripe's own invoice number, e.g. "C2715CFE-1396". */
+    reference: string | null;
     total: string | null;
     date: string | null;
     permalink: string | null;

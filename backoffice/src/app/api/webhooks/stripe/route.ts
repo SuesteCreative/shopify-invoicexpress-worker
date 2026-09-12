@@ -524,6 +524,7 @@ export async function POST(req: NextRequest) {
                         const sub = await loadBillingIdentity(db, userId);
                         const match = await matchStripeChargeToIX({
                             payment_intent_id: piId,
+                            invoice_number: invoice.number || null,
                             candidate: {
                                 nif: sub?.nif || invoice.customer_tax_ids?.[0]?.value || null,
                                 email: sub?.email || invoice.customer_email || null,

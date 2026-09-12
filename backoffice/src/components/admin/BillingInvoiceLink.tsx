@@ -35,6 +35,10 @@ type Ev = {
     ix_doc_number: string | null;
     ix_doc_state: string | null;
     ix_shared_with_another_payment: boolean;
+    stripe_invoice_number: string | null;
+    /** The document whose reference IS this payment's Stripe invoice number, when
+     * it is not the one currently linked. An exact answer, not a guess. */
+    ix_by_reference: { number: string | null; state: string | null } | null;
 };
 
 type Feedback = { error?: string; ok?: string; needsForce?: boolean };
@@ -177,6 +181,22 @@ export function BillingInvoiceLink({ targetUserId }: { targetUserId: string }) {
                                 <span className="font-mono text-fg-40">sem documento associado</span>
                             )}
                         </div>
+
+                        {ev.ix_by_reference?.number && (
+                            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-accent/5 border border-accent/20 px-3 py-2 text-[11px]">
+                                <span className="font-mono text-fg-40">
+                                    ref. {ev.stripe_invoice_number} →
+                                </span>
+                                <span className="font-mono font-medium text-accent-ink">{ev.ix_by_reference.number}</span>
+                                <span className="text-fg-60">é o documento que a referência do Stripe aponta</span>
+                                <button
+                                    onClick={() => setNumbers(n => ({ ...n, [ev.id]: ev.ix_by_reference!.number! }))}
+                                    className="ml-auto px-2.5 py-1 rounded-lg bg-accent/10 text-accent-ink font-mono text-[10px] uppercase tracking-[0.14em] hover:bg-accent/20 transition-colors"
+                                >
+                                    Usar
+                                </button>
+                            </div>
+                        )}
 
                         <div className="flex flex-wrap items-center gap-2">
                             <input

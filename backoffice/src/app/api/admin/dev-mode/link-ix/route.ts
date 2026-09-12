@@ -83,7 +83,8 @@ export async function GET(req: NextRequest) {
     const db = getDB();
     const rows: any = await db.prepare(`
         SELECT id, type, stripe_object_id, payment_intent_id, amount_cents, currency,
-               status, ix_invoice_id, ix_invoice_permalink, ix_match_method, ix_match_score, created_at
+               status, ix_invoice_id, ix_invoice_permalink, ix_match_method, ix_match_score, created_at,
+               json_extract(raw_json, '$.number') AS stripe_invoice_number
         FROM billing_events
         WHERE user_id = ? AND type IN (${LISTED_TYPES.map(() => "?").join(",")})
         ORDER BY created_at DESC
@@ -121,17 +122,31 @@ export async function GET(req: NextRequest) {
         ixError = String(e?.message || e);
     }
 
+    // What the reference says, which for a subscription payment is not an opinion:
+    // Kapta stamps Stripe's own invoice number ("C2715CFE-1396") on the document.
+    // Everything linked by heuristic was linked without this being tried, so show
+    // it next to the link and let it be compared.
+    const byReference = new Map<string, KaptaDocSummary>();
+    for (const doc of invoices.values()) {
+        if (doc.reference) byReference.set(doc.reference.trim(), doc);
+    }
+
     return NextResponse.json({
         ix_error: ixError,
         events: events.map(e => {
             const id = e.ix_invoice_id ? String(e.ix_invoice_id) : null;
             const from = docTypeFor(String(e.type)) === "credit_note" ? creditNotes : invoices;
             const doc = id ? (from.get(id) ?? from.get(id.replace(/\.0$/, "")) ?? null) : null;
+            const number = e.stripe_invoice_number ? String(e.stripe_invoice_number).trim() : null;
+            const exact = number ? byReference.get(number) ?? null : null;
             return {
                 ...e,
                 ix_doc_number: doc?.number ?? null,
                 ix_doc_state: doc?.state ?? null,
                 ix_shared_with_another_payment: id ? shared.has(id.replace(/\.0$/, "")) : false,
+                // Only when it disagrees with what is linked: a confirmation the
+                // operator cannot act on is noise on every other row.
+                ix_by_reference: exact && exact.id !== id ? { number: exact.number, state: exact.state } : null,
             };
         }),
     });

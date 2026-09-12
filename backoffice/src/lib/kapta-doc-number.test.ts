@@ -11,7 +11,7 @@ import { findInIndex, type KaptaDocSummary } from "./kapta-doc-number";
  */
 
 const doc = (id: string, number: string, state = "finalized"): KaptaDocSummary =>
-    ({ id, number, state, total: "50.00", date: "12/09/2026", permalink: `https://x/${id}` });
+    ({ id, number, state, reference: null, total: "50.00", date: "12/09/2026", permalink: `https://x/${id}` });
 
 const index = new Map<string, KaptaDocSummary>([
     ["267793087", doc("267793087", "Kapta2026/615", "canceled")],

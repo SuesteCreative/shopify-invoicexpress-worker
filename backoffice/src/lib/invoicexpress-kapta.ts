@@ -188,6 +188,7 @@ export async function listDocumentIndex(
             // The printed spelling first: an admin types what the document shows.
             // Either way findInIndex matches both, but only one is recognisable.
             number: d.inverted_sequence_number ?? d.sequence_number ?? null,
+            reference: d.reference ?? null,
             state: d.state ?? null,
             total: d.total ?? null,
             date: d.date ?? null,
@@ -321,6 +322,8 @@ export async function findByHeuristic(c: MatchCandidate, docType: "invoice" | "c
 
 export async function matchStripeChargeToIX(opts: {
     payment_intent_id?: string | null;
+    /** Stripe's own invoice number, e.g. "C2715CFE-1396". */
+    invoice_number?: string | null;
     candidate: MatchCandidate;
     doc_type?: "invoice" | "credit_note";
     extra_refs?: string[];
@@ -329,6 +332,12 @@ export async function matchStripeChargeToIX(opts: {
 
     // Try 1: exact reference match (try multiple refs: pi_xxx, bare id, re_xxx for refunds, etc.)
     const refsToTry: string[] = [];
+    // The Stripe INVOICE NUMBER first, because for a subscription payment it is
+    // the exact answer: Kapta's connector stamps it on the document as the
+    // reference ("C2715CFE-1396"). The payment_intent spellings below never
+    // match one of those, so every renewal fell through to the heuristic while
+    // the exact number sat unused in the event we had stored.
+    if (opts.invoice_number) refsToTry.push(opts.invoice_number);
     if (opts.payment_intent_id) {
         // Kapta's Stripe→IX connector stamps the document reference as "#stripe_<bareId>"
         // (bare = payment_intent id without the pi_ prefix). Match that first for a

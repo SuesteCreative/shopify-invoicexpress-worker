@@ -869,27 +869,6 @@ export default function ConnectMoloniOnboarding({ invite }: { invite?: string })
                     </p>
                 </section>
 
-                {allDone && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-                        className="glass rounded-[2rem] border-accent-hot/30 bg-accent-hot/5 p-6 sm:p-8 mb-8 flex flex-col sm:flex-row sm:items-center gap-5"
-                    >
-                        <span className="w-12 h-12 rounded-2xl bg-accent-hot/15 ring-1 ring-accent-hot/30 flex items-center justify-center shrink-0">
-                            <Check className="w-6 h-6 text-accent-hot" />
-                        </span>
-                        <div className="flex-1 space-y-1">
-                            <h2 className="text-xl font-medium tracking-tight">{t("finished.title")}</h2>
-                            <p className="text-[13px] text-fg-60 leading-relaxed">{t("finished.body")}</p>
-                        </div>
-                        <Link
-                            href="/dashboard"
-                            className="shrink-0 rounded-2xl bg-fg px-6 py-3.5 font-mono text-[10px] uppercase tracking-[0.18em] text-surface flex items-center justify-center gap-2 transition-all hover:bg-accent-hot"
-                        >
-                            {t("finished.cta")} <ArrowRight className="w-3.5 h-3.5" />
-                        </Link>
-                    </motion.div>
-                )}
-
                 <div className="space-y-4">
                     {STEP_IDS.map((id, index) => {
                         const Icon = stepIcon[id];
@@ -959,6 +938,27 @@ export default function ConnectMoloniOnboarding({ invite }: { invite?: string })
                         );
                     })}
                 </div>
+
+                {allDone && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                        className="glass rounded-[2rem] border-accent-hot/30 bg-accent-hot/5 p-6 sm:p-8 mt-8 flex flex-col sm:flex-row sm:items-center gap-5"
+                    >
+                        <span className="w-12 h-12 rounded-2xl bg-accent-hot/15 ring-1 ring-accent-hot/30 flex items-center justify-center shrink-0">
+                            <Check className="w-6 h-6 text-accent-hot" />
+                        </span>
+                        <div className="flex-1 space-y-1">
+                            <h2 className="text-xl font-medium tracking-tight">{t("finished.title")}</h2>
+                            <p className="text-[13px] text-fg-60 leading-relaxed">{t("finished.body")}</p>
+                        </div>
+                        <Link
+                            href="/dashboard"
+                            className="shrink-0 rounded-2xl bg-fg px-6 py-3.5 font-mono text-[10px] uppercase tracking-[0.18em] text-surface flex items-center justify-center gap-2 transition-all hover:bg-accent-hot"
+                        >
+                            {t("finished.cta")} <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                    </motion.div>
+                )}
 
                 <footer className="mt-12 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-hairline pt-8">
                     <p className="text-[12px] text-fg-60 leading-relaxed">

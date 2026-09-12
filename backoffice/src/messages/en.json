@@ -3217,7 +3217,7 @@
         "finished": {
             "title": "Everything is connected",
             "body": "From now on your Stripe sales produce documents in InvoiceXpress. The dashboard follows each one, and it is also where your own service invoices live.",
-            "cta": "Open the dashboard"
+            "cta": "Go to Rioko"
         },
         "account": {
             "title": "Create your account",
@@ -3300,7 +3300,7 @@
         "finished": {
             "title": "Everything is connected",
             "body": "From now on your Stripe sales produce documents in Moloni. The dashboard follows each one, and it is also where your own service invoices live.",
-            "cta": "Open the dashboard"
+            "cta": "Go to Rioko"
         },
         "account": {
             "title": "Create your account",
@@ -3516,7 +3516,7 @@
         "finished": {
             "title": "Everything is connected",
             "body": "From now on, paid bookings are invoiced automatically.",
-            "cta": "Open the dashboard"
+            "cta": "Go to Rioko"
         },
         "help": {
             "body": "Any questions? Write to"

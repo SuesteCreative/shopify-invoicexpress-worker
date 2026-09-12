@@ -3217,7 +3217,7 @@
         "finished": {
             "title": "Está tudo ligado",
             "body": "As próximas vendas no Stripe passam a dar origem a documentos no InvoiceXpress. No painel acompanha cada um, e é lá que ficam também as facturas do serviço.",
-            "cta": "Abrir o painel"
+            "cta": "Aceder ao Rioko"
         },
         "account": {
             "title": "Criar a sua conta",
@@ -3300,7 +3300,7 @@
         "finished": {
             "title": "Está tudo ligado",
             "body": "As próximas vendas no Stripe passam a dar origem a documentos no Moloni. No painel acompanha cada um, e é lá que ficam também as facturas do serviço.",
-            "cta": "Abrir o painel"
+            "cta": "Aceder ao Rioko"
         },
         "account": {
             "title": "Criar a sua conta",
@@ -3516,7 +3516,7 @@
         "finished": {
             "title": "Está tudo ligado",
             "body": "As próximas reservas pagas passam a sair faturadas automaticamente.",
-            "cta": "Abrir o painel"
+            "cta": "Aceder ao Rioko"
         },
         "help": {
             "body": "Alguma dúvida? Escreva para"

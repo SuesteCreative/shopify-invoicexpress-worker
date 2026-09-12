@@ -1,7 +1,12 @@
 #!/usr/bin/env node
-// Reads the latest version + date from ../CHANGELOG.md and writes
-// src/lib/version.ts. Runs as predev/prebuild so the dashboard footer
-// always reflects the changelog head.
+// Reads ../../CHANGELOG.md and writes two generated files:
+//
+//   src/lib/version.ts             the head version + stable flag (footer badge)
+//   src/lib/changelog.generated.ts every entry, parsed (the /changelog page)
+//
+// Runs as predev/prebuild, so both always reflect the changelog. The page
+// cannot read the file itself: it renders on the edge runtime, where there is
+// no fs, so the markdown has to become a module at build time.
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -9,28 +14,155 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const changelogPath = resolve(here, "..", "..", "CHANGELOG.md");
-const outPath = resolve(here, "..", "src", "lib", "version.ts");
+const libDir = resolve(here, "..", "src", "lib");
 
 const md = readFileSync(changelogPath, "utf8");
 
-// First header line is the latest entry, e.g.
-// "## 💎 Version 6.1.0 — Landing Redesign & Brand System — May 18, 2026"
-const m = md.match(/^##\s.*?Version\s+([\d.]+)/m);
-if (!m) {
-  console.error("[sync-version] could not parse version from CHANGELOG.md");
-  process.exit(1);
+/**
+ * Entry headings, across every format the file has used:
+ *   ## 💎 Version 11.1.0 — Auditoria por regime — September 12, 2026
+ *   ## 💎 Version 3.2.0 (The Bulletproof Engine) - March 1, 2026
+ *   ## 📅 Version 1.1.2 - February 28, 2026
+ */
+const HEADING = /^##\s+(?:(\S+)\s+)?Version\s+([\d.]+)\s*(.*)$/;
+const DATE_TAIL =
+    /(?:[—–-]\s*)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4})\s*$/;
+const RELEASE_MARKER = /^<!--\s*release:\s*([0-9a-f]{7,40})\s*-->$/i;
+// The one section written for the merchant. Its bullets are the whole of the
+// customer-facing feed; an entry without it never reaches a merchant at all.
+const MERCHANT_HEADING = "Para o comerciante";
+
+function parse(markdown) {
+    const lines = markdown.split(/\r?\n/);
+    const entries = [];
+    let current = null;
+    let fence = null; // lines of the fenced block being collected, if any
+    let inMerchant = false;
+
+    for (const line of lines) {
+        if (fence) {
+            if (line.trim().startsWith("```")) {
+                current?.body.push({ t: "code", text: fence.join("\n") });
+                fence = null;
+            } else {
+                fence.push(line);
+            }
+            continue;
+        }
+        if (current && line.trim().startsWith("```")) {
+            fence = [];
+            continue;
+        }
+
+        const head = line.match(HEADING);
+        if (head) {
+            if (current) entries.push(current);
+            const [, emoji, version, rest] = head;
+            let title = rest.trim();
+            let date = "";
+            const tail = title.match(DATE_TAIL);
+            if (tail) {
+                date = tail[1];
+                title = title.slice(0, tail.index).trim();
+            }
+            // "— Landing Redesign" / "(The Bulletproof Engine)" / "" all reduce
+            // to the bare title.
+            title = title.replace(/^[—–-]\s*/, "").replace(/^\((.*)\)$/, "$1").trim();
+            current = {
+                version,
+                emoji: emoji ?? "",
+                title,
+                date,
+                commit: "",
+                highlight: false,
+                body: [],
+                publicBody: [],
+            };
+            inMerchant = false;
+            continue;
+        }
+        if (!current) continue;
+
+        const marker = line.match(RELEASE_MARKER);
+        if (marker) {
+            current.commit = marker[1];
+            continue;
+        }
+
+        const text = line.trim();
+        if (!text) continue;
+        if (text.startsWith("### ")) {
+            const heading = text.slice(4).trim();
+            inMerchant = heading === MERCHANT_HEADING;
+            current.body.push({ t: "h", text: heading });
+        } else if (/^[-*]\s+/.test(text)) {
+            const block = { t: "li", text: text.replace(/^[-*]\s+/, "") };
+            current.body.push(block);
+            if (inMerchant) current.publicBody.push(block);
+        } else {
+            current.body.push({ t: "p", text });
+            if (text.startsWith("**Destaque")) current.highlight = true;
+        }
+    }
+    if (current) entries.push(current);
+    return entries;
 }
-const version = m[1];
 
-// stableBuild = true unless the version line contains "-rc", "-beta", "-alpha"
-const stableBuild = !/-(rc|beta|alpha|preview)/i.test(md.split("\n")[0] ?? "");
+const entries = parse(md);
+if (entries.length === 0) {
+    console.error("[sync-version] could not parse any version from CHANGELOG.md");
+    process.exit(1);
+}
 
-const out = `// AUTO-GENERATED by scripts/sync-version.mjs — do not edit by hand.
+const head = entries[0];
+const version = head.version;
+// A pre-release label on the head entry marks the build as preview.
+const stableBuild = !/-(rc|beta|alpha|preview)/i.test(`${version} ${head.title}`);
+
+mkdirSync(libDir, { recursive: true });
+
+writeFileSync(
+    resolve(libDir, "version.ts"),
+    `// AUTO-GENERATED by scripts/sync-version.mjs — do not edit by hand.
 // Source: CHANGELOG.md latest "## Version X.Y.Z" heading.
 export const RIOKO_VERSION = ${JSON.stringify(version)};
 export const RIOKO_STABLE_BUILD = ${stableBuild};
-`;
+`,
+    "utf8",
+);
 
-mkdirSync(dirname(outPath), { recursive: true });
-writeFileSync(outPath, out, "utf8");
-console.log(`[sync-version] wrote v${version} (stable=${stableBuild}) -> ${outPath}`);
+writeFileSync(
+    resolve(libDir, "changelog.generated.ts"),
+    `// AUTO-GENERATED by scripts/sync-version.mjs — do not edit by hand.
+// Source: CHANGELOG.md. Edit the changelog, not this file.
+
+export type ChangelogBlock = { t: "h" | "li" | "p" | "code"; text: string };
+
+export type ChangelogEntry = {
+    version: string;
+    emoji: string;
+    title: string;
+    /** As written in the changelog, e.g. "September 12, 2026". */
+    date: string;
+    /** Last commit included in the release, when the entry records one. */
+    commit: string;
+    /** The entry opens with a **Destaque** paragraph. */
+    highlight: boolean;
+    body: ChangelogBlock[];
+    /** The "Para o comerciante" bullets, empty when the release is silent. */
+    publicBody: ChangelogBlock[];
+};
+
+export const CHANGELOG: ChangelogEntry[] = ${JSON.stringify(entries, null, 4)};
+
+/** What a merchant sees: only the releases that said something to them. */
+export const CHANGELOG_PUBLIC: ChangelogEntry[] = CHANGELOG.filter(
+    (e) => e.publicBody.length > 0,
+);
+`,
+    "utf8",
+);
+
+console.log(
+    `[sync-version] v${version} (stable=${stableBuild}), ${entries.length} changelog entries -> src/lib/`,
+);

@@ -20,6 +20,7 @@ type SidebarStrings = {
     previewBuild: string;
     openMenu: string;
     closeMenu: string;
+    releaseNotes: string;
 };
 
 export function Sidebar({
@@ -158,7 +159,22 @@ export function Sidebar({
                         <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 font-mono text-[9px] leading-snug">
                             <LegalLinks className="text-fg-40 hover:text-accent-ink transition-colors" />
                         </div>
-                        <div className="pt-1 font-mono text-[9px] text-fg-40 tracking-[0.22em] uppercase">v{version} {buildBadge}</div>
+                        {/* The version is the way into the release notes: the
+                            number is what a merchant reads when they want to
+                            know whether a fix has landed, so it is the thing
+                            they click. Bordered, or it reads as a footer
+                            stamp and nobody tries. */}
+                        <Link
+                            href="/changelog"
+                            className="group mt-2 block rounded-lg border border-hairline px-2.5 py-2 transition-colors hover:border-accent-ink/40 hover:bg-veil"
+                        >
+                            <span className="block font-mono text-[9px] text-fg-60 tracking-[0.22em] uppercase transition-colors group-hover:text-accent-ink">
+                                v{version} {buildBadge}
+                            </span>
+                            <span className="block pt-0.5 font-mono text-[8px] text-fg-40 tracking-[0.14em] uppercase">
+                                {strings.releaseNotes}
+                            </span>
+                        </Link>
                     </div>
                 </div>
             </aside>

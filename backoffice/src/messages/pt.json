@@ -1,4 +1,13 @@
 {
+    "changelogPage": {
+        "eyebrow": "Rioko",
+        "title": "Notas de versão",
+        "subtitle": "O que mudou para ti em cada versão. Só listamos as versões que mudaram alguma coisa do teu lado.",
+        "running": "A correr a v{version}",
+        "highlight": "Destaque",
+        "commit": "último commit {sha}",
+        "untitled": "Versão"
+    },
     "metadata": {
         "siteTitle": "Rioko | Faturação automática para Shopify e Stripe em Portugal",
         "siteDescription": "Liga a Shopify e a Stripe ao InvoiceXpress, Moloni ou Vendus e emite faturas certificadas automaticamente, com ATCUD, séries, NIF e IVA. Configura uma vez, fatura para sempre.",
@@ -82,7 +91,8 @@
         "stableBuild": "Stable Build",
         "previewBuild": "Preview Build",
         "openMenu": "Abrir menu",
-        "closeMenu": "Fechar menu"
+        "closeMenu": "Fechar menu",
+        "releaseNotes": "Notas de versão"
     },
     "nav": {
         "main": "Menu Principal",

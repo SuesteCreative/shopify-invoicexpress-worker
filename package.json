@@ -21,7 +21,8 @@
     "build": "wrangler deploy --dry-run -c wrangler.jsonc",
     "preview": "wrangler dev -c wrangler.jsonc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240101.0",

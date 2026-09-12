@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { LayoutDashboard, ShieldCheck, Zap, Wallet, Activity, Wrench, Settings2, ArrowLeft, Menu, X } from "lucide-react";
+import { LayoutDashboard, ShieldCheck, Zap, Wallet, Activity, Wrench, Settings2, ScrollText, ArrowLeft, Menu, X } from "lucide-react";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -37,6 +37,7 @@ const ITEMS: Item[] = [
     { href: "/admin/financeiro", icon: Wallet, label: "Financeiro" },
     { href: "/admin/ops", icon: Activity, label: "Operação" },
     { href: "/admin/onboarding-helper", icon: Wrench, label: "Onboarding" },
+    { href: "/admin/changelog", icon: ScrollText, label: "Notas de versão" },
 ];
 
 const HIPERADMIN_ITEMS: Item[] = [

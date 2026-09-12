@@ -1,4 +1,13 @@
 {
+    "changelogPage": {
+        "eyebrow": "Rioko",
+        "title": "Release notes",
+        "subtitle": "What changed for you in each release. Only releases that changed something on your side are listed.",
+        "running": "Running v{version}",
+        "highlight": "Highlight",
+        "commit": "last commit {sha}",
+        "untitled": "Release"
+    },
     "metadata": {
         "siteTitle": "Rioko | Automatic invoicing for Shopify and Stripe in Portugal",
         "siteDescription": "Connect Shopify and Stripe to InvoiceXpress, Moloni or Vendus and issue certified invoices automatically, with ATCUD, series, NIF and VAT. Set it up once, invoice forever.",
@@ -82,7 +91,8 @@
         "stableBuild": "Stable Build",
         "previewBuild": "Preview Build",
         "openMenu": "Open menu",
-        "closeMenu": "Close menu"
+        "closeMenu": "Close menu",
+        "releaseNotes": "Release notes"
     },
     "nav": {
         "main": "Main menu",

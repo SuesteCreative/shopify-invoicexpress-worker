@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isHiperadmin } from "@/lib/admin";
 import { getStripe } from "@/lib/stripe";
+import { buildPriceBook } from "@/lib/price-book";
 import {
     requiredPrices, statusOf, PRODUCT_TAX_CODE, PRODUCT_IMAGE_URL, type RequiredPrice,
 } from "@/lib/price-catalogue";
@@ -25,21 +26,19 @@ export const runtime = "edge";
  */
 
 /** Everything Stripe holds, keyed by id AND lookup key — `price_id` in our own
- *  database is sometimes one and sometimes the other. */
+ *  database is sometimes one and sometimes the other. A key beats an id: see
+ *  buildPriceBook, and the reason it matters here is that this endpoint is what
+ *  creates the collision when it replaces a price. */
 async function priceBook(stripe: any): Promise<Map<string, any>> {
-    const book = new Map<string, any>();
+    const all: any[] = [];
     let page = await stripe.prices.list({ limit: 100 });
-    const add = (p: any) => {
-        book.set(p.id, p);
-        if (p.lookup_key) book.set(p.lookup_key, p);
-    };
-    page.data.forEach(add);
+    all.push(...page.data);
     let guard = 0;
     while (page.has_more && guard++ < 5) {
         page = await stripe.prices.list({ limit: 100, starting_after: page.data.at(-1)?.id });
-        page.data.forEach(add);
+        all.push(...page.data);
     }
-    return book;
+    return buildPriceBook(all);
 }
 
 /**

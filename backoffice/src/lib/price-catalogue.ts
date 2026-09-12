@@ -146,6 +146,24 @@ export type PriceStatus = "ok" | "archived" | "missing" | "no_key" | "wrong_amou
  * subscribed those two pairs was quoted, and charged, the old price
  * (found 12/09/2026).
  */
+/**
+ * A Stripe price list indexed by BOTH id and lookup key, because
+ * `subscriptions.price_id` holds either.
+ *
+ * Ids first, keys second, so a KEY always wins the collision. Our older prices
+ * were created with the lookup key as their id, so when one is replaced the
+ * retired price keeps that string as its id while the live one holds it as its
+ * key. Indexed in a single pass, whichever Stripe happened to list last would
+ * win — and the catalogue would report the price it had just retired, for ever,
+ * which the creator endpoint would then try to "repair" on every run.
+ */
+export function buildPriceBook(prices: any[]): Map<string, any> {
+    const book = new Map<string, any>();
+    for (const p of prices) book.set(p.id, p);
+    for (const p of prices) if (p.lookup_key) book.set(p.lookup_key, p);
+    return book;
+}
+
 export type SeatPriceStatus = "ok" | "archived" | "missing" | "wrong_amount" | "recurring";
 
 /**

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync } from "node:fs";
-import { requiredPrices, statusOf, CURRENT_MONTHLY_CENTS, CURRENT_ANNUAL_CENTS } from "./price-catalogue";
+import {
+    requiredPrices, statusOf, buildPriceBook, CURRENT_MONTHLY_CENTS, CURRENT_ANNUAL_CENTS,
+} from "./price-catalogue";
 import { priceLookupFor } from "./billing-prices";
 import { SOURCE_TO_CONNECTION_KEY, CONNECTION_KEY_TO_SOURCE } from "./subscription-key";
 
@@ -77,6 +79,30 @@ describe("the price catalogue", () => {
             expect(r.productName).toMatch(/^Rioko 2\.0 \|\| .+ - .+$/);
             expect(r.productDescription).toContain("||");
         }
+    });
+});
+
+describe("indexing what Stripe holds", () => {
+    // The exact shape a replacement leaves behind: the retired price keeps the
+    // string as its ID, the live one holds it as its lookup KEY.
+    const retired = { id: "stripe-ix-monthly", lookup_key: null, unit_amount: 500, active: false };
+    const live = { id: "price_1New", lookup_key: "stripe-ix-monthly", unit_amount: 750, active: true };
+
+    it("lets the lookup key win, whichever order Stripe lists them in", () => {
+        expect(buildPriceBook([retired, live]).get("stripe-ix-monthly")).toBe(live);
+        expect(buildPriceBook([live, retired]).get("stripe-ix-monthly")).toBe(live);
+    });
+
+    it("keeps every price reachable by an id of its own", () => {
+        // An archived price still has to price the clients who stayed on it, so
+        // it is in the book — under `price_…`. The one string it shares with the
+        // live price cannot point at both, and the live one is what the
+        // catalogue is asking about.
+        const archivedElsewhere = { id: "price_1Old", lookup_key: null, unit_amount: 500, active: false };
+        const book = buildPriceBook([retired, live, archivedElsewhere]);
+        expect(book.get("price_1New")).toBe(live);
+        expect(book.get("price_1Old")).toBe(archivedElsewhere);
+        expect(book.size).toBe(3);
     });
 });
 

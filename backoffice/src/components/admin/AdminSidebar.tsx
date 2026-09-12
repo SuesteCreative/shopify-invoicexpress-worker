@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { LayoutDashboard, ShieldCheck, Zap, Wallet, Activity, Wrench, Settings2, ScrollText, ArrowLeft, Menu, X } from "lucide-react";
+import { LayoutDashboard, ShieldCheck, Zap, Wallet, Activity, Wrench, Settings2, ScrollText, Megaphone, ArrowLeft, Menu, X } from "lucide-react";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -42,6 +42,9 @@ const ITEMS: Item[] = [
 
 const HIPERADMIN_ITEMS: Item[] = [
     { href: "/admin/client-rules", icon: Settings2, label: "Regras fiscais" },
+    // Writing to every client at once belongs with the other things only a
+    // hiperadmin may do, beside the dunning run.
+    { href: "/admin/newsletter", icon: Megaphone, label: "Newsletter" },
 ];
 
 export function AdminSidebar({ isHiperadmin }: { isHiperadmin: boolean }) {

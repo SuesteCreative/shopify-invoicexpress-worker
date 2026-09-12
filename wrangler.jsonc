@@ -50,6 +50,13 @@
     "STRIPE_TAX_PROBE_ENABLED": "0",
     "RUN_IN_ENABLED": "0",
     "RESEND_FROM_EMAIL": "noreply@rioko.online",
+    // The Resend topic every newsletter is sent under, created by hand in the
+    // dashboard because `visibility` is not in the installed SDK. Public, so the
+    // unsubscribe page offers "stop Novidades Rioko" instead of "stop
+    // everything" — service mail is on a different path and unaffected either
+    // way. Empty until the topic exists: broadcasts then go out untopiced, which
+    // works, but gives the reader only the blunt choice.
+    "RESEND_TOPIC_NEWS": "",
     "KAPTA_DEV_EMAILS": "pedrotovarporto@gmail.com",
     "INCIDENT_DIGEST_ENABLED": "0",
     "WEEKLY_MERCHANT_DIGEST_ENABLED": "1",

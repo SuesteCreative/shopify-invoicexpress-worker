@@ -83,7 +83,10 @@ export function seatPoolOf(paid: number, occupied: number): SeatPool {
  * templates already do it — Stripe fetches the URL once and caches its own copy.
  */
 export const PRODUCT_TAX_CODE = "txcd_20030000";
-export const PRODUCT_IMAGE_URL = "https://rioko.online/images/rioko-product.png";
+// Stripe fetches this URL once, from the edge, and caches its own copy. Never
+// point it at a path that has been requested before the file existed: a 404 on
+// this domain is cached for four hours, and Stripe would fetch that instead.
+export const PRODUCT_IMAGE_URL = "https://rioko.online/images/stripe-product.png";
 
 /** The bilingual line the first Rioko product carries, said about any pair. */
 export function productDescription(sourceLabel: string, destinationLabel: string): string {

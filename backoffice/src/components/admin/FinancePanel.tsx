@@ -95,7 +95,8 @@ interface Finance {
 interface CreateResult {
     dry_run: boolean;
     prices: {
-        action?: "create" | "replace" | "product";
+        action?: "create" | "replace" | "product" | "default";
+        default_moved?: boolean;
         lookup: string; product_name: string; amount_cents: number; interval: string;
         product_id?: string | null; product_created?: boolean; product_filled?: string[];
         replaces_price_id?: string; replaces_amount_cents?: number; replaces_subscriptions?: number | null;
@@ -504,6 +505,12 @@ export function FinancePanel() {
                                             ? <span className="text-destructive">{cp.lookup}: {cp.error}</span>
                                             : cp.action === "product"
                                             ? <>{cp.product_name} · só o produto<span className="text-soon"> · preenche {cp.product_filled?.join(", ")}</span></>
+                                            : cp.action === "default"
+                                            ? <>{cp.product_name} · preço por defeito → {eur(cp.amount_cents)}
+                                                <span className="text-destructive">
+                                                    {" "}· arquiva {cp.replaces_price_id} ({eur(cp.replaces_amount_cents ?? 0)}
+                                                    {cp.replaces_subscriptions != null && `, ${cp.replaces_subscriptions} subs`})
+                                                </span></>
                                             : <>{cp.lookup} · {cp.product_name} · {eur(cp.amount_cents)}/{cp.interval === "year" ? "ano" : "mês"}
                                                 {cp.action === "replace" && (
                                                     <span className="text-destructive">

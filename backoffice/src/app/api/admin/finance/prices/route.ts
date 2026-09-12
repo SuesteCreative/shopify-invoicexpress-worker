@@ -124,6 +124,13 @@ async function productFor(stripe: any, req: RequiredPrice, book: Map<string, any
     return { id: product.id, created: true, filled: ["description", "tax_code", "images", "metadata"] };
 }
 
+/** The id of a product's default price, whichever shape Stripe returns it in. */
+async function defaultPriceOf(stripe: any, productId: string): Promise<string | null> {
+    const product = await stripe.products.retrieve(productId).catch(() => null);
+    const d = product?.default_price;
+    return typeof d === "string" ? d : d?.id ?? null;
+}
+
 /** How many subscriptions a price is carrying, so nobody confirms blind. */
 async function subscriberCount(stripe: any, priceId: string): Promise<number | null> {
     try {
@@ -236,7 +243,18 @@ export async function POST(request: NextRequest) {
 
                     // The retired price keeps billing whoever is already on it;
                     // archiving only stops it being sold again.
+                    //
+                    // The default price has to move FIRST. Stripe refuses to
+                    // archive a price that is still its product's default —
+                    // "This price cannot be archived because it is the default
+                    // price of its product" — and archiving was the last step,
+                    // so the replacement went in, the lookup key moved, and the
+                    // old price stayed on sale (12/09/2026).
                     if (status === "wrong_amount") {
+                        if (await defaultPriceOf(stripe, product.id) === existing.id) {
+                            await stripe.products.update(product.id, { default_price: price.id });
+                            entry.default_moved = true;
+                        }
                         await stripe.prices.update(existing.id, { active: false });
                         entry.replaced_archived = true;
                         book.delete(existing.id);
@@ -250,6 +268,54 @@ export async function POST(request: NextRequest) {
             }
 
             planned.push(entry);
+        }
+
+        // A product still pointing at a price that is not in the catalogue.
+        //
+        // That is what a replacement leaves behind when the archive step fails:
+        // the new price holds the lookup key, the old one keeps selling, and the
+        // loop above never comes back — the key resolves correctly now, so the
+        // pair reads "ok". Narrow on purpose: only a default that is NOT a
+        // catalogue price is moved, and only the price it displaces is archived.
+        // A deliberate price someone made in the dashboard keeps its lookup key
+        // or is not a default, and is left alone either way.
+        const catalogueProducts = new Map<string, { want: any; name: string }>();
+        for (const req of requiredPrices()) {
+            const p = req.lookup ? book.get(req.lookup) : null;
+            const pid = typeof p?.product === "string" ? p.product : p?.product?.id;
+            if (!p || !pid) continue;
+            const seen = catalogueProducts.get(pid);
+            // The monthly price is the one a product defaults to, when it has one.
+            if (!seen || req.plan === "monthly") catalogueProducts.set(pid, { want: p, name: req.productName });
+        }
+        for (const [pid, { want, name }] of catalogueProducts) {
+            try {
+                const current = await defaultPriceOf(stripe, pid);
+                if (!current || current === want.id) continue;
+                const displaced = await stripe.prices.retrieve(current).catch(() => null);
+                if (!displaced || displaced.lookup_key) continue;
+
+                const subs = await subscriberCount(stripe, displaced.id);
+                if (!dryRun) {
+                    await stripe.products.update(pid, { default_price: want.id });
+                    if (displaced.active) await stripe.prices.update(displaced.id, { active: false });
+                }
+                planned.push({
+                    action: "default",
+                    lookup: want.lookup_key ?? want.id,
+                    product_name: name,
+                    product_id: pid,
+                    amount_cents: want.unit_amount,
+                    interval: want.recurring?.interval ?? "month",
+                    replaces_price_id: displaced.id,
+                    replaces_amount_cents: displaced.unit_amount,
+                    replaces_subscriptions: subs,
+                    replaced_archived: displaced.active,
+                    created: false,
+                });
+            } catch (e: any) {
+                planned.push({ action: "default", lookup: name, product_name: name, amount_cents: 0, interval: "month", error: e?.message ?? String(e) });
+            }
         }
 
         // The seat is not a pair, so the loop above never reaches it — and its

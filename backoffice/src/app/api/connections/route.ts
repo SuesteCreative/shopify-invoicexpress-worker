@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
+import { CONNECTION_PUBLIC_SELECT } from "@/lib/redact";
 import {
     SOURCE_KINDS, DESTINATION_KINDS, CONNECTION_STATUSES,
     isSourceKind, isDestinationKind,
@@ -31,8 +32,11 @@ export async function GET(request: NextRequest) {
         const db = (env as any).DB;
         if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
+        // Never `SELECT *`: the config blobs on this table are credentials, and
+        // this response goes to a browser. CONNECTION_PUBLIC_SELECT is the
+        // allowlist — see lib/redact.ts.
         const rows = await db
-            .prepare("SELECT * FROM connections WHERE user_id = ? ORDER BY created_at ASC")
+            .prepare(`SELECT ${CONNECTION_PUBLIC_SELECT} FROM connections WHERE user_id = ? ORDER BY created_at ASC`)
             .bind(auth.targetUserId)
             .all();
 
@@ -112,7 +116,8 @@ export async function POST(request: NextRequest) {
         ).run();
 
         const row: any = await db.prepare(
-            "SELECT * FROM connections WHERE user_id = ? AND source_kind = ? AND destination_kind = ?"
+            `SELECT ${CONNECTION_PUBLIC_SELECT} FROM connections
+              WHERE user_id = ? AND source_kind = ? AND destination_kind = ?`
         ).bind(authResult.targetUserId, body.source_kind, body.destination_kind).first();
 
         return NextResponse.json({ connection: row });

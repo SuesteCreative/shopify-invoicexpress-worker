@@ -9,6 +9,7 @@ import {
     AlertTriangle, ArrowRight, Building2, Check, ChevronDown, Globe, Loader2, Lock,
     LogOut, MapPin, Phone, Plug, ShieldCheck, Sparkles, User, UserPlus,
 } from "lucide-react";
+import PlatformIcon from "@/components/PlatformIcon";
 import { Link, useRouter } from "@/i18n/navigation";
 import { ThemedLogo } from "@/components/ThemedLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -114,7 +115,6 @@ function PlatformTile({
     platform: Platform; selected: boolean; onSelect: () => void;
     comingSoon: string; available: string;
 }) {
-    const Icon = platform.icon;
     return (
         <button
             type="button"
@@ -144,7 +144,7 @@ function PlatformTile({
                             width={platform.logoW} height={platform.logoH}
                             className={cn("object-contain", platform.logo.includes("-white") && "logo-adaptive")}
                         />
-                        : <Icon className="w-5 h-5" aria-hidden />}
+                        : <PlatformIcon name={platform.icon} className="w-5 h-5" aria-hidden />}
                 </span>
                 <span className="min-w-0">
                     <span className="block text-[15px] font-medium text-fg truncate">{platform.name}</span>

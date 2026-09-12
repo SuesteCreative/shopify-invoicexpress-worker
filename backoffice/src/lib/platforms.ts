@@ -1,4 +1,3 @@
-import { ClipboardList, CreditCard, Landmark, Store, Wallet, type LucideIcon } from "lucide-react";
 
 /**
  * The platforms a merchant can pick between, and where each pair is configured.
@@ -14,11 +13,20 @@ import { ClipboardList, CreditCard, Landmark, Store, Wallet, type LucideIcon } f
  * routing to it.
  */
 
+export type PlatformIconName = "store" | "card" | "wallet" | "bank" | "clipboard";
+
 export interface Platform {
     /** The stored `source_kind` / `destination_kind`, never a label. */
     id: string;
     name: string;
-    icon: LucideIcon;
+    /**
+     * WHICH icon, never the icon itself. This catalogue is imported by tests
+     * that run from the repo root, where only the worker's dependencies are
+     * installed — pulling `lucide-react` in here made `npm test` fail to even
+     * load the suite, which is what stopped the worker deploying for 12 hours
+     * on 2026-09-11. Components resolve the name through <PlatformIcon>.
+     */
+    icon: PlatformIconName;
     logo: string | null;
     logoW: number;
     logoH: number;
@@ -31,22 +39,22 @@ export interface Platform {
 export const STRIPE_CONNECT_ENABLED = process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED === "1";
 
 export const PAYMENT_PLATFORMS: Platform[] = [
-    { id: "shopify", name: "Shopify", icon: Store, logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
-    { id: "stripe", name: "Stripe Legacy", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
+    { id: "shopify", name: "Shopify", icon: "store", logo: "/images/shopify-logo.webp", logoW: 28, logoH: 28, active: true },
+    { id: "stripe", name: "Stripe Legacy", icon: "card", logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: true },
     // The same Stripe, connected in one click instead of by pasting a restricted
     // key. A separate tile because it is a separate connection: an account can
     // hold both, and support has to be able to tell which one is being discussed.
-    { id: "stripe_connect", name: "Stripe Connect", icon: CreditCard, logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: STRIPE_CONNECT_ENABLED },
-    { id: "eupago", name: "EuPago", icon: Wallet, logo: "/images/eupago-logo.svg", logoW: 30, logoH: 30, active: true },
-    { id: "lodgify", name: "Lodgify", icon: Wallet, logo: "/images/lodgify-logo-white.svg", logoW: 44, logoH: 12, active: true },
-    { id: "easypay", name: "Easypay", icon: Wallet, logo: null, logoW: 0, logoH: 0, active: false },
-    { id: "ifthenpay", name: "Ifthenpay", icon: Landmark, logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "stripe_connect", name: "Stripe Connect", icon: "card", logo: "/images/stripe-logo.svg", logoW: 28, logoH: 28, active: STRIPE_CONNECT_ENABLED },
+    { id: "eupago", name: "EuPago", icon: "wallet", logo: "/images/eupago-logo.svg", logoW: 30, logoH: 30, active: true },
+    { id: "lodgify", name: "Lodgify", icon: "wallet", logo: "/images/lodgify-logo-white.svg", logoW: 44, logoH: 12, active: true },
+    { id: "easypay", name: "Easypay", icon: "wallet", logo: null, logoW: 0, logoH: 0, active: false },
+    { id: "ifthenpay", name: "Ifthenpay", icon: "bank", logo: null, logoW: 0, logoH: 0, active: false },
 ];
 
 export const INVOICING_PLATFORMS: Platform[] = [
-    { id: "invoicexpress", name: "InvoiceXpress", icon: ClipboardList, logo: "/images/invoicexpress_logo2.png", logoW: 30, logoH: 30, active: true },
-    { id: "moloni", name: "Moloni", icon: ClipboardList, logo: "/images/moloni-logo.svg", logoW: 30, logoH: 30, active: true },
-    { id: "vendus", name: "Vendus", icon: ClipboardList, logo: "/images/vendus-logo.svg", logoW: 30, logoH: 30, active: true },
+    { id: "invoicexpress", name: "InvoiceXpress", icon: "clipboard", logo: "/images/invoicexpress_logo2.png", logoW: 30, logoH: 30, active: true },
+    { id: "moloni", name: "Moloni", icon: "clipboard", logo: "/images/moloni-logo.svg", logoW: 30, logoH: 30, active: true },
+    { id: "vendus", name: "Vendus", icon: "clipboard", logo: "/images/vendus-logo.svg", logoW: 30, logoH: 30, active: true },
 ];
 
 export function platformName(id: string | null | undefined): string {

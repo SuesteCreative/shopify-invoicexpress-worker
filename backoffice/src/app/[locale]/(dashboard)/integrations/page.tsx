@@ -5,6 +5,7 @@ export const runtime = "edge";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Store, ClipboardList, CreditCard, ArrowRight, Lock, CheckCircle2, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import PlatformIcon from "@/components/PlatformIcon";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
@@ -180,8 +181,6 @@ export default function IntegrationsPage() {
                         {activeIntegrations.map(ai => {
                             const payP = PAYMENT_PLATFORMS.find(p => p.id === ai.payment);
                             const invP = INVOICING_PLATFORMS.find(p => p.id === ai.invoicing);
-                            const PayIcon = payP?.icon ?? Store;
-                            const InvIcon = invP?.icon ?? ClipboardList;
                             const title = `${payP?.name ?? ai.payment} + ${invP?.name ?? ai.invoicing}`;
                             return (
                                 <div key={ai.id} className="glass rounded-[2.5rem] p-5 sm:p-8 relative overflow-hidden group">
@@ -192,10 +191,10 @@ export default function IntegrationsPage() {
                                         <div className="flex items-center gap-8">
                                             <div className="flex -space-x-4">
                                                 <div className="w-16 h-16 rounded-2xl bg-veil border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
-                                                    {payP?.logo ? <Image src={payP.logo} alt={payP.name} width={36} height={36} className={cn("object-contain", payP.logo.includes("-white") && "logo-adaptive")} /> : <PayIcon className="w-8 h-8 text-fg" />}
+                                                    {payP?.logo ? <Image src={payP.logo} alt={payP.name} width={36} height={36} className={cn("object-contain", payP.logo.includes("-white") && "logo-adaptive")} /> : <PlatformIcon name={payP?.icon ?? "store"} className="w-8 h-8 text-fg" />}
                                                 </div>
                                                 <div className="w-16 h-16 rounded-2xl bg-veil border border-hairline flex items-center justify-center backdrop-blur-xl ring-4 ring-surface shadow-2xl p-3">
-                                                    {invP?.logo ? <Image src={invP.logo} alt={invP.name} width={36} height={36} className={cn("object-contain", invP.logo.includes("-white") && "logo-adaptive")} /> : <InvIcon className="w-8 h-8 text-fg" />}
+                                                    {invP?.logo ? <Image src={invP.logo} alt={invP.name} width={36} height={36} className={cn("object-contain", invP.logo.includes("-white") && "logo-adaptive")} /> : <PlatformIcon name={invP?.icon ?? "clipboard"} className="w-8 h-8 text-fg" />}
                                                 </div>
                                             </div>
                                             <div className="space-y-1">
@@ -247,7 +246,6 @@ export default function IntegrationsPage() {
                     <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">{t("paymentPlatform")}</h2>
                     <div className="grid gap-3">
                         {PAYMENT_PLATFORMS.map((p) => {
-                            const Icon = p.icon;
                             return (
                                 <button
                                     key={p.id}
@@ -263,7 +261,7 @@ export default function IntegrationsPage() {
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
                                             selectedPayment === p.id ? "bg-accent/18 text-accent-ink" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
                                         )}>
-                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className={cn("object-contain", p.logo.includes("-white") && "logo-adaptive")} /> : <Icon className="w-6 h-6" />}
+                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className={cn("object-contain", p.logo.includes("-white") && "logo-adaptive")} /> : <PlatformIcon name={p.icon} className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
                                             <p className="font-medium text-lg text-fg">{p.name}</p>
@@ -285,7 +283,6 @@ export default function IntegrationsPage() {
                     <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] ml-2">{t("invoicingPlatform")}</h2>
                     <div className="grid gap-3">
                         {INVOICING_PLATFORMS.map((p) => {
-                            const Icon = p.icon;
                             return (
                                 <button
                                     key={p.id}
@@ -301,7 +298,7 @@ export default function IntegrationsPage() {
                                             "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
                                             selectedInvoicing === p.id ? "bg-accent/18 text-accent-ink" : "bg-surface-2 text-fg-40 group-hover:text-fg-60"
                                         )}>
-                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className={cn("object-contain", p.logo.includes("-white") && "logo-adaptive")} /> : <Icon className="w-6 h-6" />}
+                                            {p.logo ? <Image src={p.logo} alt={p.name} width={p.logoW} height={p.logoH} className={cn("object-contain", p.logo.includes("-white") && "logo-adaptive")} /> : <PlatformIcon name={p.icon} className="w-6 h-6" />}
                                         </div>
                                         <div className="text-left">
                                             <p className="font-medium text-lg text-fg">{p.name}</p>

@@ -5,6 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection, ixAccountNameOnConnection } from "@/lib/connection-fiscal";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
+import { grantReferralGrace } from "@/lib/referral-grace";
 
 export const runtime = "edge";
 
@@ -167,6 +168,12 @@ export async function POST(request: NextRequest) {
         hasFiscal ? JSON.stringify(destinationPatch) : null, status, now, now,
         hasFiscal ? 1 : 0, status,
     ).run();
+
+    // A referred account's free month is keyed to a connection (0044) and at
+    // claim time there was none. One exists now, so put it here rather than
+    // leave the gate refusing the first order of a merchant who was promised
+    // thirty free days. A no-op for everyone who was never referred.
+    await grantReferralGrace(db, authResult.targetUserId).catch(() => { /* never block a save */ });
 
     // Same as the Moloni wizard: activation is the first moment we can ask
     // Stripe what this merchant's payments look like.

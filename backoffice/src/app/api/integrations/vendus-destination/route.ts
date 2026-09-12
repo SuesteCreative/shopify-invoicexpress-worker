@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { grantReferralGrace } from "@/lib/referral-grace";
 
 export const runtime = "edge";
 
@@ -134,6 +135,12 @@ export async function POST(request: NextRequest) {
            status = excluded.status,
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, sourceKind, JSON.stringify(destinationConfig), status, now, now).run();
+
+    // A referred account's free month is keyed to a connection (0044) and at
+    // claim time there was none. One exists now, so put it here rather than
+    // leave the gate refusing the first order of a merchant who was promised
+    // thirty free days. A no-op for everyone who was never referred.
+    await grantReferralGrace(db, authResult.targetUserId).catch(() => { /* never block a save */ });
 
     const response: Record<string, unknown> = { ok: true };
     if (sourceKind === "shopify") {

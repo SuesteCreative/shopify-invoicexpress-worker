@@ -10,6 +10,7 @@ import { DEFAULT_CONNECTION_KEY, keyFromRequest, shopIsOldest } from "@/lib/subs
 import { callWorkerJson } from "@/lib/worker";
 import { priceBook } from "@/lib/price-book";
 import { currentPriceCents, tierOf } from "@/lib/billing-legacy";
+import { claimInviteePayment, drainPendingReferralCredits } from "@/lib/referral-credit";
 
 export const runtime = "edge";
 
@@ -445,6 +446,18 @@ export async function POST(req: NextRequest) {
                     await activatePausedConnections(db, userId, isoFromUnix((sub as any)?.start_date), connectionKey);
                 }
 
+                // An early bird who invited people before ever paying us has no
+                // Stripe customer to credit, so their referrals sit earned and
+                // unpaid. This is the moment the customer exists.
+                try {
+                    const paid = await drainPendingReferralCredits(db, stripe, userId);
+                    if (paid.credited > 0) {
+                        console.log(`[referral] drained ${paid.credited} parked credits (${paid.cents}c) for ${userId}`);
+                    }
+                } catch (refErr: any) {
+                    console.error(`[referral] drain failed for ${event.id}: ${refErr.message}`);
+                }
+
                 // Mark event processed
                 await db.prepare(
                     "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"
@@ -531,6 +544,42 @@ export async function POST(req: NextRequest) {
                 // attempt, and never again when Stripe re-delivers the same event
                 // (the INSERT OR IGNORE above changed no rows the second time).
                 const firstDelivery = ((insert as any)?.meta?.changes ?? 0) > 0;
+
+                // The invitee's FIRST paid invoice is what their inviter was
+                // promised two months for. claimInviteePayment is a conditional
+                // UPDATE, so a re-delivery finds nothing left to claim and this
+                // whole block costs one query on every other payment we take.
+                if (event.type === "invoice.paid" && firstDelivery) {
+                    try {
+                        const inviter = await claimInviteePayment(db, userId, invoice.id);
+                        if (inviter) {
+                            const paid = await drainPendingReferralCredits(db, stripe, inviter);
+                            console.log(
+                                `[referral] ${userId} paid ${invoice.id}; inviter ${inviter} ` +
+                                `credited ${paid.credited} (${paid.cents}c)` +
+                                (paid.parked.length ? `, parked ${paid.parked.map(p => p.reason).join(",")}` : ""),
+                            );
+                        }
+                        // And the payer's OWN parked credits. Without this the
+                        // only retry is a Checkout, which an account that already
+                        // subscribes never completes again: a credit parked for
+                        // any reason — no customer yet when it was earned, or an
+                        // invoice.paid that had not landed when checkout fired —
+                        // would sit unpaid until a human read the note. Costs one
+                        // indexed lookup that finds nothing for almost everybody.
+                        const mine = await drainPendingReferralCredits(db, stripe, userId);
+                        if (mine.credited > 0) {
+                            console.log(`[referral] drained ${mine.credited} parked credits (${mine.cents}c) for ${userId} on payment`);
+                        }
+                    } catch (refErr: any) {
+                        // Best effort, like the notice below: a referral that
+                        // fails to credit is a row we can drain later, and it must
+                        // never make us 500 and have Stripe re-deliver a payment
+                        // we already recorded.
+                        console.error(`[referral] credit failed for ${event.id}: ${refErr.message}`);
+                    }
+                }
+
                 if (event.type === "invoice.payment_failed" && firstDelivery) {
                     try {
                         const notice = await notifySubscriptionPaymentFailed({

@@ -27,6 +27,7 @@ import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, delet
 import { checkSubscriptionGate } from "./services/subscription-gate";
 import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
 import { runSubscriptionPausedNotices } from "./services/subscription-paused-notice";
+import { runNewsletterBroadcast } from "./services/newsletter";
 import { probeConnectionTax, runStripeTaxProbeSweep } from "./services/stripe-tax-probe";
 import { runRunInNotices } from "./services/run-in-notice";
 import { renderRunInPage, handleRunInAnswer } from "./handlers/run-in";
@@ -2237,6 +2238,44 @@ app.post("/admin/billing/paused-notices", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to run paused-subscription notices");
+  }
+})
+
+// Admin: send a newsletter, as a Resend Broadcast.
+//   { dry_run?: boolean (default TRUE), slug, subject, html, preview_text?,
+//     recipients: [{ email, first_name?, user_id?, label? }], scheduled_at? }
+// The audience is resolved in the backoffice, against D1, by the same function
+// that drew the preview; this end never picks recipients, it only delivers to
+// the ones it was handed. Resend lives here because the API key does.
+app.post("/admin/newsletter/broadcast", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{
+    dry_run?: boolean; slug?: string; subject?: string; html?: string;
+    preview_text?: string; scheduled_at?: string;
+    recipients?: { email: string; first_name?: string; user_id?: string; label?: string }[];
+  }>().catch(() => ({} as any));
+
+  if (!body.slug || !body.subject || !body.html) {
+    return c.json({ error: "Missing slug, subject or html" }, 400);
+  }
+  if (!Array.isArray(body.recipients)) {
+    return c.json({ error: "Missing recipients" }, 400);
+  }
+
+  try {
+    const result = await runNewsletterBroadcast(c.env, {
+      slug: body.slug,
+      subject: body.subject,
+      html: body.html,
+      previewText: body.preview_text,
+      recipients: body.recipients,
+      scheduledAt: body.scheduled_at,
+      dryRun: body.dry_run !== false,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to send newsletter");
   }
 })
 

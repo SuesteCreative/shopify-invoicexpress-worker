@@ -5,6 +5,7 @@ import { newOAuthState } from "@/lib/oauth-state";
 import { normalizeReturnSlug, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
 import { isAdmin } from "@/lib/admin";
+import { grantReferralGrace } from "@/lib/referral-grace";
 
 export const runtime = "edge";
 
@@ -81,6 +82,12 @@ export async function POST(request: NextRequest) {
         JSON.stringify({ auth_mode: "connect", return_slug: returnSlug, return_locale: returnLocale, livemode: mode === "live" }),
         state, expiresAt, now, now,
     ).run();
+
+    // A referred account's free month is keyed to a connection (0044) and at
+    // claim time there was none. One exists now, so put it here rather than
+    // leave the gate refusing the first order of a merchant who was promised
+    // thirty free days. A no-op for everyone who was never referred.
+    await grantReferralGrace(db, authResult.targetUserId).catch(() => { /* never block a save */ });
 
     const url = new URL("https://connect.stripe.com/oauth/authorize");
     url.searchParams.set("response_type", "code");

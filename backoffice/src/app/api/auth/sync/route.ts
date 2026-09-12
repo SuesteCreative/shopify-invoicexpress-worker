@@ -29,6 +29,18 @@ export async function POST() {
         last_login = CURRENT_TIMESTAMP
     `).bind(userId, email, name, email, name).run();
 
+        // A referred account's free month has to sit on the connection they end
+        // up creating, and at claim time they had none. This page is called from
+        // every integration and onboarding screen, so it is where the grace
+        // catches up with reality. A no-op for anyone who was never referred,
+        // and anchored to the claim date, so repeating it never extends anything.
+        try {
+            const { grantReferralGrace } = await import("@/lib/referral-grace");
+            await grantReferralGrace(db, userId);
+        } catch (e: any) {
+            console.error("[referral] grace sync failed:", e?.message ?? e);
+        }
+
         return NextResponse.json({ success: true });
     } catch (error: any) {
         console.error("Sync Error:", error);

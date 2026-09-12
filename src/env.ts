@@ -50,6 +50,8 @@ export interface Env {
   // Phase 4a.1 — Resend + Incidents
   RESEND_API_KEY?: string;                // when set, sendEmail uses Resend; otherwise falls back to MailChannels
   RESEND_FROM_EMAIL?: string;             // optional override; defaults to rioko-devmode@kapta.pt
+  RESEND_TOPIC_NEWS?: string;             // Resend topic id for newsletters, so the unsubscribe page
+                                          // offers "stop the newsletter" and not "stop everything"
   KAPTA_DEV_EMAILS?: string;              // comma-separated list of dev team recipients for critical incidents
   INCIDENT_DIGEST_ENABLED?: string;       // "0" | "1" — gates the daily digest path in scheduled()
   WEEKLY_MERCHANT_DIGEST_ENABLED?: string; // "0" | "1" — gates the Friday per-merchant "unprocessed invoices" digest

@@ -175,6 +175,39 @@ Pluggable sources and destinations behind two interfaces, wired by `registry.ts`
 
 Migrations live in `migrations/0001…0015_*.sql`; apply in order with `wrangler d1`. `backoffice/migrations/` also exists — keep the two in mind when changing schema.
 
+### Credentials: what may leave the server (read this before touching an API route)
+
+Both tables above are credential stores. `integrations` keeps them in COLUMNS
+(`shopify_token`, `shopify_webhook_secret`, `ix_api_key`, `shopify_client_secret`,
+`shopify_oauth_state`); `connections` keeps them in BLOBS (`source_config_json`,
+`destination_config_json`) plus `oauth_state` and `runin_token`. Fixed 2026-09-12,
+after `GET /api/connections` and `GET /api/integrations` were found handing both
+tables to the browser whole. Reach was not "the account's own browser": an invited
+member, read-only seats included, resolves to the OWNER's account.
+
+Three rules, all enforced in `backoffice/src/lib/redact.ts`:
+
+1. **Never `SELECT *` on these two tables in a route that answers a browser.**
+   `connections` has `CONNECTION_PUBLIC_SELECT` (an allowlist of columns).
+2. **`integrations` is stripped by `stripIntegrationSecrets()`**, a NAME PATTERN
+   (`token|secret|api_key|password|client_id|oauth_state`), not a list: the row has
+   ~50 fiscal columns the wizards render and 7 credentials, so an allowlist would
+   break a wizard every time a migration added a field. Each stripped column comes
+   back as `has_<column>`.
+3. **A credential never travels in a URL.** `/api/integrations/sequences` took
+   `account` + `apiKey` as query params and was deleted; `sequences-user` does the
+   same job from D1. Config blobs go through `redactConnectionConfig()`.
+
+Consequence for the UI, and the trap if you change it: no wizard can prefill a
+credential any more. They render dots and **blank means "keep what is stored"** —
+in the field, in the POST, and in `auditFieldDiff`. Break that symmetry and
+reopening a wizard to flip one VAT toggle silently clears a live token, which is
+what happened to Farracemota on 2026-09-10.
+
+Per-connection routes (`stripe-source`, `lodgify-source`, `eupago-source`,
+`moloni-destination`, `vendus-destination`) were swept the same day and already
+answer with explicit allowlists. Keep them that way.
+
 ### KV (`INVOICE_KV`)
 `{source}_order:{id}` (fast idempotency) · `ixmeta:{invoiceId}` (24h) · `ixref:{account}:{reference}` (1h) · `stripe-evt:{eventId}` (7d payload spill).
 

@@ -84,6 +84,11 @@ interface Finance {
         status: "ok" | "archived" | "missing" | "no_key" | "wrong_amount";
         amount_cents: number | null; expected_cents: number;
     }[];
+    seat_price?: {
+        lookup: string;
+        status: "ok" | "archived" | "missing" | "wrong_amount" | "recurring";
+        amount_cents: number | null; expected_cents: number;
+    };
 }
 
 interface CreateResult {
@@ -431,9 +436,41 @@ export function FinancePanel() {
                                     </td>
                                 </tr>
                             ))}
+                            {data.seat_price && (
+                                <tr className="border-t border-hairline/40">
+                                    <td className="py-2 pr-4 text-fg whitespace-nowrap">Rioko 2.0 || Extra User</td>
+                                    <td className="py-2 pr-4 font-mono text-[11px] text-fg-40 whitespace-nowrap">avulso</td>
+                                    <td className="py-2 pr-4 font-mono text-[10px] text-fg-40 truncate max-w-[260px]">
+                                        {data.seat_price.lookup}
+                                    </td>
+                                    <td className="py-2 pr-4 font-mono text-[11px] text-fg tabular-nums whitespace-nowrap">
+                                        {data.seat_price.amount_cents == null
+                                            ? <span className="text-fg-40">{eur(data.seat_price.expected_cents)}</span>
+                                            : data.seat_price.status === "wrong_amount"
+                                                ? <span className="text-destructive">{eur(data.seat_price.amount_cents)} <span className="text-fg-40">≠ {eur(data.seat_price.expected_cents)}</span></span>
+                                                : eur(data.seat_price.amount_cents)}
+                                    </td>
+                                    <td className="py-2 text-right whitespace-nowrap">
+                                        <span className={`font-mono text-[10px] ${data.seat_price.status === "ok" ? "text-accent-hot" : "text-destructive"}`}>
+                                            {data.seat_price.status === "ok" ? "ok"
+                                                : data.seat_price.status === "missing" ? "POR CRIAR"
+                                                : data.seat_price.status === "recurring" ? "RECORRENTE"
+                                                : data.seat_price.status === "archived" ? "ARQUIVADO"
+                                                : "VALOR ERRADO"}
+                                        </span>
+                                    </td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>
+                {data.seat_price && data.seat_price.status !== "ok" && (
+                    <p className="text-[11px] text-destructive pt-1">
+                        O lugar extra não é criado por este botão: é um preço avulso, sem par. Um
+                        preço recorrente aqui rebenta dentro do Checkout, que corre em modo de
+                        pagamento único. Corrigir no Stripe.
+                    </p>
+                )}
                 {(data.price_catalogue ?? []).some((p) => p.status === "missing" || p.status === "wrong_amount") && (
                     <div className="space-y-3 pt-1">
                         <p className="text-[11px] text-destructive">

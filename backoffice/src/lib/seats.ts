@@ -1,31 +1,29 @@
 import type Stripe from "stripe";
 import { getStripe, getStripeEnvOptional } from "./stripe";
+import { SEAT_PRICE_LOOKUP } from "./price-catalogue";
 
 /**
  * Extra-user seats.
  *
- * An account includes one user (the owner). Every invited member is a one-off
- * charge — €1.50 + IVA, billed the moment the invite is sent — not a recurring
- * subscription item. That is deliberate: it keeps seats off the base plan, so a
- * monthly and an annual account are billed identically and Stripe never has to
- * mix billing intervals on one subscription.
+ * An account includes one user (the owner) plus one member at no charge. Beyond
+ * that, a seat is unlocked one at a time — €1,50 + IVA, a ONE-OFF payment, not
+ * a recurring subscription item. That is deliberate: it keeps seats off the
+ * base plan, so a monthly and an annual account are billed identically and
+ * Stripe never has to mix billing intervals on one subscription.
  *
- * The charge is a standalone Stripe invoice against the card already on file,
- * finalized and paid immediately. It lands in the account's billing history
- * through the ordinary `invoice.paid` webhook.
+ * A seat is capacity, not a person: since migration 0040 the account holds a
+ * pool, removing someone frees their seat and the next invite reuses it at no
+ * charge. The payment is a Stripe Checkout session the merchant completes
+ * themselves, so they see the price, the VAT and the card, and Stripe issues
+ * the receipt.
  */
 
-/** Price id / lookup key created in Stripe ("Extra user Rioko 2.0"). */
-export const SEAT_PRICE_LOOKUP = "extra_user_rioko2";
+export { SEAT_PRICE_LOOKUP } from "./price-catalogue";
 
 export interface SeatPrice {
     id: string;
     unit_amount: number;
     currency: string;
-    /** Non-null when the price was created as recurring — we then bill by
-     *  amount rather than by price reference (a recurring price cannot sit on a
-     *  standalone invoice item). */
-    recurring: unknown | null;
 }
 
 export async function resolveSeatPrice(): Promise<SeatPrice> {
@@ -42,13 +40,12 @@ export async function resolveSeatPrice(): Promise<SeatPrice> {
     if (!price) throw new Error(`Extra-user price not found: ${lookup}`);
     if (!price.active) throw new Error(`Extra-user price ${price.id} is inactive`);
     if (price.currency !== "eur") throw new Error(`Extra-user price ${price.id} must be EUR (got ${price.currency})`);
+    // Checkout runs in `mode: "payment"` and Stripe refuses a recurring price
+    // there. Caught here, where the message says what is wrong with the price,
+    // rather than inside the session create, where it does not.
+    if (price.recurring) throw new Error(`Extra-user price ${price.id} must be one-off, not recurring`);
 
-    return {
-        id: price.id,
-        unit_amount: price.unit_amount ?? 0,
-        currency: price.currency,
-        recurring: price.recurring ?? null,
-    };
+    return { id: price.id, unit_amount: price.unit_amount ?? 0, currency: price.currency };
 }
 
 export interface SeatCheckout {
@@ -109,6 +106,22 @@ export async function createSeatCheckout(params: {
 
     if (!session.url) throw new Error("Stripe returned a checkout session with no URL");
     return { url: session.url, session_id: session.id };
+}
+
+/**
+ * A seat for an account that is not charged for one.
+ *
+ * Platform admins are exempt, and until now "exempt" only meant the button was
+ * enabled: they were sent to Checkout and charged like anyone else. Migration
+ * 0040 already describes this row — `stripe_invoice_id` NULL for a seat granted
+ * to an exempt account — it simply had nothing writing it.
+ */
+export async function grantExemptSeat(db: D1Database, accountId: string): Promise<void> {
+    await db
+        .prepare(`INSERT OR IGNORE INTO account_seats (id, account_id, stripe_invoice_id, amount_cents, purchased_by)
+                  VALUES (?, ?, NULL, 0, ?)`)
+        .bind(`exempt-${crypto.randomUUID()}`, accountId, accountId)
+        .run();
 }
 
 /** Record a seat for a paid Checkout session. Keyed on the session id, so the

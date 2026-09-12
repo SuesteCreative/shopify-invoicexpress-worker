@@ -668,7 +668,11 @@ export function SuperadminPanel() {
             pending: "bg-soon/15 text-soon border-soon/30",
             revoked: "bg-destructive/15 text-destructive border-destructive/30",
         }[inv.status as string] ?? "bg-surface-2 text-fg-40 border-hairline";
-        const paid = !!inv.seat_paid_at;
+        // One seat comes with the account; the rest were bought. The pool is
+        // filled in order, so the rank is the whole answer — there is no such
+        // thing as "this person's seat" once a freed seat can be reused.
+        const paid = (inv.seat_rank ?? 1) > 1;
+        const overCapacity = paid && (inv.seat_rank ?? 1) - 1 > (inv.seats_paid ?? 0);
 
         return (
             <motion.div
@@ -692,10 +696,14 @@ export function SuperadminPanel() {
                             <span className="px-2 py-0.5 rounded-md bg-accent/12 text-accent-ink text-[10px] font-black uppercase tracking-widest border border-accent/28">
                                 {inv.role === "admin" ? t("inviteRoleAdmin") : t("inviteRoleViewer")}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${paid ? "bg-accent-hot/15 text-accent-hot border-accent-hot/30" : "bg-surface-2 text-fg-40 border-hairline"}`}>
-                                {paid
-                                    ? t("seatPaid", { amount: ((inv.seat_amount_cents ?? 0) / 100).toFixed(2) })
-                                    : t("seatFree")}
+                            <span
+                                title={overCapacity ? `Lugar ${inv.seat_rank} de ${1 + (inv.seats_paid ?? 0)}` : undefined}
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${
+                                    overCapacity ? "bg-destructive/15 text-destructive border-destructive/30"
+                                        : paid ? "bg-accent-hot/15 text-accent-hot border-accent-hot/30"
+                                        : "bg-surface-2 text-fg-40 border-hairline"}`}
+                            >
+                                {paid ? t("seatPaid", { amount: `#${inv.seat_rank}` }) : t("seatFree")}
                             </span>
                             {platforms.map((k: string) => <PlatformPill key={k} kind={k} />)}
                         </div>

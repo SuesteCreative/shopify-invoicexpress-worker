@@ -7,7 +7,9 @@ import { subscriptionUIState } from "@/lib/stripe";
 import { priceBook } from "@/lib/price-book";
 import { REVENUE_BY_MONTH } from "@/lib/admin-stats-sql";
 import { resolveTier } from "@/lib/billing-legacy";
-import { requiredPrices, statusOf } from "@/lib/price-catalogue";
+import {
+    requiredPrices, statusOf, seatStatusOf, SEAT_PRICE_CENTS, SEAT_PRICE_LOOKUP,
+} from "@/lib/price-catalogue";
 import {
     PAYMENTS_BY_ACCOUNT, REFUNDS_BY_ACCOUNT, SUBSCRIPTION_LINES,
     TRIALS_ENDING, OUTSTANDING_PAYMENTS, SETTLED_AFTER_FAILURE,
@@ -241,6 +243,21 @@ export async function GET() {
                     expected_cents: r.amountCents,
                 };
             }),
+            /**
+             * The seat price, which is not a pair and was in no check at all.
+             * The only signal that it had gone missing or archived was a 500 in
+             * a merchant's face at the moment they pressed unlock — the page
+             * that quotes it swallows the failure and prints "1,50 €" anyway.
+             */
+            seat_price: (() => {
+                const price = prices.get(SEAT_PRICE_LOOKUP);
+                return {
+                    lookup: SEAT_PRICE_LOOKUP,
+                    status: seatStatusOf(price),
+                    amount_cents: price?.unit_amount ?? null,
+                    expected_cents: SEAT_PRICE_CENTS,
+                };
+            })(),
             trials_ending: rows(trialRows).map((t) => ({
                 user_id: t.user_id,
                 account: accountLabel(t, t.email),

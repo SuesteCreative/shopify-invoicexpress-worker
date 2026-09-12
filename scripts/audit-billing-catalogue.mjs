@@ -20,7 +20,9 @@
  * `npm run gen:catalogue` — restating it here is how the two drift apart.
  */
 import { readFileSync } from "node:fs";
-import { requiredPrices, statusOf, PRODUCT_TAX_CODE } from "./.gen/price-catalogue.mjs";
+import {
+    requiredPrices, statusOf, seatStatusOf, PRODUCT_TAX_CODE, SEAT_PRICE_LOOKUP, SEAT_PRICE_CENTS,
+} from "./.gen/price-catalogue.mjs";
 
 const asJson = process.argv.includes("--json");
 
@@ -83,6 +85,26 @@ const rows = requiredPrices().map((req) => {
         tagged: product?.metadata?.app === "rioko",
     };
 });
+
+// The seat is not a pair, so it is in no catalogue row — and was in no check
+// at all. A merchant only found out it had gone when unlock answered 500.
+const seatPrice = byKey.get(SEAT_PRICE_LOOKUP);
+const seat = {
+    pair: "—",
+    plan: "avulso",
+    lookup: SEAT_PRICE_LOOKUP,
+    status: seatStatusOf(seatPrice),
+    price_id: seatPrice?.id ?? null,
+    cents: seatPrice?.unit_amount ?? null,
+    expected_cents: SEAT_PRICE_CENTS,
+    interval: seatPrice?.recurring?.interval ?? null,
+    tax_behavior: seatPrice?.tax_behavior ?? null,
+    product: (typeof seatPrice?.product === "object" ? seatPrice.product.name : null) ?? null,
+    product_tax_code: (typeof seatPrice?.product === "object" ? seatPrice.product.tax_code : null) ?? null,
+    product_images: (typeof seatPrice?.product === "object" ? seatPrice.product.images?.length : 0) ?? 0,
+    tagged: (typeof seatPrice?.product === "object" ? seatPrice.product.metadata?.app : null) === "rioko",
+};
+rows.push(seat);
 
 const bad = rows.filter((r) => r.status !== "ok");
 const untagged = rows.filter((r) => r.status === "ok" && !r.tagged);

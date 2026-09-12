@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getAccountContext, getAccountDB, getSeatPool } from "@/lib/account";
+import { getAccountContext, getAccountDB, getSeatPool, seatEligibility } from "@/lib/account";
 import { accountLabel } from "@/lib/labels";
 import { resolveSeatPrice } from "@/lib/seats";
 import { callWorkerJson } from "@/lib/worker";
@@ -15,35 +15,6 @@ async function requireManager(req: NextRequest) {
     if (!ctx) return { error: "Unauthorized", status: 401 as const };
     if (ctx.access === "viewer") return { error: "read_only", status: 403 as const };
     return { ctx };
-}
-
-/** Whether this account may buy seats: a live Stripe subscription with a card on
- *  file, or a platform admin (exempt — seats are free for them). */
-async function seatEligibility(accountId: string) {
-    const db = getAccountDB();
-    if (!db) return { ok: false as const, reason: "no_db", customerId: null as string | null, exempt: false };
-
-    const user: any = await db.prepare("SELECT role FROM users WHERE id = ?").bind(accountId).first();
-    if (user?.role === "superadmin" || user?.role === "hiperadmin") {
-        return { ok: true as const, reason: "exempt", customerId: null, exempt: true };
-    }
-
-    // Seats are an account-level add-on, so ANY live subscription on the
-    // account pays for them — not specifically the one of some connection.
-    const sub: any = await db
-        .prepare(`SELECT status, stripe_customer_id, stripe_subscription_id
-                    FROM subscriptions
-                   WHERE user_id = ? AND stripe_subscription_id IS NOT NULL
-                     AND status IN ('active','trialing')
-                   ORDER BY created_at ASC LIMIT 1`)
-        .bind(accountId)
-        .first();
-
-    const live = !!sub?.stripe_subscription_id && ["active", "trialing"].includes(String(sub?.status));
-    if (!live || !sub?.stripe_customer_id) {
-        return { ok: false as const, reason: "subscription_required", customerId: sub?.stripe_customer_id ?? null, exempt: false };
-    }
-    return { ok: true as const, reason: "subscribed", customerId: String(sub.stripe_customer_id), exempt: false };
 }
 
 /** GET /api/account/members — the account's people and what a seat costs. */
@@ -63,8 +34,7 @@ export async function GET(req: NextRequest) {
         let members: any[] = [];
         try {
             const rows = await db
-                .prepare(`SELECT id, email, member_user_id, role, status, seat_invoice_id, seat_amount_cents,
-                                 seat_paid_at, seat_reused_from, created_at, accepted_at
+                .prepare(`SELECT id, email, member_user_id, role, status, created_at, accepted_at
                           FROM account_members
                           WHERE account_id = ? AND status <> 'revoked'
                           ORDER BY created_at ASC`)

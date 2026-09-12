@@ -1,6 +1,12 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { isAdmin, getImpersonationId } from "./admin";
+// The pool arithmetic lives with the prices because that is what it is — how
+// many seats the plan includes — and because this module cannot be imported
+// outside a request, which makes anything defined here untestable.
+import { seatPoolOf, type SeatPool } from "./price-catalogue";
+
+export { INCLUDED_SEATS, seatPoolOf, type SeatPool } from "./price-catalogue";
 
 /**
  * Account resolution — "whose data am I looking at?".
@@ -41,9 +47,9 @@ export interface MembershipRow {
     role: string;
     status: string;
     invited_by: string | null;
-    seat_invoice_id: string | null;
-    seat_amount_cents: number | null;
-    seat_paid_at: string | null;
+    // 0039's per-invite seat columns are gone from here: nothing has written
+    // them since seats became a pool (0040), and reading a column that is
+    // always NULL is how the admin panel came to call every member free.
     created_at: string;
     accepted_at: string | null;
 }
@@ -136,45 +142,72 @@ export async function isReadOnlyMember(authUserId: string): Promise<boolean> {
     return membership?.role === "viewer";
 }
 
-/** Every account may invite one extra user at no charge. Seats beyond that are
- *  unlocked one at a time, €1.50 + IVA each. The owner is not a seat. */
-export const INCLUDED_SEATS = 1;
-
-export interface SeatPool {
-    /** Seats the account has unlocked with money. Never decreases: removing
-     *  someone frees the seat, it does not refund it. */
-    paid: number;
-    /** Free seats that come with the account (currently 1). */
-    included: number;
-    /** Seats the account can fill in total: included + paid. */
-    capacity: number;
-    /** Seats in use right now — pending invites included, since an invite takes
-     *  the seat the moment it is sent. */
-    occupied: number;
-    /** Seats sitting empty: invite into one at no charge. */
-    free: number;
-}
-
-/** What the account can fill versus what it is using. Unlocking buys capacity
- *  (POST /api/account/seats); inviting only fills it. */
+/**
+ * What the account can fill versus what it is using. Unlocking buys capacity
+ * (POST /api/account/seats); inviting only fills it.
+ *
+ * A read that fails throws. It used to answer "one free seat, nothing bought",
+ * which is the most expensive possible guess: a D1 hiccup handed every account
+ * a seat it had not paid for AND hid the ones it had.
+ */
 export async function getSeatPool(accountId: string): Promise<SeatPool> {
     const db = getAccountDB();
-    const empty = { paid: 0, included: INCLUDED_SEATS, capacity: INCLUDED_SEATS, occupied: 0, free: INCLUDED_SEATS };
-    if (!db) return empty;
-    try {
-        const owned: any = await db
-            .prepare("SELECT COUNT(*) AS n FROM account_seats WHERE account_id = ?")
-            .bind(accountId)
-            .first();
-        const used: any = await db
-            .prepare("SELECT COUNT(*) AS n FROM account_members WHERE account_id = ? AND status IN ('pending','active')")
-            .bind(accountId)
-            .first();
-        const paid = Number(owned?.n ?? 0);
-        const occupied = Number(used?.n ?? 0);
-        const capacity = paid + INCLUDED_SEATS;
-        return { paid, included: INCLUDED_SEATS, capacity, occupied, free: Math.max(0, capacity - occupied) };
-    } catch {
-        return empty;
+    if (!db) throw new Error("Database binding missing");
+    const owned: any = await db
+        .prepare("SELECT COUNT(*) AS n FROM account_seats WHERE account_id = ?")
+        .bind(accountId)
+        .first();
+    const used: any = await db
+        .prepare("SELECT COUNT(*) AS n FROM account_members WHERE account_id = ? AND status IN ('pending','active')")
+        .bind(accountId)
+        .first();
+    return seatPoolOf(Number(owned?.n ?? 0), Number(used?.n ?? 0));
+}
+
+export interface SeatEligibility {
+    ok: boolean;
+    reason: "no_db" | "subscription_required" | "subscribed" | "exempt";
+    /** The Stripe customer to bill, from the subscription that is actually
+     *  live — never whichever row the database happened to return first. */
+    customerId: string | null;
+    /** Platform admins are not charged for seats; the seat is granted outright. */
+    exempt: boolean;
+}
+
+/**
+ * Whether this account may take another seat, and who pays for it.
+ *
+ * Shared by the page that offers the button and the route that acts on it. The
+ * route used to check nothing at all — `can_unlock` only greyed a button out,
+ * so anyone who could POST could buy a seat with no subscription — and it
+ * looked the customer up with an unfiltered `LEFT JOIN subscriptions`, which on
+ * an account with several rows (one per connection, 0044) returns an arbitrary
+ * one: a cancelled connection's customer, or none, in which case Checkout was
+ * told to mint a SECOND Stripe customer for the same account.
+ */
+export async function seatEligibility(accountId: string): Promise<SeatEligibility> {
+    const db = getAccountDB();
+    if (!db) return { ok: false, reason: "no_db", customerId: null, exempt: false };
+
+    const user: any = await db.prepare("SELECT role FROM users WHERE id = ?").bind(accountId).first();
+    if (user?.role === "superadmin" || user?.role === "hiperadmin") {
+        return { ok: true, reason: "exempt", customerId: null, exempt: true };
     }
+
+    // Seats are an account-level add-on, so ANY live subscription on the
+    // account pays for them — not specifically the one of some connection.
+    const sub: any = await db
+        .prepare(`SELECT status, stripe_customer_id, stripe_subscription_id
+                    FROM subscriptions
+                   WHERE user_id = ? AND stripe_subscription_id IS NOT NULL
+                     AND status IN ('active','trialing')
+                   ORDER BY created_at ASC LIMIT 1`)
+        .bind(accountId)
+        .first();
+
+    const live = !!sub?.stripe_subscription_id && ["active", "trialing"].includes(String(sub?.status));
+    if (!live || !sub?.stripe_customer_id) {
+        return { ok: false, reason: "subscription_required", customerId: sub?.stripe_customer_id ?? null, exempt: false };
+    }
+    return { ok: true, reason: "subscribed", customerId: String(sub.stripe_customer_id), exempt: false };
 }

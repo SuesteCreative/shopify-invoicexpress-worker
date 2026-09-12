@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccountContext, getAccountDB, getSeatPool } from "@/lib/account";
-import { createSeatCheckout, grantSeatFromSession } from "@/lib/seats";
+import { getAccountContext, getAccountDB, getSeatPool, seatEligibility } from "@/lib/account";
+import { createSeatCheckout, grantExemptSeat, grantSeatFromSession } from "@/lib/seats";
 import { getStripe } from "@/lib/stripe";
 
 export const runtime = "edge";
@@ -22,10 +22,20 @@ export async function POST(req: NextRequest) {
         const db = getAccountDB();
         if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
+        // The same question the page asks before it offers the button. It used
+        // to be asked ONLY there, so anything that could POST could buy a seat
+        // with no subscription behind it.
+        const eligibility = await seatEligibility(ctx.accountId);
+        if (!eligibility.ok) {
+            return NextResponse.json({ error: eligibility.reason }, { status: 403 });
+        }
+        if (eligibility.exempt) {
+            await grantExemptSeat(db, ctx.accountId);
+            return NextResponse.json({ ok: true, granted: true, exempt: true, seats: await getSeatPool(ctx.accountId) });
+        }
+
         const account: any = await db
-            .prepare(`SELECT u.email AS email, s.stripe_customer_id AS customer_id
-                      FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id
-                      WHERE u.id = ?`)
+            .prepare("SELECT email FROM users WHERE id = ?")
             .bind(ctx.accountId)
             .first();
 
@@ -34,7 +44,10 @@ export async function POST(req: NextRequest) {
 
         const checkout = await createSeatCheckout({
             accountId: ctx.accountId,
-            customerId: account?.customer_id ?? null,
+            // From the subscription that is actually live, not from whichever
+            // row a join returned: a NULL here made Checkout mint a second
+            // Stripe customer for the same account.
+            customerId: eligibility.customerId,
             email: account?.email ?? null,
             origin,
             locale,

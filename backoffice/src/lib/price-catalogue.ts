@@ -35,6 +35,42 @@ const PRODUCT_LABEL: Record<string, string> = {
 export const CURRENT_MONTHLY_CENTS = 750;
 export const CURRENT_ANNUAL_CENTS = 7500;
 
+/** An extra user seat, one-off and net of VAT (1,50 €). Not a pair, so it is
+ *  not in `requiredPrices()` — but just as able to vanish, which until now was
+ *  only discovered by a merchant pressing unlock and getting a 500. */
+export const SEAT_PRICE_CENTS = 150;
+
+/** Its lookup key in Stripe ("Rioko 2.0 || Extra User"). Here rather than in
+ *  lib/seats, so the audit script can read it without dragging in a module that
+ *  only works inside a request. */
+export const SEAT_PRICE_LOOKUP = "extra_user_rioko2";
+
+/** Every account may invite one extra user at no charge. Seats beyond that are
+ *  unlocked one at a time. The owner is not a seat. */
+export const INCLUDED_SEATS = 1;
+
+export interface SeatPool {
+    /** Seats the account has unlocked with money. Never decreases: removing
+     *  someone frees the seat, it does not refund it. */
+    paid: number;
+    /** Free seats that come with the account (currently 1). */
+    included: number;
+    /** Seats the account can fill in total: included + paid. */
+    capacity: number;
+    /** Seats in use right now — pending invites included, since an invite takes
+     *  the seat the moment it is sent. */
+    occupied: number;
+    /** Seats sitting empty: invite into one at no charge. */
+    free: number;
+}
+
+/** Seats bought against seats filled. A pool can be over-occupied — a seat is
+ *  never taken from someone already in it — so `free` floors at zero. */
+export function seatPoolOf(paid: number, occupied: number): SeatPool {
+    const capacity = paid + INCLUDED_SEATS;
+    return { paid, included: INCLUDED_SEATS, capacity, occupied, free: Math.max(0, capacity - occupied) };
+}
+
 /**
  * The rest of what a Rioko product looks like in Stripe.
  *
@@ -110,6 +146,23 @@ export type PriceStatus = "ok" | "archived" | "missing" | "no_key" | "wrong_amou
  * subscribed those two pairs was quoted, and charged, the old price
  * (found 12/09/2026).
  */
+export type SeatPriceStatus = "ok" | "archived" | "missing" | "wrong_amount" | "recurring";
+
+/**
+ * The same question for the seat price, which is not a pair.
+ *
+ * `recurring` is its own answer: seat Checkout runs in `mode: "payment"` and
+ * Stripe refuses a recurring price there, so a seat price created with an
+ * interval passes every other check and then fails at the till.
+ */
+export function seatStatusOf(price: any | null | undefined): SeatPriceStatus {
+    if (!price) return "missing";
+    if (price.active === false) return "archived";
+    if (price.recurring) return "recurring";
+    if (typeof price.unit_amount === "number" && price.unit_amount !== SEAT_PRICE_CENTS) return "wrong_amount";
+    return "ok";
+}
+
 export function statusOf(req: RequiredPrice, price: any | null | undefined): PriceStatus {
     if (!req.lookup) return "no_key";
     if (!price) return "missing";

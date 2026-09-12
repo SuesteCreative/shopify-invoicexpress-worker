@@ -290,6 +290,14 @@ export async function POST(req: NextRequest) {
                 // stop. Keyed on the session id, so the browser confirming on its
                 // way back and this webhook cannot both hand out a seat.
                 if (session.metadata?.kind === "extra_user_seat") {
+                    // Completed is not paid. A delayed payment method completes
+                    // the session first and settles later, which would hand out
+                    // a seat for money that never arrives — the browser's
+                    // confirm path has always checked this; this one did not.
+                    if (session.payment_status !== "paid") {
+                        console.warn(`[Stripe webhook] seat session ${session.id} is ${session.payment_status}, not granting`);
+                        break;
+                    }
                     const { granted, accountId } = await grantSeatFromSession(db, session as any);
                     console.log(`[Stripe webhook] seat for ${accountId}: ${granted ? "granted" : "already granted"}`);
                     await db.prepare(

@@ -130,6 +130,9 @@ export default function UsersPage() {
             const d: any = await r.json();
             // Stripe Checkout does the asking, the price and the receipt.
             if (d.ok && d.url) { window.location.href = d.url; return; }
+            // An exempt account (platform admin) is granted the seat outright,
+            // so there is no payment to send them to.
+            if (d.ok) { setNotice({ kind: "ok", text: t("unlocked") }); await load(); return; }
             setNotice({ kind: "error", text: errorText(d.error, d.detail) });
         } catch (e: any) {
             setNotice({ kind: "error", text: e?.message || t("genericError") });

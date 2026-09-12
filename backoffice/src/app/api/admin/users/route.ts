@@ -139,10 +139,20 @@ export async function GET(request: NextRequest) {
         // Invited extra users get their own group on the page: an invite is
         // neither an account nor an integration, and reads as a broken shop in
         // either of those groups.
+        // `seat_paid_at` and its neighbours stopped being written when seats
+        // became a reusable pool (0040), so the card called everyone a free
+        // seat. Under a pool the question has no per-person answer: the account
+        // holds N seats and fills them in order, so the first is the included
+        // one and the rest are the bought ones. Revoked invites rank apart —
+        // they released their seat.
         const inviteRows = await db.prepare(
             `SELECT am.id, am.account_id, am.email, am.member_user_id, am.role, am.status,
-                    am.seat_paid_at, am.seat_amount_cents, am.seat_reused_from,
                     am.created_at, am.accepted_at, am.revoked_at, am.invited_by,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY am.account_id, CASE WHEN am.status = 'revoked' THEN 1 ELSE 0 END
+                        ORDER BY am.created_at ASC
+                    ) AS seat_rank,
+                    (SELECT COUNT(*) FROM account_seats s WHERE s.account_id = am.account_id) AS seats_paid,
                     mu.name AS member_name, mu.last_login AS member_last_login,
                     ib.name AS invited_by_name, ib.email AS invited_by_email
              FROM account_members am

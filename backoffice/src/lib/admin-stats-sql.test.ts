@@ -321,6 +321,23 @@ describe("the subscription gate", () => {
         expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(1);
     });
 
+    it("agrees with the gate on the last day of a trial", () => {
+        // The gate compares instants (`new Date(trial_end) > now`). This query
+        // compared DATES, so a trial ending at midnight this morning still
+        // counted as running all day: the page said invoicing was fine while
+        // the worker was already refusing documents.
+        const d = db();
+        wiredCustomer(d, "user_today");
+        wiredCustomer(d, "user_tonight");
+        d.exec(`
+            INSERT INTO subscriptions (user_id, connection_key, status, stripe_subscription_id, early_bird, trial_end) VALUES
+              ('user_today',   'k', 'trialing', NULL, 1, strftime('%Y-%m-%dT00:00:00.000Z', 'now')),
+              ('user_tonight', 'k', 'trialing', NULL, 1, strftime('%Y-%m-%dT23:59:59.000Z', 'now'));
+        `);
+        // Ended at midnight: blocked. Ends tonight: still running.
+        expect(d.one(BLOCKED_BY_GATE(CUSTOMERS)).n).toBe(1);
+    });
+
     it("blocks a trial that is not an early bird, however fresh", () => {
         const d = db();
         wiredCustomer(d, "user_a");

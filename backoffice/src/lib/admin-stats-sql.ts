@@ -161,12 +161,15 @@ export const BLOCKED_BY_GATE = (customers: string) => `
       AND (
         s.status <> 'trialing'
         OR s.stripe_subscription_id IS NOT NULL
-        -- An early bird keeps access until the day its trial ends. Compared on
-        -- the DATE only: trial_end is ISO with a T, datetime('now') is the space
-        -- form, and those two sort wrong against each other from position 11.
+        -- An early bird keeps access until the INSTANT its trial ends, which is
+        -- what the gate compares. Comparing dates instead granted a whole extra
+        -- day here: on the last day of a trial this page said invoicing was fine
+        -- while the worker was already refusing it. datetime() is what makes the
+        -- two forms comparable — trial_end is ISO with a T and a Z, and the raw
+        -- strings sort wrong against each other from position 11.
         OR (COALESCE(s.early_bird, 0) = 1
             AND s.trial_end IS NOT NULL
-            AND substr(s.trial_end, 1, 10) >= date('now'))
+            AND datetime(s.trial_end) > datetime('now'))
       )
   )
 `;

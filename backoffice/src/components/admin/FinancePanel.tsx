@@ -64,6 +64,7 @@ interface Finance {
     prices_missing: number;
     unresolved_prices: { price_id: string; n: number }[];
     price_book_size: number;
+    subscription_per_connection?: boolean;
     accounts: Account[];
     tiers: Record<"legacy" | "current" | "unknown", { mrr_cents: number; lines: number }>;
     sunsets: {
@@ -404,7 +405,10 @@ export function FinancePanel() {
 
             <Card
                 title="Catálogo de preços"
-                hint="Cada par que um comerciante pode escolher precisa de um preço no Stripe. Sem ele, o checkout falha no momento de pagar e nada antes disso avisa."
+                hint={`Cada par que um comerciante pode escolher precisa de um preço no Stripe. Sem ele, o checkout falha no momento de pagar e nada antes disso avisa. Gate: ${
+                    data.subscription_per_connection === undefined ? "—"
+                        : data.subscription_per_connection ? "uma subscrição por ligação" : "ao nível da conta"
+                } (o worker tem a sua própria cópia da variável; se discordarem, esta página diz que está tudo bem enquanto o worker recusa faturar).`}
             >
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[560px]">

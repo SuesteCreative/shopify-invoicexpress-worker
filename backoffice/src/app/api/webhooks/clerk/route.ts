@@ -72,7 +72,6 @@ export async function POST(req: Request) {
         // pending seat to the Clerk id that just signed up. Matching falls back to
         // the invited address, so someone who signs up on their own instead of
         // through the invitation link still lands in the right account.
-        let joinedAccount: string | null = null;
         try {
             const pending: any = invitedAccountId
                 ? await db.prepare(
@@ -86,7 +85,6 @@ export async function POST(req: Request) {
                 await db.prepare(
                     "UPDATE account_members SET member_user_id = ?, status = 'active', accepted_at = CURRENT_TIMESTAMP WHERE id = ?"
                 ).bind(id, pending.id).run();
-                joinedAccount = pending.account_id;
                 console.log(`[Clerk Webhook] ${email} joined account ${pending.account_id}`);
             }
         } catch (e: any) {
@@ -94,24 +92,19 @@ export async function POST(req: Request) {
             console.warn("[Clerk Webhook] membership bind skipped:", e?.message ?? e);
         }
 
-        // On user.created: seed a trialing subscription row so the user has free
-        // access until the cutoff. early_bird itself is seeded 0 — it is ON by
-        // default only for Shopify→InvoiceXpress (decided at checkout by source),
-        // and enabled manually by an admin for any other integration.
-        // A member bills through the account that invited them, so they get no
-        // subscription row of their own.
-        if (eventType === "user.created" && !joinedAccount && !invitedAccountId) {
-            const trialEnd = process.env.EARLY_BIRD_TRIAL_END
-                || (env as any).EARLY_BIRD_TRIAL_END
-                || "2026-08-01T00:00:00Z";
-            const trialEndDate = new Date(trialEnd);
-            if (!isNaN(trialEndDate.getTime()) && trialEndDate > new Date()) {
-                await db.prepare(`
-                    INSERT OR IGNORE INTO subscriptions (user_id, connection_key, status, trial_end, early_bird, created_at, updated_at)
-                    VALUES (?, 'shopify:invoicexpress', 'trialing', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                `).bind(id, trialEndDate.toISOString()).run();
-            }
-        }
+        // Signing up seeds no subscription row.
+        //
+        // It used to seed one on `shopify:invoicexpress` for everybody, which is
+        // a pair most accounts never have: since 0044 the row names the
+        // connection it pays for, and a merchant who only ever sets up
+        // Lodgify→Moloni ended up owning a row for a pipe they do not run while
+        // the pipe they do run had none. It granted nothing either — seeded with
+        // `early_bird = 0`, the gate blocks that row on sight, exactly as it
+        // blocks having no row at all — so nothing is lost by not writing it.
+        //
+        // The rows that matter are written where the pair is actually known: by
+        // the checkout, by an admin link or invite claim, and by the early-bird
+        // grant in /api/integrations.
     }
 
     if (eventType === "user.deleted") {

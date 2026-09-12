@@ -62,7 +62,14 @@ function isRiokoUserId(id: string | null | undefined): id is string {
 // the invoice cutoff), and (2) the legacy integrations row's is_paused flag (e.g. a
 // Shopify merchant suspended for non-payment). Both are idempotent — 0 rows matched
 // when nothing was paused. First activation wins the cutoff; re-runs never overwrite.
-async function activatePausedConnections(db: D1Database, userId: string, cutoffIso: string | null) {
+async function activatePausedConnections(
+    db: D1Database, userId: string, cutoffIso: string | null, connectionKey: string,
+) {
+    // Deliberately account-wide, unlike the gate. Releasing a pause is not what
+    // lets a pipe invoice — the gate is asked per connection on every document,
+    // and refuses one nobody paid for whatever this row says. Narrowing it here
+    // would only risk the opposite failure: a merchant who has paid and stays
+    // paused because the key resolved a shade differently.
     await db.prepare(
         `UPDATE connections SET status='active', invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
          WHERE user_id=? AND status='paused'`
@@ -76,11 +83,20 @@ async function activatePausedConnections(db: D1Database, userId: string, cutoffI
     // same afternoon, and the difference is which sales are ours to issue.
     // Only NULLs are filled: a date an admin set by hand must survive every
     // renewal webhook that follows.
-    if (cutoffIso) {
+    //
+    // THIS one is scoped to the connection that was paid for, because the date
+    // is a claim about a specific pipe: an account's second connection, set up
+    // and paid for months apart, was being stamped with whichever subscription
+    // happened to send a webhook first. A cutoff is money — it decides which
+    // sales get invoiced — so a connection this payment says nothing about
+    // keeps its NULL and falls back to its own created_at.
+    const [srcKind, destKind] = connectionKey.split(":");
+    if (cutoffIso && srcKind && destKind) {
         await db.prepare(
             `UPDATE connections SET invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
-             WHERE user_id=? AND status='active' AND invoice_cutoff IS NULL`
-        ).bind(cutoffIso, userId).run();
+             WHERE user_id=? AND status='active' AND invoice_cutoff IS NULL
+               AND source_kind=? AND destination_kind=?`
+        ).bind(cutoffIso, userId, srcKind, destKind).run();
     }
     await db.prepare(
         `UPDATE integrations SET is_paused=0, updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND is_paused=1`
@@ -186,6 +202,11 @@ async function upsertSubscriptionFromStripeSub(db: D1Database, userId: string, s
         isoFromUnix((sub as any).cancel_at),
         earlyBird,
     ).run();
+
+    // The caller needs to know which connection this event was filed against —
+    // the resolution is not repeatable cheaply, and stamping a cutoff on the
+    // wrong pipe is how a connection inherits a date that is not about it.
+    return connectionKey;
 }
 
 /**
@@ -421,7 +442,7 @@ export async function POST(req: NextRequest) {
                 // pending payment and stamp the subscription start as the cutoff
                 // (bookings created before it are never invoiced retroactively).
                 if (sub?.status === "active") {
-                    await activatePausedConnections(db, userId, isoFromUnix((sub as any)?.start_date));
+                    await activatePausedConnections(db, userId, isoFromUnix((sub as any)?.start_date), connectionKey);
                 }
 
                 // Mark event processed
@@ -444,10 +465,10 @@ export async function POST(req: NextRequest) {
                     console.warn(`[Stripe webhook] Ignoring ${event.type} for non-Rioko reference "${userId}" (${event.id})`);
                     break;
                 }
-                await upsertSubscriptionFromStripeSub(db, userId, sub);
+                const filedUnder = await upsertSubscriptionFromStripeSub(db, userId, sub);
                 // Release a connection paused pending payment on the first active sub.
                 if (sub.status === "active") {
-                    await activatePausedConnections(db, userId, isoFromUnix((sub as any).start_date));
+                    await activatePausedConnections(db, userId, isoFromUnix((sub as any).start_date), filedUnder);
                 }
                 await db.prepare(
                     "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"

@@ -14,9 +14,31 @@ import { loadBillingIdentity } from "@/lib/billing-identity";
  * It MOVES, it does not copy. Stamping `metadata.connection_key` is what makes
  * every future renewal and cancellation file against this connection — which
  * also means the row for whatever connection the subscription paid for until now
- * stops receiving events. Close that row (see `retireConnectionKey`) or it sits
- * `active` for ever and keeps its gate open after the client cancels.
+ * stops receiving events. `retireConnectionKey` closes that row; without it the
+ * row sat `active` for ever, kept its gate open after the client cancelled, and
+ * left two rows claiming the same `stripe_subscription_id` — which the webhook's
+ * own resolver can then follow back to the connection this link just moved away
+ * from.
  */
+
+/**
+ * Close the rows this subscription used to pay for.
+ *
+ * Any row of the account pointing at the same Stripe subscription under a
+ * different connection is now a claim on money that is being spent elsewhere.
+ * The pointer is cleared as well as the status: leaving it would let the
+ * webhook resolve a future renewal back onto the connection just vacated.
+ */
+export async function retireConnectionKey(
+    db: any, userId: string, subscriptionId: string, keepKey: string,
+): Promise<number> {
+    const res = await db.prepare(`
+        UPDATE subscriptions
+           SET status = 'canceled', stripe_subscription_id = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = ? AND stripe_subscription_id = ? AND connection_key <> ?
+    `).bind(userId, subscriptionId, keepKey).run();
+    return Number(res?.meta?.changes ?? 0);
+}
 
 export function isoFromUnix(unix: number | null | undefined): string | null {
     if (!unix) return null;
@@ -85,6 +107,14 @@ export async function linkSubscriptionToConnection(opts: {
         isoFromUnix(sub.trial_end),
         sub.cancel_at_period_end ? 1 : 0,
     ).run();
+
+    // The move is only half done until the row it moved FROM stops claiming it.
+    try {
+        const closed = await retireConnectionKey(db, userId, sub.id, connectionKey);
+        if (closed) console.warn(`[link-subscription] retired ${closed} row(s) that still claimed ${sub.id}`);
+    } catch (e: any) {
+        console.warn("[link-subscription] retire old connection failed:", e?.message ?? e);
+    }
 
     // The fiscal identity, from the Stripe customer.
     //

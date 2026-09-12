@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/admin";
 import { accountLabel } from "@/lib/labels";
-import { subscriptionUIState } from "@/lib/stripe";
+import { subscriptionUIState, subscriptionPerConnectionEnforced } from "@/lib/stripe";
 import { priceBook } from "@/lib/price-book";
 import { REVENUE_BY_MONTH } from "@/lib/admin-stats-sql";
 import { resolveTier } from "@/lib/billing-legacy";
@@ -226,6 +226,16 @@ export async function GET() {
                 .map(([price_id, n]) => ({ price_id, n }))
                 .sort((a, b) => b.n - a.n),
             price_book_size: prices.size,
+            /**
+             * Which rule THIS app thinks the gate is running.
+             *
+             * The worker sets SUBSCRIPTION_PER_CONNECTION in wrangler.jsonc; the
+             * backoffice reads its own copy from Pages. If the two disagree the
+             * page says a merchant is fine while the worker is refusing to
+             * invoice for them, and nothing anywhere says so. Printed rather
+             * than assumed.
+             */
+            subscription_per_connection: subscriptionPerConnectionEnforced(),
             accounts,
             /** The catalogue check: which pairs a merchant could not pay for. */
             // One list, shared with the endpoint that creates the missing ones,

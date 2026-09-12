@@ -1,4 +1,3 @@
-import type Stripe from "stripe";
 import { getStripe, getStripeEnvOptional } from "./stripe";
 import { SEAT_PRICE_LOOKUP } from "./price-catalogue";
 

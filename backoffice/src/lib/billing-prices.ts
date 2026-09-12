@@ -1,6 +1,6 @@
 // Relative, not aliased: this module is unit-tested and the runner at the repo
 // root does not resolve the `@/` alias.
-import { CONNECTION_KEY_TO_SOURCE } from "./subscription-key";
+import { CONNECTION_KEY_TO_SOURCE, SOURCE_TO_CONNECTION_KEY } from "./subscription-key";
 
 /**
  * Which Stripe price each integration bills on.
@@ -26,41 +26,32 @@ import { CONNECTION_KEY_TO_SOURCE } from "./subscription-key";
 export type BillingPlan = "monthly" | "annual";
 
 /**
- * The lookup-key stem of each sellable pair, keyed by the page the checkout was
- * started from.
+ * Where a lookup key is NOT simply the page's own slug.
  *
- * Irregular by history, not by design: every destination is abbreviated `ix`
- * except Connect→InvoiceXpress, whose prices were created spelling the word out
- * and carry live subscriptions. Renaming a live key buys tidiness and nothing
- * else, so it stays as it is and is written down here instead.
+ * Three aliases for the Shopify pair, which is sold from the billing page and
+ * from an empty source as well as from its own wizard; and one irregular stem,
+ * Connect→InvoiceXpress, whose prices were created spelling the destination out
+ * while every other pair abbreviates it to `ix`. Those prices carry live
+ * subscriptions, so renaming them buys tidiness and nothing else.
  *
- * A pair belongs in this map exactly when it has a guided page that can sell it
- * — `price-catalogue.test.ts` holds the three lists to that one rule.
+ * Everything else derives: the stem IS the slug. Adding a pair is therefore a
+ * page plus the two maps in `subscription-key`, and there is no third list to
+ * forget — which is what `price-catalogue.test.ts` holds it to.
  */
-const PRICE_STEM: Record<string, string> = {
+const STEM_EXCEPTIONS: Record<string, string> = {
     "": "shopify-ix",
     faturacao: "shopify-ix",
-    // The slug of the Shopify route itself. Absent for a long time, so a
-    // checkout started with the page's own name answered 400.
-    "shopify-ix": "shopify-ix",
-    "shopify-moloni": "shopify-moloni",
-    "shopify-vendus": "shopify-vendus",
-    "stripe-ix": "stripe-ix",
-    "stripe-moloni": "stripe-moloni",
-    "stripe-vendus": "stripe-vendus",
     "stripe-connect-ix": "stripe-connect-invoicexpress",
-    "stripe-connect-moloni": "stripe-connect-moloni",
-    "lodgify-ix": "lodgify-ix",
-    "lodgify-moloni": "lodgify-moloni",
-    "lodgify-vendus": "lodgify-vendus",
-    "eupago-ix": "eupago-ix",
 };
 
 /** Which price to bill. Null for a source nothing sells, which the callers turn
  *  into a 400 rather than quietly charging the wrong pair. */
 export function priceLookupFor(source: string, plan: BillingPlan): string | null {
-    const stem = PRICE_STEM[source];
-    if (!stem) return null;
+    // Sellable is decided by the pair map, never by the shape of the string:
+    // deriving a key from any input would turn a typo into a lookup nobody has,
+    // resolved at the till instead of at the 400 it should be.
+    if (!(source in SOURCE_TO_CONNECTION_KEY)) return null;
+    const stem = STEM_EXCEPTIONS[source] ?? source;
     return `${stem}-${plan === "annual" ? "yearly" : "monthly"}`;
 }
 

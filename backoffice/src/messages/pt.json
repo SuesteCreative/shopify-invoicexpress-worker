@@ -192,6 +192,8 @@
         "titleNone": "Subscreve o Rioko 2.0",
         "planAnnual": "Anual · 75€/ano",
         "planMonthly": "Mensal · 7,50€/mês",
+        "planDynamicAnnual": "Anual · {amount}€/ano + IVA",
+        "planDynamicMonthly": "Mensal · {amount}€/mês + IVA",
         "cancels": "Cancela {date}",
         "bodyActive": "Próxima cobrança a {date}.",
         "bodyEarlyBird": "Trial gratuito até {date} ({days} dias restantes). Adiciona dados de pagamento quando quiseres — cobrança automática a partir de {date}.",

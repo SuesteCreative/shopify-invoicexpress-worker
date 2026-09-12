@@ -192,6 +192,8 @@
         "titleNone": "Subscribe to Rioko 2.0",
         "planAnnual": "Annual · €75/year",
         "planMonthly": "Monthly · €7.50/month",
+        "planDynamicAnnual": "Annual · €{amount}/year + VAT",
+        "planDynamicMonthly": "Monthly · €{amount}/month + VAT",
         "cancels": "Cancels {date}",
         "bodyActive": "Next charge on {date}.",
         "bodyEarlyBird": "Free trial until {date} ({days} days left). Add payment details whenever — automatic charge from {date}.",

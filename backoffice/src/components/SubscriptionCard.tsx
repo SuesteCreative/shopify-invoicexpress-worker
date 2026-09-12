@@ -18,6 +18,9 @@ interface SubData {
     connection_key?: string;
     enforced?: boolean;
     connections?: { key: string; source: string | null; ui_state: UIState; blocked: boolean }[];
+    /** What this subscription is ACTUALLY charged, read from its Stripe price.
+     *  Null when the row holds a lookup key instead of an id, or Stripe hiccups. */
+    plan_price?: { amount_cents: number; currency: string; interval: string | null } | null;
 }
 
 type Money = { amount_cents: number; currency: string };
@@ -238,7 +241,15 @@ export default function SubscriptionCard(
                             </span>
                             {sub?.plan && (
                                 <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
-                                    {sub.plan === "annual" ? t("planAnnual") : t("planMonthly")}
+                                    {/* What they pay, not what the plan costs today. A client on the
+                                        old 5 €/50 € was told "7,50 €/mês" on their own dashboard —
+                                        the same lie the amounts were taken out of the markup to fix,
+                                        left behind on this one label. The billing page already reads
+                                        plan_price; this now reads the same field. */}
+                                    {data?.plan_price
+                                        ? t(data.plan_price.interval === "year" ? "planDynamicAnnual" : "planDynamicMonthly",
+                                            { amount: (data.plan_price.amount_cents / 100).toFixed(2) })
+                                        : (sub.plan === "annual" ? t("planAnnual") : t("planMonthly"))}
                                 </span>
                             )}
                             {sub?.cancel_at_period_end === 1 && (

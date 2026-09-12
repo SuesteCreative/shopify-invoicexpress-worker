@@ -12,16 +12,29 @@ describe("which price is billed", () => {
         expect(priceLookupFor("stripe-connect-moloni", "annual")).toBe("stripe-connect-moloni-yearly");
     });
 
-    it("bills a legacy client the old plan, whichever pair they are joining", () => {
-        expect(priceLookupFor("lodgify-ix", "monthly", { legacy: true })).toBe("stripe-ix-monthly");
-        expect(priceLookupFor("stripe-connect-moloni", "annual", { legacy: true })).toBe("stripe-ix-yearly");
-        // The old plan is a plan, not a pair: an unknown source that would
-        // otherwise be refused still has an answer once the client is on it.
-        expect(priceLookupFor("lodgify-vendus", "annual", { legacy: true })).toBe("stripe-ix-yearly");
+    it("spells InvoiceXpress out for the Connect pair, which is where its live prices are", () => {
+        expect(priceLookupFor("stripe-connect-ix", "monthly")).toBe("stripe-connect-invoicexpress-monthly");
+        expect(priceLookupFor("stripe-connect-ix", "annual")).toBe("stripe-connect-invoicexpress-yearly");
+    });
+
+    it("answers the Shopify pair by every name its pages use", () => {
+        // The empty source, the billing page, and the route's own slug — the
+        // last of which answered 400 until 12/09/2026.
+        for (const source of ["", "faturacao", "shopify-ix"]) {
+            expect(priceLookupFor(source, "monthly")).toBe("shopify-ix-monthly");
+            expect(priceLookupFor(source, "annual")).toBe("shopify-ix-yearly");
+        }
+    });
+
+    it("sells the current price to everyone, including a client on the old plan", () => {
+        // There is no legacy branch any more. 5 €/50 € is what an inherited
+        // subscription already bills on; a new integration is never sold at it,
+        // so there is nothing here for a caller to pass.
+        expect(priceLookupFor("lodgify-ix", "monthly")).toBe("lodgify-ix-monthly");
     });
 
     it("refuses a source nobody sells", () => {
-        expect(priceLookupFor("lodgify-vendus", "annual")).toBeNull();
-        expect(priceLookupFor("", "annual", { legacy: true })).toBe("stripe-ix-yearly");
+        expect(priceLookupFor("fareharbor-moloni", "annual")).toBeNull();
+        expect(priceLookupFor("dashboard", "monthly")).toBeNull();
     });
 });

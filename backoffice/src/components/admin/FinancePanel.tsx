@@ -81,7 +81,7 @@ interface Finance {
     settled_after_failure: number;
     price_catalogue: {
         source: string; product_name: string; plan: string; lookup: string | null;
-        status: "ok" | "archived" | "missing" | "no_key";
+        status: "ok" | "archived" | "missing" | "no_key" | "wrong_amount";
         amount_cents: number | null; expected_cents: number;
     }[];
 }
@@ -89,8 +89,11 @@ interface Finance {
 interface CreateResult {
     dry_run: boolean;
     prices: {
+        action?: "create" | "replace";
         lookup: string; product_name: string; amount_cents: number; interval: string;
-        product_id?: string | null; product_created?: boolean;
+        product_id?: string | null; product_created?: boolean; product_filled?: string[];
+        replaces_price_id?: string; replaces_amount_cents?: number; replaces_subscriptions?: number | null;
+        replaced_archived?: boolean;
         price_id?: string; created?: boolean; error?: string;
     }[];
 }
@@ -411,13 +414,18 @@ export function FinancePanel() {
                                         {p.lookup ?? "—"}
                                     </td>
                                     <td className="py-2 pr-4 font-mono text-[11px] text-fg tabular-nums whitespace-nowrap">
-                                        {p.amount_cents != null ? eur(p.amount_cents) : (
-                                            <span className="text-fg-40">{eur(p.expected_cents)}</span>
-                                        )}
+                                        {p.amount_cents == null ? <span className="text-fg-40">{eur(p.expected_cents)}</span>
+                                            : p.status === "wrong_amount" ? (
+                                                // Both figures, because the whole point is the gap between them.
+                                                <span className="text-destructive">
+                                                    {eur(p.amount_cents)} <span className="text-fg-40">≠ {eur(p.expected_cents)}</span>
+                                                </span>
+                                            ) : eur(p.amount_cents)}
                                     </td>
                                     <td className="py-2 text-right whitespace-nowrap">
                                         {p.status === "no_key" ? <span className="font-mono text-[10px] text-fg-40">sem chave</span>
                                             : p.status === "missing" ? <span className="font-mono text-[10px] text-destructive">POR CRIAR</span>
+                                            : p.status === "wrong_amount" ? <span className="font-mono text-[10px] text-destructive">VALOR ERRADO</span>
                                             : p.status === "archived" ? <span className="font-mono text-[10px] text-soon">arquivado</span>
                                             : <span className="font-mono text-[10px] text-accent-hot">ok</span>}
                                     </td>
@@ -426,12 +434,15 @@ export function FinancePanel() {
                         </tbody>
                     </table>
                 </div>
-                {(data.price_catalogue ?? []).some((p) => p.status === "missing") && (
+                {(data.price_catalogue ?? []).some((p) => p.status === "missing" || p.status === "wrong_amount") && (
                     <div className="space-y-3 pt-1">
                         <p className="text-[11px] text-destructive">
                             Os marcados POR CRIAR não existem no Stripe, e o checkout desse par falha
                             no momento de pagar. São criados com a lookup key da terceira coluna, em
                             euros e sem IVA incluído — a taxa é o checkout que a junta.
+                            Os marcados VALOR ERRADO existem e estão a vender pelo preço errado: são
+                            substituídos por um preço novo que fica com a mesma chave, e o antigo é
+                            arquivado. Quem já lá está continua a pagar o que pagava.
                         </p>
                         {createResult && (
                             <div className="rounded-2xl p-4 bg-surface-2 border border-hairline space-y-1">
@@ -446,7 +457,14 @@ export function FinancePanel() {
                                         {cp.error
                                             ? <span className="text-destructive">{cp.lookup}: {cp.error}</span>
                                             : <>{cp.lookup} · {cp.product_name} · {eur(cp.amount_cents)}/{cp.interval === "year" ? "ano" : "mês"}
+                                                {cp.action === "replace" && (
+                                                    <span className="text-destructive">
+                                                        {" "}· substitui {cp.replaces_price_id} ({eur(cp.replaces_amount_cents ?? 0)}
+                                                        {cp.replaces_subscriptions != null && `, ${cp.replaces_subscriptions} subs`})
+                                                    </span>
+                                                )}
                                                 {cp.product_created && <span className="text-soon"> · produto novo</span>}
+                                                {cp.product_filled?.length ? <span className="text-soon"> · preenche {cp.product_filled.join(", ")}</span> : null}
                                                 {cp.price_id && <span className="text-accent-hot"> · {cp.price_id}</span>}</>}
                                     </p>
                                 ))}

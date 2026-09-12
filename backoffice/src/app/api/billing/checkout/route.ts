@@ -5,7 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { keyFromRequest } from "@/lib/subscription-key";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { resolveReturnPath } from "@/lib/oauth-return";
-import { priceLookupFor, resolvePrice, resolveBillingSource, isLegacyClient } from "@/lib/billing-prices";
+import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
 
 export const runtime = "edge";
 
@@ -74,11 +74,10 @@ export async function POST(req: NextRequest) {
         // rather than silently defaulting to the Shopify one. The map lives in
         // lib/billing-prices so the page that PRINTS the amount reads the same
         // price this charges.
-        // A client on the old plan pays the old plan, whichever pair they are
-        // subscribing. The card beside this form asks the same question of the
-        // same function, so the two cannot disagree.
-        const legacy = await isLegacyClient(db, targetUserId, connectionKey);
-        const lookupOrId = priceLookupFor(source, plan, { legacy });
+        // Always the current price, including for a client holding an old 5 €/50 €
+        // subscription elsewhere: the old plan is inherited on the subscription
+        // that already carries it, never sold again on a new integration.
+        const lookupOrId = priceLookupFor(source, plan);
         if (!lookupOrId) {
             return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
         }

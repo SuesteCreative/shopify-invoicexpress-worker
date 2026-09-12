@@ -2,17 +2,23 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isHiperadmin } from "@/lib/admin";
 import { getStripe } from "@/lib/stripe";
-import { requiredPrices, statusOf, type RequiredPrice } from "@/lib/price-catalogue";
+import {
+    requiredPrices, statusOf, PRODUCT_TAX_CODE, PRODUCT_IMAGE_URL, type RequiredPrice,
+} from "@/lib/price-catalogue";
 
 export const runtime = "edge";
 
 /**
- * Create the prices the checkout needs and Stripe does not have.
+ * Make Stripe match the catalogue: create the prices that are missing, replace
+ * the ones sitting at the wrong amount, and fill in what a Rioko product is
+ * supposed to carry.
  *
  * A pair with no price is configurable right up to the card form and then 500s
- * at the moment the merchant tries to pay. Creating them by hand means
- * remembering the lookup key exactly, and a typo there fails the same way — so
- * the names come from the same map the checkout reads.
+ * at the moment the merchant tries to pay. A pair at the WRONG price is worse,
+ * because it does not fail at all: `stripe-ix-*` and `stripe-moloni-*` quietly
+ * sold at 5 €/50 € for months. Doing this by hand means remembering the lookup
+ * key exactly, and a typo there fails the same way — so every name, amount and
+ * label comes from the same map the checkout reads.
  *
  * Hiperadmin, and a dry run unless told otherwise. This writes to Stripe, and a
  * price cannot be deleted once created, only archived.
@@ -37,7 +43,23 @@ async function priceBook(stripe: any): Promise<Map<string, any>> {
 }
 
 /**
- * The product this price belongs on.
+ * What the product should say about itself, for the fields it does not say yet.
+ *
+ * Only ever fills a blank. A description someone wrote by hand is left alone,
+ * and so is an image already uploaded through the dashboard — this exists to
+ * close the gaps, not to impose a house style on live products.
+ */
+function templateGaps(product: any, req: RequiredPrice): Record<string, any> {
+    const patch: Record<string, any> = {};
+    if (!product.description) patch.description = req.productDescription;
+    if (!product.tax_code) patch.tax_code = PRODUCT_TAX_CODE;
+    if (!product.images?.length) patch.images = [PRODUCT_IMAGE_URL];
+    if (product.metadata?.app !== "rioko") patch.metadata = { ...(product.metadata ?? {}), app: "rioko" };
+    return patch;
+}
+
+/**
+ * The product this price belongs on, carrying the whole template.
  *
  * The sibling plan first: monthly and annual of the same pair are two prices on
  * ONE product, and creating a second product for the other interval is how a
@@ -49,23 +71,54 @@ async function productFor(stripe: any, req: RequiredPrice, book: Map<string, any
         ? req.lookup?.replace(/-yearly$/, "-monthly")
         : req.lookup?.replace(/-monthly$/, "-yearly");
     const sibling = siblingLookup ? book.get(siblingLookup) : null;
-    if (sibling?.product) {
-        return { id: typeof sibling.product === "string" ? sibling.product : sibling.product.id, created: false };
+    const siblingProduct = sibling?.product
+        ? (typeof sibling.product === "string" ? sibling.product : sibling.product.id)
+        : null;
+
+    let existing: any = null;
+    if (siblingProduct) {
+        existing = await stripe.products.retrieve(siblingProduct).catch(() => null);
+        if (!existing) return { id: siblingProduct, created: false, filled: [] as string[] };
+    } else {
+        // Then an existing product of the same name, so re-running this does not
+        // pile up duplicates.
+        try {
+            const found = await stripe.products.search({ query: `name:"${req.productName}"`, limit: 1 });
+            existing = found.data[0] ?? null;
+        } catch {
+            // Search is not enabled on every account; falling through to create
+            // is safe because the name check is only an optimisation.
+        }
     }
 
-    // Then an existing product of the same name, so re-running this does not
-    // pile up duplicates.
+    if (existing) {
+        const patch = templateGaps(existing, req);
+        const filled = Object.keys(patch);
+        if (filled.length && !dryRun) await stripe.products.update(existing.id, patch);
+        return { id: existing.id, created: false, filled };
+    }
+
+    if (dryRun) return { id: null, created: true, filled: ["description", "tax_code", "images", "metadata"] };
+    const product = await stripe.products.create({
+        name: req.productName,
+        description: req.productDescription,
+        tax_code: PRODUCT_TAX_CODE,
+        images: [PRODUCT_IMAGE_URL],
+        // This Stripe account is shared with another billing system. The tag is
+        // how an audit tells our catalogue from its ~490 objects.
+        metadata: { app: "rioko" },
+    });
+    return { id: product.id, created: true, filled: ["description", "tax_code", "images", "metadata"] };
+}
+
+/** How many subscriptions a price is carrying, so nobody confirms blind. */
+async function subscriberCount(stripe: any, priceId: string): Promise<number | null> {
     try {
-        const found = await stripe.products.search({ query: `name:"${req.productName}"`, limit: 1 });
-        if (found.data[0]) return { id: found.data[0].id, created: false };
+        const subs = await stripe.subscriptions.list({ price: priceId, status: "all", limit: 100 });
+        return subs.data.length;
     } catch {
-        // Search is not enabled on every account; falling through to create is
-        // safe because the name check above is only an optimisation.
+        return null;
     }
-
-    if (dryRun) return { id: null, created: true };
-    const product = await stripe.products.create({ name: req.productName });
-    return { id: product.id, created: true };
 }
 
 export async function POST(request: NextRequest) {
@@ -83,26 +136,37 @@ export async function POST(request: NextRequest) {
         const book = await priceBook(stripe);
 
         const planned: any[] = [];
+        // A dry run creates nothing, so the second plan of a new pair would
+        // report the same product as new all over again. One line per product.
+        const productsSeen = new Set<string>();
         for (const req of requiredPrices()) {
             const existing = req.lookup ? book.get(req.lookup) : null;
             const status = statusOf(req, existing);
-            // Only what is genuinely absent. An archived price is a deliberate
-            // act and a client may still be on it; replacing one silently is
-            // not this endpoint's business.
-            if (status !== "missing") continue;
+            // An archived price is a deliberate act and a client may still be on
+            // it; un-archiving one silently is not this endpoint's business.
+            if (status !== "missing" && status !== "wrong_amount") continue;
 
             const entry: any = {
+                action: status === "missing" ? "create" : "replace",
                 lookup: req.lookup,
                 product_name: req.productName,
                 amount_cents: req.amountCents,
                 interval: req.interval,
                 created: false,
             };
+            if (status === "wrong_amount") {
+                entry.replaces_price_id = existing.id;
+                entry.replaces_amount_cents = existing.unit_amount;
+                entry.replaces_subscriptions = await subscriberCount(stripe, existing.id);
+            }
 
             try {
                 const product = await productFor(stripe, req, book, dryRun);
+                const firstMention = !productsSeen.has(req.productName);
+                productsSeen.add(req.productName);
                 entry.product_id = product.id;
-                entry.product_created = product.created;
+                entry.product_created = product.created && firstMention;
+                if (product.filled.length && firstMention) entry.product_filled = product.filled;
 
                 if (!dryRun && product.id) {
                     const params: any = {
@@ -114,18 +178,34 @@ export async function POST(request: NextRequest) {
                         // The checkout attaches the tax rate itself, so the price
                         // is the amount before IVA.
                         tax_behavior: "exclusive",
+                        nickname: `${req.productName} — ${req.plan}`,
+                        metadata: { app: "rioko", pair: req.connectionKey, plan: req.plan },
+                        // A lookup key lives on one price at a time. Taking it
+                        // from the price being replaced is what makes the swap
+                        // atomic; on a create there is nothing to take it from.
+                        ...(status === "wrong_amount" ? { transfer_lookup_key: true } : {}),
                     };
                     let price: any;
                     try {
                         // The fleet's older prices carry the lookup key as their
                         // id too. Stripe does not document that on create, so it
-                        // is attempted and not depended on.
+                        // is attempted and not depended on — and on a replace the
+                        // id is already taken by the price being retired.
                         price = await stripe.prices.create({ ...params, id: req.lookup });
                     } catch {
                         price = await stripe.prices.create(params);
                     }
                     entry.price_id = price.id;
                     entry.created = true;
+
+                    // The retired price keeps billing whoever is already on it;
+                    // archiving only stops it being sold again.
+                    if (status === "wrong_amount") {
+                        await stripe.prices.update(existing.id, { active: false });
+                        entry.replaced_archived = true;
+                        book.delete(existing.id);
+                    }
+
                     book.set(price.id, price);
                     if (price.lookup_key) book.set(price.lookup_key, price);
                 }
@@ -136,7 +216,7 @@ export async function POST(request: NextRequest) {
             planned.push(entry);
         }
 
-        console.warn(`[admin/finance/prices] ${dryRun ? "dry run" : "created"} ${planned.length} by ${userId}`);
+        console.warn(`[admin/finance/prices] ${dryRun ? "dry run" : "applied"} ${planned.length} by ${userId}`);
         return NextResponse.json({ dry_run: dryRun, prices: planned });
     } catch (error: any) {
         console.error("[admin/finance/prices] failed:", error?.message ?? error);

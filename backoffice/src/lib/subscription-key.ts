@@ -32,6 +32,15 @@ export const SOURCE_TO_CONNECTION_KEY: Record<string, string> = {
     // Stripe→IX product: without a key here the subscribe button answers 400.
     "stripe-connect-ix": "stripe_connect:invoicexpress",
     "lodgify-moloni": "lodgify:moloni",
+    // The five pairs that had a guided page and no way to be paid for: a
+    // merchant could set the connection up and was never asked for money, and
+    // pressing subscribe answered 400. They are ordinary pairs in every other
+    // respect, and they are priced like the rest (12/09/2026).
+    "shopify-moloni": "shopify:moloni",
+    "shopify-vendus": "shopify:vendus",
+    "stripe-vendus": "stripe:vendus",
+    "lodgify-vendus": "lodgify:vendus",
+    "eupago-ix": "eupago:invoicexpress",
 };
 
 /** The reverse, for the dashboard card, which must resolve a page from a key. */
@@ -43,6 +52,11 @@ export const CONNECTION_KEY_TO_SOURCE: Record<string, string> = {
     "stripe_connect:moloni": "stripe-connect-moloni",
     "stripe_connect:invoicexpress": "stripe-connect-ix",
     "lodgify:moloni": "lodgify-moloni",
+    "shopify:moloni": "shopify-moloni",
+    "shopify:vendus": "shopify-vendus",
+    "stripe:vendus": "stripe-vendus",
+    "lodgify:vendus": "lodgify-vendus",
+    "eupago:invoicexpress": "eupago-ix",
 };
 
 export function connectionKeyOf(sourceKind?: string | null, destinationKind?: string | null): string {

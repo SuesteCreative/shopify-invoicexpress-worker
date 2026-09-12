@@ -1,4 +1,7 @@
 import { getStripeEnv, getStripeEnvOptional } from "./stripe";
+import type { KaptaDocSummary } from "./kapta-doc-number";
+
+export { findInIndex, normalizeDocNumber, type KaptaDocSummary } from "./kapta-doc-number";
 
 interface KaptaIXConfig {
     account: string;
@@ -10,6 +13,9 @@ interface IXDocument {
     id: string;
     type: "invoice_receipts" | "invoices" | "credit_notes";
     state: string;
+    /** The human document number IX prints, e.g. "KAPTA2026/673". Returned by the
+     * list endpoints; the only handle on a document an admin actually holds. */
+    sequence_number?: string;
     reference?: string;
     date?: string;
     total?: string;
@@ -154,6 +160,42 @@ export async function findByReference(reference: string, docType: "invoice" | "c
     return null;
 }
 
+/**
+ * The whole Kapta account, indexed by document id.
+ *
+ * Serves both halves of a manual relink: reading (an event holds an id, and an id
+ * is not something a human can identify — the number and the state are) and
+ * writing (the admin types a number, and only a lookup turns it into an id).
+ *
+ * IX has no lookup by `sequence_number`, so this is the same paged list the
+ * matcher already walks, behind the same one-minute cache: one fetch run per
+ * account, whatever the panel then asks of it.
+ */
+export async function listDocumentIndex(
+    docType: "invoice" | "credit_note" = "invoice",
+): Promise<Map<string, KaptaDocSummary>> {
+    const index = new Map<string, KaptaDocSummary>();
+    const cfg = getConfig();
+    if (!cfg) return index;
+    const baseUrl = await getBaseUrl(cfg);
+    for (const d of await listRecent(cfg, baseUrl, docType)) {
+        const id = String(d.id);
+        index.set(id, {
+            id,
+            number: d.sequence_number ?? null,
+            state: d.state ?? null,
+            total: d.total ?? null,
+            date: d.date ?? null,
+            // Prefer IX's own public permalink: what buildPermalink makes is behind
+            // the Kapta login, and this link is shown to the MERCHANT.
+            permalink: (typeof d.permalink === "string" && d.permalink)
+                ? d.permalink
+                : buildPermalink(cfg, baseUrl, { ...d, id }),
+        });
+    }
+    return index;
+}
+
 function normalize(s: string | null | undefined): string {
     return (s || "").toLowerCase().trim();
 }
@@ -295,7 +337,7 @@ export async function matchStripeChargeToIX(opts: {
         const doc = await findByReference(ref, docType);
         if (doc) {
             return {
-                ix_invoice_id: doc.id,
+                ix_invoice_id: String(doc.id),
                 ix_invoice_permalink: doc.permalink || null,
                 ix_match_method: "reference",
                 ix_match_score: 100,
@@ -307,7 +349,7 @@ export async function matchStripeChargeToIX(opts: {
     const h = await findByHeuristic(opts.candidate, docType);
     if (h) {
         return {
-            ix_invoice_id: h.doc.id,
+            ix_invoice_id: String(h.doc.id),
             ix_invoice_permalink: h.doc.permalink || null,
             ix_match_method: "heuristic",
             ix_match_score: h.score,

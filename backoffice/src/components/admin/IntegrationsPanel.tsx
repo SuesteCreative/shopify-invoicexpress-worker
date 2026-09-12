@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
     Loader2, AlertTriangle, Search, Trash2, RotateCcw, Pause, Play,
-    Wrench, X, CheckCircle2, CircleDashed, Ban, UserCog,
+    Wrench, X, CheckCircle2, CircleDashed, Ban, UserCog, CircleDollarSign,
 } from "lucide-react";
+import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
 import { kindLabel } from "@/lib/connection-kinds";
 import { merchantIntegrationHref } from "@/lib/merchant-routes";
 
@@ -120,6 +121,7 @@ export function IntegrationsPanel() {
     const [order, setOrder] = useState<"newest" | "oldest">("newest");
 
     const [pending, setPending] = useState<Pending | null>(null);
+    const [billingFor, setBillingFor] = useState<Row | null>(null);
     const [typed, setTyped] = useState("");
     const [forceImpact, setForceImpact] = useState<LegacyImpact | null>(null);
 
@@ -434,6 +436,16 @@ export function IntegrationsPanel() {
                                                 </button>
                                             )}
 
+                                            {!r.orphan && (
+                                                <button
+                                                    onClick={() => setBillingFor(r)}
+                                                    title="Fatura de serviço: ver e substituir o documento da Kapta"
+                                                    className="p-2 rounded-lg text-fg-40 hover:text-accent-ink hover:bg-accent/10 transition-colors"
+                                                >
+                                                    <CircleDollarSign className="w-4 h-4" />
+                                                </button>
+                                            )}
+
                                             <Link
                                                 href={`/admin/users/${r.user_id}/dev-mode`}
                                                 title="Abrir a ficha do cliente"
@@ -491,6 +503,10 @@ export function IntegrationsPanel() {
                 ela — e recusa enquanto o cano tiver documentos emitidos.
             </p>
 
+            {billingFor && (
+                <BillingDialog row={billingFor} onClose={() => setBillingFor(null)} />
+            )}
+
             {pending && (
                 <ConfirmDialog
                     pending={pending}
@@ -502,6 +518,45 @@ export function IntegrationsPanel() {
                     onConfirm={() => act(pending.row, pending.action, !!forceImpact)}
                 />
             )}
+        </div>
+    );
+}
+
+/**
+ * The Kapta service invoice behind this account's payments.
+ *
+ * Reached from an integration row because that is where an operator already is,
+ * but the subscription — and therefore the invoice — belongs to the ACCOUNT: two
+ * integrations of the same client open the same list. Hence the account, not the
+ * connection, in the header.
+ */
+function BillingDialog({ row, onClose }: { row: Row; onClose: () => void }) {
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-scrim backdrop-blur-sm" role="dialog" aria-modal="true">
+            <div className="glass rounded-[2rem] border-hairline p-7 max-w-2xl w-full space-y-5 max-h-[85vh] overflow-y-auto">
+                <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-accent/10 text-accent-ink">
+                        <CircleDollarSign className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h2 className="text-lg font-black text-fg">Fatura de serviço</h2>
+                        <p className="mt-1 text-sm text-fg-40 truncate">
+                            Conta {row.label || row.account}{row.email && <> · {row.email}</>}
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="p-2 rounded-lg text-fg-40 hover:text-fg transition-colors" aria-label="Fechar">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <p className="rounded-2xl bg-soon/5 border border-soon/20 px-4 py-3 text-[13px] leading-relaxed text-fg">
+                    O documento é substituído num passo só, pelo número que a Kapta lhe deu.
+                    Deixar um pagamento sem documento não é opção: o varrimento nocturno
+                    voltaria a associar o mesmo, pela mesma heurística.
+                </p>
+
+                <BillingInvoiceLink targetUserId={row.user_id} />
+            </div>
         </div>
     );
 }

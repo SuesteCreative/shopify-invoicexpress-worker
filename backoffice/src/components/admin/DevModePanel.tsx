@@ -10,6 +10,7 @@ import {
     type Connection, type RecoveryAction,
 } from "@/lib/recovery-request";
 import { kindLabel, connectionLabel } from "@/lib/connection-kinds";
+import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
     PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2, Webhook, Moon
@@ -1033,85 +1034,11 @@ function BackfillCard({ targetUserId, conn, cutoff, notifyEmails }: { targetUser
     );
 }
 
-type UnlinkedEvent = {
-    id: string;
-    type: string;
-    stripe_object_id: string;
-    payment_intent_id: string | null;
-    amount_cents: number;
-    currency: string;
-    status: string;
-    created_at: string;
-};
-
 function LinkIxCard({ targetUserId }: { targetUserId: string }) {
     const t = useTranslations("devMode");
-    const [events, setEvents] = useState<UnlinkedEvent[]>([]);
-    const [eventId, setEventId] = useState("");
-    const [permalink, setPermalink] = useState("");
-    const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState<JobResult | null>(null);
-
-    const loadEvents = async () => {
-        try {
-            const res = await fetch(`/api/admin/dev-mode/link-ix?targetUserId=${targetUserId}`);
-            const d: any = await res.json();
-            setEvents(d.events ?? []);
-        } catch (e) { console.error(e); }
-    };
-
-    useEffect(() => { loadEvents(); }, [targetUserId]);
-
-    const run = async () => {
-        if (!eventId || !permalink.trim()) return;
-        setLoading(true); setResult(null);
-        try {
-            const res = await fetch("/api/admin/dev-mode/link-ix", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetUserId, billing_event_id: eventId, ix_permalink: permalink.trim() }),
-            });
-            const d: any = await res.json();
-            setResult(d);
-            if (res.ok) { setPermalink(""); setEventId(""); await loadEvents(); }
-        } catch (e: any) { setResult({ error: String(e) }); }
-        finally { setLoading(false); }
-    };
-
-    const label = (e: UnlinkedEvent) => {
-        const date = new Date(e.created_at).toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit", year: "numeric" });
-        const amount = new Intl.NumberFormat("pt-PT", { style: "currency", currency: (e.currency || "eur").toUpperCase() }).format(e.amount_cents / 100);
-        const ref = e.payment_intent_id || e.stripe_object_id;
-        return `${date} · ${amount} · ${e.status} · ${ref}`;
-    };
-
     return (
         <Section icon={<Link2 className="w-5 h-5 text-accent-ink" />} title={t("linkIxTitle")} desc={t("linkIxDesc")}>
-            {events.length === 0 ? (
-                <p className="text-fg-40 text-xs font-medium">{t("linkIxEmpty")}</p>
-            ) : (
-                <div className="space-y-4">
-                    <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                        {t("linkIxEventLabel")}
-                        <select value={eventId} onChange={e => setEventId(e.target.value)}
-                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg">
-                            <option value="">{t("linkIxEventPlaceholder")}</option>
-                            {events.map(e => <option key={e.id} value={e.id}>{label(e)}</option>)}
-                        </select>
-                    </label>
-                    <label className="flex flex-col gap-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40">
-                        {t("linkIxPermalinkLabel")}
-                        <input type="url" value={permalink} onChange={e => setPermalink(e.target.value)} placeholder="https://kapta.app.invoicexpress.com/..."
-                            className="bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg" />
-                    </label>
-                    <button onClick={run} disabled={loading || !eventId || !permalink.trim()}
-                        className="w-full bg-fg text-surface py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-accent hover:text-on-accent transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-                        {t("linkIxButton")}
-                    </button>
-                </div>
-            )}
-            <ResultBox result={result} />
+            <BillingInvoiceLink targetUserId={targetUserId} />
         </Section>
     );
 }

@@ -4,7 +4,7 @@ import { processOrders } from "./admin";
 import { processStripeBackfill } from "./admin-stripe";
 import { reportIncident, INVOICE_FAILURE_KINDS } from "../services/incidents";
 import { checkSubscriptionGate } from "../services/subscription-gate";
-import { resolveConnectionContext } from "../services/connection-context";
+import { resolveConnectionContext, legacyInvoiceCutoff } from "../services/connection-context";
 import { sendEmail } from "../services/email";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,6 +182,18 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
       continue;
     }
 
+    // Never invoice behind the integration's cutoff — the same bound the Stripe
+    // heal applies below, and for the same reason: an order paid before Rioko
+    // took the shop over was invoiced by whatever the merchant used before, so
+    // issuing it now mints a duplicate of a document that already exists. The
+    // 3-day window is not that bound: a shop that onboards today with orders
+    // from yesterday sits entirely inside it. Measured on WHM (12/09/2026),
+    // whose five August orders were already in WH-25-1 by hand.
+    const cutoffMs = Date.parse(legacyInvoiceCutoff(config) ?? "");
+    const shopFromIso = Number.isFinite(cutoffMs) && cutoffMs > Date.parse(fromIso)
+      ? new Date(cutoffMs).toISOString()
+      : fromIso;
+
     try {
       // CREATE pass — reuses the double-guarded reemit path.
       //
@@ -191,7 +203,7 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
       // sweep's own 8-minute budget before it is next consulted — the outer
       // budget is only checked BETWEEN shops. That is why a 7-day sweep of a
       // busy shop never returned at all.
-      const created = await processOrders(env, config, "create_orders", undefined, fromIso, toIso, {
+      const created = await processOrders(env, config, "create_orders", undefined, shopFromIso, toIso, {
         dry_run: dryRun,
         triggered_by: "recon-sweep-cron",
         reason: `Auto reconciliation sweep (${days}d window)`,

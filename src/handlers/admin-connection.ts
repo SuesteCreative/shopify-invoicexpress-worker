@@ -171,10 +171,22 @@ export async function setConnectionInvoiceCutoff(
     stored = new Date(ymd).toISOString();
   }
 
-  await env.DB.prepare(
+  const res = await env.DB.prepare(
     `UPDATE connections SET invoice_cutoff = ?, updated_at = CURRENT_TIMESTAMP
      WHERE user_id = ? AND source_kind = ? AND destination_kind = ? AND status = 'active'`
   ).bind(stored, conn.userId, conn.source, conn.destination).run();
+
+  // A legacy Shopify→IX merchant has no `connections` row — their integration is
+  // a set of columns on `integrations` (migration 0055 added the cutoff there).
+  // Without this the UPDATE above changed nothing, returned no error, and the
+  // panel reported a cutoff that was never stored. Keyed off "nothing changed"
+  // rather than off the source, so a Shopify merchant who DOES have a
+  // connections row still writes to it and never to both.
+  if ((res.meta?.changes ?? 0) === 0 && conn.source === "shopify") {
+    await env.DB.prepare(
+      `UPDATE integrations SET invoice_cutoff = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`
+    ).bind(stored, conn.userId).run();
+  }
 
   console.log(`[Rioko] invoice_cutoff ${conn.connectionLabel} (${conn.userId}) → ${stored ?? "null"}`
     + ` by ${options.triggered_by ?? "unknown"}`);

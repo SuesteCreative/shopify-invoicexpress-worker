@@ -16,6 +16,27 @@ import { AppStorage } from "../storage";
  * emails on at all: their settings live on the connection, and the code read the
  * legacy row that does not exist for them.
  */
+/**
+ * The cutoff of a legacy Shopify integration: the date it starts invoicing from.
+ *
+ * Same contract as `connections.invoice_cutoff` — the explicit value if the
+ * operator moved it, else the day the integration was set up. Before migration
+ * 0055 the legacy row had no column at all, so every Shopify path was handed
+ * `null` and treated the merchant's entire order history as Rioko's to issue.
+ *
+ * Normalised here because SQLite writes `created_at` as "2026-09-08 14:52:25"
+ * (UTC, no zone) and every reader downstream calls `Date.parse` on it, which
+ * reads a zoneless string as LOCAL time. That is a no-op inside a Worker and
+ * wrong everywhere else the value travels.
+ */
+export function legacyInvoiceCutoff(config: IRequestConfig | null | undefined): string | null {
+  const raw = String(config?.invoice_cutoff ?? config?.created_at ?? "").trim();
+  if (!raw) return null;
+  const iso = /Z$|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(" ", "T")}Z`;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
 export interface ConnectionContext {
   source: SourceKind;
   destination: DestinationKind;
@@ -347,7 +368,7 @@ export async function resolveConnectionContext(
         sourceConfig: {}, destinationConfig: {},
         config, userId: config.user_id ?? opts.userId ?? null,
         scope: opts.shop,
-        invoiceCutoff: null,
+        invoiceCutoff: legacyInvoiceCutoff(config),
         connectionLabel: connectionLabelOf("shopify", "invoicexpress"),
       },
     };
@@ -424,7 +445,7 @@ export async function resolveConnectionContext(
           source: "shopify", destination: "invoicexpress",
           sourceConfig: {}, destinationConfig: {},
           config, userId: opts.userId, scope: config.shopify_domain,
-          invoiceCutoff: null,
+          invoiceCutoff: legacyInvoiceCutoff(config),
           connectionLabel: connectionLabelOf("shopify", "invoicexpress"),
         },
       };
@@ -455,13 +476,14 @@ export async function listUserConnections(env: Env, userId: string): Promise<Con
   // legacy Shopify→IX integration so the panel is not empty for them.
   if (!out.some((c) => c.source === "shopify")) {
     const legacy: any = await env.DB
-      .prepare("SELECT shopify_domain FROM integrations WHERE user_id = ?")
+      .prepare("SELECT shopify_domain, invoice_cutoff, created_at FROM integrations WHERE user_id = ?")
       .bind(userId).first();
     if (legacy?.shopify_domain) {
       out.push({
         source: "shopify",
         destination: "invoicexpress",
         label: connectionLabelOf("shopify", "invoicexpress"),
+        invoiceCutoff: legacyInvoiceCutoff(legacy),
       });
     }
   }

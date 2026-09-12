@@ -128,6 +128,13 @@ export interface IRequestConfig {
   // shopify_authorized / webhooks_active so the user can pause without
   // tearing down the integration.
   is_paused: number | null;
+  /**
+   * The date this Shopify integration starts invoicing from — the legacy row's
+   * counterpart to `connections.invoice_cutoff`, added in migration 0055.
+   * Sales paid before it belonged to the merchant's previous process. NULL
+   * falls back to `created_at`; see legacyInvoiceCutoff().
+   */
+  invoice_cutoff: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import {
     ArrowLeft, Mail, BookOpen, Store, Key, Webhook, Globe, FileText,
     Percent, Zap, Tag, Info, X, Search, Settings2, Copy, CreditCard,
-    ClipboardList, ChevronDown, Calendar, Wallet, Hotel, Receipt
+    ClipboardList, ChevronDown, Calendar, Wallet, Hotel, Receipt,
+    Users, Compass, RefreshCw
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { STRIPE_CONNECT_ENABLED } from "@/lib/platforms";
 
 export const runtime = "edge";
 
@@ -143,15 +145,22 @@ function ContactBox({ subject = "Rioko - Suporte" }: { subject?: string }) {
 
 // ─── Platform tabs ────────────────────────────────────────────────────────
 
-type Platform = "shopify" | "stripe" | "eupago" | "lodgify" | "invoicexpress" | "moloni" | "vendus";
+type Platform = "general" | "shopify" | "stripe" | "stripe_connect" | "eupago" | "lodgify" | "invoicexpress" | "moloni" | "vendus";
 
 type Accent = "emerald" | "violet" | "sky" | "amber";
 
 function usePlatforms() {
     const t = useTranslations("help");
-    const PLATFORMS: { id: Platform; label: string; sub: string; icon: React.ComponentType<any>; accent: Accent; group: "payment" | "invoicing" }[] = [
+    const PLATFORMS: { id: Platform; label: string; sub: string; icon: React.ComponentType<any>; accent: Accent; group: "platform" | "payment" | "invoicing" }[] = [
+        { id: "general", label: t("platformGeneralLabel"), sub: t("platformGeneralSub"), icon: Compass, accent: "sky", group: "platform" },
         { id: "shopify", label: "Shopify", sub: t("platformShopifySub"), icon: Store, accent: "emerald", group: "payment" },
-        { id: "stripe", label: "Stripe", sub: t("platformStripeSub"), icon: CreditCard, accent: "violet", group: "payment" },
+        { id: "stripe", label: "Stripe Legacy", sub: t("platformStripeSub"), icon: CreditCard, accent: "violet", group: "payment" },
+        // Same tile rule as the integrations page: Stripe Connect is only
+        // reachable where the flag is on, so a guide for it would be a guide to
+        // a button nobody can see.
+        ...(STRIPE_CONNECT_ENABLED
+            ? [{ id: "stripe_connect" as Platform, label: "Stripe Connect", sub: t("platformStripeConnectSub"), icon: CreditCard, accent: "violet" as Accent, group: "payment" as const }]
+            : []),
         { id: "eupago", label: "EuPago", sub: t("platformEupagoSub"), icon: Wallet, accent: "amber", group: "payment" },
         { id: "lodgify", label: "Lodgify", sub: t("platformLodgifySub"), icon: Hotel, accent: "emerald", group: "payment" },
         { id: "invoicexpress", label: "InvoiceXpress", sub: t("platformIxSub"), icon: FileText, accent: "sky", group: "invoicing" },
@@ -199,10 +208,22 @@ function GroupHeader({ label, gradientFrom, gradientVia }: { label: string; grad
 function PlatformTabs({ tab, onChange }: { tab: Platform; onChange: (p: Platform) => void }) {
     const t = useTranslations("help");
     const PLATFORMS = usePlatforms();
+    const platform = PLATFORMS.filter(p => p.group === "platform");
     const payment = PLATFORMS.filter(p => p.group === "payment");
     const invoicing = PLATFORMS.filter(p => p.group === "invoicing");
     return (
         <div className="glass rounded-[2rem] p-5 border-hairline space-y-5">
+            <div className="space-y-3">
+                <GroupHeader label={t("groupPlatform")} gradientFrom="from-accent/30" gradientVia="via-accent-hot/30" />
+                <div className="grid grid-cols-1 gap-2">
+                    {platform.map(p => (
+                        <PlatformTabButton key={p.id} p={p} active={tab === p.id} onClick={() => onChange(p.id)} />
+                    ))}
+                </div>
+            </div>
+
+            <div className="border-t border-hairline" />
+
             <div className="space-y-3">
                 <GroupHeader label={t("groupPayment")} gradientFrom="from-accent-hot/30" gradientVia="via-accent/30" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -228,6 +249,157 @@ function PlatformTabs({ tab, onChange }: { tab: Platform; onChange: (p: Platform
 
 // ─── Per-platform guides ──────────────────────────────────────────────────
 
+// How the product works, for the merchant who has the credentials in already
+// and now wants to know what the engine does with them.
+function GeneralGuide() {
+    const t = useTranslations("help");
+    const card = "glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6";
+    return (
+        <div className="space-y-6">
+            <div className={card}>
+                <Section id="general-flow" icon={<Zap className="w-5 h-5" />} title={t("generalFlowTitle")} step={t("generalStepEngine")} accent="sky">
+                    <HtmlInfoBox html={t("generalFlowInfo")} />
+                    <Steps accent="sky" items={[
+                        t("generalFlowStep1"),
+                        t("generalFlowStep2"),
+                        t("generalFlowStep3"),
+                        t("generalFlowStep4"),
+                        t("generalFlowStep5"),
+                    ]} />
+                    <HtmlWarningBox html={t("generalFlowWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-connections" icon={<Settings2 className="w-5 h-5" />} title={t("generalConnectionsTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalConnectionsInfo")} />
+                    <HtmlWarningBox html={t("generalConnectionsWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-paid" icon={<Receipt className="w-5 h-5" />} title={t("generalPaidTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalPaidInfo")} />
+                    <HtmlWarningBox html={t("generalPaidWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-drafts" icon={<FileText className="w-5 h-5" />} title={t("generalDraftsTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalDraftsInfo")} />
+                    <Steps accent="sky" items={[
+                        t("generalDraftsStep1"),
+                        t("generalDraftsStep2"),
+                        t("generalDraftsStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("generalDraftsWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-tax" icon={<Percent className="w-5 h-5" />} title={t("generalTaxTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalTaxInfo")} />
+                    <Steps accent="sky" items={[
+                        t("generalTaxStep1"),
+                        t("generalTaxStep2"),
+                        t("generalTaxStep3"),
+                        t("generalTaxStep4"),
+                    ]} />
+                    <HtmlWarningBox html={t("generalTaxWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-tag-routing" icon={<Tag className="w-5 h-5" />} title={t("generalRoutingTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalRoutingInfo")} />
+                    <Steps accent="sky" items={[
+                        t("generalRoutingStep1"),
+                        t("generalRoutingStep2"),
+                        t("generalRoutingStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("generalRoutingWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-reconciliation" icon={<RefreshCw className="w-5 h-5" />} title={t("generalReconTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalReconInfo")} />
+                    <Steps accent="sky" items={[
+                        t("generalReconStep1"),
+                        t("generalReconStep2"),
+                        t("generalReconStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("generalReconWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-billing" icon={<CreditCard className="w-5 h-5" />} title={t("generalBillingTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalBillingInfo")} />
+                    <HtmlWarningBox html={t("generalBillingWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-users" icon={<Users className="w-5 h-5" />} title={t("generalUsersTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalUsersInfo")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="general-support" icon={<Mail className="w-5 h-5" />} title={t("generalSupportTitle")} accent="sky">
+                    <HtmlInfoBox html={t("generalSupportInfo")} />
+                    <ContactBox subject="Rioko - Suporte" />
+                </Section>
+            </div>
+        </div>
+    );
+}
+
+function StripeConnectGuide() {
+    const t = useTranslations("help");
+    const card = "glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6";
+    return (
+        <div className="space-y-6">
+            <div className={card}>
+                <Section id="connect-authorize" icon={<Zap className="w-5 h-5" />} title={t("connectAuthorizeTitle")} step={t("credentialTotal1")} accent="violet">
+                    <HtmlInfoBox html={t("connectAuthorizeInfo")} />
+                    <Steps accent="violet" items={[
+                        t("connectAuthorizeStep1"),
+                        t("connectAuthorizeStep2"),
+                        t("connectAuthorizeStep3"),
+                        t("connectAuthorizeStep4"),
+                    ]} />
+                    <HtmlWarningBox html={t("connectAuthorizeWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="connect-vs-legacy" icon={<Copy className="w-5 h-5" />} title={t("connectVsLegacyTitle")} accent="violet">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="bg-accent/5 border border-accent/20 rounded-2xl p-5">
+                            <div className="text-accent-ink font-black text-sm mb-2">Stripe Connect</div>
+                            <p className="text-fg-60 text-sm">{t("connectVsLegacyConnect")}</p>
+                        </div>
+                        <div className="bg-surface-2/50 border border-hairline rounded-2xl p-5">
+                            <div className="text-fg font-black text-sm mb-2">Stripe Legacy</div>
+                            <p className="text-fg-60 text-sm">{t("connectVsLegacyLegacy")}</p>
+                        </div>
+                    </div>
+                    <HtmlWarningBox html={t("connectVsLegacyWarn")} />
+                </Section>
+            </div>
+
+            <div className={card}>
+                <Section id="connect-destination" icon={<FileText className="w-5 h-5" />} title={t("connectDestinationTitle")} accent="violet">
+                    <HtmlInfoBox html={t("connectDestinationInfo")} />
+                    <HtmlWarningBox html={t("connectDestinationWarn")} />
+                </Section>
+            </div>
+        </div>
+    );
+}
+
 function ShopifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
     const t = useTranslations("help");
     return (
@@ -252,6 +424,7 @@ function ShopifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
                     <ContactBox subject="Rioko - Access Token Shopify" />
                     <HtmlWarningBox html={t("shopifyTokenWarn")} />
                     <HtmlInfoBox html={t("shopifyTokenOldOrders")} />
+                    <HtmlInfoBox html={t("shopifyTokenOauthSoon")} />
                 </Section>
             </div>
 
@@ -263,9 +436,13 @@ function ShopifyGuide({ onZoom }: { onZoom: (src: string) => void }) {
                         t("shopifyWebhookStep2"),
                         t("shopifyWebhookStep3"),
                         t("shopifyWebhookStep4"),
+                        t("shopifyWebhookStep5"),
+                        t("shopifyWebhookStep6"),
                     ]} />
+                    <Placeholder src="/images/help/shopify-webhook-install.webp" alt="Shopify - Criar webhook" description={t("shopifyWebhookInstallImageDesc")} onZoom={onZoom} />
                     <Placeholder src="/images/help/webhook-secret.webp" alt="Shopify - Webhook Signing Secret" description={t("shopifyWebhookImageDesc")} onZoom={onZoom} />
                     <HtmlInfoBox html={t("shopifyWebhookExtra")} />
+                    <HtmlWarningBox html={t("shopifyWebhookWarn")} />
                 </Section>
             </div>
 
@@ -320,6 +497,13 @@ function StripeGuide({ onZoom }: { onZoom: (src: string) => void }) {
                         t("stripeWebhookStep5"),
                     ]} />
                     <HtmlWarningBox html={t("stripeWebhookWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="stripe-tax" icon={<Percent className="w-5 h-5" />} title={t("stripeTaxTitle")} accent="violet">
+                    <HtmlInfoBox html={t("stripeTaxInfo")} />
+                    <HtmlWarningBox html={t("stripeTaxWarn")} />
                 </Section>
             </div>
         </div>
@@ -427,6 +611,13 @@ function InvoiceXpressGuide({ onZoom }: { onZoom: (src: string) => void }) {
                     <HtmlWarningBox html={t("exemptionWarn")} />
                 </Section>
             </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="ix-send-email" icon={<Mail className="w-5 h-5" />} title={t("ixSendEmailTitle")} accent="sky">
+                    <HtmlInfoBox html={t("ixSendEmailInfo")} />
+                    <HtmlWarningBox html={t("ixSendEmailWarn")} />
+                </Section>
+            </div>
         </div>
     );
 }
@@ -435,6 +626,35 @@ function MoloniGuide({ onZoom }: { onZoom: (src: string) => void }) {
     const t = useTranslations("help");
     return (
         <div className="space-y-6">
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="moloni-two-paths" icon={<Compass className="w-5 h-5" />} title={t("moloniPathsTitle")} accent="amber">
+                    <HtmlInfoBox html={t("moloniPathsInfo")} />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="bg-soon/5 border border-soon/20 rounded-2xl p-5">
+                            <div className="text-soon font-black text-sm mb-2">{t("moloniPathOauthTitle")}</div>
+                            <p className="text-fg-60 text-sm">{t("moloniPathOauthBody")}</p>
+                        </div>
+                        <div className="bg-surface-2/50 border border-hairline rounded-2xl p-5">
+                            <div className="text-fg font-black text-sm mb-2">{t("moloniPathPasswordTitle")}</div>
+                            <p className="text-fg-60 text-sm">{t("moloniPathPasswordBody")}</p>
+                        </div>
+                    </div>
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="moloni-oauth" icon={<Zap className="w-5 h-5" />} title={t("moloniOauthTitle")} accent="amber">
+                    <HtmlInfoBox html={t("moloniOauthInfo")} />
+                    <Steps accent="amber" items={[
+                        t("moloniOauthStep1"),
+                        t("moloniOauthStep2"),
+                        t("moloniOauthStep3"),
+                        t("moloniOauthStep4"),
+                    ]} />
+                    <HtmlWarningBox html={t("moloniOauthWarn")} />
+                </Section>
+            </div>
+
             <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
                 <Section id="moloni-dev-account" icon={<Key className="w-5 h-5" />} title={t("moloniDevTitle")} step={t("credentialTotal3")} accent="amber">
                     <HtmlInfoBox html={t("moloniDevInfo")} />
@@ -477,6 +697,18 @@ function MoloniGuide({ onZoom }: { onZoom: (src: string) => void }) {
                 <Section id="moloni-document-types" icon={<FileText className="w-5 h-5" />} title={t("moloniDocTypesTitle")} accent="amber">
                     <HtmlInfoBox html={t("moloniDocTypesInfo")} />
                     <HtmlWarningBox html={t("moloniDocTypesWarn")} />
+                </Section>
+            </div>
+
+            <div className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
+                <Section id="moloni-mappings" icon={<Tag className="w-5 h-5" />} title={t("moloniMappingsTitle")} accent="amber">
+                    <HtmlInfoBox html={t("moloniMappingsInfo")} />
+                    <Steps accent="amber" items={[
+                        t("moloniMappingsStep1"),
+                        t("moloniMappingsStep2"),
+                        t("moloniMappingsStep3"),
+                    ]} />
+                    <HtmlWarningBox html={t("moloniMappingsWarn")} />
                 </Section>
             </div>
         </div>
@@ -590,6 +822,20 @@ type FAQItem = { q: string; a: string };
 function useFaqs(): Record<Platform, FAQItem[]> {
     const t = useTranslations("help");
     return {
+        general: [
+            { q: t("faqGeneralQ1"), a: t("faqGeneralA1") },
+            { q: t("faqGeneralQ2"), a: t("faqGeneralA2") },
+            { q: t("faqGeneralQ3"), a: t("faqGeneralA3") },
+            { q: t("faqGeneralQ4"), a: t("faqGeneralA4") },
+            { q: t("faqGeneralQ5"), a: t("faqGeneralA5") },
+            { q: t("faqGeneralQ6"), a: t("faqGeneralA6") },
+        ],
+        stripe_connect: [
+            { q: t("faqConnectQ1"), a: t("faqConnectA1") },
+            { q: t("faqConnectQ2"), a: t("faqConnectA2") },
+            { q: t("faqConnectQ3"), a: t("faqConnectA3") },
+            { q: t("faqConnectQ4"), a: t("faqConnectA4") },
+        ],
         shopify: [
             { q: t("faqShopifyQ1"), a: t("faqShopifyA1") },
             { q: t("faqShopifyQ2"), a: t("faqShopifyA2") },
@@ -763,10 +1009,43 @@ function HelpFooter() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────
 
+/**
+ * Which tab holds a given anchor.
+ *
+ * The integration pages deep-link into this one (`/help#ix-sequence`), and a
+ * section that lives in a tab nobody opened is not in the DOM: before this,
+ * every link except the ones inside the default tab landed on the top of the
+ * page with no explanation.
+ */
+function tabForAnchor(hash: string): Platform | null {
+    const id = hash.replace(/^#/, "");
+    if (!id) return null;
+    if (id.startsWith("general-")) return "general";
+    if (id.startsWith("connect-")) return "stripe_connect";
+    if (id.startsWith("shopify-")) return "shopify";
+    if (id.startsWith("stripe-")) return "stripe";
+    if (id.startsWith("eupago-")) return "eupago";
+    if (id.startsWith("lodgify-")) return "lodgify";
+    if (id.startsWith("moloni-")) return "moloni";
+    if (id.startsWith("vendus-")) return "vendus";
+    // The InvoiceXpress settings kept their original short ids.
+    if (id.startsWith("ix-") || ["vat", "auto-finalize", "retention", "exemption"].includes(id)) return "invoicexpress";
+    return null;
+}
+
 export default function HelpPage() {
     const t = useTranslations("help");
     const [zoomImage, setZoomImage] = useState<string | null>(null);
-    const [tab, setTab] = useState<Platform>("shopify");
+    const [tab, setTab] = useState<Platform>(() =>
+        (typeof window !== "undefined" && tabForAnchor(window.location.hash)) || "general");
+
+    // The tab switch renders the section; scrolling has to wait for it.
+    useEffect(() => {
+        const id = window.location.hash.replace(/^#/, "");
+        if (!id) return;
+        const timer = setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }), 120);
+        return () => clearTimeout(timer);
+    }, []);
 
     return (
         <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-700">
@@ -803,8 +1082,10 @@ export default function HelpPage() {
                     transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
                     className="space-y-6"
                 >
+                    {tab === "general" && <GeneralGuide />}
                     {tab === "shopify" && <ShopifyGuide onZoom={setZoomImage} />}
                     {tab === "stripe" && <StripeGuide onZoom={setZoomImage} />}
+                    {tab === "stripe_connect" && <StripeConnectGuide />}
                     {tab === "eupago" && <EuPagoGuide onZoom={setZoomImage} />}
                     {tab === "lodgify" && <LodgifyGuide onZoom={setZoomImage} />}
                     {tab === "invoicexpress" && <InvoiceXpressGuide onZoom={setZoomImage} />}

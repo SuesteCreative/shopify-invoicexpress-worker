@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { Activity, ShieldCheck, BookOpen, Zap, ScrollText, Receipt, Users } from "lucide-react";
+import { Activity, ShieldCheck, BookOpen, Zap, ScrollText, Receipt, Users, Gift } from "lucide-react";
 import { kindLabel } from "@/lib/connection-kinds";
 
 import { cn } from "@/lib/utils";
@@ -143,6 +143,7 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         tooltip={t("tooltipNeedRegister")}
                     />
                     <LinkItem href="/faturacao" icon={Receipt} label={t("faturacao")} />
+                    <LinkItem href="/convidar" icon={Gift} label={t("convidar")} />
                     <LinkItem href="/users" icon={Users} label={t("users")} />
                     <LinkItem href="/help" icon={BookOpen} label={t("help")} />
                 </div>

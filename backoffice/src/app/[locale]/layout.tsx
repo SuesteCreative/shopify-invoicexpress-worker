@@ -12,6 +12,7 @@ import { sansDisplay, monoFont, generalSans, satoshi } from "../fonts";
 import InactivityLogout from "@/components/InactivityLogout";
 import ConsentBanner from "@/components/ConsentBanner";
 import AttributionCapture from "@/components/AttributionCapture";
+import ReferralClaim from "@/components/ReferralClaim";
 import JsonLd from "@/components/JsonLd";
 import Analytics from "@/components/Analytics";
 import { organizationSchema, websiteSchema } from "@/lib/schema";
@@ -93,6 +94,7 @@ export default async function LocaleLayout({
           <NextIntlClientProvider locale={locale} messages={messages}>
             <InactivityLogout />
             <AttributionCapture />
+            <ReferralClaim />
             <ConsentBanner />
             <div className="brand-ambient" aria-hidden="true" />
 

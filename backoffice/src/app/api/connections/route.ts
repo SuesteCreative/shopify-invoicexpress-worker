@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { missingDestinationCredentials } from "@/lib/destination-credentials";
 import {
     SOURCE_KINDS, DESTINATION_KINDS, CONNECTION_STATUSES,
     isSourceKind, isDestinationKind,
@@ -35,7 +36,19 @@ export async function GET(request: NextRequest) {
             .bind(auth.targetUserId)
             .all();
 
-        return NextResponse.json({ connections: rows.results ?? [] });
+        // `status` says what the merchant asked for; `destination_ready` says
+        // whether it can actually issue. An active connection whose destination
+        // has no credentials is the state that let three accounts sit quietly
+        // uninvoiced, and every caller of this endpoint was showing it as
+        // "Autorizado" because the row said active.
+        const connections = await Promise.all(((rows.results ?? []) as any[]).map(async (c) => ({
+            ...c,
+            destination_ready: !(await missingDestinationCredentials(
+                db, auth.targetUserId!, String(c.source_kind), String(c.destination_kind),
+            )),
+        })));
+
+        return NextResponse.json({ connections });
     } catch (error: any) {
         console.error("[connections] GET error:", error);
         return NextResponse.json({ error: `Internal Server Error: ${error.message}` }, { status: 500 });

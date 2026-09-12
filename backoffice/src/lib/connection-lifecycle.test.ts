@@ -157,6 +157,9 @@ function legacyDb(opts: { documents?: number } = {}) {
             updated_at TEXT
         );
         CREATE TABLE processed_orders (id TEXT PRIMARY KEY, user_id TEXT, source_kind TEXT, invoice_id TEXT);
+        -- The legacy row is also the InvoiceXpress credential store for every
+        -- connection-based integration, so the impact check reads these.
+        CREATE TABLE connections (user_id TEXT, source_kind TEXT, destination_kind TEXT, status TEXT);
 
         INSERT INTO integrations
           (id, user_id, shopify_domain, shopify_token, ix_account_name, ix_api_key,
@@ -175,6 +178,7 @@ function legacyDb(opts: { documents?: number } = {}) {
             const api = {
                 bind(...args: unknown[]) { bound = args; return api; },
                 async first() { return stmt.get(...bound) ?? null; },
+                async all() { return { results: stmt.all(...bound) }; },
                 async run() {
                     const r = stmt.run(...bound);
                     return { meta: { changes: Number(r.changes ?? 0) } };
@@ -186,6 +190,10 @@ function legacyDb(opts: { documents?: number } = {}) {
 
     return {
         db,
+        stripeDoc: (i: number) =>
+            sqlite.exec(`INSERT INTO processed_orders VALUES ('s${i}', 'user_a', 'stripe', 'inv_s${i}');`),
+        connect: (src: string, dest: string, status = "active") =>
+            sqlite.exec(`INSERT INTO connections VALUES ('user_a', '${src}', '${dest}', '${status}');`),
         integration: (uid: string) => sqlite.prepare("SELECT * FROM integrations WHERE user_id = ?").get(uid) as any,
         countOrders: () => Number((sqlite.prepare("SELECT COUNT(*) AS n FROM processed_orders").get() as any).n),
     };
@@ -229,6 +237,41 @@ describe("the legacy Shopify pipe", () => {
         expect(res.ok).toBe(true);
         expect(h.integration("user_a")).toBeUndefined();
         expect(h.countOrders()).toBe(3);
+    });
+
+    // MeetFrank, 2026-09-11. The impact count used to read Shopify documents
+    // only, so 732 Stripe documents reported as zero, the delete went through
+    // unchallenged, and it took the InvoiceXpress credentials every connection
+    // on the account authenticates with. Invoicing stopped that night.
+    it("counts documents from every source, not just Shopify", async () => {
+        const h = legacyDb();
+        for (let i = 0; i < 5; i++) h.stripeDoc(i);
+        const res: any = await deleteLegacyIntegration(h.db, "user_a");
+        expect(res.ok).toBe(false);
+        expect(res.impact.documents).toBe(5);
+        expect(h.integration("user_a")).toBeTruthy();
+    });
+
+    it("refuses to delete or reset while a live connection needs the credentials", async () => {
+        const h = legacyDb();
+        h.connect("stripe_connect", "invoicexpress");
+
+        const del: any = await deleteLegacyIntegration(h.db, "user_a");
+        expect(del.requires_force).toBe(true);
+        expect(del.impact.dependent_connections).toEqual(["stripe_connect → invoicexpress"]);
+
+        const reset: any = await resetLegacyIntegration(h.db, "user_a");
+        expect(reset.requires_force).toBe(true);
+        // Untouched: the credentials are still there for the live pipe.
+        expect(h.integration("user_a").ix_api_key).toBe("key_x");
+    });
+
+    it("still lets an operator through when they force it", async () => {
+        const h = legacyDb();
+        h.connect("stripe_connect", "invoicexpress");
+        const reset: any = await resetLegacyIntegration(h.db, "user_a", true);
+        expect(reset.ok).toBe(true);
+        expect(h.integration("user_a").ix_api_key).toBeNull();
     });
 
     it("pauses and resumes with the flag the worker's gate reads", async () => {

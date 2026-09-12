@@ -62,7 +62,15 @@ export type IncidentKind =
   // production. OPS-ONLY: no merchant can act on it, and nothing else
   // notices — the backoffice keeps deploying through Pages, so the product
   // looks healthy while the worker silently serves old code.
-  | "worker_build_failed";
+  | "worker_build_failed"
+  // A connection is ACTIVE but cannot reach its destination, because the
+  // credentials it authenticates with are not there. Nothing is failing loudly:
+  // there is no document to reject and no token to expire, so every other
+  // alarm in this file stays quiet while the merchant's payments go uninvoiced.
+  // Raised by the nightly connection health check, not by a payment, which is
+  // the point — it fires on the day the pipe breaks, including the day it is
+  // set up wrong, and not on the day the first sale happens to arrive.
+  | "connection_unconfigured";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -1157,6 +1165,48 @@ export function tplWorkerBuildFailed(input: IncidentTemplateInput): RenderedTemp
   };
 }
 
+/**
+ * An active connection whose destination has no credentials.
+ *
+ * Written for the merchant, not for ops: it says which step is missing, what it
+ * is costing them right now, and puts the button that fixes it in the message.
+ * `detail.destination` names the system and `detail.missing` the sentence that
+ * describes the gap, so one template serves InvoiceXpress, Moloni and Vendus.
+ */
+export function tplConnectionUnconfigured(input: IncidentTemplateInput): RenderedTemplate {
+  const detail = (input.detail ?? {}) as Record<string, any>;
+  const destination = typeof detail.destination === "string" ? detail.destination : "o sistema de faturação";
+  const pending = Number(detail.pendingPayments ?? 0);
+  const dashboard = input.dashboardUrl ?? DEFAULT_DASHBOARD;
+
+  const body = `
+    ${paragraph(`A sua ligação a <strong>${escapeHtml(destination)}</strong> está ligada mas <strong>incompleta</strong>, por isso <strong>não está a ser emitido nenhum documento</strong>.`, { strong: true })}
+    ${calloutBox(
+      "O que falta",
+      escapeHtml(String(detail.missing ?? `As credenciais de ${destination} não estão guardadas na sua conta Rioko.`)),
+      P().error,
+    )}
+    ${pending > 0
+      ? paragraph(`Há <strong>${pending}</strong> pagamento(s) à espera de serem faturados. Assim que completar o passo em falta, emitimos o que ficou para trás.`)
+      : paragraph("Qualquer pagamento que entre entretanto fica por faturar até isto estar resolvido. Nada se perde: emitimos o que ficar para trás assim que a ligação estiver completa.")}
+    ${stepsList([
+      "Abra Integrações no painel Rioko, no botão abaixo.",
+      `Abra a sua ligação e vá ao passo de ${escapeHtml(destination)}.`,
+      "Preencha as credenciais e grave. Validamos na hora e dizemos se ficou bem.",
+    ])}
+    ${ctaButton("Abrir Integrações", `${dashboard}/integrations`)}
+  `;
+  return {
+    subject: `[Rioko 2.0] A sua integração está pendente — nada está a ser faturado`,
+    html: shell({
+      title: "Integração pendente",
+      preheader: `Falta um passo em ${destination}. Nenhum documento está a ser emitido.`,
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTemplateInput): RenderedTemplate {
   switch (kind) {
     case "document_drift": return tplDocumentDrift(input);
@@ -1178,6 +1228,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "simplified_invoice_downgraded": return tplSimplifiedInvoiceDowngraded(input);
     case "lodgify_relay_down": return tplLodgifyRelayDown(input);
     case "worker_build_failed": return tplWorkerBuildFailed(input);
+    case "connection_unconfigured": return tplConnectionUnconfigured(input);
   }
 }
 

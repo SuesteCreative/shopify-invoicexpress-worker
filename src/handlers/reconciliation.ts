@@ -14,6 +14,7 @@ import {
   GATEWAY_ERROR_HEADER, describeLodgifyEgress, isGatewayFailure, lodgifyFetch,
   resolveLodgifyGateway,
 } from "../services/lodgify-api";
+import { resolveStripeAuth } from "../services/stripe-auth";
 
 // The left side of a reconciliation row, normalized across sources (Shopify
 // orders, Lodgify bookings, …). Each source fetcher maps its native records
@@ -455,16 +456,20 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
 }
 
 // Live Stripe fetch — the left side for Stripe-source connections. Walks
-// `payment_intents.list` over [from,to] via the connection's restricted_key
-// (Stripe has no server-side status filter on this endpoint, so we paginate and
-// keep only status=succeeded — a captured payment). `expand[]=data.latest_charge`
-// gives us the payer name/email and the refund state in one call, no per-PI
-// round-trips. Connect direct-charge accounts require the Stripe-Account header,
-// which stripeFetch adds from stripe_account_id.
-async function fetchStripeReconOrders(ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
-  const restrictedKey = ctx.sourceConfig?.restricted_key as string | undefined;
-  if (!restrictedKey) return [];
-  const stripeAccount = (ctx.sourceConfig?.stripe_account_id as string | undefined) ?? null;
+// `payment_intents.list` over [from,to] (Stripe has no server-side status filter
+// on this endpoint, so we paginate and keep only status=succeeded — a captured
+// payment). `expand[]=data.latest_charge` gives us the payer name/email and the
+// refund state in one call, no per-PI round-trips.
+//
+// The credential comes from resolveStripeAuth, not from `restricted_key`: a
+// Connect connection holds no key of the merchant's, only an `acct_…`, so
+// reading the field directly returned an empty list for every stripe_connect
+// merchant and their Conciliação page said they had no payments at all.
+async function fetchStripeReconOrders(env: Env, ctx: ReconContext, from: string, to: string): Promise<ReconOrder[]> {
+  const auth = resolveStripeAuth(env, ctx.sourceConfig);
+  if (!auth) return [];
+  const restrictedKey = auth.apiKey;
+  const stripeAccount = auth.connectAccount ?? (ctx.sourceConfig?.stripe_account_id as string | undefined) ?? null;
   const fromUnix = Math.floor(new Date(from).getTime() / 1000);
   const toUnix = Math.floor(new Date(to).getTime() / 1000);
 
@@ -589,7 +594,13 @@ async function getSourceOrders(env: Env, ctx: ReconContext, from: string, to: st
   switch (ctx.source) {
     case "lodgify": return fetchLodgifyReconOrders(env, ctx, from, to);
     case "shopify": return fetchShopifyReconOrders(ctx, from, to);
-    case "stripe": return fetchStripeReconOrders(ctx, from, to);
+    // Both Stripe kinds read the same endpoint; only the credential differs, and
+    // that is resolveStripeAuth's job. Listing only "stripe" here sent every
+    // Connect connection to the default branch below, which answers "no
+    // payments" — indistinguishable, on the page, from a merchant who sold
+    // nothing.
+    case "stripe":
+    case "stripe_connect": return fetchStripeReconOrders(env, ctx, from, to);
     default:
       // EuPago reconciliation not implemented yet — no left-side list.
       return [];
@@ -1096,7 +1107,8 @@ export async function getReconciliation(
   // 2b. Stripe→Moloni: link invoices raised by a PREVIOUS integrator (absent
   //     from processed_orders) via the PaymentIntent id stamped on the Moloni
   //     doc's your_reference. Only fills gaps — never overrides our own mapping.
-  if (ctx.source === "stripe" && ctx.destination === "moloni" && orderIds.length > 0) {
+  if ((ctx.source === "stripe" || ctx.source === "stripe_connect")
+    && ctx.destination === "moloni" && orderIds.length > 0) {
     const unmapped = orderIds.filter((oid) => !orderToInvoice.has(oid));
     if (unmapped.length > 0) {
       const refIndex = await getStripeMoloniRefIndex(env, ctx, dateOnly(from));

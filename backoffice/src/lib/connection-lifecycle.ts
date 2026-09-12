@@ -163,6 +163,8 @@ export interface LegacyImpact {
     shopify_domain: string | null;
     ix_account_name: string | null;
     documents: number;
+    /** Live connections that file into InvoiceXpress with these credentials. */
+    dependent_connections: string[];
 }
 
 export async function legacyImpact(db: D1Database, userId: string): Promise<LegacyImpact | null> {
@@ -171,22 +173,57 @@ export async function legacyImpact(db: D1Database, userId: string): Promise<Lega
     ).bind(userId).first();
     if (!row) return null;
 
+    // EVERY document, not just Shopify's.
+    //
+    // This count is the only thing standing between an operator and deleting
+    // the row, and it used to read `source_kind IS NULL OR = 'shopify'`. On
+    // 2026-09-11 that reported "0 documents" for MeetFrank, whose 732 documents
+    // are all source_kind='stripe'. The row was deleted with no warning and
+    // with it the InvoiceXpress credentials, which live here for every
+    // connection — Stripe, Lodgify, EuPago — and not only for Shopify.
+    // Invoicing stopped dead and nothing said so.
     const docs: any = await db.prepare(
         `SELECT COUNT(*) AS n FROM processed_orders
-          WHERE user_id = ? AND invoice_id IS NOT NULL
-            AND (source_kind IS NULL OR source_kind = 'shopify')`
+          WHERE user_id = ? AND invoice_id IS NOT NULL`
     ).bind(userId).first().catch(() => ({ n: 0 }));
+
+    // Named so the confirmation says what breaks, not just how much history
+    // exists. An account with no documents yet can still have a live pipe.
+    const deps: any = await db.prepare(
+        `SELECT source_kind, destination_kind FROM connections
+          WHERE user_id = ? AND status = 'active' AND destination_kind = 'invoicexpress'`
+    ).bind(userId).all().catch(() => ({ results: [] }));
 
     return {
         configured: !!(row.shopify_domain || row.ix_account_name),
         shopify_domain: row.shopify_domain ?? null,
         ix_account_name: row.ix_account_name ?? null,
         documents: Number(docs?.n ?? 0),
+        dependent_connections: ((deps?.results ?? []) as any[])
+            .map((r) => `${r.source_kind} → ${r.destination_kind}`),
     };
 }
 
-/** Clear the credentials, keep the row and every fiscal setting on it. */
-export async function resetLegacyIntegration(db: D1Database, userId: string): Promise<DeleteResult> {
+/**
+ * Clear the credentials, keep the row and every fiscal setting on it.
+ *
+ * Guarded like the delete, and for the same reason: the InvoiceXpress half of
+ * this row is what every non-Shopify connection authenticates with, so wiping
+ * it stops a live pipe just as dead as deleting the row would.
+ */
+export async function resetLegacyIntegration(
+    db: D1Database,
+    userId: string,
+    force = false,
+): Promise<DeleteResult | { ok: false; requires_force: true; impact: LegacyImpact }> {
+    const impact = await legacyImpact(db, userId);
+    if (impact && !force && impact.dependent_connections.length > 0) {
+        return { ok: false, requires_force: true, impact };
+    }
+    return resetLegacyIntegrationUnguarded(db, userId);
+}
+
+async function resetLegacyIntegrationUnguarded(db: D1Database, userId: string): Promise<DeleteResult> {
     const res: any = await db.prepare(
         `UPDATE integrations
             SET shopify_domain = NULL, shopify_token = NULL, shopify_webhook_secret = NULL,
@@ -220,7 +257,10 @@ export async function deleteLegacyIntegration(
     const impact = await legacyImpact(db, userId);
     if (!impact) return { ok: true, already_gone: true };
 
-    if (!force && impact.documents > 0) {
+    // A live connection is as good a reason to stop as a history of documents,
+    // and a stronger one: history is only lost context, a live pipe is money
+    // that stops being invoiced tonight.
+    if (!force && (impact.documents > 0 || impact.dependent_connections.length > 0)) {
         return { ok: false, requires_force: true, impact };
     }
 

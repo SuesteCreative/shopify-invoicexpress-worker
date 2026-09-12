@@ -42,6 +42,9 @@ export default function IntegrationsPage() {
                 list.push({
                     id: "shopify-ix", payment: "shopify", invoicing: "invoicexpress",
                     href: "/integrations/shopify-ix",
+                    // ix_authorized is now withdrawn by /api/integrations
+                    // whenever either credential half is missing, so this line
+                    // no longer trusts a verdict about a key that is gone.
                     status: data.shopify_authorized && data.ix_authorized && data.webhooks_active ? "authorized" : "pending"
                 });
             }
@@ -66,7 +69,13 @@ export default function IntegrationsPage() {
                     id, payment: conn.source_kind, invoicing: conn.destination_kind,
                     sourceKind: conn.source_kind, destinationKind: conn.destination_kind,
                     href: `/integrations/${src}-${dest}`,
-                    status: conn.status === "draft" ? "draft" : "authorized",
+                    // An active connection that cannot reach its destination is
+                    // not authorized, whatever the row says: it issues nothing.
+                    // Shown as pending so the card reads "Retomar configuração"
+                    // and lands the merchant on the step that is missing.
+                    status: (conn.status === "draft" || conn.destination_ready === false)
+                        ? "draft"
+                        : "authorized",
                     deletable: true,
                 });
             }

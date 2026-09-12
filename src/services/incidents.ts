@@ -208,6 +208,12 @@ const MERCHANT_ACTIONABLE_KINDS = new Set<IncidentKind>([
   // possible; the merchant edits or deletes the draft. Money has already gone
   // back to the buyer, so this should not wait for the Friday digest.
   "credit_note_on_draft",
+  // An active connection that cannot reach its destination. Only the merchant
+  // holds the credential, nothing else in the system will ever notice (there is
+  // no document to reject), and every day it stays unnoticed is a day of sales
+  // going uninvoiced. Bucketed daily by the health check, so at most one email
+  // a day until it is fixed.
+  "connection_unconfigured",
 ]);
 
 /** The two kinds that share the bespoke address-line-NIF notice. Everything

@@ -5,6 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
 import { callWorkerJson } from "@/lib/worker";
+import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
 export const runtime = "edge";
 
@@ -152,6 +153,12 @@ export async function POST(request: NextRequest) {
         const apiKey = body.api_key || previousCfg.api_key;
         if (status === "active" && !apiKey) {
             return NextResponse.json({ error: "api_key is required to activate the connection" }, { status: 400 });
+        }
+
+        // The destination half of the same rule.
+        if (status === "active") {
+            const missing = await missingDestinationCredentials(db, authResult.targetUserId, "lodgify", destinationKind);
+            if (missing) return NextResponse.json({ error: missing }, { status: 409 });
         }
 
         if (status === "active" && apiKey) {

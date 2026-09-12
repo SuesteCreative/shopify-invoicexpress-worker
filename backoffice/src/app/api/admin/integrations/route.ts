@@ -6,6 +6,7 @@ import { accountLabel } from "@/lib/labels";
 import { subscriptionUIState } from "@/lib/stripe";
 import { isSourceKind, isDestinationKind } from "@/lib/connection-kinds";
 import { resolveTier } from "@/lib/billing-legacy";
+import { auditConfigChange } from "@/lib/config-audit";
 import {
     deleteConnection, resetConnection, setConnectionStatus,
     deleteLegacyIntegration, resetLegacyIntegration, setLegacyPaused,
@@ -95,14 +96,18 @@ export async function GET() {
                         stripe_subscription_id, name, email
                  FROM subscriptions`
             ).all().catch(() => ({ results: [] })),
+            // EVERY row, unfiltered. It is read for two different things below
+            // and they need opposite subsets: the legacy Shopify pipe (which
+            // requires a shop) and the account's InvoiceXpress credentials
+            // (which every connection-based integration shares).
             db.prepare(
                 `SELECT user_id, shopify_domain, ix_account_name,
+                        (ix_api_key IS NOT NULL AND ix_api_key <> '') AS has_ix_key,
                         COALESCE(shopify_authorized, 0) AS shopify_authorized,
                         COALESCE(ix_authorized, 0)      AS ix_authorized,
                         COALESCE(is_paused, 0)          AS is_paused,
                         shopify_error, ix_error, created_at, updated_at
-                 FROM integrations
-                 WHERE shopify_domain IS NOT NULL OR ix_account_name IS NOT NULL`
+                 FROM integrations`
             ).all().catch(() => ({ results: [] })),
             // How much has actually flowed through each pipe. A draft with
             // documents behind it is a different thing from one with none, and
@@ -123,6 +128,23 @@ export async function GET() {
             const list = subsByUser.get(s.user_id) ?? [];
             list.push(s);
             subsByUser.set(s.user_id, list);
+        }
+
+        /**
+         * The account's InvoiceXpress credentials, by user.
+         *
+         * They live on the `integrations` row — the same row the legacy Shopify
+         * pipe lives on — and NOT on the connection, which is the single fact
+         * behind every incident this page has caused. A Stripe→IX connection
+         * reads its credentials from here, so this page has to as well or it
+         * reports a connection as complete when it cannot issue anything.
+         */
+        const ixCredsByUser = new Map<string, { account: string | null; ready: boolean }>();
+        for (const i of rows(integrationRows)) {
+            ixCredsByUser.set(i.user_id, {
+                account: i.ix_account_name ?? null,
+                ready: !!i.ix_account_name && !!Number(i.has_ix_key),
+            });
         }
 
         const docsByPipe = new Map<string, number>();
@@ -180,7 +202,15 @@ export async function GET() {
             const u = usersById.get(c.user_id);
             const key = `${c.source_kind}:${c.destination_kind}`;
             const hasSource = !!Number(c.has_source);
-            const hasDestination = !!Number(c.has_destination);
+            // For InvoiceXpress, `destination_config_json` holds the fiscal
+            // identity (series, exemption code) and never the credentials, so
+            // "the blob is not empty" answered a different question than the
+            // one being asked. Bestisafil showed here as complete while every
+            // payment died at the proxy for want of an API key.
+            const ixCreds = ixCredsByUser.get(c.user_id);
+            const hasDestination = c.destination_kind === "invoicexpress"
+                ? !!ixCreds?.ready
+                : !!Number(c.has_destination);
             entries.push({
                 kind: "connection",
                 id: c.id,
@@ -196,7 +226,9 @@ export async function GET() {
                 connection_key: key,
                 status: c.status,
                 label: c.admin_label ?? null,
-                identifier: c.stripe_account_id ?? c.shop_domain ?? c.ix_account_name ?? c.moloni_company_name ?? null,
+                identifier: c.stripe_account_id ?? c.shop_domain ?? c.ix_account_name
+                    ?? (c.destination_kind === "invoicexpress" ? ixCreds?.account : null)
+                    ?? c.moloni_company_name ?? null,
                 has_source: hasSource,
                 has_destination: hasDestination,
                 /** What "incomplete" actually means: a side with no credentials
@@ -213,6 +245,18 @@ export async function GET() {
         }
 
         for (const i of rows(integrationRows)) {
+            // A Shopify pipe needs a Shopify half. Listing every row that
+            // merely HAD an ix_account_name invented a "Shopify → InvoiceXpress
+            // (legada)" integration, in draft, marked FALTA SHOPIFY, with zero
+            // documents, on accounts that have no Shopify and never did — the
+            // account's InvoiceXpress credentials, drawn as a broken pipe.
+            //
+            // It reads exactly like junk left behind by a failed setup, so it
+            // gets deleted, and deleting it destroys the credentials the real
+            // connection authenticates with. That is what stopped MeetFrank's
+            // invoicing on 2026-09-11, and it reappeared the moment the
+            // credentials were restored on 2026-09-12.
+            if (!i.shopify_domain) continue;
             const u = usersById.get(i.user_id);
             const shopifyOk = Number(i.shopify_authorized) === 1;
             const ixOk = Number(i.ix_authorized) === 1;
@@ -304,14 +348,28 @@ export async function POST(request: NextRequest) {
         }
 
         const what = legacy ? LEGACY_KEY : `${src}:${dest}`;
-        const say = (result: unknown) => {
+        // A console.warn is not a record: Cloudflare keeps it for minutes and
+        // nobody can query it afterwards. Deleting MeetFrank's legacy row
+        // stopped their invoicing and left nothing behind to say who had done
+        // it, so every action here now writes a durable row too.
+        const say = async (result: unknown) => {
             console.warn(`[admin/integrations] ${action} ${what} on ${targetUserId} by ${userId}`);
+            const failed = !!result && typeof result === "object" && (result as any).ok === false;
+            if (!failed) {
+                await auditConfigChange(db, {
+                    userId: targetUserId, actor: userId,
+                    scope: legacy ? "integrations" : `connection:${src}->${dest}`,
+                    field: `admin:${action}`,
+                    oldValue: "existia",
+                    newValue: (result as any)?.already_gone ? "já não existia" : "removido/limpo",
+                });
+            }
             return NextResponse.json(result as any);
         };
 
         if (action === "pause" || action === "resume") {
             const paused = action === "pause";
-            return say(legacy
+            return await say(legacy
                 ? await setLegacyPaused(db, targetUserId, paused)
                 : await setConnectionStatus(db, targetUserId, src!, dest!, paused ? "paused" : "active"));
         }
@@ -324,17 +382,21 @@ export async function POST(request: NextRequest) {
         }
 
         if (legacy) {
-            if (action === "reset") return say(await resetLegacyIntegration(db, targetUserId));
+            if (action === "reset") {
+                const reset = await resetLegacyIntegration(db, targetUserId, !!body.force);
+                if ("requires_force" in reset) return NextResponse.json(reset, { status: 409 });
+                return await say(reset);
+            }
 
             // Deleting the legacy row takes the account's fiscal settings with
             // it, so a pipe that has issued documents refuses and reports what
             // is attached. The operator confirms against real numbers.
             const result = await deleteLegacyIntegration(db, targetUserId, !!body.force);
             if ("requires_force" in result) return NextResponse.json(result, { status: 409 });
-            return say(result);
+            return await say(result);
         }
 
-        return say(action === "delete"
+        return await say(action === "delete"
             ? await deleteConnection(db, targetUserId, src!, dest!)
             : await resetConnection(db, targetUserId, src!, dest!));
     } catch (error: any) {

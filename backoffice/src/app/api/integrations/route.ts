@@ -5,6 +5,8 @@ import { getRole, isAdmin } from "@/lib/admin";
 import { resolveAccountUser } from "@/lib/account";
 import { primaryConnectionKey } from "@/lib/stripe";
 import { DEFAULT_CONNECTION_KEY } from "@/lib/subscription-key";
+import { ixCredentialsPresent } from "@/lib/destination-credentials";
+import { auditFieldDiff } from "@/lib/config-audit";
 
 export const runtime = "edge";
 
@@ -44,8 +46,18 @@ export async function GET(request: NextRequest) {
         // the account that invited them is not impersonating.
         const isImpersonating = targetUserId !== userId && (await isAdmin(userId));
 
+        // `ix_authorized` is a verdict from the last time a key was tested, and
+        // nothing ever withdrew it: Farracemota's credentials were cleared and
+        // the flag stayed at 1, so their wizard showed InvoiceXpress in green
+        // over an empty account name and every booking would have failed at the
+        // proxy. A verdict about credentials that are no longer there is not a
+        // verdict. Reported as false whenever either half is missing — the
+        // stored row is left alone, so re-validating still restores it.
+        const ixCredsPresent = ixCredentialsPresent(integration as any);
+
         return NextResponse.json({
             ...(integration || {}),
+            ...(integration ? { ix_authorized: ixCredsPresent ? (integration as any).ix_authorized : 0 } : {}),
             _user_id: targetUserId,
             _user_name: userRecord?.name || null,
             _user_role: userRecord?.role || "user",
@@ -129,10 +141,39 @@ export async function POST(request: NextRequest) {
                 final_webhooks_active = existing.webhooks_active;
             }
 
+            // What the two IX columns will actually hold after this write, so the
+            // authorisation flag below can be decided on the result rather than
+            // on the request. A save that clears them has to withdraw the
+            // verdict too, or the wizard goes on showing a green tick over an
+            // account that can no longer issue anything.
+            // BLANK MEANS UNCHANGED, for these two columns only.
+            //
+            // The rest of this UPDATE treats absent as unchanged and an empty
+            // string as "clear it", which is right for a series name or an email
+            // subject. It is wrong here: these two are the only credential the
+            // account has for InvoiceXpress, they are shared by every connection
+            // that files into it, and one wizard posting a blank — a form that
+            // rendered before its GET returned, a page saved on a tab that had
+            // been open since before the key was set — silently locked the
+            // account out. Farracemota lost both this way on 2026-09-10, eleven
+            // minutes after they were validated, and nothing anywhere said so.
+            //
+            // Clearing them is a deliberate act, and there is a deliberate place
+            // for it: the admin console's reset, which is guarded and which also
+            // withdraws `ix_authorized`.
+            const statedIxAccount = typeof ix_account_name === "string" && ix_account_name.trim() ? ix_account_name : undefined;
+            const statedIxKey = typeof ix_api_key === "string" && ix_api_key.trim() ? ix_api_key : undefined;
+            const finalIxAccount = statedIxAccount ?? existing.ix_account_name;
+            const finalIxKey = statedIxKey ?? existing.ix_api_key;
+            const finalIxAuthorized =
+                ixCredentialsPresent({ ix_account_name: finalIxAccount, ix_api_key: finalIxKey })
+                    ? (existing.ix_authorized ?? 0)
+                    : 0;
+
             await db
                 .prepare(`
           UPDATE integrations
-          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, ix_send_email = ?, ix_email_subject = ?, ix_email_body = ?, updated_at = CURRENT_TIMESTAMP
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, ix_send_email = ?, ix_email_subject = ?, ix_email_body = ?, ix_authorized = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 // ABSENT MEANS UNCHANGED.
@@ -155,8 +196,8 @@ export async function POST(request: NextRequest) {
                     shopify_token !== undefined ? (shopify_token || null) : existing.shopify_token,
                     shopify_webhook_secret !== undefined ? (shopify_webhook_secret || null) : existing.shopify_webhook_secret,
                     shopify_api_version !== undefined ? (shopify_api_version || "2026-01") : (existing.shopify_api_version ?? "2026-01"),
-                    ix_account_name !== undefined ? (ix_account_name || null) : existing.ix_account_name,
-                    ix_api_key !== undefined ? (ix_api_key || null) : existing.ix_api_key,
+                    finalIxAccount,
+                    finalIxKey,
                     ix_environment !== undefined ? (ix_environment || "production") : (existing.ix_environment ?? "production"),
                     ix_exemption_reason !== undefined ? (ix_exemption_reason || "M01") : (existing.ix_exemption_reason ?? "M01"),
                     vat_included !== undefined ? (vat_included ? 1 : 0) : (existing.vat_included ?? 1),
@@ -172,9 +213,37 @@ export async function POST(request: NextRequest) {
                     sendEmailBit ?? (existing.ix_send_email ?? 0),
                     emailSubject !== undefined ? emailSubject : (existing.ix_email_subject ?? null),
                     emailBody !== undefined ? emailBody : (existing.ix_email_body ?? null),
+                    finalIxAuthorized,
                     targetUserId
                 )
                 .run();
+
+            // The trail. This UPDATE is the only path in the product that can
+            // change an account's InvoiceXpress credentials, and until now it
+            // recorded nothing — which is why "who blanked Farracemota's key?"
+            // has no answer. One row per column that actually changed, secrets
+            // as presence markers only. Written after the UPDATE so a failed
+            // save leaves no record of a change that did not happen.
+            await auditFieldDiff(
+                db,
+                { userId: targetUserId, actor: userId, scope: "integrations" },
+                existing,
+                {
+                    shopify_domain: shopify_domain !== undefined ? clean_shopify_domain : existing.shopify_domain,
+                    shopify_token: shopify_token !== undefined ? (shopify_token || null) : existing.shopify_token,
+                    shopify_webhook_secret: shopify_webhook_secret !== undefined ? (shopify_webhook_secret || null) : existing.shopify_webhook_secret,
+                    ix_account_name: finalIxAccount,
+                    ix_api_key: finalIxKey,
+                    ix_authorized: finalIxAuthorized,
+                    ix_environment: ix_environment !== undefined ? (ix_environment || "production") : (existing.ix_environment ?? "production"),
+                    ix_sequence_name: ix_sequence_name !== undefined ? (ix_sequence_name || null) : existing.ix_sequence_name,
+                    ix_document_type: ix_document_type !== undefined ? (ix_document_type || "invoice_receipt") : (existing.ix_document_type ?? "invoice_receipt"),
+                    ix_exemption_reason: ix_exemption_reason !== undefined ? (ix_exemption_reason || "M01") : (existing.ix_exemption_reason ?? "M01"),
+                    auto_finalize: auto_finalize !== undefined ? (auto_finalize ? 1 : 0) : (existing.auto_finalize ?? 0),
+                    only_invoice_when_paid: only_invoice_when_paid !== undefined ? (only_invoice_when_paid ? 1 : 0) : (existing.only_invoice_when_paid ?? 0),
+                    ix_send_email: sendEmailBit ?? (existing.ix_send_email ?? 0),
+                },
+            );
         } else {
             const id = crypto.randomUUID();
             await db
@@ -208,6 +277,21 @@ export async function POST(request: NextRequest) {
                     emailBody ?? null
                 )
                 .run();
+
+            // A first save is a change too: from nothing to something. Logged
+            // so the trail starts at the moment the account was configured,
+            // not at its second edit.
+            await auditFieldDiff(
+                db,
+                { userId: targetUserId, actor: userId, scope: "integrations" },
+                null,
+                {
+                    shopify_domain: clean_shopify_domain,
+                    ix_account_name: ix_account_name || null,
+                    ix_api_key: ix_api_key || null,
+                    ix_sequence_name: ix_sequence_name || null,
+                },
+            );
         }
 
         // Shopify merchants are early-bird by default: grant the free-access grace

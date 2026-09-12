@@ -13,6 +13,7 @@ import TrialBanner from "@/components/TrialBanner";
 import { RETURN_SLUG_WIZARD_IX } from "@/lib/oauth-return";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
+import { cn } from "@/lib/utils";
 
 /**
  * Stripe Connect → InvoiceXpress.
@@ -91,6 +92,13 @@ export default function StripeConnectIxIntegration() {
     const [vatIncluded, setVatIncluded] = useState(true);
     const [autoFinalize, setAutoFinalize] = useState(false);
     const [settingsSaved, setSettingsSaved] = useState(false);
+    // Whether the account can actually reach InvoiceXpress. Separate from
+    // `settingsSaved`, which only says a series and a document type were
+    // chosen: this step asks for both halves and used to show its green tick on
+    // the fiscal half alone. Bestisafil saved the settings, never pasted the
+    // credentials, and read "AUTORIZADO" for a day while every payment died at
+    // the proxy with UNAUTHENTICATED.
+    const [ixCredsSaved, setIxCredsSaved] = useState(false);
     // Exactly what the connection states, and nothing else. Starting from {} and
     // only ever merging what the merchant touches is what keeps a key that was
     // never stated from being written as `false` on the next save.
@@ -113,6 +121,7 @@ export default function StripeConnectIxIntegration() {
         if (integ?.ix_api_key) setIxApiKey(String(integ.ix_api_key));
         if (integ?.ix_environment) setIxEnvironment(String(integ.ix_environment));
         const hasIxKey = !!integ?.ix_account_name && !!integ?.ix_api_key;
+        setIxCredsSaved(hasIxKey);
 
         const conn = connect?.connection;
         const sConnected = !!conn?.stripe?.connected;
@@ -375,7 +384,7 @@ export default function StripeConnectIxIntegration() {
             title: tPage("step2Title"),
             description: tPage("step2Desc"),
             icon: FileText,
-            isAuthorized: settingsSaved,
+            isAuthorized: ixCredsSaved && settingsSaved,
             errorMsg: ixError,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
@@ -471,29 +480,36 @@ export default function StripeConnectIxIntegration() {
         },
         {
             id: 3,
-            title: tIx("activateTitle"),
+            // `stripeIxSetup.activateTitle` is numbered by the caller: that
+            // wizard has four steps, this one has three. Omitting the argument
+            // printed the placeholder itself, "Passo {n}".
+            title: tIx("activateTitle", { n: 3 }),
             description: tIx("activateDesc"),
             icon: Zap,
             isAuthorized: connectionStatus === "active",
             body: (
                 <div className="space-y-8">
+                    {/* Both cards used to be hardcoded green. This is the last
+                        screen before a merchant commits, so it is the worst
+                        possible place to state that something is configured
+                        without looking. */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><CreditCard className="w-4 h-4 text-accent-hot" /></div>
-                            <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{tIx("stripeLabel")}</p><p className="text-xs font-bold text-accent-hot">{tIx("configured")}</p></div>
-                            <Check className="w-4 h-4 text-accent-hot ml-auto" />
-                        </div>
-                        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border bg-accent-hot/5 border-accent-hot/20">
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent-hot/10"><FileText className="w-4 h-4 text-accent-hot" /></div>
-                            <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{tIx("ixLabel")}</p><p className="text-xs font-bold text-accent-hot">{tIx("configured")}</p></div>
-                            <Check className="w-4 h-4 text-accent-hot ml-auto" />
-                        </div>
+                        {([
+                            { icon: CreditCard, label: tIx("stripeLabel"), ok: stripeConnected },
+                            { icon: FileText, label: tIx("ixLabel"), ok: ixCredsSaved && settingsSaved },
+                        ] as const).map(({ icon: Icon, label, ok }) => (
+                            <div key={label} className={cn("flex items-center gap-3 px-5 py-4 rounded-2xl border", ok ? "bg-accent-hot/5 border-accent-hot/20" : "bg-soon/5 border-soon/20")}>
+                                <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", ok ? "bg-accent-hot/10" : "bg-soon/10")}><Icon className={cn("w-4 h-4", ok ? "text-accent-hot" : "text-soon")} /></div>
+                                <div><p className="text-[10px] font-black uppercase tracking-wider text-fg-40">{label}</p><p className={cn("text-xs font-bold", ok ? "text-accent-hot" : "text-soon")}>{ok ? tIx("configured") : tIx("statusPending")}</p></div>
+                                {ok && <Check className="w-4 h-4 text-accent-hot ml-auto" />}
+                            </div>
+                        ))}
                     </div>
                     <div className="flex items-start gap-4 bg-surface-2/50 border border-hairline rounded-2xl px-6 py-4">
                         <AlertTriangle className="w-5 h-5 text-soon shrink-0 mt-0.5" />
                         <p className="text-[11px] text-fg-60 leading-relaxed">{tIx("activateWarning")}</p>
                     </div>
-                    <button onClick={handleActivate} disabled={saving || connectionStatus === "active"} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                    <button onClick={handleActivate} disabled={saving || connectionStatus === "active" || !stripeConnected || !ixCredsSaved || !settingsSaved} className="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent-hot hover:text-surface disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                         {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-5 h-5" /> {connectionStatus === "active" ? tIx("active") : tIx("markAsActive")}</>}
                     </button>
                     {globalError && <p className="text-[11px] text-destructive font-bold text-center">{globalError}</p>}
@@ -527,7 +543,7 @@ export default function StripeConnectIxIntegration() {
                 subtitle={tPage("engineSubtitle")}
                 providers={[
                     { icon: CreditCard, authorized: stripeConnected },
-                    { icon: FileText, authorized: settingsSaved },
+                    { icon: FileText, authorized: ixCredsSaved && settingsSaved },
                     { icon: Settings2, authorized: allComplete, color: "accentHot" },
                 ]}
                 allComplete={allComplete}

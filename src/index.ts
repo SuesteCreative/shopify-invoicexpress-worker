@@ -51,6 +51,7 @@ import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
 import { settleLodgifyReceipts } from "./handlers/lodgify-settlement";
 import { pollLodgifyBookings, reportLodgifyRelayDown, reportStaleLodgifyIngest } from "./services/lodgify-poll";
+import { processBuildEventBatch } from "./handlers/build-events";
 import {
   connectionCapabilities, backfillConnection, reemitConnection,
   deleteConnectionDraft, creditConnectionDocument, finalizeConnectionDrafts,
@@ -3318,6 +3319,10 @@ export default {
     configureIxBaseUrl(env);
     // Dispatch by queue name. Stripe + Shopify queues share this consumer;
     // the DLQ ("my-queue-dlq") is also routed here so failures get visibility.
+    if (batch.queue === "worker-build-events") {
+      await processBuildEventBatch(batch as MessageBatch<any>, env);
+      return;
+    }
     if (batch.queue === "my-queue-dlq") {
       await processDeadLetterBatch(batch as MessageBatch<any>, env);
       return;

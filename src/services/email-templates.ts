@@ -57,7 +57,12 @@ export type IncidentKind =
   // the merchant can do nothing about our infrastructure, and the remedy is
   // ours. Distinct from `auth_failure_source` (their credentials) and from a
   // Lodgify IP block (their decision) because the action differs completely.
-  | "lodgify_relay_down";
+  | "lodgify_relay_down"
+  // Cloudflare could not build the worker, so main stopped reaching
+  // production. OPS-ONLY: no merchant can act on it, and nothing else
+  // notices — the backoffice keeps deploying through Pages, so the product
+  // looks healthy while the worker silently serves old code.
+  | "worker_build_failed";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -1117,6 +1122,41 @@ export function tplLodgifyRelayDown(input: IncidentTemplateInput): RenderedTempl
   };
 }
 
+/**
+ * Cloudflare Workers Builds could not build the worker, so the push that
+ * triggered it never reached production.
+ *
+ * OPS-ONLY: `worker_build_failed` is not in MERCHANT_ACTIONABLE_KINDS. It
+ * exists because on 2026-09-11 a failing build left the worker serving
+ * twelve-hour-old code through 41 commits, and nothing anywhere said so: the
+ * GitHub CI went red 38 times unread, and the backoffice kept deploying
+ * normally through Pages, so the product looked fine the whole time.
+ */
+export function tplWorkerBuildFailed(input: IncidentTemplateInput): RenderedTemplate {
+  const d = input.detail ?? {};
+  const where = [d.branch, d.commit ? String(d.commit).slice(0, 7) : null].filter(Boolean).join(" @ ");
+  const body = `
+    ${paragraph("A Cloudflare não conseguiu construir o worker, por isso este commit NÃO está em produção. O worker continua a servir a versão anterior, e continuará até um build passar.")}
+    ${calloutBox("Build que falhou", where ? `${where}${d.outcome ? ` — ${d.outcome}` : ""}` : (d.outcome ?? "desconhecido"), P().error)}
+    ${stepsList([
+      "Workers & Pages → shopify-invoicexpress-worker → Deployments: abrir o build e ler a fase que falhou.",
+      "O Build command corre npm ci && tsc --noEmit && npm test. Só instala as dependências da RAIZ: um import em backoffice/src/ de um pacote que só exista em backoffice/package.json faz a suite nem carregar.",
+      "Reproduzir como o CI: correr npx vitest run com backoffice/node_modules fora do caminho, e não com ele.",
+      "Confirmar o que está mesmo em produção: GET /admin/version — o commit tem de ser o do main.",
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+  `;
+  return {
+    subject: "[Rioko 2.0] O worker não está a publicar — build falhou",
+    html: shell({
+      title: "Build do worker falhou",
+      preheader: "Produção ficou na versão anterior.",
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTemplateInput): RenderedTemplate {
   switch (kind) {
     case "document_drift": return tplDocumentDrift(input);
@@ -1137,6 +1177,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "currency_not_supported": return tplCurrencyNotSupported(input);
     case "simplified_invoice_downgraded": return tplSimplifiedInvoiceDowngraded(input);
     case "lodgify_relay_down": return tplLodgifyRelayDown(input);
+    case "worker_build_failed": return tplWorkerBuildFailed(input);
   }
 }
 

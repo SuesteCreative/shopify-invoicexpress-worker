@@ -176,6 +176,14 @@
         "queue": "my-queue-dlq",
         "max_batch_size": 5,
         "max_retries": 1
+      },
+      // Cloudflare's own Workers Builds events. Subscribed to build.failed and
+      // build.canceled only, so anything arriving here means main did not reach
+      // production — see src/handlers/build-events.ts.
+      {
+        "queue": "worker-build-events",
+        "max_batch_size": 5,
+        "max_retries": 1
       }
     ]
   },

@@ -72,12 +72,17 @@ const merchantHref = (row: Row) => merchantIntegrationHref(row.source, row.desti
 
 const n = (v: number) => new Intl.NumberFormat("pt-PT").format(v);
 
+const msOf = (s: string | null) => {
+    if (!s) return NaN;
+    const d = new Date(s.replace(" ", "T"));
+    return d.getTime();
+};
+
 const dateOf = (s: string | null) => {
-    if (!s) return "—";
     // Both timestamp shapes live in these columns; the date is the part that
     // agrees between them.
-    const d = new Date(s.replace(" ", "T"));
-    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-PT");
+    const ms = msOf(s);
+    return isNaN(ms) ? "—" : new Date(ms).toLocaleDateString("pt-PT");
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -112,6 +117,7 @@ export function IntegrationsPanel() {
     const [completeness, setCompleteness] = useState<"all" | "complete" | "incomplete">("all");
     const [source, setSource] = useState("all");
     const [destination, setDestination] = useState("all");
+    const [order, setOrder] = useState<"newest" | "oldest">("newest");
 
     const [pending, setPending] = useState<Pending | null>(null);
     const [typed, setTyped] = useState("");
@@ -213,7 +219,7 @@ export function IntegrationsPanel() {
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
-        return (data ?? []).filter((r) => {
+        const rows = (data ?? []).filter((r) => {
             if (status !== "all" && r.status !== status) return false;
             if (completeness === "complete" && !r.complete) return false;
             if (completeness === "incomplete" && r.complete) return false;
@@ -224,7 +230,14 @@ export function IntegrationsPanel() {
                 .filter(Boolean)
                 .some((v) => String(v).toLowerCase().includes(q));
         });
-    }, [data, search, status, completeness, source, destination]);
+        // Undated rows sit at the bottom either way: there is no date to rank them by.
+        return rows.sort((a, b) => {
+            const x = msOf(a.created_at);
+            const y = msOf(b.created_at);
+            if (isNaN(x) || isNaN(y)) return isNaN(x) ? (isNaN(y) ? 0 : 1) : -1;
+            return order === "newest" ? y - x : x - y;
+        });
+    }, [data, search, status, completeness, source, destination, order]);
 
     const counts = useMemo(() => {
         const all = data ?? [];
@@ -307,6 +320,10 @@ export function IntegrationsPanel() {
                 <select value={destination} onChange={(e) => setDestination(e.target.value)} className={selectCls}>
                     <option value="all">Qualquer destino</option>
                     {destinations.map((d) => <option key={d} value={d}>{kindLabel(d)}</option>)}
+                </select>
+                <select value={order} onChange={(e) => setOrder(e.target.value as any)} className={selectCls}>
+                    <option value="newest">Mais recentes primeiro</option>
+                    <option value="oldest">Mais antigas primeiro</option>
                 </select>
             </div>
 

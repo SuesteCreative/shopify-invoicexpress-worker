@@ -22,7 +22,8 @@
     "preview": "wrangler dev -c wrangler.jsonc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "gen:redact": "esbuild src/services/redact.ts --bundle --format=esm --platform=node --outfile=scripts/.gen/redact.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240101.0",

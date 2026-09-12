@@ -40,3 +40,35 @@ backup-*.sql
 
 # Local snapshot taken before deploying Stripe Connect; machine-specific.
 .stripe-connect-baseline.json
+
+# Next build output at the REPO ROOT. The app lives in backoffice/; anything
+# here came from running next dev in the wrong directory.
+.next/
+*.err.log
+
+# Client documents: contracts, invoices, spreadsheets, onboarding PDFs. The
+# .env inside is already covered, the rest was one `git add .` from being
+# published.
+custom-clients/
+
+# The InvoiceXpress OpenAPI spec, kept locally to regenerate src/api/ix/client.
+# The GENERATED client is what the repo tracks; the 88 KB input is not, and it
+# was sitting here twice under two names.
+ixproxy.json
+.ixproxy.json
+
+# One-off scratch scripts. This list grew a hole every time someone invented a
+# new prefix (diag-, reemit-, then fix-, mm-, inspect-, recover-), so new
+# throwaways go in scripts/scratch/ and are covered whatever they are called.
+scripts/scratch/
+scripts/fix-*.mjs
+scripts/mm-*.mjs
+scripts/inspect-*.mjs
+scripts/recover-*.mjs
+
+# Local editor/agent state and personal helpers.
+.claude/launch.json
+_git_push.bat
+
+# Output of `wrangler deploy --dry-run --outdir`.
+.drybuild/

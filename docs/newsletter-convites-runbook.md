@@ -114,11 +114,25 @@ O que convém vigiar, em `/admin/financeiro` → **Convites**:
 - `reconciled_from_stripe` — o crédito já estava no Stripe e a linha é que tinha
   ficado para trás. Não é erro, é a linha a apanhar a realidade.
 
-Uma coisa que fica por fazer e é decisão, não esquecimento: **um reembolso não
-reverte o crédito**. Se o convidado for reembolsado depois de o convidante ser
-creditado, os 2 meses ficam dados. Numa frota desta dimensão isso vê-se no cartão
-dos Convites e corrige-se à mão no Stripe; automatizar a reversão custa mais do
-que o risco, enquanto a campanha for por convite e por NIF distinto.
+### Reembolsos
+
+**Um reembolso não reverte o crédito**, e isso é decisão, não esquecimento: os
+reembolsos são feitos à mão no nosso Stripe, portanto quem os faz já lá está, com
+o saldo do convidante a um clique. Automatizar a reversão custava mais do que o
+risco.
+
+O passo que falta, quando se reembolsa a **primeira** factura de alguém:
+
+1. em `/admin/financeiro` → **Convites**, procurar a linha em que essa pessoa é a
+   convidada. Se não existir nenhuma, ou se estiver em `inscreveu-se`, acabou:
+   ninguém foi creditado por ela;
+2. se estiver em `creditado`, a linha diz o valor. No Stripe, no cliente do
+   **convidante** → *Balance* → *Adjust balance*, lançar esse valor **positivo**
+   (o crédito é negativo, logo o simétrico anula-o), com uma descrição a dizer
+   porquê.
+
+Não mexer na linha da base de dados: ela é o registo do que aconteceu, e pô-la de
+novo a `paid` faz o próximo pagamento do convidante creditar tudo outra vez.
 
 A data de fim (31/10/2026) vive em `CAMPAIGN_END`, em
 `backoffice/src/lib/referral.ts`. Fecha o **resgate**, nunca o **crédito**: quem

@@ -4,7 +4,8 @@ import { isHiperadmin } from "@/lib/admin";
 import { getStripe } from "@/lib/stripe";
 import { buildPriceBook } from "@/lib/price-book";
 import {
-    requiredPrices, statusOf, PRODUCT_TAX_CODE, PRODUCT_IMAGE_URL, type RequiredPrice,
+    requiredPrices, statusOf, PRODUCT_TAX_CODE, PRODUCT_IMAGE_URL,
+    SEAT_PRICE_LOOKUP, SEAT_PRICE_CENTS, type RequiredPrice,
 } from "@/lib/price-catalogue";
 
 export const runtime = "edge";
@@ -48,9 +49,9 @@ async function priceBook(stripe: any): Promise<Map<string, any>> {
  * and so is an image already uploaded through the dashboard — this exists to
  * close the gaps, not to impose a house style on live products.
  */
-function templateGaps(product: any, req: RequiredPrice): Record<string, any> {
+function templateGaps(product: any, description: string): Record<string, any> {
     const patch: Record<string, any> = {};
-    if (!product.description) patch.description = req.productDescription;
+    if (!product.description) patch.description = description;
     if (!product.tax_code) patch.tax_code = PRODUCT_TAX_CODE;
     if (!product.images?.length) patch.images = [PRODUCT_IMAGE_URL];
     if (product.metadata?.app !== "rioko") patch.metadata = { ...(product.metadata ?? {}), app: "rioko" };
@@ -59,11 +60,11 @@ function templateGaps(product: any, req: RequiredPrice): Record<string, any> {
 
 /** Fill those gaps on a product that already exists. Returns what it filled. */
 async function fillProductTemplate(
-    stripe: any, productId: string, req: RequiredPrice, dryRun: boolean,
+    stripe: any, productId: string, description: string, dryRun: boolean,
 ): Promise<string[]> {
     const product = await stripe.products.retrieve(productId).catch(() => null);
     if (!product) return [];
-    const patch = templateGaps(product, req);
+    const patch = templateGaps(product, description);
     const filled = Object.keys(patch);
     if (filled.length && !dryRun) await stripe.products.update(productId, patch);
     return filled;
@@ -103,7 +104,11 @@ async function productFor(stripe: any, req: RequiredPrice, book: Map<string, any
     }
 
     if (existing) {
-        return { id: existing.id, created: false, filled: await fillProductTemplate(stripe, existing.id, req, dryRun) };
+        return {
+            id: existing.id,
+            created: false,
+            filled: await fillProductTemplate(stripe, existing.id, req.productDescription, dryRun),
+        };
     }
 
     if (dryRun) return { id: null, created: true, filled: ["description", "tax_code", "images", "metadata"] };
@@ -160,7 +165,7 @@ export async function POST(request: NextRequest) {
                 const pid = typeof existing?.product === "string" ? existing.product : existing?.product?.id;
                 if (pid && !productsSeen.has(req.productName)) {
                     productsSeen.add(req.productName);
-                    const filled = await fillProductTemplate(stripe, pid, req, dryRun).catch(() => []);
+                    const filled = await fillProductTemplate(stripe, pid, req.productDescription, dryRun).catch(() => []);
                     if (filled.length) {
                         planned.push({
                             action: "product",
@@ -245,6 +250,30 @@ export async function POST(request: NextRequest) {
             }
 
             planned.push(entry);
+        }
+
+        // The seat is not a pair, so the loop above never reaches it — and its
+        // product was the only one in the catalogue with no image at all. The
+        // price itself is never created here: it is one-off, it exists, and
+        // what it should cost is a decision, not a gap to fill.
+        const seat = book.get(SEAT_PRICE_LOOKUP);
+        const seatProductId = typeof seat?.product === "string" ? seat.product : seat?.product?.id;
+        if (seatProductId) {
+            const filled = await fillProductTemplate(
+                stripe, seatProductId, "Um utilizador extra na sua conta Rioko 2.0. || An extra user on your Rioko 2.0 account.", dryRun,
+            ).catch(() => []);
+            if (filled.length) {
+                planned.push({
+                    action: "product",
+                    lookup: SEAT_PRICE_LOOKUP,
+                    product_name: "Rioko 2.0 || Extra User",
+                    product_id: seatProductId,
+                    product_filled: filled,
+                    amount_cents: SEAT_PRICE_CENTS,
+                    interval: "one_time",
+                    created: false,
+                });
+            }
         }
 
         console.warn(`[admin/finance/prices] ${dryRun ? "dry run" : "applied"} ${planned.length} by ${userId}`);

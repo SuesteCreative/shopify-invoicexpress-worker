@@ -20,6 +20,46 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+        "version": "8.5.0",
+        "emoji": "✨",
+        "title": "A version ladder, and patch notes for two audiences",
+        "date": "September 12, 2026",
+        "commit": "9e047dd",
+        "highlight": false,
+        "body": [
+            {
+                "t": "h",
+                "text": "Para o comerciante"
+            },
+            {
+                "t": "li",
+                "text": "A versão no fundo do menu lateral passa a abrir as notas de versão, com o que mudou para ti em cada uma."
+            },
+            {
+                "t": "h",
+                "text": "Novo"
+            },
+            {
+                "t": "li",
+                "text": "**changelog** — a version ladder, and patch notes for two audiences"
+            },
+            {
+                "t": "h",
+                "text": "Manutenção"
+            },
+            {
+                "t": "li",
+                "text": "close the gitignore holes, and a backfill for the credentials already logged"
+            }
+        ],
+        "publicBody": [
+            {
+                "t": "li",
+                "text": "A versão no fundo do menu lateral passa a abrir as notas de versão, com o que mudou para ti em cada uma."
+            }
+        ]
+    },
+    {
         "version": "8.4.0",
         "emoji": "✨",
         "title": "Consola financeira, fim do preço antigo e OAuth Shopify",

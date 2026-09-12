@@ -5,6 +5,22 @@ que gera `src/lib/version.ts` e `src/lib/changelog.generated.ts` — o rodapé d
 `/changelog` saem daqui. O comentário `<!-- release: sha -->` marca o último commit incluído na
 versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
+## ✨ Version 8.5.0 — A version ladder, and patch notes for two audiences — September 12, 2026
+
+<!-- release: 9e047dd -->
+
+### Para o comerciante
+
+- A versão no fundo do menu lateral passa a abrir as notas de versão, com o que mudou para ti em cada uma.
+
+### Novo
+
+- **changelog** — a version ladder, and patch notes for two audiences
+
+### Manutenção
+
+- close the gitignore holes, and a backfill for the credentials already logged
+
 ## ✨ Version 8.4.0 — Consola financeira, fim do preço antigo e OAuth Shopify — September 12, 2026
 
 <!-- release: 3d66552 -->

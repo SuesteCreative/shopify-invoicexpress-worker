@@ -119,11 +119,16 @@ export default function StripeConnectIxIntegration() {
         if (integ?.user_id) setTargetUserId(integ.user_id);
         // InvoiceXpress credentials live on the legacy row: one IX account per
         // Rioko account, shared by every connection that files into it.
-        if (integ?.ix_account_name) setIxAccount(String(integ.ix_account_name));
+        // The connection's name first, the account's legacy row as fallback.
+        const ixName = source?.connection?.ix_account_name ?? integ?.ix_account_name;
+        if (ixName) setIxAccount(String(ixName));
         if (integ?.ix_environment) setIxEnvironment(String(integ.ix_environment));
         // The key itself stays on the server; `has_ix_api_key` says whether one
         // is stored, which is all this page ever did with it.
-        const hasIxKey = !!integ?.ix_account_name && !!integ?.has_ix_api_key;
+        // The connection's own credentials first; the account's legacy row is
+        // the fallback for a setup made before a connection could hold them.
+        const hasIxKey = !!source?.connection?.has_ix_credentials
+            || (!!integ?.ix_account_name && !!integ?.has_ix_api_key);
         setIxKeyStored(!!integ?.has_ix_api_key);
         setIxCredsSaved(hasIxKey);
 
@@ -224,27 +229,22 @@ export default function StripeConnectIxIntegration() {
         setSaving(true);
         setIxError("");
         try {
-            // Credentials to the legacy row, fiscal identity to the connection.
-            // Two integrations of one account may file into the SAME IX account
-            // and still need different series, which is why the split exists.
-            const credsRes = await fetch("/api/integrations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                // An absent key means "leave it alone"; an empty string would be
-                // stored as NULL and lock the account out of InvoiceXpress.
-                body: JSON.stringify({
+            // Credentials AND fiscal identity on the connection, in one post.
+            //
+            // They used to be split: the credentials went to the account's
+            // legacy `integrations` row and the fiscal identity here. That split
+            // gave an account with no Shopify an `integrations` row anyway, the
+            // admin console drew it as a broken "Shopify → InvoiceXpress" pipe,
+            // and deleting the pipe that did not exist destroyed the credential
+            // that did. It cost MeetFrank and Bestisafil their invoicing.
+            const fiscalRes = await postSource({
+                ix_credentials: {
                     ix_account_name: ixAccount.trim(),
+                    // An absent key means "leave it alone" — a form that
+                    // rendered before its GET returned must not clear one.
                     ...(ixApiKey.trim() ? { ix_api_key: ixApiKey.trim() } : {}),
                     ix_environment: ixEnvironment,
-                }),
-            });
-            if (!credsRes.ok) {
-                const d: any = await credsRes.json().catch(() => ({}));
-                setIxError(d.error ?? tIx("errorSaveCreds"));
-                return;
-            }
-
-            const fiscalRes = await postSource({
+                },
                 fiscal: {
                     ix_sequence_name: ixSequenceName.trim(),
                     ix_document_type: ixDocumentType,

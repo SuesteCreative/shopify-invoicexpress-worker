@@ -123,9 +123,11 @@ export default function StripeIXIntegration() {
             if (integ._user_name) setDbUserName(integ._user_name);
             if (integ.shopify_domain) setShopifyDomain(integ.shopify_domain);
             if (integ.shopify_api_version) setShopifyApiVersion(integ.shopify_api_version);
-            if (integ.ix_account_name) setIxAccount(integ.ix_account_name);
+            const ixName = stripe?.connection?.ix_account_name ?? integ.ix_account_name;
+            if (ixName) setIxAccount(ixName);
             // The key itself stays on the server; this only says one is stored.
-            setIxKeyStored(!!integ.has_ix_api_key);
+            // The connection's own credentials first, the legacy row as fallback.
+            setIxKeyStored(!!stripe?.connection?.has_ix_credentials || !!integ.has_ix_api_key);
             if (integ.ix_environment) setIxEnvironment(integ.ix_environment);
             if (integ.ix_exemption_reason) setExemptionReason(integ.ix_exemption_reason);
             if (integ.vat_included !== undefined) setVatIncluded(integ.vat_included === 1);
@@ -323,7 +325,19 @@ export default function StripeIXIntegration() {
             const connectionFiscal = { ...fiscal, vat_included: vatIncluded, auto_finalize: autoFinalize, ...registrations };
 
             if (stripeAccountId) {
-                const fiscalRes = await postStripeSource({ fiscal: connectionFiscal });
+                // The credentials travel with the connection now, beside its
+                // fiscal identity. Keeping them only on the account's legacy row
+                // is what gave a Stripe-only account an `integrations` row, which
+                // the admin console then drew as a broken "Shopify → InvoiceXpress"
+                // pipe — and deleting that phantom destroyed the real credential.
+                const fiscalRes = await postStripeSource({
+                    fiscal: connectionFiscal,
+                    ix_credentials: {
+                        ix_account_name: ixAccount.trim(),
+                        ...(ixApiKey.trim() ? { ix_api_key: ixApiKey.trim() } : {}),
+                        ix_environment: ixEnvironment,
+                    },
+                });
                 if (!fiscalRes.ok) { alert(t("alertSaveError")); return; }
             }
 
@@ -333,7 +347,13 @@ export default function StripeIXIntegration() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     shopify_domain: shopifyDomain, shopify_api_version: shopifyApiVersion,
-                    ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
+                    // Only a shop's own row gets the credentials. On an account
+                    // with no Shopify that row is not an integration at all, and
+                    // writing to it is what conjures the phantom pipe; the
+                    // connection above already holds what this sale needs.
+                    ...(ownedByShopify
+                        ? { ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment }
+                        : {}),
                     vat_included: vatIncluded, auto_finalize: autoFinalize,
                     ix_payment_term: ixPaymentTerm,
                     ix_exemption_reason: legacyBody.ix_exemption_reason,
@@ -347,7 +367,9 @@ export default function StripeIXIntegration() {
             const valRes = await fetch("/api/integrations/validate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ type: "ix" })
+                // Name the connection so the check tests ITS credentials, not
+                // the account's legacy row.
+                body: JSON.stringify({ type: "ix", ...(stripeAccountId ? { source_kind: "stripe" } : {}) })
             });
             const valData = await valRes.json() as any;
             setIxAuthorized(valData.isValid);

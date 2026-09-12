@@ -2,7 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
-import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection } from "@/lib/connection-fiscal";
+import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection, ixAccountNameOnConnection } from "@/lib/connection-fiscal";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
             // Whether this connection holds its own InvoiceXpress credentials.
             // The values themselves never leave the server.
             has_ix_credentials: ixCredentialsOnConnection(row.destination_config_json),
+            ix_account_name: ixAccountNameOnConnection(row.destination_config_json),
         }
     });
 }

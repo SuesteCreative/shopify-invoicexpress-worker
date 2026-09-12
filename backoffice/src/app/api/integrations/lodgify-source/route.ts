@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
-import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection } from "@/lib/connection-fiscal";
+import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection, ixAccountNameOnConnection } from "@/lib/connection-fiscal";
 import { callWorkerJson } from "@/lib/worker";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
             // non-Shopify source that is what the worker reads.
             fiscal: readConnectionFiscal(row.destination_config_json),
             has_ix_credentials: ixCredentialsOnConnection(row.destination_config_json),
+            ix_account_name: ixAccountNameOnConnection(row.destination_config_json),
             created_at: row.created_at,
             updated_at: row.updated_at,
             webhook_url: `${WORKER_BASE}/webhooks/lodgify/${authResult.targetUserId}`,

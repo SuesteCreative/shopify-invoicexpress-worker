@@ -216,7 +216,13 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
         // The key itself stays on the server; `has_ix_api_key` is the presence
         // answer, which is all this step ever read it for.
         setIxKeyStored(!!integ?.has_ix_api_key);
-        setIxSaved(!!integ?.ix_account_name && !!integ?.has_ix_api_key);
+        // The connection's own credentials first; the account's legacy row is
+        // the fallback for a setup made before a connection could hold them.
+        const connIxName = source?.connection?.ix_account_name;
+        if (connIxName) setIxAccount(String(connIxName));
+        if (source?.connection?.has_ix_credentials) setIxKeyStored(true);
+        setIxSaved(!!source?.connection?.has_ix_credentials
+            || (!!integ?.ix_account_name && !!integ?.has_ix_api_key));
         setIxVerified(integ?.ix_authorized === 1);
 
         // The fiscal identity this connection states for itself. Absent means
@@ -350,13 +356,25 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
         setIxError("");
         setIxVerified(false);
         try {
-            const credsRes = await fetch("/api/integrations", {
+            // The credentials go on the connection, beside its fiscal identity.
+            // On the account's legacy row they gave a merchant with no Shopify an
+            // `integrations` row that the admin console drew as a broken
+            // "Shopify → InvoiceXpress" pipe; deleting that phantom destroyed the
+            // credential the real connection uses.
+            const credsRes = await fetch("/api/integrations/stripe-source", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    ix_account_name: account,
-                    ix_api_key: ixApiKey.trim(),
-                    ix_environment: "production",
+                    source_kind: "stripe_connect",
+                    destination_kind: "invoicexpress",
+                    ix_credentials: {
+                        ix_account_name: account,
+                        // Absent means "leave it alone": the merchant who comes
+                        // back to this step with a key already stored types
+                        // nothing, and must not lose it.
+                        ...(ixApiKey.trim() ? { ix_api_key: ixApiKey.trim() } : {}),
+                        ix_environment: "production",
+                    },
                 }),
             });
             if (!credsRes.ok) {
@@ -370,7 +388,7 @@ export default function ConnectIxOnboarding({ invite }: { invite?: string }) {
             const check = await fetch("/api/integrations/validate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ type: "ix" }),
+                body: JSON.stringify({ type: "ix", source_kind: "stripe_connect" }),
             });
             // `isValid`, not `valid`: the endpoint answers 200 with the verdict
             // in the body, and reading `res.ok` alone calls a rejected key good.

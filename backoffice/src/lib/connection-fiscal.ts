@@ -134,3 +134,11 @@ export function ixCredentialsOnConnection(destinationConfigJson: string | null |
     try { cfg = destinationConfigJson ? JSON.parse(destinationConfigJson) : {}; } catch { cfg = {}; }
     return !!String(cfg.ix_account_name ?? "").trim() && !!String(cfg.ix_api_key ?? "").trim();
 }
+
+/** The connection's IX account name — not a secret, and the wizard shows it. */
+export function ixAccountNameOnConnection(destinationConfigJson: string | null | undefined): string | null {
+    let cfg: Record<string, any> = {};
+    try { cfg = destinationConfigJson ? JSON.parse(destinationConfigJson) : {}; } catch { cfg = {}; }
+    const name = String(cfg.ix_account_name ?? "").trim();
+    return name || null;
+}

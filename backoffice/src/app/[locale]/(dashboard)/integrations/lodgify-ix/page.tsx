@@ -134,6 +134,17 @@ export default function LodgifyIxIntegration() {
                         // applies: for a non-Shopify source it reads the
                         // connection and nothing else. The form has to show what
                         // the next document will actually use.
+
+                        // The credentials this connection holds for itself win
+                        // over the account's legacy row, the same precedence the
+                        // worker applies.
+                        if ((data.connection as any).has_ix_credentials) {
+                            setIxKeyStored(true);
+                            ixOk = true;
+                        }
+                        const connIxName = (data.connection as any).ix_account_name;
+                        if (connIxName) setIxAccount(String(connIxName));
+
                         const fiscal = data.connection.fiscal ?? {};
                         if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
                         if (fiscal.ix_exemption_reason) setExemptionReason(fiscal.ix_exemption_reason);
@@ -206,10 +217,25 @@ export default function LodgifyIxIntegration() {
         if (!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)) { setIxError(t("errorIxRequired")); return; }
         setSaving(true);
         try {
-            const saveRes = await fetch("/api/integrations", {
+            // The credentials belong to THIS connection, beside its fiscal
+            // identity. Sent to the account's legacy row, they gave an account
+            // with no Shopify an `integrations` row that the admin console drew
+            // as a broken "Shopify → InvoiceXpress" pipe — and deleting that
+            // phantom destroyed the credential the connection actually uses.
+            const saveRes = await fetch("/api/integrations/lodgify-source", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment }),
+                body: JSON.stringify({
+                    destination_kind: "invoicexpress",
+                    ix_credentials: {
+                        ix_account_name: ixAccount.trim(),
+                        // Absent means "leave it alone": a form that
+                        // rendered before its GET returned must not
+                        // clear a credential that is already stored.
+                        ...(ixApiKey.trim() ? { ix_api_key: ixApiKey.trim() } : {}),
+                        ix_environment: ixEnvironment,
+                    },
+                }),
             });
             if (!saveRes.ok) {
                 const json: any = await saveRes.json().catch(() => ({}));
@@ -219,7 +245,7 @@ export default function LodgifyIxIntegration() {
             const valRes = await fetch("/api/integrations/validate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ type: "ix" }),
+                body: JSON.stringify({ type: "ix", source_kind: "lodgify" }),
             });
             const valData: any = await valRes.json().catch(() => ({}));
             setIxAuthorized(valData.isValid);

@@ -57,6 +57,18 @@ function templateGaps(product: any, req: RequiredPrice): Record<string, any> {
     return patch;
 }
 
+/** Fill those gaps on a product that already exists. Returns what it filled. */
+async function fillProductTemplate(
+    stripe: any, productId: string, req: RequiredPrice, dryRun: boolean,
+): Promise<string[]> {
+    const product = await stripe.products.retrieve(productId).catch(() => null);
+    if (!product) return [];
+    const patch = templateGaps(product, req);
+    const filled = Object.keys(patch);
+    if (filled.length && !dryRun) await stripe.products.update(productId, patch);
+    return filled;
+}
+
 /**
  * The product this price belongs on, carrying the whole template.
  *
@@ -91,10 +103,7 @@ async function productFor(stripe: any, req: RequiredPrice, book: Map<string, any
     }
 
     if (existing) {
-        const patch = templateGaps(existing, req);
-        const filled = Object.keys(patch);
-        if (filled.length && !dryRun) await stripe.products.update(existing.id, patch);
-        return { id: existing.id, created: false, filled };
+        return { id: existing.id, created: false, filled: await fillProductTemplate(stripe, existing.id, req, dryRun) };
     }
 
     if (dryRun) return { id: null, created: true, filled: ["description", "tax_code", "images", "metadata"] };
@@ -141,9 +150,32 @@ export async function POST(request: NextRequest) {
         for (const req of requiredPrices()) {
             const existing = req.lookup ? book.get(req.lookup) : null;
             const status = statusOf(req, existing);
+
             // An archived price is a deliberate act and a client may still be on
             // it; un-archiving one silently is not this endpoint's business.
-            if (status !== "missing" && status !== "wrong_amount") continue;
+            // But a price can be perfectly right and still sit on a product with
+            // no description, no tax code and no image — which is most of them,
+            // because the creator only ever set a name. Fill those and move on.
+            if (status !== "missing" && status !== "wrong_amount") {
+                const pid = typeof existing?.product === "string" ? existing.product : existing?.product?.id;
+                if (pid && !productsSeen.has(req.productName)) {
+                    productsSeen.add(req.productName);
+                    const filled = await fillProductTemplate(stripe, pid, req, dryRun).catch(() => []);
+                    if (filled.length) {
+                        planned.push({
+                            action: "product",
+                            lookup: req.lookup,
+                            product_name: req.productName,
+                            product_id: pid,
+                            product_filled: filled,
+                            amount_cents: req.amountCents,
+                            interval: req.interval,
+                            created: false,
+                        });
+                    }
+                }
+                continue;
+            }
 
             const entry: any = {
                 action: status === "missing" ? "create" : "replace",

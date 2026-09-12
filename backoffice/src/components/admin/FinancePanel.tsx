@@ -95,7 +95,7 @@ interface Finance {
 interface CreateResult {
     dry_run: boolean;
     prices: {
-        action?: "create" | "replace";
+        action?: "create" | "replace" | "product";
         lookup: string; product_name: string; amount_cents: number; interval: string;
         product_id?: string | null; product_created?: boolean; product_filled?: string[];
         replaces_price_id?: string; replaces_amount_cents?: number; replaces_subscriptions?: number | null;
@@ -475,16 +475,21 @@ export function FinancePanel() {
                         pagamento único. Corrigir no Stripe.
                     </p>
                 )}
-                {(data.price_catalogue ?? []).some((p) => p.status === "missing" || p.status === "wrong_amount") && (
+                {/* Sempre disponível, mesmo com a tabela toda a verde: a simulação
+                    também diz se algum produto está sem descrição, sem código de
+                    imposto ou sem imagem, o que a tabela não mostra. */}
+                {(
                     <div className="space-y-3 pt-1">
-                        <p className="text-[11px] text-destructive">
-                            Os marcados POR CRIAR não existem no Stripe, e o checkout desse par falha
-                            no momento de pagar. São criados com a lookup key da terceira coluna, em
-                            euros e sem IVA incluído — a taxa é o checkout que a junta.
-                            Os marcados VALOR ERRADO existem e estão a vender pelo preço errado: são
-                            substituídos por um preço novo que fica com a mesma chave, e o antigo é
-                            arquivado. Quem já lá está continua a pagar o que pagava.
-                        </p>
+                        {(data.price_catalogue ?? []).some((p) => p.status === "missing" || p.status === "wrong_amount") && (
+                            <p className="text-[11px] text-destructive">
+                                Os marcados POR CRIAR não existem no Stripe, e o checkout desse par falha
+                                no momento de pagar. São criados com a lookup key da terceira coluna, em
+                                euros e sem IVA incluído — a taxa é o checkout que a junta.
+                                Os marcados VALOR ERRADO existem e estão a vender pelo preço errado: são
+                                substituídos por um preço novo que fica com a mesma chave, e o antigo é
+                                arquivado. Quem já lá está continua a pagar o que pagava.
+                            </p>
+                        )}
                         {createResult && (
                             <div className="rounded-2xl p-4 bg-surface-2 border border-hairline space-y-1">
                                 <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">
@@ -494,9 +499,11 @@ export function FinancePanel() {
                                     <p className="text-[11px] text-fg-40">Nada em falta.</p>
                                 )}
                                 {createResult.prices.map((cp) => (
-                                    <p key={cp.lookup} className="font-mono text-[11px] text-fg">
+                                    <p key={`${cp.action ?? "create"}:${cp.lookup}`} className="font-mono text-[11px] text-fg">
                                         {cp.error
                                             ? <span className="text-destructive">{cp.lookup}: {cp.error}</span>
+                                            : cp.action === "product"
+                                            ? <>{cp.product_name} · só o produto<span className="text-soon"> · preenche {cp.product_filled?.join(", ")}</span></>
                                             : <>{cp.lookup} · {cp.product_name} · {eur(cp.amount_cents)}/{cp.interval === "year" ? "ano" : "mês"}
                                                 {cp.action === "replace" && (
                                                     <span className="text-destructive">

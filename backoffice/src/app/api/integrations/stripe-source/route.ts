@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
+import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
 export const runtime = "edge";
 
@@ -109,6 +110,12 @@ export async function POST(request: NextRequest) {
     const { env } = getRequestContext();
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+
+    // The destination half of the same rule the source half has always had.
+    if (status === "active") {
+        const missing = await missingDestinationCredentials(db, authResult.targetUserId, sourceKind, destinationKind);
+        if (missing) return NextResponse.json({ error: missing }, { status: 409 });
+    }
 
     // Only ever the fields this request actually carries. The upsert below MERGES
     // this into whatever the row already holds (json_patch) instead of replacing

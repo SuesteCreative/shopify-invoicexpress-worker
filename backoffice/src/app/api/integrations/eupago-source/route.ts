@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
+import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
 export const runtime = "edge";
 
@@ -100,6 +101,12 @@ export async function POST(request: NextRequest) {
     const { env } = getRequestContext();
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+
+    // The destination half of the same rule.
+    if (status === "active") {
+        const missing = await missingDestinationCredentials(db, authResult.targetUserId, "eupago", destinationKind);
+        if (missing) return NextResponse.json({ error: missing }, { status: 409 });
+    }
 
     // The fiscal identity of the documents this connection issues — series,
     // exemption code, document type, whether prices already include tax.

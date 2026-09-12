@@ -41,6 +41,7 @@ import {
   getShopForUser,
 } from "./handlers/reconciliation";
 import { runViesRetry, submitInvoiceForPendingRow } from "./handlers/pending-reverse-charge";
+import { runConnectionHealthCheck } from "./services/connection-health";
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
@@ -1948,6 +1949,21 @@ async function resolveRouteConnection(c: Context<{ Bindings: Env }>, body: Conne
   return { error: c.json({ error: `No active connection for user ${body.user_id}` }, 404) };
 }
 
+// The nightly connection health check, on demand. Read-only apart from the
+// incidents it raises, which is the point of running it by hand: it is how an
+// operator sees the whole fleet's configuration state in one call.
+app.post("/admin/run-connection-health", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  // `{"dry_run": true}` surveys without raising an incident or sending mail.
+  const body = await c.req.json<{ dry_run?: boolean }>().catch(() => ({} as any));
+  try {
+    return c.json(await runConnectionHealthCheck(c.env, { dryRun: !!body.dry_run }));
+  } catch (e) {
+    return errorResponse(c, e, "Failed to run the connection health check");
+  }
+})
+
 app.get("/admin/connection/capabilities", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
@@ -3450,6 +3466,18 @@ export default {
         } catch (e: any) {
           console.error(`[Cron] Moloni token refresh failed: ${e.message}`);
         }
+      }
+
+      // Is every active connection even able to issue? Costs one query and no
+      // network call, so it runs unconditionally and before the read-only
+      // verify below: a connection with no credentials issues nothing, and that
+      // is the one failure none of the heals above can see.
+      try {
+        const ch = await runConnectionHealthCheck(env);
+        console.log(`[Cron] Connection health: checked=${ch.checked} unconfigured=${ch.unconfigured} reported=${ch.reported}`);
+        for (const f of ch.findings) console.warn(`[Cron] Connection health: ${f}`);
+      } catch (e: any) {
+        console.error(`[Cron] Connection health check failed: ${e.message}`);
       }
 
       // Hold every document issued since the last run to what we said we were

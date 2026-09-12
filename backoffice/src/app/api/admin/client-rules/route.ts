@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isHiperadmin } from "@/lib/admin";
 import { redactConfigJson, FISCAL_CONFIG_KEYS } from "@/lib/redact";
+import { auditConfigChange } from "@/lib/config-audit";
 
 export const runtime = "edge";
 
@@ -69,25 +70,6 @@ const EDITABLE_CONNECTION_KEYS = new Set<string>(FISCAL_CONFIG_KEYS);
 const MAX_NOTES_CHARS = 1500;
 /** IX truncates `observations` at 200 and the legal mentions are written first. */
 const MAX_CUSTOM_NOTE_CHARS = 200;
-
-async function auditConfigChange(
-  db: any,
-  entry: { userId: string; actor: string | null; scope: string; field: string; oldValue: unknown; newValue: unknown },
-) {
-  const str = (v: unknown) => (v == null ? null : String(v).slice(0, 500));
-  try {
-    await db.prepare(
-      `INSERT INTO config_audit (id, user_id, actor, scope, field, old_value, new_value)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(), entry.userId, entry.actor, entry.scope, entry.field,
-      str(entry.oldValue), str(entry.newValue),
-    ).run();
-  } catch (e) {
-    // The audit must never be the reason a legitimate change fails to save.
-    console.warn("[client-rules] audit write failed:", e);
-  }
-}
 
 /**
  * Hiperadmin, for reading as well as writing.

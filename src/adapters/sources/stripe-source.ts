@@ -1300,7 +1300,13 @@ export class StripeSource implements SourceAdapter {
         billing.zip = addr.postal_code ?? "";
         billing.country = addr.country ?? "";
         billing.country_code = addr.country ?? "";
-        if (!billing.phone && stripeCustomer.phone) billing.phone = String(stripeCustomer.phone);
+      }
+      // The phone is its own field, not part of the address. Filling it only
+      // inside the all-blank branch above meant a buyer whose payment carried
+      // any scrap of an address — a card's country is enough — was invoiced
+      // without the telephone the merchant holds on the Customer.
+      if (billing && !billing.phone && stripeCustomer.phone) {
+        billing.phone = String(stripeCustomer.phone);
       }
     }
 

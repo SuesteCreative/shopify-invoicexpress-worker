@@ -98,3 +98,39 @@ export function fiscalPatchFrom(fiscal: Record<string, unknown> | undefined): Re
     }
     return Object.keys(patch).length ? patch : null;
 }
+
+/**
+ * The InvoiceXpress credentials a connection holds for itself.
+ *
+ * Kept apart from the fiscal patch above, deliberately: these are secrets, and
+ * `readConnectionFiscal` is sent to the browser. There is no read counterpart
+ * here and there must not be one — a wizard shows whether credentials exist,
+ * never what they are.
+ *
+ * Why on the connection at all: they used to live only on the account's legacy
+ * `integrations` row, so a Stripe→IX or Lodgify→IX account grew a row that the
+ * admin console then drew as a broken "Shopify → InvoiceXpress" integration.
+ * Deleting that phantom destroyed the credential the real connection used.
+ * Moloni and Vendus never had the problem because theirs live here.
+ *
+ * BLANK MEANS UNCHANGED, as on the legacy route: a form that rendered before
+ * its GET returned must not be able to clear a live credential.
+ */
+export function ixCredentialPatchFrom(
+    credentials: Record<string, unknown> | undefined,
+): Record<string, string> | null {
+    if (!credentials) return null;
+    const patch: Record<string, string> = {};
+    for (const key of ["ix_account_name", "ix_api_key", "ix_environment"] as const) {
+        const value = credentials[key];
+        if (typeof value === "string" && value.trim()) patch[key] = value.trim();
+    }
+    return Object.keys(patch).length ? patch : null;
+}
+
+/** Whether this connection holds both halves of its own IX credential. */
+export function ixCredentialsOnConnection(destinationConfigJson: string | null | undefined): boolean {
+    let cfg: Record<string, any> = {};
+    try { cfg = destinationConfigJson ? JSON.parse(destinationConfigJson) : {}; } catch { cfg = {}; }
+    return !!String(cfg.ix_account_name ?? "").trim() && !!String(cfg.ix_api_key ?? "").trim();
+}

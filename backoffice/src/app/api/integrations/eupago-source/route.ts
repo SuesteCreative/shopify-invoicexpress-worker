@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
-import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
+import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection } from "@/lib/connection-fiscal";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
 export const runtime = "edge";
@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
             // shows these instead of the account's legacy row, because for a
             // non-Shopify source that is what the worker reads.
             fiscal: readConnectionFiscal(row.destination_config_json),
+            has_ix_credentials: ixCredentialsOnConnection(row.destination_config_json),
             created_at: row.created_at,
             updated_at: row.updated_at,
             webhook_url: `${WORKER_BASE}/webhooks/eupago/${authResult.targetUserId}`,
@@ -85,6 +86,8 @@ export async function POST(request: NextRequest) {
         encrypted?: boolean;
         destination_kind?: "invoicexpress" | "moloni" | "vendus";
         status?: "draft" | "active" | "paused" | "error";
+        /** This connection's own InvoiceXpress credentials. */
+        ix_credentials?: Record<string, unknown>;
         fiscal?: Record<string, unknown>;
     };
 
@@ -116,7 +119,12 @@ export async function POST(request: NextRequest) {
     // read that row for a non-Shopify source, because it belongs to another
     // integration. Merged (json_patch) rather than replaced, so the settings step
     // never erases what the EuPago step wrote.
-    const fiscalPatch = fiscalPatchFrom(body.fiscal);
+    // Fiscal identity plus this connection's own InvoiceXpress credentials.
+    const fiscalOnly = fiscalPatchFrom(body.fiscal);
+    const credentialPatch = ixCredentialPatchFrom(body.ix_credentials);
+    const fiscalPatch = (fiscalOnly || credentialPatch)
+        ? { ...(fiscalOnly ?? {}), ...(credentialPatch ?? {}) }
+        : null;
     const saveFiscal = async (): Promise<boolean> => {
         if (!fiscalPatch) return true;
         const res = await db.prepare(

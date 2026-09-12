@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
-import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
+import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection } from "@/lib/connection-fiscal";
 import { callWorkerJson } from "@/lib/worker";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
             // shows these instead of the account's legacy row, because for a
             // non-Shopify source that is what the worker reads.
             fiscal: readConnectionFiscal(row.destination_config_json),
+            has_ix_credentials: ixCredentialsOnConnection(row.destination_config_json),
             created_at: row.created_at,
             updated_at: row.updated_at,
             webhook_url: `${WORKER_BASE}/webhooks/lodgify/${authResult.targetUserId}`,
@@ -94,6 +95,8 @@ export async function POST(request: NextRequest) {
             destination_kind?: "invoicexpress" | "moloni" | "vendus";
             status?: "draft" | "active" | "paused" | "error";
             fiscal?: Record<string, unknown>;
+            /** This connection's own InvoiceXpress credentials. */
+            ix_credentials?: Record<string, unknown>;
         };
 
         const destinationKind = ["invoicexpress", "moloni", "vendus"].includes(body.destination_kind || "")
@@ -123,7 +126,14 @@ export async function POST(request: NextRequest) {
         // to read that row for a non-Shopify source, because it belongs to
         // another integration. Merged (json_patch) rather than replaced, so the
         // settings step never erases what the Lodgify step wrote.
-        const fiscalPatch = fiscalPatchFrom(body.fiscal);
+        // The fiscal identity and this connection's own InvoiceXpress
+        // credentials, in one patch: both live in the same blob, and two writes
+        // would let a save half-apply.
+        const fiscalOnly = fiscalPatchFrom(body.fiscal);
+        const credentialPatch = ixCredentialPatchFrom(body.ix_credentials);
+        const fiscalPatch = (fiscalOnly || credentialPatch)
+            ? { ...(fiscalOnly ?? {}), ...(credentialPatch ?? {}) }
+            : null;
         const saveFiscal = async (): Promise<boolean> => {
             if (!fiscalPatch) return true;
             const res = await db.prepare(

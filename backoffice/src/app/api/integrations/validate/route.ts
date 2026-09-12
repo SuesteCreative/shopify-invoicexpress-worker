@@ -17,13 +17,33 @@ export async function POST(request: NextRequest) {
 
         targetUserId = await resolveAccountUser(request, userId);
 
-        const body = await request.json() as { type: "shopify" | "ix" };
+        // `source_kind` names a connection whose own InvoiceXpress credentials
+        // should be tested instead of the account's legacy row. Absent keeps the
+        // old behaviour exactly: Shopify, and every integration configured
+        // before a connection could hold its own credentials.
+        const body = await request.json() as { type: "shopify" | "ix"; source_kind?: string };
         const { env } = getRequestContext();
         const db = (env as any).DB;
 
         // Fetch current config
-        const config: any = await db.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(targetUserId).first();
-        if (!config) return NextResponse.json({ error: "No integration found" }, { status: 404 });
+        const config: any = (await db.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(targetUserId).first()) ?? {};
+
+        // A connection-based integration has no legacy row of its own, and
+        // must not be told "no integration found" for the absence of one that
+        // belongs to Shopify.
+        let connCreds: any = null;
+        if (body.type === "ix" && body.source_kind) {
+            connCreds = await db.prepare(
+                `SELECT json_extract(destination_config_json, '$.ix_account_name') AS ix_account_name,
+                        json_extract(destination_config_json, '$.ix_api_key')      AS ix_api_key,
+                        json_extract(destination_config_json, '$.ix_environment')  AS ix_environment
+                   FROM connections
+                  WHERE user_id = ? AND source_kind = ? AND destination_kind = 'invoicexpress'`
+            ).bind(targetUserId, body.source_kind).first();
+        }
+        if (!config.user_id && !connCreds) {
+            return NextResponse.json({ error: "No integration found" }, { status: 404 });
+        }
 
         let isValid = false;
         let errorMessage = "";
@@ -116,9 +136,15 @@ export async function POST(request: NextRequest) {
             }
 
         } else if (body.type === "ix") {
-            let account = (config.ix_account_name || "").trim();
-            const apiKey = (config.ix_api_key || "").trim();
-            const environment = config.ix_environment || "production";
+            // The connection's own credentials when it has them, the account's
+            // legacy row otherwise. Both halves or neither: pairing this
+            // connection's account name with another integration's key would
+            // validate nothing meaningful.
+            const useConn = !!(connCreds?.ix_account_name && connCreds?.ix_api_key);
+            const source = useConn ? connCreds : config;
+            let account = (source.ix_account_name || "").trim();
+            const apiKey = (source.ix_api_key || "").trim();
+            const environment = source.ix_environment || "production";
 
             if (!account || !apiKey) return NextResponse.json({ error: "Missing IX credentials" }, { status: 400 });
 
@@ -174,8 +200,13 @@ export async function POST(request: NextRequest) {
                 isValid = false;
             }
 
-            await db.prepare("UPDATE integrations SET ix_authorized = ?, ix_error = ? WHERE user_id = ?")
-                .bind(isValid ? 1 : 0, errorMessage || null, targetUserId).run();
+            // `ix_authorized` is the LEGACY row's flag. Writing it from a
+            // connection-based check would stamp a verdict about one
+            // integration's credentials onto another's.
+            if (!useConn) {
+                await db.prepare("UPDATE integrations SET ix_authorized = ?, ix_error = ? WHERE user_id = ?")
+                    .bind(isValid ? 1 : 0, errorMessage || null, targetUserId).run();
+            }
         }
 
         return NextResponse.json({ success: true, isValid, error: errorMessage, webhooks_active: webhooksDetected ? 1 : 0 });

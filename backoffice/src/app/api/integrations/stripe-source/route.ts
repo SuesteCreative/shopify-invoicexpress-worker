@@ -2,7 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
-import { readConnectionFiscal, fiscalPatchFrom } from "@/lib/connection-fiscal";
+import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection } from "@/lib/connection-fiscal";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
 
@@ -74,6 +74,9 @@ export async function GET(request: NextRequest) {
         connection: {
             id: row.id, status: row.status, destination_kind: row.destination_kind,
             source_config: safeCfg, fiscal, created_at: row.created_at, updated_at: row.updated_at,
+            // Whether this connection holds its own InvoiceXpress credentials.
+            // The values themselves never leave the server.
+            has_ix_credentials: ixCredentialsOnConnection(row.destination_config_json),
         }
     });
 }
@@ -92,6 +95,8 @@ export async function POST(request: NextRequest) {
         source_kind?: string;
         status?: string;
         fiscal?: Record<string, unknown>;
+        /** This connection's own InvoiceXpress credentials. */
+        ix_credentials?: Record<string, unknown>;
     };
 
     const sourceKind = sourceKindOf(body.source_kind);
@@ -132,8 +137,15 @@ export async function POST(request: NextRequest) {
     // Only the fiscal keys this request carries, so a partial post never erases
     // a sibling. An empty string is meaningful and kept: it clears the override
     // and hands the field back to the account's legacy row.
+    // The fiscal identity and, alongside it, the connection's own InvoiceXpress
+    // credentials. One json_patch carries both: they land in the same blob, and
+    // splitting them into two writes would let a save half-apply.
     const fiscalPatch = fiscalPatchFrom(body.fiscal);
-    const hasFiscal = !!fiscalPatch;
+    const credentialPatch = ixCredentialPatchFrom(body.ix_credentials);
+    const destinationPatch = (fiscalPatch || credentialPatch)
+        ? { ...(fiscalPatch ?? {}), ...(credentialPatch ?? {}) }
+        : null;
+    const hasFiscal = !!destinationPatch;
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -151,7 +163,7 @@ export async function POST(request: NextRequest) {
            updated_at = excluded.updated_at`
     ).bind(
         id, authResult.targetUserId, sourceKind, destinationKind, JSON.stringify(sourceConfig),
-        hasFiscal ? JSON.stringify(fiscalPatch) : null, status, now, now,
+        hasFiscal ? JSON.stringify(destinationPatch) : null, status, now, now,
         hasFiscal ? 1 : 0, status,
     ).run();
 

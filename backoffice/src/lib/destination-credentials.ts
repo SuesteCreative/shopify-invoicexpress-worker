@@ -37,8 +37,23 @@ export async function missingDestinationCredentials(
     destinationKind: string,
 ): Promise<string | null> {
     if (destinationKind === "invoicexpress") {
-        // IX credentials live on the legacy `integrations` row, one per account,
-        // shared by every connection that files into that IX account.
+        // The connection's own credentials first. They used to live only on the
+        // legacy `integrations` row — the account's Shopify row — which is how a
+        // Stripe→IX account ended up with a phantom Shopify integration that,
+        // when deleted, took the real connection's credentials with it.
+        const conn: any = await db
+            .prepare(
+                `SELECT json_extract(destination_config_json, '$.ix_account_name') AS ix_account_name,
+                        json_extract(destination_config_json, '$.ix_api_key')      AS ix_api_key
+                   FROM connections
+                  WHERE user_id = ? AND source_kind = ? AND destination_kind = 'invoicexpress'`
+            )
+            .bind(userId, sourceKind)
+            .first();
+        if (ixCredentialsPresent(conn)) return null;
+
+        // The account-wide fallback: Shopify, whose row that is, and every
+        // connection configured before they could hold their own.
         const row: any = await db
             .prepare("SELECT ix_account_name, ix_api_key FROM integrations WHERE user_id = ?")
             .bind(userId)

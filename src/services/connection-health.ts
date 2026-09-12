@@ -59,6 +59,10 @@ export function missingDestinationCredential(
   legacyRow: Record<string, any> | null,
 ): string | null {
   if (destinationKind === "invoicexpress") {
+    // The connection's own credentials first, the account's legacy row only as
+    // the fallback for the integrations configured before connections could
+    // hold them — and for Shopify, whose row that is.
+    if (filled(destinationConfig.ix_account_name) && filled(destinationConfig.ix_api_key)) return null;
     if (filled(legacyRow?.ix_account_name) && filled(legacyRow?.ix_api_key)) return null;
     if (!legacyRow) return "Não há credenciais de InvoiceXpress guardadas nesta conta (nome da conta e chave API).";
     if (!filled(legacyRow.ix_account_name) && !filled(legacyRow.ix_api_key)) {

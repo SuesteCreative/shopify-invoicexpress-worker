@@ -305,6 +305,33 @@ export function projectConnectionBehaviour(
       c[key] = value.trim();
     }
   }
+
+  // The InvoiceXpress credentials, when the connection carries its own.
+  //
+  // They used to live ONLY on the account's legacy `integrations` row, which is
+  // Shopify's row. That had a cost nobody had priced: a Stripe→IX or Lodgify→IX
+  // account acquired an `integrations` row purely to hold a credential, the
+  // admin console drew that row as a broken "Shopify → InvoiceXpress" pipe, and
+  // deleting the pipe that did not exist destroyed the credential that did.
+  // MeetFrank lost a month of invoicing to exactly that, twice in two days.
+  //
+  // Moloni and Vendus never had the problem, because their credentials live on
+  // the connection. InvoiceXpress now can too.
+  //
+  // Both halves or neither: half a credential authenticates nothing, and
+  // letting one half fall back to the legacy row would pair this connection's
+  // account name with another integration's key. Absent still inherits, so
+  // every account configured before this keeps working untouched, and Shopify
+  // — whose credentials belong on that row — is unaffected.
+  const connAccount = String(destinationConfig.ix_account_name ?? "").trim();
+  const connKey = String(destinationConfig.ix_api_key ?? "").trim();
+  if (connAccount && connKey) {
+    c.ix_account_name = connAccount;
+    c.ix_api_key = connKey;
+    const env = String(destinationConfig.ix_environment ?? "").trim();
+    if (env) c.ix_environment = env;
+  }
+
   return config;
 }
 

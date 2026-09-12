@@ -143,7 +143,12 @@ export async function findByReference(reference: string, docType: "invoice" | "c
                 if (!res.ok) break;
                 const data: any = await res.json();
                 const list = data[t.list] || [];
-                const found = list.find((d: any) => d.reference === reference || (typeof d.reference === "string" && d.reference.includes(reference)));
+                const matches = list.filter((d: any) => d.reference === reference || (typeof d.reference === "string" && d.reference.includes(reference)));
+                // A cancelled document and the one that replaced it carry the SAME
+                // reference — Kapta cancels and re-issues against the same Stripe
+                // invoice. An exact reference hit is still a guess between the two,
+                // and only one of them is the document that stands.
+                const found = matches.find((d: any) => normalize(d.state) !== "canceled") ?? matches[0];
                 if (found) {
                     const doc: IXDocument = { ...found, type: t.type };
                     // Prefer IX's own public permalink (no login wall). buildPermalink builds the
@@ -305,6 +310,13 @@ export async function findByHeuristic(c: MatchCandidate, docType: "invoice" | "c
 
     let best: { doc: IXDocument; score: number } | null = null;
     for (const d of docs) {
+        // A cancelled document is not the one that invoiced this payment, however
+        // well it scores. It was cancelled because it was wrong, and the one that
+        // replaced it is in the same list carrying the same client and amount —
+        // which is exactly why the guess landed on the dead one: one2rent read a
+        // cancelled invoice as their own because the matcher had no idea what
+        // "canceled" meant.
+        if (normalize(d.state) === "canceled") continue;
         const score = scoreCandidate(d, c);
         if (score > (best?.score ?? 0)) best = { doc: d, score };
     }

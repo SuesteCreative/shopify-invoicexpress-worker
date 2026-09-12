@@ -128,7 +128,12 @@ export async function GET(req: NextRequest) {
     // it next to the link and let it be compared.
     const byReference = new Map<string, KaptaDocSummary>();
     for (const doc of invoices.values()) {
-        if (doc.reference) byReference.set(doc.reference.trim(), doc);
+        if (!doc.reference) continue;
+        const key = doc.reference.trim();
+        // A cancelled document and its replacement share the reference. The one
+        // that stands wins, whichever order the list happens to be in.
+        const held = byReference.get(key);
+        if (!held || held.state === "canceled") byReference.set(key, doc);
     }
 
     return NextResponse.json({

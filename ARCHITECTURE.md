@@ -241,3 +241,45 @@ git commit -m "chore: stop tracking scratch fixtures, binaries, OS junk"
 | Schema change | add `migrations/00NN_*.sql`, apply with `wrangler d1`, mirror in `backoffice/migrations` if the UI reads it |
 | Deploy worker | `npm run deploy:safe` (or `wrangler versions deploy` for hotfix) |
 | Deploy backoffice | merge to `main` (Pages auto-build) |
+| Cut a version | `npm run release` (or the `Release notes` workflow) |
+
+---
+
+## 10. Versions and release notes
+
+`CHANGELOG.md` is the single source of the version the product shows, and of both
+audiences reading about it. Nothing else holds a version number for the app.
+
+**Two feeds, one file.** An entry may carry a `### Para o comerciante` section,
+written in merchant language. Those bullets, and only those, are what a merchant
+sees. An entry without the section never reaches a merchant at all, which is the
+right outcome for a refactor, an admin surface, or internal tooling. Staff read
+the full entry on the same page.
+
+- `backoffice/scripts/sync-version.mjs` runs as `predev`/`prebuild` and generates
+  `backoffice/src/lib/version.ts` (footer badge) and
+  `backoffice/src/lib/changelog.generated.ts` (`CHANGELOG` = everything,
+  `CHANGELOG_PUBLIC` = the entries with a merchant section). Both are generated:
+  edit the changelog, never those two files.
+- One feed per page, not a switch. `/[locale]/changelog` is the merchant's, and
+  shows `CHANGELOG_PUBLIC` with the merchant lines only — reached by clicking
+  the version in the sidebar footer, which is where a merchant looks. The full
+  history is `/admin/changelog`, on the admin surface, behind the role gate in
+  `app/admin/layout.tsx`. Both render `components/ChangelogList.tsx`: one design,
+  two datasets.
+- Each entry carries `<!-- release: <sha> -->`, the last commit it covers. That
+  marker, not a git tag, is where the next release starts.
+- `npm run release` reads the commits after that marker, groups them by
+  conventional-commit type, picks the bump, writes the entry and regenerates.
+  `--dry` to preview, `--title=`, `--major|--minor|--patch`, `--commit`, `--tag`.
+- **A merchant line comes from the commit that made the change**, as a trailer:
+  `Notas: <o que muda para o comerciante>`. The script collects every one in the
+  range into the merchant section. Nobody can reconstruct that afterwards from a
+  diff.
+- **Bump discipline.** Major is a broken contract the merchant can feel: price,
+  billing unit, the meaning of a setting they configured. Not a big week. The
+  whole history holds two (7.0.0, price per integration; 8.0.0, subscription and
+  fiscal config per connection). Minor is a feature. A fix-only week is a patch.
+- `.github/workflows/release.yml` does the same nightly (03:00 UTC) and on manual
+  dispatch, then pushes — which is what deploys the new number, since Pages and
+  Workers Builds build from `main`.

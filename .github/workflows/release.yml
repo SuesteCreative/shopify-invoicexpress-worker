@@ -1,0 +1,63 @@
+name: Release notes
+
+# Cuts a version from whatever landed since the last one, writes the entry into
+# CHANGELOG.md and pushes it. The push is what deploys the new version number:
+# Workers Builds and Pages both build from main, and the backoffice regenerates
+# src/lib/version.ts from the changelog at build time.
+#
+# Daily rather than per-push, because a version per commit is noise. Run it by
+# hand from the Actions tab when a release should not wait for the schedule.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Force a bump level (auto = from the commit types)"
+        type: choice
+        default: auto
+        options: [auto, patch, minor, major]
+      title:
+        description: "Release title (blank = taken from the headline commit)"
+        type: string
+        required: false
+
+concurrency:
+  group: release-notes
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The script reads git log back to the last release marker, so a
+          # shallow clone would see nothing to release.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cut the release
+        # Through the environment, not interpolated into the script: a title is
+        # free text, and free text in a shell line is an injection.
+        env:
+          BUMP: ${{ inputs.bump }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          args=(--commit)
+          if [ -n "$BUMP" ] && [ "$BUMP" != "auto" ]; then args+=("--$BUMP"); fi
+          if [ -n "$TITLE" ]; then args+=("--title=$TITLE"); fi
+          node scripts/release.mjs "${args[@]}"
+
+      # No-op when the script found nothing to release: it exits 0 without
+      # committing, so there is nothing ahead of origin to push.
+      - name: Push
+        run: git push

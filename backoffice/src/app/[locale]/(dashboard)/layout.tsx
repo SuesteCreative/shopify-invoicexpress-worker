@@ -49,6 +49,7 @@ export default async function DashboardLayout({
                         previewBuild: t("previewBuild"),
                         openMenu: t("openMenu"),
                         closeMenu: t("closeMenu"),
+                        releaseNotes: t("releaseNotes"),
                     }}
                 />
 

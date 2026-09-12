@@ -1,4 +1,642 @@
-# 📜 Shopify-InvoiceXpress Integration Changelog
+# 📜 Rioko — Registo de versões
+
+Cada entrada é uma versão do produto. O cabeçalho é lido por `backoffice/scripts/sync-version.mjs`,
+que gera `src/lib/version.ts` e `src/lib/changelog.generated.ts` — o rodapé do painel e a página
+`/changelog` saem daqui. O comentário `<!-- release: sha -->` marca o último commit incluído na
+versão, e é o ponto de partida de `npm run release` para a versão seguinte.
+
+## ✨ Version 8.4.0 — Consola financeira, fim do preço antigo e OAuth Shopify — September 12, 2026
+
+<!-- release: 3d66552 -->
+
+### Para o comerciante
+
+- **O preço antigo (5 €/50 €) termina numa data marcada.** Quem está nele continua a ser cotado e cobrado por esse preço até lá, e é avisado antes de a data chegar.
+- **Ligar a Shopify deixa de exigir copiar um token** — a autorização volta para a Rioko e os webhooks instalam-se sozinhos.
+- O aviso de facturação parada passa a ter um botão que leva directamente ao pagamento.
+- Convites de onboarding com o pagamento já tratado, para quem é trazido por nós.
+
+### Novo
+
+- **Secção financeira no `/admin`** — o que está contratado ao lado do que foi pago, com a lista de valores em aberto a dizer a que respeita cada factura.
+- **Plano do cliente passa a ser um facto guardado**, não uma derivação; os preços em falta podem ser criados a partir da consola.
+- **Fim do preço legacy** — a data vive na Stripe, o preço antigo é nomeado e contado, e o convite emitido nesse preço marca o cliente como estando nele.
+- **Método 2 de onboarding da Shopify** documentado por inteiro no helper, cada método na sua dobra.
+- **Email quando um build do worker falha**, que antes não tinha quem o lesse.
+
+### Corrigido
+
+- O upsert de subscrição passa a ligar a ligação que lhe foi dada.
+- O MRR deixa de avaliar nove subscrições activas a zero, e a lista de falhados deixa de chamar delinquentes a clientes que pagaram.
+- Um early bird expirado deixa de ser tratado como early bird.
+- `read_all_orders` não pode ser pedido, por isso deixámos de o pedir.
+- O aviso de conta suspensa chega a todas as páginas, não só às quatro que se lembravam dele.
+- No helper: o Método 1 deixa de culpar um scope que não existe, e o App URL do runbook deixa de apontar para um erro de certificado.
+
+### Arquitectura
+
+- Um único `cn()` em vez de quinze cópias.
+- O poller de reservas Lodgify sai do entrypoint do worker.
+- O catálogo de plataformas deixa de importar `lucide-react`, e o worker volta a poder ser deployado.
+- Removidos `rioko-next` e `src/.old`; o CI passa a correr numa versão de Node suficiente para os testes.
+
+## 🌐 Version 8.3.0 — Superfície pública e painel /admin — September 11, 2026
+
+<!-- release: 823b8a3 -->
+
+**Destaque:** o produto passa a ter uma cara pública por vertical e um painel de administração fora da árvore de rotas do comerciante. Onde havia uma landing genérica e páginas de admin misturadas com as do cliente, passa a haver uma landing por plataforma de origem, uma entrada única de onboarding, e `rioko.online/admin` com visão de frota.
+
+### Para o comerciante
+
+- O site público passa a ter uma página por plataforma (Shopify, Stripe, Lodgify), uma página de preços e uma comparação entre InvoiceXpress, Moloni e Vendus.
+- Ligar uma integração nova faz-se a partir de um único link de onboarding, que pergunta o que queres ligar.
+- Nada muda na facturação de quem já está ligado.
+
+### Novo — Público
+
+- **Uma landing por vertical** — `/shopify`, `/stripe` e `/lodgify`, cada uma com a sua promessa, em vez de uma landing a tentar falar para todos.
+- **Página de preços própria** (`/pricing`) em vez de uma âncora na home.
+- **Comparação InvoiceXpress vs Moloni vs Vendus** — página de conteúdo para quem ainda está a escolher facturador.
+- **Onboarding público unificado** — uma entrada que pergunta o que o cliente vem ligar e encaminha para o par certo, incluindo Stripe Connect → InvoiceXpress e as páginas guiadas da Lodgify (para IX e para Moloni).
+- **Saída da conta errada** — quem chega a um link de onboarding já autenticado noutra conta tem por onde sair, em todas as páginas guiadas.
+
+### Novo — Administração
+
+- **`rioko.online/admin`** — os painéis de administração saem da árvore de rotas do comerciante e passam a ter superfície própria.
+- **Visão de frota** — vista geral do que a frota facturou, todas as integrações (incluindo as que ninguém terminou), e impersonação directa para dentro de uma integração.
+- **Gestão de legado** — integrações antigas podem ser arrumadas, e apagar um utilizador deixa de deixar canos pendurados.
+
+### Novo — Fiscal e legal
+
+- **Registos fiscais declarados no wizard** — o comerciante diz para que está registado (OSS, autoliquidação, isenção) em vez de se inferir.
+- **Política alinhada com a Kapta** — entidade, NIPC e cláusulas revistas; links legais em todos os rodapés.
+
+### Corrigido
+
+- SEO: `robots.txt` com regras que batem certo com os URLs servidos, canónicos nas páginas legais, `noindex` na autenticação, artigos PT deixam de ser anunciados como ingleses, e as páginas de conteúdo deixam de ser órfãs.
+- O selo Rioko nas páginas de onboarding é um asset, não uma rota — o build do Cloudflare Pages volta a passar.
+- Barras invisíveis nos gráficos da vista geral, e a vista geral deixa de afirmar mais do que sabe.
+- Arredondamento numa linha de portes dividida deixa de declarar uma isenção que não existe.
+- Cada par Lodgify factura o seu preço, e o cartão do painel deixa de adivinhar.
+- A etiqueta de analítica reporta de todos os documentos, não de um em três.
+
+## 🌗 Version 8.2.0 — Motor de IVA unificado, Day Mode e checkout embutido — September 10, 2026
+
+<!-- release: b84d7ad -->
+
+**Destaque:** uma só decisão fiscal passa a servir todos os destinos, e o painel ganha uma segunda pele — Day Mode — que também veste os emails.
+
+### Para o comerciante
+
+- **Tema claro** — o painel passa a abrir em modo claro, e podes trocar a qualquer momento. Os emails seguem o tema que escolheres.
+- **IVA pela morada do comprador** — quando a plataforma de origem não cobra imposto, a taxa passa a ser decidida pelo país do comprador, com as taxas dos Açores e da Madeira a seguirem o domicílio.
+- **Todos os códigos de isenção da AT** ficam disponíveis para escolha, não só os mais comuns.
+
+### Novo — Fiscalidade
+
+- **Decisão única de IVA** — um motor decide o regime (interno, OSS, autoliquidação, isenção) e o resultado chega igual a InvoiceXpress, Moloni e Vendus.
+- **IVA pela morada do comprador** quando a origem não cobra imposto nenhum.
+- **Taxas regionais** — Açores e Madeira seguem o domicílio do cliente.
+- **Tabela AT completa** — todos os códigos de isenção são seleccionáveis, não só os cinco habituais.
+
+### Novo — Interface
+
+- **Day Mode** — pele clara de administração Kapta ao lado do chrome escuro, e passa a ser o defeito.
+- **Emails com a mesma pele** — o comerciante recebe emails no skin que escolheu, não um email escuro pintado de claro.
+- **Checkout embutido** — o formulário de cartão vive na página de onboarding em vez de saltar para a Stripe.
+
+### Alterado
+
+- A integração Stripe original passa a chamar-se **Stripe Legacy**; o caminho novo é Stripe Connect.
+- Stripe Connect ganha wizard para InvoiceXpress e pode ser exercitado em modo de teste, com eventos de teste proibidos de gerar documento.
+
+### Corrigido
+
+- Overrides de taxa, série e tipo de documento passam a pertencer à integração, não à conta.
+- Uma consulta com âmbito de loja deixa de devolver linhas de outra integração, e gravar um wizard deixa de apagar as definições de outro.
+- Um pagamento activa a ligação que o comerciante tem de facto.
+- Um id de analítica do comprador deixa de ser carimbado como número de contribuinte.
+- O callback do Moloni é o mesmo para todos, por isso coincide sempre; e gravar definições deixa de sobrepor um token que rodou a meio do pedido.
+- Títulos com gradiente deixam de cortar os descendentes; o botão dos emails Day fica centrado.
+
+## 🔌 Version 8.1.0 — Stripe Connect e isolamento entre integrações — September 9, 2026
+
+<!-- release: 78922d8 -->
+
+Segunda porta de entrada na Stripe, por OAuth dos dois lados, e o fim da fuga de configuração fiscal entre integrações da mesma conta.
+
+### Para o comerciante
+
+- **Stripe Connect** — podes ligar a Stripe autorizando a Rioko na tua conta, sem copiar chaves nem partilhar passwords. O mesmo para o Moloni.
+- Integrações que ficaram a meio aparecem no painel e podem ser apagadas.
+
+### Novo
+
+- **Stripe Connect → Moloni** — ligação por OAuth em ambos os lados; a Rioko nunca guarda uma password do comerciante.
+- **Integrações inacabadas visíveis** — uma integração a meio aparece no painel, e qualquer uma pode ser apagada.
+- **Cartões de superadmin por ligação** — um cartão é uma ligação, não uma conta.
+
+### Corrigido
+
+- As definições fiscais de uma integração deixam de chegar a outra, e a taxa de IVA de uma ligação deixa de ser derrubada pela da vizinha.
+- Uma ligação Connect sem password pode mesmo assim ser activada; uma ligação abandonada deixa de fazer sombra a uma que funciona; as rotas de recuperação sabem encontrar uma ligação Connect.
+- A cura noturna da Stripe corre com a configuração real do comerciante.
+- Cinco países que a InvoiceXpress escreve à sua maneira; a guarda da nota de crédito lia a resposta um nível acima do certo.
+- Um early bird com data já passada é recusado, não gravado; renomear faz-se clicando no nome; o caixote do lixo do cartão diz que apaga a conta.
+
+## 🚀 Version 8.0.0 — Proxy IX próprio, série e subscrição por ligação — September 8, 2026
+
+<!-- release: a709520 -->
+
+**Destaque:** o transporte para a InvoiceXpress passa a ser nosso, e a unidade de facturação da plataforma deixa de ser a conta e passa a ser a ligação.
+
+### Para o comerciante
+
+- **A subscrição passa a ser por integração.** Cada integração ligada paga o seu plano; quem tem duas passa a ver duas linhas. Se tens uma só, nada muda no valor.
+- Cada integração arquiva os documentos na sua própria série, definida por ti.
+- Vendas noutra moeda são facturadas em euros, convertidas à taxa do dia da venda.
+- Se a facturação parar por falta de pagamento, recebes um aviso a dizer quantas facturas estão à espera. São emitidas assim que regularizares.
+
+### Novo
+
+- **Proxy IX reconstruído** — todos os documentos passam por um proxy que podemos alterar (`ix.rioko.online`), com paridade de comportamento verificada antes do corte.
+- **Série por ligação** — cada ligação arquiva os seus documentos na sua série.
+- **Subscrição por ligação** — uma subscrição paga uma integração, não a conta inteira; uma cobrança falhada gera email para quem a pode resolver.
+- **Regra de etiqueta em todos os caminhos** — a etiqueta decide documento e série em qualquer rota que emita, não só no webhook principal.
+- **Encomendas a prazo** — uma encomenda grossista a prazo é facturada quando é colocada.
+- **Aviso de facturação parada** — o comerciante é informado de que parou, e de quantas facturas estão à espera.
+
+### Corrigido
+
+- **O host de conta que chamávamos em produção não existe** — a escolha de série nunca chegava a acontecer.
+- Moeda estrangeira: uma venda que o processador nunca converteu é facturada em euros à taxa do dia, e a guarda de moeda deixa de travar a emissão.
+- A finalização pela Stripe pergunta o que foi realmente pago antes de certificar; uma ligação demasiado grande para um pedido é percorrida em lotes.
+- Uma nota de crédito tem de desfazer a factura, e só o diz quando o fez; um reembolso parcial produz uma nota de crédito por reembolso; um documento pode ter um desconto que as linhas não têm.
+- Uma venda Stripe não é transporte, e deixa de ser facturada como tal.
+- Uma edição a uma encomenda já certificada não é uma falha; o wizard voltou a oferecer séries; uma referência vazia responde "não encontrado", não "pedido inválido".
+- O cartão de early bird mostra a data de trial de cada conta; dois formatos de data faziam toda a atribuição cair para o mesmo lado.
+
+## 🪑 Version 7.6.0 — Lugares de utilizador e séries por fluxo Stripe — September 5, 2026
+
+<!-- release: cf0601c -->
+
+Contas com mais do que uma pessoa, e contas Stripe com mais do que um fluxo de receita.
+
+### Para o comerciante
+
+- **Utilizadores extra** — podes dar acesso à tua conta a outras pessoas (contabilista, equipa). O primeiro lugar é gratuito.
+- Na Lodgify, o recibo passa a ser emitido sozinho quando registas o pagamento.
+
+### Novo
+
+- **Utilizadores extra** — lugares que a conta possui: desbloqueia-se um lugar, depois preenche-se, com checkout próprio e convite entregue por nós (não pela Clerk), na mesma pele dos restantes emails.
+- **Séries por fluxo Stripe** — cada fluxo de uma conta Stripe arquiva na sua série, e o dinheiro que nunca passou pela Stripe também é facturado.
+- **Recibos automáticos na Lodgify** — o Recibo emite-se quando o comerciante regista o pagamento, e o poll pode emiti-los sozinho.
+- **Sonda de dinheiro** — leitura só de consulta do que o dinheiro de uma reserva diz realmente, incluindo o campo `transactions`.
+- **Extras da v2** — a discriminação que decide a taxa de IVA da limpeza.
+
+### Corrigido
+
+- Uma estadia OTA não regista dinheiro, e isso não é excesso de liquidação.
+- A factura de um lugar tem de facturar mesmo alguma coisa; o lugar grátis é um lugar; o cartão tem de ser encontrável.
+- Activar uma ligação Stripe deixa de apagar a chave que a autoriza; as definições de facturação deixam de desaparecer assim que a InvoiceXpress liga; a taxa de IVA da linha tem de ser uma que o facturador tenha.
+
+## 🛰️ Version 7.5.0 — Relé de saída Lodgify e fatura + recibos — September 3, 2026
+
+<!-- release: 122fd5b -->
+
+A Lodgify só confia num IP fixo, por isso o tráfego passa a sair por uma porta só. E uma estadia meio paga passa a ser facturada por inteiro, com recibo por pagamento.
+
+### Para o comerciante
+
+- Na Lodgify, uma estadia parcialmente paga passa a ser facturada por inteiro, com um recibo por cada pagamento recebido.
+- O recibo é arquivado na série de recibos da tua conta e indica o método de pagamento do canal que cobrou.
+
+### Novo
+
+- **Relé de saída com IP fixo** — uma porta de saída única para a Lodgify, com forma de saber quando morre, e corte gradual (modo directo primeiro, relé depois).
+- **Fatura + Recibos** — uma estadia parcialmente paga é facturada por inteiro e cada pagamento gera um Recibo, sem partir quem já estava em prestações.
+- **Série de recibos no Moloni** — o Recibo é arquivado na série que a conta usa para recibos, e o método de pagamento vem do canal que cobrou, com recurso ao configurado.
+- **Documentação de subcontratantes** — quem toca nos dados, e o registo da decisão.
+
+### Corrigido
+
+- `/admin/version` responde mesmo depois do deploy de outra pessoa; o script de deploy corre dentro dos Workers Builds.
+- Gravar definições deixa de apagar o que o formulário nunca conheceu.
+
+## 🔐 Version 7.4.1 — Chaves fora do D1, curas limitadas — September 2, 2026
+
+<!-- release: f97a5d2 -->
+
+### Para o comerciante
+
+- Melhorias de segurança no tratamento das credenciais que nos confias. Não é preciso fazer nada.
+
+### Corrigido
+
+- **Chaves de API dos comerciantes deixam de ser escritas no D1 e em emails**, e fecham-se os dois caminhos por onde ainda podiam sair.
+- O healer passa a ser limitado: uma avaria prolongada deixa de poder matar a própria rede de segurança.
+- Silêncio não é prova de que a factura foi emitida; a conciliação deixa de reportar "sem factura" para encomendas que ninguém conseguiu consultar.
+- Desistir de uma encomenda em vez de perder o lote por causa dela; uma chamada que retorna vale mais do que uma que acaba tudo.
+- O claim da encomenda passa a existir também no caminho de backfill, e o Vendus deixa de falhar em aberto.
+- A conciliação diz quando está a mostrar um máximo, não uma contagem.
+- Duas chamadas lentas ao proxy saem do caminho quente e passam a ter prazo.
+
+## 📋 Version 7.4.0 — Registo por documento e consola de operações — August 18, 2026
+
+<!-- release: 3a94d65 -->
+
+**Destaque:** deixa de haver documento emitido às cegas. Cada documento é lido de volta no destino e o que lhe aconteceu fica escrito; e as operações do dia deixam de viver na cabeça de quem as faz.
+
+### Para o comerciante
+
+- Cada documento emitido passa a ser confirmado directamente no teu facturador, em vez de se assumir que foi emitido.
+- **Código de isenção** — documentos cuja data foi alterada podiam perder o código de isenção. Corrigido, e os documentos afectados foram revistos.
+- O IVA dos portes passa a ser cobrado apenas sobre a parte que foi tributada.
+
+### Novo
+
+- **Registo por documento** — todo o ciclo de vida é lido de volta e registado nos pontos de estrangulamento, com verificação dirigida e cobertura de histórico. Um achado histórico não confirmado é uma pista, não um veredicto.
+- **Consola de regras** — uma página que diz o que a facturação de cada empresa faz realmente.
+- **Página de operações** — uma página com o que precisa de atenção hoje.
+- **Vigia de webhooks** — ir procurar as lojas que deixaram de falar.
+- **Data de arranque da facturação** editável no dev-mode, ao lado do que a preenche.
+- **Carimbo de commit no worker** — o worker diz que versão está a correr.
+
+### Corrigido
+
+- **Regressão M99** — o código de isenção perdia-se quando a data do documento mudava.
+- Cinco sítios onde uma recusa era registada como sucesso.
+- IVA de portes cobrado só sobre a parte que foi tributada.
+- Um IVA estrangeiro numa morada portuguesa é um cliente, não uma retenção; uma devolução sobre uma encomenda nunca paga não tem nada a creditar.
+- Um rascunho fecha numa data que o Moloni aceita, do mais antigo para o mais recente.
+- A página de superadmin passa a perguntar quem está a perguntar; o email de tentativas esgotadas diz o que o destino respondeu.
+- O botão que instalava um segundo conjunto de webhooks inutilizáveis foi travado, e a verificação de saúde de webhooks foi revertida onde não consegue ver os webhooks da plataforma.
+
+## 🪪 Version 7.3.1 — Identidade do comprador e saída por IP fixo — August 14, 2026
+
+<!-- release: fc5840c -->
+
+**Destaque:** todas as vendas Stripe partilhavam a referência "Order #0", por isso só a primeira era facturada. Corrigido, com reemissão do que ficou por trás.
+
+### Para o comerciante
+
+- **Vendas Stripe por facturar** — todas as vendas partilhavam a mesma referência interna, por isso só a primeira gerava documento. Corrigido, e as vendas em falta foram reemitidas.
+- O comprador deixa de ser facturado como "Consumidor Final" quando o NIF dele é conhecido.
+- A factura passa a ter a data em que o pagamento foi feito, não a data em que foi iniciado.
+
+### Corrigido
+
+- **Colisão de referência** — cada venda passa a ter referência própria; a dedup deixa de apagar vendas legítimas.
+- O comprador era facturado como "Consumidor Final" com o NIF dele em mãos.
+- Um NIF sem morada de facturação é uma factura vulgar, não uma suspeita.
+- A factura era datada de quando o comprador decidiu pagar, não de quando pagou.
+- Um saldo desactualizado fazia uma reserva totalmente paga parecer parcial.
+- Produtos gerados eram facturados em horas porque o Moloni listava horas primeiro.
+- A `bun.lock` obsoleta que falhava todos os Workers Builds foi removida.
+
+### Novo
+
+- **Ingestão Lodgify fora do IP bloqueado**, com alarme para o silêncio.
+- **Estadias OTA já cobradas pelo canal** podem ser facturadas por ligação.
+- **Categoria de produto e condições de pagamento** fixadas por ligação no Moloni; o método configurado pelo comerciante vence o do canal.
+- Script para provisionar uma ligação Lodgify sem armar o histórico todo.
+
+## 🧰 Version 7.3.0 — Recuperação genérica por ligação — August 13, 2026
+
+<!-- release: ff1c8dc -->
+
+A caixa de ferramentas de recuperação deixa de assumir Shopify e passa a trabalhar com qualquer ligação.
+
+### Para o comerciante
+
+- Nas regras por etiqueta, o tipo de documento e a decisão de finalizar passam a ser duas escolhas separadas.
+
+### Novo
+
+- **Dev-mode por ligação** — o painel escolhe uma ligação em vez de assumir Shopify, e deixa de dizer InvoiceXpress enquanto fala com o Moloni.
+- **Moloni: ler, creditar por inteiro e fechar rascunhos** a partir da mesma consola.
+- **Recuperação Lodgify pelo espelho** — uma reserva é desfeita por inteiro.
+- **Tipo de documento e finalização são escolhas separadas** no encaminhamento por etiqueta (fim do sufixo `_draft`).
+
+### Corrigido
+
+- **O cookie de impersonação não é prova de ser admin.**
+- Linhas escritas para uma origem baseada em ligação não pertenciam a ninguém.
+- Um saldo zero não é um pagamento; um reembolso não é uma venda à espera de factura.
+- O formulário de registo grava no utilizador impersonado; um comerciante coberto deixa de ser avisado de que o sistema está suspenso.
+
+## ✉️ Version 7.2.0 — Email ao comprador e uma encomenda, um documento — August 7, 2026
+
+<!-- release: 10f3c3f -->
+
+**Destaque:** duas entregas do mesmo `orders/created` produziam dois documentos. A encomenda passa a ser reclamada antes de ser criada.
+
+### Para o comerciante
+
+- **Email da factura ao comprador** — opcional, activado a pedido, para Shopify, Moloni e Vendus.
+- Uma encomenda deixa de poder gerar dois documentos quando a plataforma repete o envio.
+- Facturas antigas recuperadas nunca são enviadas por email ao comprador.
+
+### Novo
+
+- **Email da factura ao comprador** (Shopify→IX), com opção equivalente para Moloni e Vendus, e um NIF apanhado numa linha de morada mantém o documento em rascunho.
+
+### Corrigido
+
+- **Um claim por encomenda** — uma reclamação perdida repete, não confirma.
+- Finalização retroactiva mantém a data da transacção, e uma loja bloqueada pára antes de rascunhar.
+- A rejeição de cronologia de série da IX é reconhecida, e finaliza-se do mais antigo para o mais recente, com uma repetição antes de abandonar.
+- Uma falha de envio escondida dentro de um envelope 200 deixa de contar como enviada.
+- Nunca enviar ao comprador a factura de uma venda de há meses: a trava é a data da venda, não a data para onde movemos o documento.
+- Uma taxa que não resolve é um erro, não uma isenção.
+- Todos os rascunhos retidos são reportados, e a flag de email tem um nome honesto.
+
+## 🏨 Version 7.1.0 — Lodgify OTA e diagnóstico de bloqueio — August 3, 2026
+
+<!-- release: a973695 -->
+
+### Para o comerciante
+
+- Reservas vindas de canais externos (Booking, Airbnb) passam a ser facturadas, em vez de ficarem de fora.
+
+### Corrigido
+
+- Reservas OTA nunca eram facturadas em regime de facturação progressiva.
+- Um bloqueio permanente de IP deixa de ser confundido com um limite de pedidos.
+- Uma leitura falhada de reservas deixa de ser tratada como conta vazia.
+- A facturação progressiva nunca enviava `data.bookingId`.
+- Os incidentes escalam de severidade dentro do mesmo balde em vez de perderem o alerta.
+
+### Novo
+
+- Alerta quando reservas liquidadas se acumulam por facturar.
+- Poll a pedido em `/admin/lodgify/poll`, com reservas fornecidas pelo chamador e âmbito de uma só ligação.
+
+## 💳 Version 7.0.1 — Nome do comprador e endpoint de finalização — July 14, 2026
+
+<!-- release: 2588539 -->
+
+### Para o comerciante
+
+- As facturas de vendas Stripe passam a levar o nome do comprador em vez de "Consumidor Final".
+
+### Corrigido
+
+- O nome do comprador é recuperado de `billing_details` da cobrança Stripe (fim do "Consumidor Final" indevido).
+- A finalização no Moloni usa o endpoint do tipo de documento certo (`invoiceReceipts` e não `invoices`).
+
+## 🚀 Version 7.0.0 — Preço por integração e auto-cura noturna — July 10, 2026
+
+<!-- release: b89963f -->
+
+**Destaque:** o modelo de preço deixa de ser por conta e passa a ser por integração, e a rede de segurança passa a correr sozinha todas as noites.
+
+### Para o comerciante
+
+- **Preço por integração** — cada integração tem o seu preço e a sua subscrição, em vez de um preço por conta.
+- **Fim dos períodos de teste** — quem ligou antes mantém as condições de early bird até à data comunicada; as integrações novas pagam desde o início.
+- **Portal de facturação** — passas a gerir cartão, facturas e cancelamento directamente, sem nos pedir.
+- Sem pagamento, a facturação é suspensa e retomada automaticamente quando regularizas. Nada se perde pelo caminho.
+
+### Novo
+
+- **Preço por integração**, sem trials, com early bird unificado e portal Stripe para o cliente gerir o cartão.
+- **Suspensão por não pagamento**, com retoma automática, cartões de pagamento de cortesia e lembrete de fim de early bird.
+- **Ligação manual de uma subscrição Stripe** a uma conta Rioko, pelo admin.
+- **Auto-cura** — cura noturna guiada por incidentes, varrimento de janela curta, e auto-cura de pagamentos Stripe→Moloni órfãos, limitada ao arranque da ligação.
+- **Regra de livro (ISBN)** — SKU com ISBN aplica taxa reduzida.
+- **Digest a pedido**, com pré-visualização e comerciantes em pausa ignorados.
+
+### Corrigido
+
+- Fim do sobre-relato de "facturas por emitir", com cura do atraso acima de 7 dias.
+- A auto-cura respeita "não necessária" e correspondências manuais.
+- Correspondência Kapta↔IX com paginação, cache, NIF e código postal normalizados e `paid_at` real.
+- Integrações montadas mas não pagas aparecem como "Incompletas"; o preço do plano no cartão passa a ser dinâmico.
+
+## 🌍 Version 6.8.0 — Moloni multi-moeda, multi-taxa e créditos — July 7, 2026
+
+<!-- release: c58efb2 -->
+
+### Para o comerciante
+
+- **Moloni em várias moedas** — uma venda noutra moeda é emitida nessa moeda.
+- O IVA passa a vir do que a Stripe cobrou de facto, em vez de zero.
+- Reembolsos parciais geram uma nota de crédito do valor exacto, com o IVA original.
+- A conciliação passa a mostrar reembolsos, cancelamentos e as notas de crédito associadas.
+
+### Novo
+
+- **Multi-moeda no Moloni** — a venda é emitida na moeda paga, com campos nativos.
+- **Taxa da linha vinda do produto mapeado**, com taxa de recurso quando o pagamento não traz imposto.
+- **IVA real da Stripe** em vez de zero fixo.
+- **Menção de isenção bilingue** carimbada nas observações, por loja.
+- **Conciliação de reembolsos** — cancelamentos e notas de crédito associadas ficam visíveis, e as notas de crédito Moloni são ligadas pela tabela de associação da factura.
+- **Selector de tipo de documento** (Fatura / Fatura-Recibo) para Stripe→Moloni.
+- **Planos de 5 € / 50 €** ligados aos cartões de pagamento, com lembretes de renovação.
+
+### Corrigido
+
+- `charge.succeeded` é deduplicado para o seu PaymentIntent (fim da factura dupla).
+- Reembolsos parciais creditam o valor exacto com o IVA original; `related_id` obrigatório nas linhas de nota de crédito.
+- Documentos atrasados são redatados para o mínimo da série em vez de falharem.
+- Série em branco usa o conjunto de documentos por defeito da conta.
+- Um erro de leitura da idempotência em KV deixa de impedir a facturação.
+- Configuração Stripe sintetizada para clientes só-Moloni, e o fail-fast global do segredo de webhook deixa de bloquear todos os eventos.
+
+## 🗝️ Version 6.7.0 — Lodgify, encaminhamento por etiqueta e pipeline por ligação — July 3, 2026
+
+<!-- release: 14bfc36 -->
+
+**Destaque:** entra uma vertical nova (alojamento local, via Lodgify) e a plataforma deixa de assumir Shopify em qualquer ponto: o pipeline, a conciliação e o painel passam a ser conduzidos pela ligação.
+
+### Para o comerciante
+
+- **Lodgify** — as reservas passam a poder ser facturadas para InvoiceXpress, Moloni ou Vendus.
+- **Séries por etiqueta** — a etiqueta da encomenda pode decidir em que série a factura é emitida.
+- **Facturação progressiva** — uma reserva paga em prestações pode ser facturada em prestações.
+
+### Novo
+
+- **Lodgify como origem** — adaptador próprio, com wizards para InvoiceXpress, Moloni e Vendus, registo de webhooks que nunca bloqueia o passo 1, e enriquecimento do hóspede pela API v1.
+- **Espelho de reservas em D1** — a conciliação deixa de bater na API da Lodgify e de apanhar 429; sincronização incremental para não repetir o arranque de 120 dias.
+- **Facturação progressiva** (prestações) com conciliação multi-documento, sem refacturar reservas já facturadas.
+- **Encaminhamento por etiqueta** — série de facturação escolhida pela etiqueta da encomenda, estendido a conjuntos de documentos Moloni e a tipo de documento com controlo de rascunho/finalização.
+- **Conciliação dinâmica por ligação** — a página deixa de ser Shopify fixo.
+- **Cartões de integração dinâmicos** no painel e no superadmin, por tipo de ligação.
+- **Gate de subscrição para a Lodgify**, com CTA na facturação e redireccionamentos de checkout cientes da origem.
+- **Moloni**: cache de token, `country_id` dinâmico, `tax_id` configurável, e resolução tardia de nomes para IDs.
+
+### Corrigido
+
+- Reembolsos Lodgify via `booking_status_change_declined`; pagamento em falta impede a emissão.
+- `findByReference` consulta o mesmo tipo de documento que o `createDraft`.
+- Documentos Moloni finalizados de qualquer tipo ou série são lidos na conciliação (fim do rascunho fantasma).
+- `auto_finalize` lido do contexto e não da configuração desestruturada.
+
+## 🏷️ Version 6.6.1 — Onboarding do token Shopify e códigos de isenção — June 29, 2026
+
+<!-- release: b17cedb -->
+
+### Para o comerciante
+
+- **Códigos de isenção corrigidos** — o M10 e o M11 estavam trocados, e outros códigos tinham a descrição errada. Se emitiste documentos isentos antes desta data, vale a pena confirmá-los com a tua contabilidade.
+
+### Novo
+
+- **Página de onboarding do token Shopify** dentro da Rioko, com preenchimento automático do domínio e botões de cópia dos webhooks.
+- **Paridade de dev-mode para a Stripe**, com armazenamento por utilizador.
+
+### Corrigido
+
+- **M10 e M11 estavam trocados**, e os restantes rótulos de isenção (M08, M19 a M43) estavam errados.
+
+## 💶 Version 6.6.0 — Fatura só depois de paga — June 17, 2026
+
+<!-- release: ec43dfc -->
+
+### Para o comerciante
+
+- **A factura passa a ser emitida só depois de a encomenda estar paga.** Encomendas à espera de pagamento aparecem como pendentes na conciliação, e são facturadas assim que o pagamento é confirmado.
+
+### Alterado
+
+- **A factura só é emitida quando a Shopify confirma o pagamento** (`financial_status=paid`). As encomendas à espera aparecem como pendentes na conciliação em vez de desaparecerem.
+
+## 🔭 Version 6.5.0 — Conciliação fiável, triagem e /shopify — June 11, 2026
+
+<!-- release: 3224e28 -->
+
+### Para o comerciante
+
+- Passas a receber um email quando uma encomenda falha a facturação, em vez de dares por isso mais tarde.
+- A conciliação deixa de mostrar como "sem factura" documentos que foram emitidos.
+- Facturas emitidas à mão ou fora da Rioko passam a ser reconhecidas pela referência.
+
+### Novo
+
+- **Alertas em tempo real** quando uma encomenda falha a facturação, e quando o total reconciliado diverge.
+- **Triagem assistida** — diagnóstico consultivo do incidente dentro do email de alerta, mais relatório semanal de padrões.
+- **Recuperação por referência IX** — facturas manuais ou com mapeamento perdido voltam a ser reconhecidas.
+- **Cache em KV dos metadados IX** para a conciliação, que tira carga ao proxy.
+- **Nome de loja editável** no superadmin, visível por baixo do nome do utilizador.
+- **Landing `/shopify`** dedicada, com três escalões de preço, e correcção do middleware que dava 404 a crawlers.
+
+### Corrigido
+
+- Facturas já emitidas apareciam como "Sem factura" na conciliação.
+- A razão de falha da criação IX passa a ser persistida em vez de ficar só na consola; repetição da criação e recurso a cliente sanitizado no DOC010.
+- `force_tax_rate` passa a comandar a matemática de IVA incluído, não só a taxa carimbada.
+- Portes com taxas mistas são divididos; os totais das notas de crédito de reembolso reconciliam.
+- Reconciliação contra o total arredondado uma só vez pela IX, que é como a IX conta.
+- A conciliação nunca devolve 500 com o proxy lento; morada de cliente à prova de nulos; código postal enviado e apelido colhido das moradas de checkout.
+- Ecrãs de autenticação com logo Rioko 2.0, links legais e alinhamento corrigido.
+
+## 🍪 Version 6.4.1 — Consentimento, GEO e encaminhamento de alertas — June 3, 2026
+
+<!-- release: c045d7c -->
+
+### Para o comerciante
+
+- Banner de cookies e consentimento no site, conforme o RGPD.
+
+### Novo
+
+- **GA4 com Consent Mode v2** e banner de cookies conforme o RGPD.
+- **Dados estruturados GEO**, FAQ, `llms-full.txt` e acesso controlado a crawlers de IA.
+- **Open Graph e Twitter cards** para `rioko.online`.
+- **Grupos de contas no superadmin** (admins, integrados, sem integração) e registo da primeira origem de cada inscrição.
+- **Alertas em tempo real só para operações**, com digest semanal para o comerciante.
+
+### Corrigido
+
+- Fiabilidade do webhook Stripe, com falha rápida nas repetições Shopify e ferramentas de recuperação.
+- **A InvoiceXpress quer o nome do país, não o código ISO.**
+- Auto-cura do `orders/paid` para o erro "Invoice not found", e resiliência ao SPOF do normalize.
+- Pagamentos Stripe Connect alheios deixam de criar utilizadores fantasma.
+- Correspondência determinística IX pela referência `#stripe_`, com permalink público e ciclo de vida da factura agrupado na página de facturação.
+
+## 🛡️ Version 6.4.0 — Mapeamentos, overrides por SKU e endurecimento — May 28, 2026
+
+<!-- release: 4767259 -->
+
+### Para o comerciante
+
+- **Regras por produto** — podes definir taxa de IVA, isenção, inclusão de IVA e nome por SKU, para os casos que fogem à regra geral.
+
+### Novo
+
+- **Mapeamentos de produto explícitos** (Stripe e Shopify → Moloni), com o catálogo Moloni a espelhar a origem por SKU.
+- **Overrides por SKU na InvoiceXpress** — taxa, inclusão de IVA, isenção e nome, com harness de teste ponta a ponta contra a sandbox real.
+- **Quatro sprints de endurecimento** — idempotência, protecção contra replay, moeda, desvio de totais, sanitização de erros, redacção de segredos, limites de pedidos, TTLs, dedup de reembolsos verificado, VIES ligado, alertas de DLQ, e corte do volume de emails de webhook na origem.
+
+### Corrigido
+
+- **O adaptador Moloni tem de enviar `form-urlencoded`, não JSON**, e as linhas precisam de um `product_id` existente.
+- Encomendas Shopify em autoliquidação (`tax_lines.price = 0`) deixam de partir a emissão.
+- Simulador IX exacto ao cêntimo, estado preso do webhook e ruído das heurísticas.
+- `ADMIN_API_KEY` movida para secret do Cloudflare.
+
+## 🌍 Version 6.3.0 — Hub multi-plataforma: Moloni, Vendus, EuPago e PT/EN — May 25, 2026
+
+<!-- release: e4fb11b -->
+
+**Destaque:** a Rioko deixa de ser "Shopify → InvoiceXpress" e passa a ser um hub. Dois destinos novos, uma origem nova, interface bilingue e o painel inteiro repintado na marca.
+
+### Para o comerciante
+
+- **Moloni e Vendus** como destinos de facturação, além do InvoiceXpress.
+- **EuPago** como origem de pagamentos.
+- O painel e o guia passam a estar em português e inglês.
+- **Pausa** — podes suspender a facturação automática a qualquer momento e retomá-la num clique.
+
+### Novo
+
+- **Destinos Moloni e Vendus**, com `destinationConfig` no pipeline e combinações completas para ambos.
+- **EuPago como origem** de pagamentos.
+- **Shopify → Moloni** pelo pipeline, de forma aditiva, sem tocar no caminho IX legado.
+- **Bilingue PT/EN** com prefixo `/pt` e `/en`, incluindo landing, autenticação e todo o chrome do painel.
+- **Guia `/help` reescrito** em quatro plataformas, com separadores de Pagamento e Facturação e FAQ para SEO.
+- **Blog** em `/blog` com quatro artigos e MDX.
+- **Interruptor de pausa** controlado pelo comerciante, com banner e retoma num clique na conciliação.
+- **Feeds de actividade** no painel, em vez de cartões de estatística de enfeite.
+- **GA4** na landing e no painel.
+
+### Alterado
+
+- Tokens de marca extraídos e fontes Geist levantadas até ao chrome do painel; acento cyan único na navegação; painel, formulários, tabelas e fluxos de integração repintados.
+- Varrimento mobile completo: viewport, espaçamentos e tamanhos de letra abaixo de 12px.
+
+### Corrigido
+
+- Encomendas de valor zero são ignoradas, e os erros reais aparecem na conciliação.
+- `/help` movido para dentro de `[locale]` para `/pt/help` e `/en/help` resolverem.
+
+## 💳 Version 6.2.0 — Stripe como origem e totais ao cêntimo — May 21, 2026
+
+<!-- release: 3985177 -->
+
+### Para o comerciante
+
+- **Stripe** como origem: pagamentos Stripe passam a gerar factura, com o webhook instalado automaticamente.
+- O NIF preenchido no checkout passa a chegar à factura.
+- **Totais ao cêntimo** — encomendas com descontos deixam de sair com desvios de arredondamento.
+
+### Novo
+
+- **Stripe como origem**, com configurador próprio e instalação automática do webhook por chave restrita.
+- **Retenção na fonte** como opção no passo de InvoiceXpress.
+- **NIF e VAT extraídos** dos `custom_fields` do Checkout e dos `tax_ids` do Customer.
+- **Finalização de rascunhos** com estratégia de data e filtros por número de encomenda e intervalo.
+- **Landing responsiva** em mobile.
+
+### Corrigido
+
+- **Totais exactos ao cêntimo** — os itens passam a ser calculados directamente do Shopify em bruto, com preços sempre sem IVA e desconto por linha em percentagem (a IX ignora `discount_amount` no POST).
+- `closest_available` preserva a data original em vez de a encostar a hoje.
+- Os quatro webhooks são registados e validados na activação.
+- Ligação obsoleta em `processed_orders` quando a factura IX foi apagada.
 
 ## 💎 Version 6.1.0 — Landing Redesign & Brand System — May 18, 2026
 

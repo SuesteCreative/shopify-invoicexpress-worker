@@ -75,6 +75,48 @@ export const CUSTOMERS = `
     )
 `;
 
+/**
+ * Does this account have a pipe at all?
+ *
+ * Two places to look, and forgetting the second is the classic mistake on this
+ * schema: the legacy Shopify→InvoiceXpress integration has no `connections` row,
+ * it is columns on `integrations`. An account wired up that way is a customer
+ * with a working pipe that a `connections`-only test calls empty.
+ */
+export const HAS_PIPE = (alias = "u") => `(
+  EXISTS (SELECT 1 FROM connections c WHERE c.user_id = ${alias}.id)
+  OR EXISTS (SELECT 1 FROM integrations i WHERE i.user_id = ${alias}.id AND i.shopify_domain IS NOT NULL)
+)`;
+
+/**
+ * The subscription gate, as one expression.
+ *
+ * Mirrors isSubscriptionBlocked() in lib/subscription-state.ts and rowAllows()
+ * in the worker's subscription-gate.ts. It lives here alone so the admin page,
+ * the funnel and the newsletter audience cannot each grow their own dialect of
+ * "is this account allowed to invoice" — three expressions of the rule would be
+ * three chances to get it wrong, and the one that drifts would be the one nobody
+ * is looking at.
+ */
+export const GATE_OPEN = (alias = "u") => `EXISTS (
+    SELECT 1 FROM subscriptions s
+    WHERE s.user_id = ${alias}.id
+      AND s.status NOT IN ('canceled','unpaid','incomplete_expired','past_due','incomplete')
+      AND (
+        s.status <> 'trialing'
+        OR s.stripe_subscription_id IS NOT NULL
+        -- An early bird keeps access until the INSTANT its trial ends, which is
+        -- what the gate compares. Comparing dates instead granted a whole extra
+        -- day here: on the last day of a trial this page said invoicing was fine
+        -- while the worker was already refusing it. datetime() is what makes the
+        -- two forms comparable — trial_end is ISO with a T and a Z, and the raw
+        -- strings sort wrong against each other from position 11.
+        OR (COALESCE(s.early_bird, 0) = 1
+            AND s.trial_end IS NOT NULL
+            AND datetime(s.trial_end) > datetime('now'))
+      )
+  )`;
+
 /** Gross, refunded and (by subtraction) net euros per calendar month. */
 export const REVENUE_BY_MONTH = `
   SELECT ym,
@@ -129,8 +171,7 @@ export const FUNNEL = (customers: string) => `
   FROM (
     SELECT
       COALESCE(u.registration_completed, 0) = 1 AS reg,
-      (EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id)
-        OR EXISTS (SELECT 1 FROM integrations i WHERE i.user_id = u.id AND i.shopify_domain IS NOT NULL)) AS conn,
+      ${HAS_PIPE("u")} AS conn,
       EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'active') AS pay,
       EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id AND c.status = 'draft')    AS draft
     FROM (${customers}) u
@@ -150,28 +191,8 @@ export const FUNNEL = (customers: string) => `
 export const BLOCKED_BY_GATE = (customers: string) => `
   SELECT COUNT(*) AS n
   FROM (${customers}) u
-  WHERE (
-      EXISTS (SELECT 1 FROM connections c WHERE c.user_id = u.id)
-      OR EXISTS (SELECT 1 FROM integrations i WHERE i.user_id = u.id AND i.shopify_domain IS NOT NULL)
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM subscriptions s
-    WHERE s.user_id = u.id
-      AND s.status NOT IN ('canceled','unpaid','incomplete_expired','past_due','incomplete')
-      AND (
-        s.status <> 'trialing'
-        OR s.stripe_subscription_id IS NOT NULL
-        -- An early bird keeps access until the INSTANT its trial ends, which is
-        -- what the gate compares. Comparing dates instead granted a whole extra
-        -- day here: on the last day of a trial this page said invoicing was fine
-        -- while the worker was already refusing it. datetime() is what makes the
-        -- two forms comparable — trial_end is ISO with a T and a Z, and the raw
-        -- strings sort wrong against each other from position 11.
-        OR (COALESCE(s.early_bird, 0) = 1
-            AND s.trial_end IS NOT NULL
-            AND datetime(s.trial_end) > datetime('now'))
-      )
-  )
+  WHERE ${HAS_PIPE("u")}
+  AND NOT ${GATE_OPEN("u")}
 `;
 
 /**

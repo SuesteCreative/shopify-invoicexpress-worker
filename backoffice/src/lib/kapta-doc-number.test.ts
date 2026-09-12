@@ -14,9 +14,14 @@ const doc = (id: string, number: string, state = "finalized"): KaptaDocSummary =
     ({ id, number, state, total: "50.00", date: "12/09/2026", permalink: `https://x/${id}` });
 
 const index = new Map<string, KaptaDocSummary>([
-    ["267793087", doc("267793087", "KAPTA2026/615", "canceled")],
-    ["268993350", doc("268993350", "KAPTA2026/673")],
-    ["269288271", doc("269288271", "KAPTA2026/6")],
+    ["267793087", doc("267793087", "Kapta2026/615", "canceled")],
+    ["268993350", doc("268993350", "Kapta2026/673")],
+    ["269288271", doc("269288271", "Kapta2026/6")],
+]);
+
+/** What the list endpoints answer when `inverted_sequence_number` is absent. */
+const ixSpelling = new Map<string, KaptaDocSummary>([
+    ["268993350", doc("268993350", "673/Kapta2026")],
 ]);
 
 describe("findInIndex", () => {
@@ -34,6 +39,14 @@ describe("findInIndex", () => {
 
     it("returns null for a number the account does not have", () => {
         expect(findInIndex(index, "KAPTA2026/999")).toBeNull();
+    });
+
+    it("finds it when the account answers NUMBER/SERIES and the admin types SERIES/NUMBER", () => {
+        expect(findInIndex(ixSpelling, "KAPTA2026/673")?.id).toBe("268993350");
+    });
+
+    it("and the other way round, when the number is typed as IX spells it", () => {
+        expect(findInIndex(index, "673/Kapta2026")?.id).toBe("268993350");
     });
 
     it("returns null on empty input instead of the first document", () => {

@@ -1,7 +1,7 @@
 import { getStripeEnv, getStripeEnvOptional } from "./stripe";
 import type { KaptaDocSummary } from "./kapta-doc-number";
 
-export { findInIndex, normalizeDocNumber, type KaptaDocSummary } from "./kapta-doc-number";
+export { findInIndex, normalizeDocNumber, docNumberSpellings, type KaptaDocSummary } from "./kapta-doc-number";
 
 interface KaptaIXConfig {
     account: string;
@@ -13,9 +13,12 @@ interface IXDocument {
     id: string;
     type: "invoice_receipts" | "invoices" | "credit_notes";
     state: string;
-    /** The human document number IX prints, e.g. "KAPTA2026/673". Returned by the
-     * list endpoints; the only handle on a document an admin actually holds. */
+    /** IX's own spelling of the number: NUMBER/SERIES, e.g. "673/Kapta2026". Not
+     * what is printed on the document — see `inverted_sequence_number`. */
     sequence_number?: string;
+    /** The number as printed, SERIES/NUMBER, e.g. "Kapta2026/673". This is the one
+     * an admin reads off the document and types. */
+    inverted_sequence_number?: string;
     reference?: string;
     date?: string;
     total?: string;
@@ -182,7 +185,9 @@ export async function listDocumentIndex(
         const id = String(d.id);
         index.set(id, {
             id,
-            number: d.sequence_number ?? null,
+            // The printed spelling first: an admin types what the document shows.
+            // Either way findInIndex matches both, but only one is recognisable.
+            number: d.inverted_sequence_number ?? d.sequence_number ?? null,
             state: d.state ?? null,
             total: d.total ?? null,
             date: d.date ?? null,

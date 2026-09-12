@@ -24,12 +24,29 @@ export function normalizeDocNumber(s: string | null | undefined): string {
     return (s || "").toUpperCase().replace(/\s+/g, "");
 }
 
+/**
+ * A document number reduced to what it identifies, whichever way round it is
+ * written.
+ *
+ * InvoiceXpress keeps the same number in two spellings: `sequence_number` is
+ * NUMBER/SERIES ("673/Kapta2026") and `inverted_sequence_number` is what is
+ * printed on the document, SERIES/NUMBER ("Kapta2026/673"). An admin types what
+ * they read; comparing that against the other spelling finds nothing and calls a
+ * real document missing. So a number stands for both ways of writing it.
+ */
+export function docNumberSpellings(s: string | null | undefined): string[] {
+    const n = normalizeDocNumber(s);
+    if (!n) return [];
+    const parts = n.split("/");
+    return parts.length === 2 ? [n, `${parts[1]}/${parts[0]}`] : [n];
+}
+
 /** The document an admin means by a typed number, or null when no such number exists. */
 export function findInIndex(index: Map<string, KaptaDocSummary>, number: string): KaptaDocSummary | null {
-    const wanted = normalizeDocNumber(number);
-    if (!wanted) return null;
+    const wanted = new Set(docNumberSpellings(number));
+    if (wanted.size === 0) return null;
     for (const doc of index.values()) {
-        if (normalizeDocNumber(doc.number) === wanted) return doc;
+        if (docNumberSpellings(doc.number).some(s => wanted.has(s))) return doc;
     }
     return null;
 }

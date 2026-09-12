@@ -5,6 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection, ixAccountNameOnConnection } from "@/lib/connection-fiscal";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
+import { grantReferralGrace } from "@/lib/referral-grace";
 
 export const runtime = "edge";
 
@@ -175,6 +176,12 @@ export async function POST(request: NextRequest) {
            status = excluded.status,
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceCfg), status, now, now).run();
+
+    // A referred account's free month is keyed to a connection (0044) and at
+    // claim time there was none. One exists now, so put it here rather than
+    // leave the gate refusing the first order of a merchant who was promised
+    // thirty free days. A no-op for everyone who was never referred.
+    await grantReferralGrace(db, authResult.targetUserId).catch(() => { /* never block a save */ });
 
     await saveFiscal();
 

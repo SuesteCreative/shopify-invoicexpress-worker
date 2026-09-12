@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { creditCentsFrom, drainPendingReferralCredits, claimInviteePayment } from "./referral-credit";
+import { creditCentsFrom, drainPendingReferralCredits, claimInviteePayment, intervalOfInvoice } from "./referral-credit";
 
 /**
  * This file moves money. The two ways it can be wrong are both silent:
@@ -25,11 +25,13 @@ function fixture() {
         );
         CREATE TABLE subscriptions (
           user_id TEXT, connection_key TEXT, status TEXT, plan TEXT,
-          stripe_customer_id TEXT, created_at TEXT, updated_at TEXT
+          stripe_customer_id TEXT, nif TEXT, created_at TEXT, updated_at TEXT
         );
         CREATE TABLE billing_events (
-          id TEXT PRIMARY KEY, user_id TEXT, type TEXT, amount_cents INTEGER, created_at TEXT
+          id TEXT PRIMARY KEY, user_id TEXT, type TEXT, amount_cents INTEGER,
+          raw_json TEXT, created_at TEXT
         );
+        CREATE TABLE users (id TEXT PRIMARY KEY, nif TEXT);
     `);
 
     /** The slice of the D1 interface this module uses. */
@@ -44,17 +46,26 @@ function fixture() {
     };
 
     const calls: any[] = [];
+    /** What Stripe already holds for this customer, for the double-credit guard. */
+    const existingTxns: any[] = [];
     const stripe = {
         customers: {
             async createBalanceTransaction(id: string, params: any, options: any) {
                 calls.push({ id, params, options });
                 return { id: `cbtxn_${calls.length}` };
             },
+            async listBalanceTransactions() {
+                return { data: existingTxns };
+            },
         },
     };
 
-    return { sqlite, db, stripe, calls };
+    return { sqlite, db, stripe, calls, existingTxns };
 }
+
+/** A Stripe invoice as the webhook stores it, trimmed to what we read back. */
+const invoiceJson = (interval: "month" | "year") =>
+    JSON.stringify({ lines: { data: [{ price: { recurring: { interval } } }] } });
 
 describe("creditCentsFrom", () => {
     it("doubles a monthly invoice", () => {
@@ -84,8 +95,8 @@ describe("drainPendingReferralCredits", () => {
     const paying = `
         INSERT INTO subscriptions (user_id, connection_key, status, plan, stripe_customer_id, created_at, updated_at)
         VALUES ('user_a', 'shopify:invoicexpress', 'active', 'monthly', 'cus_a', '2026-01-01', '2026-01-01');
-        INSERT INTO billing_events (id, user_id, type, amount_cents, created_at)
-        VALUES ('evt_1', 'user_a', 'invoice.paid', 923, '2026-09-01T10:00:00.000Z');
+        INSERT INTO billing_events (id, user_id, type, amount_cents, raw_json, created_at)
+        VALUES ('evt_1', 'user_a', 'invoice.paid', 923, '${invoiceJson("month")}', '2026-09-01T10:00:00.000Z');
     `;
 
     it("credits the inviter, negative, once, with an idempotency key", async () => {
@@ -158,6 +169,105 @@ describe("drainPendingReferralCredits", () => {
         expect(r.cents).toBe(3692);
         expect(f.calls.map((c) => c.options.idempotencyKey).sort())
             .toEqual(["rioko-referral-user_b", "rioko-referral-user_c"]);
+    });
+});
+
+describe("the ledger traps", () => {
+    const owed2 = `
+        INSERT INTO referrals (invitee_user_id, code, inviter_user_id, state) VALUES ('user_b','loja-aaa','user_a','paid');
+        INSERT INTO subscriptions (user_id, connection_key, status, plan, stripe_customer_id, created_at, updated_at)
+        VALUES ('user_a', 'shopify:invoicexpress', 'active', 'monthly', 'cus_a', '2026-01-01', '2026-01-01');
+    `;
+
+    it("ignores the zero invoice its own last credit produced", async () => {
+        const f = fixture();
+        // The trap: after crediting 18,46 EUR, the next two monthly invoices are
+        // covered by that balance. Stripe still fires invoice.paid, for zero.
+        // Reading "the most recent invoice.paid" then values a month at nothing
+        // and parks the second referral — the account that earned the most gets
+        // paid the least.
+        f.sqlite.exec(owed2 + `
+            INSERT INTO billing_events (id, user_id, type, amount_cents, raw_json, created_at) VALUES
+              ('evt_real', 'user_a', 'invoice.paid', 923, '${invoiceJson("month")}', '2026-09-01T10:00:00.000Z'),
+              ('evt_zero', 'user_a', 'invoice.paid',   0, '${invoiceJson("month")}', '2026-10-01T10:00:00.000Z');
+        `);
+        const r = await drainPendingReferralCredits(f.db, f.stripe, "user_a");
+        expect(r.credited).toBe(1);
+        expect(f.calls[0].params.amount).toBe(-1846);
+    });
+
+    it("takes the period from the invoice it is doubling, not from another row", async () => {
+        const f = fixture();
+        // The mismatch: amount comes from billing_events, plan from
+        // subscriptions, and the two can describe different subscriptions.
+        // Here the plan column says monthly while the invoice paid is annual.
+        f.sqlite.exec(owed2 + `
+            INSERT INTO billing_events (id, user_id, type, amount_cents, raw_json, created_at)
+            VALUES ('evt_year', 'user_a', 'invoice.paid', 9225, '${invoiceJson("year")}', '2026-09-01T10:00:00.000Z');
+        `);
+        const r = await drainPendingReferralCredits(f.db, f.stripe, "user_a");
+        // Two twelfths of the year, not two years.
+        expect(r.cents).toBe(1538);
+        expect(f.calls[0].params.amount).toBe(-1538);
+    });
+
+    it("does not pay again for a credit Stripe already holds", async () => {
+        const f = fixture();
+        f.sqlite.exec(owed2 + `
+            INSERT INTO billing_events (id, user_id, type, amount_cents, raw_json, created_at)
+            VALUES ('evt_1', 'user_a', 'invoice.paid', 923, '${invoiceJson("month")}', '2026-09-01T10:00:00.000Z');
+        `);
+        // The state the idempotency key cannot cover: the balance transaction
+        // landed, our UPDATE did not, and a day later somebody presses the
+        // manual drain button on a row that still looks stuck.
+        f.existingTxns.push({ id: "cbtxn_old", metadata: { referral_invitee: "user_b" } });
+
+        const r = await drainPendingReferralCredits(f.db, f.stripe, "user_a");
+        expect(f.calls).toHaveLength(0);
+        expect(r.credited).toBe(0);
+        const row = f.sqlite.prepare("SELECT * FROM referrals WHERE invitee_user_id='user_b'").get() as any;
+        expect(row.state).toBe("credited");
+        expect(row.note).toBe("reconciled_from_stripe");
+    });
+
+    it("refuses to pay a referral between two accounts of the same company", async () => {
+        const f = fixture();
+        // One paid month buys two credited months, so self-dealing is profitable
+        // if nothing stops it. By now both sides have been through a checkout,
+        // which is where the fiscal number gets collected.
+        f.sqlite.exec(owed2 + `
+            INSERT INTO billing_events (id, user_id, type, amount_cents, raw_json, created_at)
+            VALUES ('evt_1', 'user_a', 'invoice.paid', 923, '${invoiceJson("month")}', '2026-09-01T10:00:00.000Z');
+            INSERT INTO users (id, nif) VALUES ('user_a', '516277421'), ('user_b', 'PT516277421');
+        `);
+        const r = await drainPendingReferralCredits(f.db, f.stripe, "user_a");
+        expect(f.calls).toHaveLength(0);
+        expect(r.parked[0].reason).toBe("same_fiscal_id");
+        const row = f.sqlite.prepare("SELECT * FROM referrals WHERE invitee_user_id='user_b'").get() as any;
+        expect(row.state).toBe("paid");
+        expect(row.note).toBe("same_fiscal_id");
+    });
+
+    it("still pays a genuine referral between two different companies", async () => {
+        const f = fixture();
+        f.sqlite.exec(owed2 + `
+            INSERT INTO billing_events (id, user_id, type, amount_cents, raw_json, created_at)
+            VALUES ('evt_1', 'user_a', 'invoice.paid', 923, '${invoiceJson("month")}', '2026-09-01T10:00:00.000Z');
+            INSERT INTO users (id, nif) VALUES ('user_a', '516277421'), ('user_b', '999999990');
+        `);
+        const r = await drainPendingReferralCredits(f.db, f.stripe, "user_a");
+        expect(r.credited).toBe(1);
+    });
+});
+
+describe("intervalOfInvoice", () => {
+    it("reads the interval off the stored invoice, and admits when it cannot", () => {
+        expect(intervalOfInvoice(invoiceJson("year"))).toBe("year");
+        expect(intervalOfInvoice(invoiceJson("month"))).toBe("month");
+        expect(intervalOfInvoice('{"lines":{"data":[{"plan":{"interval":"year"}}]}}')).toBe("year");
+        expect(intervalOfInvoice("not json")).toBeNull();
+        expect(intervalOfInvoice(null)).toBeNull();
+        expect(intervalOfInvoice("{}")).toBeNull();
     });
 });
 

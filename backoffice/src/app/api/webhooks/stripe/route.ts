@@ -560,6 +560,17 @@ export async function POST(req: NextRequest) {
                                 (paid.parked.length ? `, parked ${paid.parked.map(p => p.reason).join(",")}` : ""),
                             );
                         }
+                        // And the payer's OWN parked credits. Without this the
+                        // only retry is a Checkout, which an account that already
+                        // subscribes never completes again: a credit parked for
+                        // any reason — no customer yet when it was earned, or an
+                        // invoice.paid that had not landed when checkout fired —
+                        // would sit unpaid until a human read the note. Costs one
+                        // indexed lookup that finds nothing for almost everybody.
+                        const mine = await drainPendingReferralCredits(db, stripe, userId);
+                        if (mine.credited > 0) {
+                            console.log(`[referral] drained ${mine.credited} parked credits (${mine.cents}c) for ${userId} on payment`);
+                        }
                     } catch (refErr: any) {
                         // Best effort, like the notice below: a referral that
                         // fails to credit is a row we can drain later, and it must

@@ -39,6 +39,8 @@ type Fragment = { group: string; sql: string; binds?: unknown[] };
 const SOURCE_KINDS = new Set(["shopify", "stripe", "stripe_connect", "lodgify", "eupago"]);
 const DEST_KINDS = new Set(["invoicexpress", "moloni", "vendus"]);
 const SUB_STATES = new Set(["active", "trialing", "past_due", "canceled", "unpaid", "incomplete"]);
+/** The states the gate refuses. Same list as GATE_OPEN's NOT IN. */
+const DEAD_STATES = new Set(["past_due", "canceled", "unpaid", "incomplete"]);
 const PLANS = new Set(["monthly", "annual"]);
 
 /** The legacy Shopify→InvoiceXpress pipe has no `connections` row — it is
@@ -98,9 +100,23 @@ function parameterised(key: string): Fragment | null {
         };
     }
     if (head === "sub" && SUB_STATES.has(arg)) {
+        // A dead status on ONE connection is not a dead account. Since 0044 an
+        // account holds a row per connection, and the platform manufactures the
+        // mixture itself: retireConnectionKey() cancels the old row the moment a
+        // subscription is moved to the right pair, so an account that is paying
+        // today carries a 'canceled' row for ever after.
+        //
+        // Ticking "Cancelada" to write a win-back would then mail "lamentamos que
+        // tenhas saído" to a paying client. A closed state has to mean the
+        // account is actually closed, so it carries the gate with it. The open
+        // states stay existential, because one live connection IS an active
+        // account.
+        const closed = DEAD_STATES.has(arg);
         return {
             group: "subscription",
-            sql: `EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = ?)`,
+            sql: closed
+                ? `EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = ?) AND NOT ${GATE_OPEN("u")}`
+                : `EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = ?)`,
             binds: [arg],
         };
     }

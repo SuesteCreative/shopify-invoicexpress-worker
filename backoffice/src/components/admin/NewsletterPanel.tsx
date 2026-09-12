@@ -27,6 +27,7 @@ interface Campaign {
 interface Recipient { user_id: string; email: string; label: string; first_name: string }
 interface Preview {
     count: number; recipients: Recipient[]; html: string;
+    subject: string; preview_text: string | null;
     legal_error: string | null; unknown_vars: string[];
 }
 
@@ -361,6 +362,16 @@ export function NewsletterPanel() {
                                 mais {n(preview.count - preview.recipients.length)} não listados
                             </p>
                         )}
+
+                        {/* The two lines the iframe cannot show, resolved. A
+                            placeholder left in the subject reaches everybody and
+                            would otherwise never be seen before sending. */}
+                        <div className="rounded-xl bg-surface-2/60 border border-hairline px-3 py-2">
+                            <p className="text-sm text-fg">{preview.subject}</p>
+                            {preview.preview_text && (
+                                <p className="text-[11px] text-fg-40 mt-0.5">{preview.preview_text}</p>
+                            )}
+                        </div>
 
                         <iframe
                             title="Pré-visualização"

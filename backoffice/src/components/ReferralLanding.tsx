@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -21,10 +21,15 @@ export function ReferralLanding({ code, locale }: { code: string; locale: string
     const t = useTranslations("referral");
     const { isLoaded, isSignedIn } = useAuth();
     const claim = useOnboardingInvite(code, { key: REFERRAL_KEY, endpoint: "/api/referral/claim" });
+    const [refusal, setRefusal] = useState<string | null>(null);
 
     useEffect(() => {
         if (!isLoaded || !isSignedIn) return;
-        void claim();
+        // The answer is shown, not swallowed. A merchant whose account is older
+        // than the window, or who opened their own link, is refused by the
+        // server — and telling them it was recorded anyway leaves two people
+        // waiting for months that are never coming.
+        void claim().then((r) => setRefusal(r.state === "refused" ? r.reason : null));
     }, [isLoaded, isSignedIn, claim]);
 
     return (
@@ -57,7 +62,9 @@ export function ReferralLanding({ code, locale }: { code: string; locale: string
 
                 {isSignedIn ? (
                     <div className="space-y-2">
-                        <p className="text-sm text-fg">{t("landingAlreadyIn")}</p>
+                        <p className={`text-sm ${refusal ? "text-destructive" : "text-fg"}`}>
+                            {refusal ?? t("landingAlreadyIn")}
+                        </p>
                         <Link
                             href="/dashboard"
                             className="inline-flex px-5 py-2.5 rounded-xl text-sm font-medium bg-fg text-surface hover:bg-accent hover:text-on-accent transition-all"

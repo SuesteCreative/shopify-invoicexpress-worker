@@ -64,20 +64,29 @@ export async function POST(request: NextRequest) {
 
         const action = body.action ?? "preview";
         const slug = String(body.slug ?? "").trim();
-        const subject = String(body.subject ?? "").trim();
+        const rawSubject = String(body.subject ?? "").trim();
         const rawHtml = String(body.html ?? "");
+        const rawPreview = String(body.preview_text ?? "").trim();
         const filters = Array.isArray(body.filters) ? body.filters.map(String) : [];
 
-        if (!slug || !subject || !rawHtml) {
+        if (!slug || !rawSubject || !rawHtml) {
             return NextResponse.json({ error: "Falta o template, o assunto ou o corpo" }, { status: 400 });
         }
 
         // Our placeholders resolve here, once, for the whole send. Resend's
         // triple-brace tags go through untouched — they are the per-recipient
         // half and the broadcast fills them.
+        //
+        // The subject and the inbox preview go through the same substitution as
+        // the body. They are the two lines everybody reads and the only two the
+        // preview pane does not render, so a stray {{GREETING_NAME}} there would
+        // reach the whole list unseen, in the one place a broadcast cannot be
+        // taken back.
         const html = fill(rawHtml);
+        const subject = fill(rawSubject);
+        const previewText = rawPreview ? fill(rawPreview) : undefined;
         const legal = requiredLegalOk(html);
-        const missing = unknownVars(rawHtml);
+        const missing = unknownVars([rawHtml, rawSubject, rawPreview].join("\n"));
 
         const recipients = await resolveAudience(db(), filters);
 
@@ -86,6 +95,10 @@ export async function POST(request: NextRequest) {
                 count: recipients.length,
                 recipients: recipients.slice(0, 500),
                 html,
+                // Resolved, so the two lines the iframe cannot render are still
+                // read by a human before anything is sent.
+                subject,
+                preview_text: previewText ?? null,
                 legal_error: legal,
                 unknown_vars: missing,
             });
@@ -132,7 +145,7 @@ export async function POST(request: NextRequest) {
                 slug,
                 subject,
                 html,
-                preview_text: body.preview_text,
+                preview_text: previewText,
                 scheduled_at: body.scheduled_at,
                 recipients: recipients.map((r) => ({
                     email: r.email, first_name: r.first_name, user_id: r.user_id, label: r.label,

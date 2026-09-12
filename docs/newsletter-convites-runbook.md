@@ -107,7 +107,18 @@ O que convém vigiar, em `/admin/financeiro` → **Convites**:
 - `no_stripe_customer` — convidante que ainda nunca pagou. Fica em espera e é
   creditado sozinho no primeiro checkout dele. Não é preciso fazer nada;
 - `no_ledger_amount` — tem cliente Stripe mas nunca foi facturado, por isso não
-  há valor para dobrar. Esse precisa de decisão humana.
+  há valor para dobrar. Esse precisa de decisão humana;
+- `same_fiscal_id` — as duas contas têm o mesmo NIF. Não é creditado de propósito:
+  a copy diz "uma vez por empresa convidada", e um mês pago a comprar dois
+  creditados seria lucrativo se nada o travasse;
+- `reconciled_from_stripe` — o crédito já estava no Stripe e a linha é que tinha
+  ficado para trás. Não é erro, é a linha a apanhar a realidade.
+
+Uma coisa que fica por fazer e é decisão, não esquecimento: **um reembolso não
+reverte o crédito**. Se o convidado for reembolsado depois de o convidante ser
+creditado, os 2 meses ficam dados. Numa frota desta dimensão isso vê-se no cartão
+dos Convites e corrige-se à mão no Stripe; automatizar a reversão custa mais do
+que o risco, enquanto a campanha for por convite e por NIF distinto.
 
 A data de fim (31/10/2026) vive em `CAMPAIGN_END`, em
 `backoffice/src/lib/referral.ts`. Fecha o **resgate**, nunca o **crédito**: quem

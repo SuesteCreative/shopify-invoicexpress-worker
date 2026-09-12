@@ -164,6 +164,25 @@ describe("gate and trial filters", () => {
         expect(d.ids(["blocked"])).not.toContain("user_shop");
     });
 
+    it("does not call a paying account cancelled because an old pipe was retired", () => {
+        const d = db();
+        fleet(d);
+        // The state the platform makes for itself: retireConnectionKey() cancels
+        // the old row the moment a subscription is moved to the right pair.
+        d.exec(`
+            INSERT INTO subscriptions (user_id, connection_key, status, plan, stripe_subscription_id) VALUES
+              ('user_shop', 'shopify:invoicexpress', 'canceled', 'monthly', NULL),
+              ('user_shop', 'stripe:moloni',         'active',   'monthly', 'sub_1');
+            INSERT INTO subscriptions (user_id, connection_key, status, plan, stripe_subscription_id) VALUES
+              ('user_stripe', 'stripe:moloni', 'canceled', 'monthly', NULL);
+        `);
+        // A win-back must not reach someone who is paying today.
+        expect(d.ids(["sub:canceled"])).toEqual(["user_stripe"]);
+        expect(d.ids(["sub:canceled"])).not.toContain("user_shop");
+        // The open states stay existential: one live connection is an active account.
+        expect(d.ids(["sub:active"])).toEqual(["user_shop"]);
+    });
+
     it("picks early birds whose grace runs out inside the window", () => {
         const d = db();
         fleet(d);

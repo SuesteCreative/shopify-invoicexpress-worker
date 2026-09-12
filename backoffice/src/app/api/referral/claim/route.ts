@@ -2,8 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { resolveAccountUser } from "@/lib/account";
-import { primaryConnectionKey } from "@/lib/stripe";
-import { claimRefusal, inviteeTrialEnd, REFUSAL_PT, isValidReferralCode } from "@/lib/referral";
+import { claimRefusal, REFUSAL_PT, isValidReferralCode } from "@/lib/referral";
+import { grantReferralGrace } from "@/lib/referral-grace";
 
 export const runtime = "edge";
 
@@ -69,26 +69,15 @@ export async function POST(request: NextRequest) {
         // The free month. Not a Stripe coupon and not a Stripe trial: early_bird
         // plus a trial_end is what the gate already reads, and it is the only
         // version of this that is honestly "sem cartão".
-        const connectionKey = await primaryConnectionKey(db, invitee);
-        const trialEnd = inviteeTrialEnd(new Date());
-        await db.prepare(`
-            INSERT INTO subscriptions (user_id, connection_key, status, early_bird, trial_end, updated_at)
-            VALUES (?, ?, 'trialing', 1, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(user_id, connection_key) DO UPDATE SET
-              early_bird = 1,
-              trial_end  = excluded.trial_end,
-              updated_at = CURRENT_TIMESTAMP
-            WHERE subscriptions.stripe_subscription_id IS NULL
-              AND subscriptions.status <> 'active'
-              -- Never shorten a grace somebody already has. An admin-set
-              -- early-bird date is a decision, and this must not overwrite it
-              -- with a nearer one.
-              AND (subscriptions.trial_end IS NULL
-                   OR datetime(subscriptions.trial_end) < datetime(excluded.trial_end))
-        `).bind(invitee, connectionKey, trialEnd).run();
+        //
+        // Applied here for whatever the account has today, and again from
+        // /api/auth/sync for whatever they connect tomorrow. Someone who just
+        // followed a referral link usually has no connection at all, and the
+        // gate does not fall back to another pair's row.
+        await grantReferralGrace(db, invitee);
 
         console.warn(`[referral] ${invitee} claimed ${code} from ${stored.inviter_user_id}`);
-        return NextResponse.json({ ok: true, trial_end: trialEnd });
+        return NextResponse.json({ ok: true });
     } catch (error: any) {
         console.error("[referral/claim] failed:", error?.message ?? error);
         return NextResponse.json({ error: "claim_failed" }, { status: 500 });

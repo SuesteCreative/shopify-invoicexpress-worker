@@ -81,11 +81,9 @@ export function claimRefusal(ctx: ClaimContext): ReferralRefusal | null {
     return null;
 }
 
-/** When the invitee's free month runs out, as an ISO instant — the form
- *  `trial_end` is stored in and the gate compares with datetime(). */
-export function inviteeTrialEnd(now: Date): string {
-    return new Date(now.getTime() + INVITEE_FREE_DAYS * 86_400_000).toISOString();
-}
+// When the free month runs out is computed in ONE place, graceEndFrom() in
+// referral-grace.ts, anchored to the claim. A second function doing the same
+// arithmetic from `now` is how a grace ends up quietly extending itself.
 
 export const REFUSAL_PT: Record<ReferralRefusal, string> = {
     invalid: "Este link de convite não é válido.",

@@ -90,6 +90,14 @@ Não precisa de nada no Stripe. O mês grátis do convidado é `early_bird = 1` 
 `trial_end` a 30 dias na própria linha de `subscriptions`, que é o que o gate já
 lê; não há cupões para criar nem nada para configurar.
 
+Uma subtileza que vale a pena saber, se algum dia parecer que o mês grátis não
+apareceu: a linha é por par `(conta, ligação)` desde a 0044, e quem chega por um
+link de convite ainda não tem ligação nenhuma. Por isso a graça é reaplicada a
+partir de `/api/auth/sync`, que todas as páginas de integração já chamam: seja o
+que for que o convidado ligue, o mês grátis assenta lá na visita seguinte. A data
+está ancorada no resgate, nunca em "agora", senão cada visita empurrava o fim
+mais 30 dias para a frente.
+
 O que convém vigiar, em `/admin/financeiro` → **Convites**:
 
 - **a pagar** — o convidado pagou e o convidante ainda não foi creditado. O

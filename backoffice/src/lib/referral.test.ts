@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-    claimRefusal, inviteeTrialEnd, referralLink, newReferralCode,
+    claimRefusal, referralLink, newReferralCode,
     isValidReferralCode, CAMPAIGN_END, INVITEE_FREE_DAYS,
 } from "./referral";
 
@@ -137,8 +137,8 @@ describe("claimRefusal", () => {
 
 describe("the offer itself", () => {
     it("gives the invitee thirty days", () => {
-        const end = inviteeTrialEnd(new Date("2026-09-15T10:00:00.000Z"));
-        expect(end.slice(0, 10)).toBe("2026-10-15");
+        // The arithmetic itself lives in referral-grace.ts, anchored to the
+        // claim; this is the promise the copy makes.
         expect(INVITEE_FREE_DAYS).toBe(30);
     });
 

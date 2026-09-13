@@ -71,12 +71,12 @@ export async function GET(request: NextRequest) {
         const { env } = getRequestContext();
         const db = (env as any).DB;
 
-        // The membership join needs migration 0039, is_inactive needs 0046 and
-        // the onboarding/privacy columns need 0049; before any of them is
-        // applied the same list is served without them.
+        // The membership join needs migration 0039, is_inactive needs 0046,
+        // the onboarding/privacy columns need 0049 and client_code needs 0058;
+        // before any of them is applied the same list is served without them.
         const USERS_SQL = `
       SELECT
-        u.id, u.email, u.name, u.role, u.last_login, u.created_at,
+        u.id, u.email, u.name, u.role, u.last_login, u.created_at, u.client_code,
         u.nif, u.company_name, u.admin_label, u.fiscal_address, u.phone, u.website, u.registration_completed,
         u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
         u.privacy_policy_accepted, u.privacy_policy_accepted_at,
@@ -427,6 +427,8 @@ export async function PATCH(request: NextRequest) {
  *
  * `processed_orders` and the documents stay: they are the fiscal record of
  * invoices actually issued, and they are what made the recovery above possible.
+ * So does `client_codes`, which keeps this account's customer number out of
+ * circulation for good — those surviving documents are still filed under it.
  */
 export async function DELETE(request: NextRequest) {
     try {

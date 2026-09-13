@@ -11,9 +11,10 @@ import {
 } from "@/lib/recovery-request";
 import { kindLabel, connectionLabel } from "@/lib/connection-kinds";
 import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
+import { Section } from "@/components/admin/Section";
 import {
     Wrench, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Mail, X,
-    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2, Webhook, Moon
+    PlayCircle, RotateCw, FileCheck2, ScrollText, Calendar, Percent, Trash2, Receipt, Sparkles, Link2, Webhook, Moon, IdCard
 } from "lucide-react";
 
 type Target = {
@@ -156,9 +157,16 @@ export function DevModePanel({ target }: { target: Target }) {
         <div className="space-y-10 animate-in fade-in duration-500">
             {/* Header */}
             <div className="flex flex-col gap-6">
-                <Link href="/admin/clientes" className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest w-fit">
-                    <ArrowLeft className="w-3 h-3" /> {t("back")}
-                </Link>
+                <div className="flex items-center gap-4 flex-wrap">
+                    <Link href="/admin/clientes" className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest w-fit">
+                        <ArrowLeft className="w-3 h-3" /> {t("back")}
+                    </Link>
+                    {/* The record this toolbox belongs to. Addressed by the id,
+                        which the record resolves to the customer number itself. */}
+                    <Link href={`/admin/clientes/${target.id}`} className="flex items-center gap-2 text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest w-fit">
+                        <IdCard className="w-3 h-3" /> {t("record")}
+                    </Link>
+                </div>
                 <div className="flex items-end justify-between flex-wrap gap-4">
                     <div className="flex items-center gap-4">
                         <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
@@ -250,23 +258,6 @@ function ConnectionSelector({ connections, selected, onSelect }: {
                     );
                 })}
             </div>
-        </section>
-    );
-}
-
-function Section({ icon, title, desc, children }: { icon: React.ReactNode; title: string; desc?: string; children: React.ReactNode }) {
-    return (
-        <section className="glass rounded-[2rem] p-5 sm:p-8 border-hairline space-y-6">
-            <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-surface-2 border border-hairline flex items-center justify-center shrink-0">
-                    {icon}
-                </div>
-                <div>
-                    <h2 className="text-lg font-black tracking-tight">{title}</h2>
-                    {desc && <p className="text-fg-40 text-xs font-medium mt-1">{desc}</p>}
-                </div>
-            </div>
-            {children}
         </section>
     );
 }

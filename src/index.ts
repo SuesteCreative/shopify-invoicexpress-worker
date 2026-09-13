@@ -15,7 +15,7 @@ import {
   lodgifyFetch, probeLodgifyRelay, resolveLodgifyGateway, type LodgifyGateway,
 } from "./services/lodgify-api";
 import { bookingCollectedAmount, partialModeFrom } from "./services/lodgify-amounts";
-import { readDocumentTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent, lookupLastEmissionError } from "./services/document-log";
+import { readDocumentTimeline, readMerchantTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent, lookupLastEmissionError } from "./services/document-log";
 import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
 import { reportIncident, runIncidentDigest, autoResolveStaleIncidents, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
@@ -1128,10 +1128,25 @@ async function requireAdmin(c: Context<{ Bindings: Env }>) {
 app.get("/admin/document-log", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
+  const limit = Math.min(Number(c.req.query("limit") ?? 200) || 200, 500);
+
+  // The same table read the other way round: everything that has happened to one
+  // CLIENT, which is what the customer record shows. Kept on this route rather
+  // than a second one because it is the same rows and the same shape — only the
+  // key differs.
+  const userId = c.req.query("user_id");
+  if (userId) {
+    try {
+      return c.json({ user_id: userId, events: await readMerchantTimeline(c.env, { userId, limit }) });
+    } catch (e) {
+      return errorResponse(c, e, "Failed to read document log");
+    }
+  }
+
   const externalId = c.req.query("external_id") ?? c.req.query("order_id");
-  if (!externalId) return c.json({ error: "Missing external_id" }, 400);
+  if (!externalId) return c.json({ error: "Missing external_id or user_id" }, 400);
   try {
-    const events = await readDocumentTimeline(c.env, externalId, Math.min(Number(c.req.query("limit") ?? 200) || 200, 500));
+    const events = await readDocumentTimeline(c.env, externalId, limit);
     return c.json({ external_id: externalId, events });
   } catch (e) {
     return errorResponse(c, e, "Failed to read document log");

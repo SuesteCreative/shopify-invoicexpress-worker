@@ -20,3 +20,12 @@ export const RIOKO_CONFIG = {
     // should reference WEBHOOK_TOPICS_BY_SOURCE directly.
     webhookTopics: ["orders/paid", "refunds/create"],
 };
+
+/**
+ * Where a client's request for a human reaches one.
+ *
+ * A constant rather than an env var because it is the address already published
+ * as Rioko's contact point (lib/schema.ts), and a support address that differs
+ * between environments is a support address nobody answers.
+ */
+export const SUPPORT_EMAIL = "pedro@kapta.pt";

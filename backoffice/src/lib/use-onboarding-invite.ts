@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef } from "react";
+import { clearInvite, readInvite, stashInvite } from "./invite-storage";
 
 /**
  * Claim an onboarding invite, once, as soon as there is a session.
@@ -8,9 +9,9 @@ import { useCallback, useRef } from "react";
  * The token reaches the page in the URL and does not survive the trips out of
  * it: the Clerk sign-up and the Stripe and Moloni consent screens all come back
  * through a fixed map of paths, deliberately, so no redirect target can be
- * taken from a query string. It is stashed in `sessionStorage` on arrival and
- * read back after, which is all it has to survive — once claimed, the coverage
- * lives on the account and every later load reads it from the server.
+ * taken from a query string. It is stashed on arrival and read back after
+ * (lib/invite-storage), which is all it has to survive — once claimed, the
+ * coverage lives on the account and every later load reads it from the server.
  *
  * Errors are returned, never thrown: a bad or spent invite must not stop a
  * merchant from finishing the setup and paying the normal way.
@@ -18,7 +19,6 @@ import { useCallback, useRef } from "react";
 
 const KEY = "rioko_onboarding_invite";
 const ENDPOINT = "/api/onboarding/invite/claim";
-const DAY_MS = 86_400_000;
 
 export type InviteClaim =
     | { state: "idle" }
@@ -29,8 +29,7 @@ export type InviteClaim =
 /**
  * The referral link needs exactly this behaviour and nothing else, so it passes
  * its own storage key and endpoint rather than growing a second copy of the
- * sessionStorage dance. Every existing call site omits the argument and is
- * unchanged.
+ * storage dance. Every existing call site omits the argument and is unchanged.
  */
 export interface InviteClaimOptions {
     key?: string;
@@ -44,33 +43,6 @@ export interface InviteClaimOptions {
      * tab-scoped behaviour they were built with.
      */
     ttlDays?: number;
-}
-
-export function stashInvite(key: string, token: string, ttlDays?: number): void {
-    try {
-        if (ttlDays) window.localStorage.setItem(key, JSON.stringify({ token, expires: Date.now() + ttlDays * DAY_MS }));
-        else window.sessionStorage.setItem(key, token);
-    } catch { /* private mode */ }
-}
-
-/** What is waiting under `key`. An expired entry is removed on the way past. */
-export function readInvite(key: string): string | undefined {
-    try {
-        const raw = window.localStorage.getItem(key);
-        if (raw) {
-            let entry: any = null;
-            try { entry = JSON.parse(raw); } catch { /* not ours to trust */ }
-            if (typeof entry?.token === "string" && Number(entry.expires) > Date.now()) return entry.token;
-            window.localStorage.removeItem(key);
-        }
-    } catch { /* storage blocked: fall back to the tab */ }
-    // A token stashed before it moved to localStorage, or by a caller that never did.
-    try { return window.sessionStorage.getItem(key) ?? undefined; } catch { return undefined; }
-}
-
-export function clearInvite(key: string): void {
-    try { window.localStorage.removeItem(key); } catch { /* ignore */ }
-    try { window.sessionStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 export function useOnboardingInvite(invite: string | undefined, opts: InviteClaimOptions = {}) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { stashInvite, readInvite, clearInvite } from "./use-onboarding-invite";
+import { stashInvite, readInvite, clearInvite } from "./invite-storage";
 
 /**
  * The referral token has to outlive the tab that saw the link, and nothing

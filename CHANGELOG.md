@@ -5,6 +5,74 @@ que gera `src/lib/version.ts` e `src/lib/changelog.generated.ts` — o rodapé d
 `/changelog` saem daqui. O comentário `<!-- release: sha -->` marca o último commit incluído na
 versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
+## ✨ Version 8.8.0 — Convida um amigo, newsletter e ficha de cliente — September 13, 2026
+
+<!-- release: 5ed9cba -->
+
+### Para o comerciante
+
+- Quando pedir uma alteração de NIF ou de nome fiscal, passa a ser avisado no painel do que ficou decidido — e a página Conta mostra o que pediu e em que estado está.
+- Convida 1 amigo e ficam os dois com 2 meses grátis. O teu link está na página de Faturação.
+- A campanha de convites tem agora termos publicados, em rioko.online/pt/campanha-convites.
+- Já não é possível comprar uma segunda subscrição para uma integração que já está paga: o checkout avisa em vez de cobrar outra vez.
+- A tua referência de cliente e o teu código de convite aparecem no cartão da campanha, prontos a copiar.
+- O convite já não se perde se criares a conta noutro separador, e passas a ver se ficou registado.
+- Se entraste por um convite, o passo da subscrição no onboarding mostra os 2 meses grátis e a data da primeira cobrança.
+- O anúncio da campanha só deixa de aparecer quando marcas "Não mostrar novamente".
+- Nos emails de novidades da Rioko podes deixar de receber só as "Novidades Rioko", sem cancelar tudo.
+- O nome da empresa que indicas no pagamento passa a ficar associado à tua subscrição.
+- Na página de Faturação, o preço que aparece é o da integração que vais pagar, e é esse que é cobrado.
+- O link de convite abre na tua língua, e as mensagens de convite recusado aparecem em inglês no painel em inglês.
+- Pagamentos de 0 € deixam de aparecer como "A processar" no histórico de faturação.
+
+### Novo
+
+- **conta** — the client is told what became of what they asked
+- **referral** — convida 1 amigo, recebem os dois 2 meses
+- **campanha** — os termos, e o anúncio que os abre
+- **ficha** — a campanha fica sob o número de cliente, e a newsletter também
+- **newsletter** — night hero image for dark-mode email clients
+- **newsletter** — pick clients by hand and add typed addresses
+- **newsletter** — send as plain emails, with our own unsubscribe
+
+### Corrigido
+
+- **test** — o teste do número de cliente era uma moeda ao ar
+- **newsletter** — o link da campanha apontava para a página que apaguei
+- **referral** — a reward is a trial to the gate; close the campaign's open doors
+- **conta** — never lock an empty NIF, and say so where it is locked
+- **ficha** — audit fixes for the customer record and the fiscal-change loop
+- **conta** — a dismissed identity notice stays dismissed for operators and members
+- **campaign** — close the audit's gaps before the first invite goes out
+- **newsletter** — pace Resend, look contacts up before creating them
+- **test** — keep the invite storage test out of React's reach
+- **ficha** — show what the worker and the fiscal console actually decide
+- **billing** — a manual subscription link no longer duplicates the payment row
+- **conta** — keep consent dates and registered names true; accept codes as heard
+- **ficha** — review follow-ups before shipping
+- **admin** — the Faturas Kapta tab reads one account, not the whole Kapta ledger
+- **admin** — the Faturas Kapta tab lists only payments that went through
+- **newsletter** — keep the result of a button on screen
+- **newsletter** — greet the sender by name in the test email
+- **newsletter** — show the email in the client picker
+- **worker** — every row a Shopify handler writes names its account
+- **superadmin** — no Shopify card without a shop, no "IX API OK" without a key
+- **newsletter** — show the operator why a send failed
+- **newsletter** — night hero with real transparency
+- close the audit's security, money and data findings
+
+### Documentação
+
+- **changelog** — v8.7.0 — A customer number that outlives the account it named
+- **runbook** — as regras novas, e a migração que mudou de forma
+- **ficha** — the migrations are applied, and what it cost to apply them
+- **ficha** — record the 13/09 audit, the request lifecycle and what was refuted
+- **ficha** — record the production verification and what is left to decide
+
+### Manutenção
+
+- **newsletter** — send under the "Novidades Rioko" topic
+
 ## ✨ Version 8.7.0 — A customer number that outlives the account it named — September 13, 2026
 
 <!-- release: ccf985b -->

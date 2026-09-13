@@ -20,6 +20,286 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+        "version": "8.8.0",
+        "emoji": "✨",
+        "title": "Convida um amigo, newsletter e ficha de cliente",
+        "date": "September 13, 2026",
+        "commit": "5ed9cba",
+        "highlight": false,
+        "body": [
+            {
+                "t": "h",
+                "text": "Para o comerciante"
+            },
+            {
+                "t": "li",
+                "text": "Quando pedir uma alteração de NIF ou de nome fiscal, passa a ser avisado no painel do que ficou decidido — e a página Conta mostra o que pediu e em que estado está."
+            },
+            {
+                "t": "li",
+                "text": "Convida 1 amigo e ficam os dois com 2 meses grátis. O teu link está na página de Faturação."
+            },
+            {
+                "t": "li",
+                "text": "A campanha de convites tem agora termos publicados, em rioko.online/pt/campanha-convites."
+            },
+            {
+                "t": "li",
+                "text": "Já não é possível comprar uma segunda subscrição para uma integração que já está paga: o checkout avisa em vez de cobrar outra vez."
+            },
+            {
+                "t": "li",
+                "text": "A tua referência de cliente e o teu código de convite aparecem no cartão da campanha, prontos a copiar."
+            },
+            {
+                "t": "li",
+                "text": "O convite já não se perde se criares a conta noutro separador, e passas a ver se ficou registado."
+            },
+            {
+                "t": "li",
+                "text": "Se entraste por um convite, o passo da subscrição no onboarding mostra os 2 meses grátis e a data da primeira cobrança."
+            },
+            {
+                "t": "li",
+                "text": "O anúncio da campanha só deixa de aparecer quando marcas \"Não mostrar novamente\"."
+            },
+            {
+                "t": "li",
+                "text": "Nos emails de novidades da Rioko podes deixar de receber só as \"Novidades Rioko\", sem cancelar tudo."
+            },
+            {
+                "t": "li",
+                "text": "O nome da empresa que indicas no pagamento passa a ficar associado à tua subscrição."
+            },
+            {
+                "t": "li",
+                "text": "Na página de Faturação, o preço que aparece é o da integração que vais pagar, e é esse que é cobrado."
+            },
+            {
+                "t": "li",
+                "text": "O link de convite abre na tua língua, e as mensagens de convite recusado aparecem em inglês no painel em inglês."
+            },
+            {
+                "t": "li",
+                "text": "Pagamentos de 0 € deixam de aparecer como \"A processar\" no histórico de faturação."
+            },
+            {
+                "t": "h",
+                "text": "Novo"
+            },
+            {
+                "t": "li",
+                "text": "**conta** — the client is told what became of what they asked"
+            },
+            {
+                "t": "li",
+                "text": "**referral** — convida 1 amigo, recebem os dois 2 meses"
+            },
+            {
+                "t": "li",
+                "text": "**campanha** — os termos, e o anúncio que os abre"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — a campanha fica sob o número de cliente, e a newsletter também"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — night hero image for dark-mode email clients"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — pick clients by hand and add typed addresses"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — send as plain emails, with our own unsubscribe"
+            },
+            {
+                "t": "h",
+                "text": "Corrigido"
+            },
+            {
+                "t": "li",
+                "text": "**test** — o teste do número de cliente era uma moeda ao ar"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — o link da campanha apontava para a página que apaguei"
+            },
+            {
+                "t": "li",
+                "text": "**referral** — a reward is a trial to the gate; close the campaign's open doors"
+            },
+            {
+                "t": "li",
+                "text": "**conta** — never lock an empty NIF, and say so where it is locked"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — audit fixes for the customer record and the fiscal-change loop"
+            },
+            {
+                "t": "li",
+                "text": "**conta** — a dismissed identity notice stays dismissed for operators and members"
+            },
+            {
+                "t": "li",
+                "text": "**campaign** — close the audit's gaps before the first invite goes out"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — pace Resend, look contacts up before creating them"
+            },
+            {
+                "t": "li",
+                "text": "**test** — keep the invite storage test out of React's reach"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — show what the worker and the fiscal console actually decide"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — a manual subscription link no longer duplicates the payment row"
+            },
+            {
+                "t": "li",
+                "text": "**conta** — keep consent dates and registered names true; accept codes as heard"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — review follow-ups before shipping"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — the Faturas Kapta tab reads one account, not the whole Kapta ledger"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — the Faturas Kapta tab lists only payments that went through"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — keep the result of a button on screen"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — greet the sender by name in the test email"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — show the email in the client picker"
+            },
+            {
+                "t": "li",
+                "text": "**worker** — every row a Shopify handler writes names its account"
+            },
+            {
+                "t": "li",
+                "text": "**superadmin** — no Shopify card without a shop, no \"IX API OK\" without a key"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — show the operator why a send failed"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — night hero with real transparency"
+            },
+            {
+                "t": "li",
+                "text": "close the audit's security, money and data findings"
+            },
+            {
+                "t": "h",
+                "text": "Documentação"
+            },
+            {
+                "t": "li",
+                "text": "**changelog** — v8.7.0 — A customer number that outlives the account it named"
+            },
+            {
+                "t": "li",
+                "text": "**runbook** — as regras novas, e a migração que mudou de forma"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — the migrations are applied, and what it cost to apply them"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — record the 13/09 audit, the request lifecycle and what was refuted"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — record the production verification and what is left to decide"
+            },
+            {
+                "t": "h",
+                "text": "Manutenção"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — send under the \"Novidades Rioko\" topic"
+            }
+        ],
+        "publicBody": [
+            {
+                "t": "li",
+                "text": "Quando pedir uma alteração de NIF ou de nome fiscal, passa a ser avisado no painel do que ficou decidido — e a página Conta mostra o que pediu e em que estado está."
+            },
+            {
+                "t": "li",
+                "text": "Convida 1 amigo e ficam os dois com 2 meses grátis. O teu link está na página de Faturação."
+            },
+            {
+                "t": "li",
+                "text": "A campanha de convites tem agora termos publicados, em rioko.online/pt/campanha-convites."
+            },
+            {
+                "t": "li",
+                "text": "Já não é possível comprar uma segunda subscrição para uma integração que já está paga: o checkout avisa em vez de cobrar outra vez."
+            },
+            {
+                "t": "li",
+                "text": "A tua referência de cliente e o teu código de convite aparecem no cartão da campanha, prontos a copiar."
+            },
+            {
+                "t": "li",
+                "text": "O convite já não se perde se criares a conta noutro separador, e passas a ver se ficou registado."
+            },
+            {
+                "t": "li",
+                "text": "Se entraste por um convite, o passo da subscrição no onboarding mostra os 2 meses grátis e a data da primeira cobrança."
+            },
+            {
+                "t": "li",
+                "text": "O anúncio da campanha só deixa de aparecer quando marcas \"Não mostrar novamente\"."
+            },
+            {
+                "t": "li",
+                "text": "Nos emails de novidades da Rioko podes deixar de receber só as \"Novidades Rioko\", sem cancelar tudo."
+            },
+            {
+                "t": "li",
+                "text": "O nome da empresa que indicas no pagamento passa a ficar associado à tua subscrição."
+            },
+            {
+                "t": "li",
+                "text": "Na página de Faturação, o preço que aparece é o da integração que vais pagar, e é esse que é cobrado."
+            },
+            {
+                "t": "li",
+                "text": "O link de convite abre na tua língua, e as mensagens de convite recusado aparecem em inglês no painel em inglês."
+            },
+            {
+                "t": "li",
+                "text": "Pagamentos de 0 € deixam de aparecer como \"A processar\" no histórico de faturação."
+            }
+        ]
+    },
+    {
         "version": "8.7.0",
         "emoji": "✨",
         "title": "A customer number that outlives the account it named",

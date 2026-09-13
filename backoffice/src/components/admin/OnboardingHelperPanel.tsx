@@ -325,7 +325,7 @@ function InviteBuilder({ copiedKey, copy }: { copiedKey: string | null; copy: (k
             </WarnBox>
 
             <div className="grid sm:grid-cols-2 gap-4">
-                <Field label="Empresa" value={label} placeholder="Cake Art Magazine" onChange={(e) => setLabel(e.target.value)} />
+                <Field label="Empresa" value={label} placeholder="Loja Exemplo" onChange={(e) => setLabel(e.target.value)} />
                 <div>
                     <label className="block text-[11px] font-bold uppercase tracking-wider text-fg-40 mb-1.5">Ligação</label>
                     <select
@@ -1026,7 +1026,7 @@ export function OnboardingHelperPanel() {
                     <DangerBox>
                         <strong>Nunca correr numa loja que já está a facturar pelo Método 1.</strong> Uma app só vê as subscrições da própria app, nunca as que foram criadas à mão,
                         por isso ligar isto por cima criaria um <strong>segundo</strong> conjunto: documentos a dobrar e alertas de assinatura em catadupa, exactamente o que aconteceu
-                        a 21/05/2026 na Soul Krave e na Estrela Jewelry Studio e passou três meses sem ninguém notar. O servidor recusa com <Code>409</Code> qualquer conta que já
+                        a 21/05/2026 em duas lojas e passou três meses sem ninguém notar. O servidor recusa com <Code>409</Code> qualquer conta que já
                         tenha webhook secret ou webhooks activos: para migrar, apagar primeiro os 4 manuais na loja e limpar a ligação.
                     </DangerBox>
                     <WarnBox>

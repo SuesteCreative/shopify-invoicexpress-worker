@@ -14,7 +14,8 @@ import { Loader2, RotateCcw, Ban, AlertTriangle } from "lucide-react";
  *
  * Rows the webhook could not pay sit in `subscribed`, with the reason in the
  * note. Retry puts the row back through the one function that pays a reward;
- * there is no second path for admins.
+ * there is no second path for admins. Only a hiperadmin may do either, so the
+ * buttons follow the route's `can_act` instead of greeting a superadmin with 401.
  */
 
 type State = "pending" | "subscribed" | "rewarded" | "void";
@@ -44,6 +45,7 @@ interface Payload {
     owed: number;
     max_rewards: number;
     reward_months: number;
+    can_act: boolean;
 }
 
 const STATE_PT: Record<State, string> = {
@@ -169,7 +171,7 @@ export function ReferralsCard() {
                                 {(r.note || r.void_reason) && (
                                     <span className="text-destructive">{r.void_reason || r.note}</span>
                                 )}
-                                {r.state === "subscribed" && (
+                                {r.state === "subscribed" && data.can_act && (
                                     <>
                                         <button
                                             onClick={() => act(r.invitee_user_id, "retry")}

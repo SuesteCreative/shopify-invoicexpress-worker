@@ -10,6 +10,7 @@ import { useTranslations } from "next-intl";
 import SuspendedBanner from "@/components/SuspendedBanner";
 import { ReferralCard } from "@/components/ReferralCard";
 import { rewardRunning } from "@/lib/subscription-state";
+import { canHaveKaptaDocument } from "@/lib/billing-document";
 
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,8 @@ interface BillingEvent {
     ix_match_score: number | null;
     created_at: string;
 }
+
+type Money = { amount_cents: number; currency: string };
 
 function formatAmount(cents: number, currency: string): string {
     return new Intl.NumberFormat("pt-PT", { style: "currency", currency: (currency || "eur").toUpperCase() }).format(cents / 100);
@@ -71,6 +74,7 @@ function StatusBadge({ status, type, t }: { status: string; type: string; t: (k:
 
 export default function FaturacaoPage() {
     const t = useTranslations("faturacao");
+    const tCard = useTranslations("subscriptionCard");
     const searchParams = useSearchParams();
     const stripeResult = searchParams.get("stripe");
     const [sub, setSub] = useState<any>(null);
@@ -79,6 +83,19 @@ export default function FaturacaoPage() {
     const [acting, setActing] = useState<string | null>(null);
     const [subscribing, setSubscribing] = useState<"monthly" | "annual" | null>(null);
     const [linkSubId, setLinkSubId] = useState("");
+    // What the plates below charge. handleSubscribe sends "faturacao", which the
+    // checkout prices from the account's primary connection; the figures used to
+    // be fixed strings in the messages, true only of the Shopify pair.
+    const [prices, setPrices] = useState<{ monthly: Money | null; annual: Money | null } | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        fetch("/api/billing/price?source=faturacao")
+            .then(r => (r.ok ? r.json() : null))
+            .then((d: any) => { if (alive && d) setPrices({ monthly: d.monthly ?? null, annual: d.annual ?? null }); })
+            .catch(() => { /* the plates simply show no figure */ });
+        return () => { alive = false; };
+    }, []);
 
     const load = async () => {
         try {
@@ -209,6 +226,20 @@ export default function FaturacaoPage() {
     // so a Shopify pilot can subscribe any time before their grace ends (per-client
     // date). "trialing" (a paying Stripe trial) keeps a sub, so it's excluded.
     const showSubscribeCta = !hasSubscription && uiState !== "exempt" && uiState !== "trialing";
+
+    // Formatted as SubscriptionCard formats the same answer, with its words.
+    const money = (m: Money | null | undefined) =>
+        m ? new Intl.NumberFormat(tCard("dateLocale") || "pt-PT", {
+            style: "currency", currency: (m.currency || "eur").toUpperCase(),
+            minimumFractionDigits: m.amount_cents % 100 === 0 ? 0 : 2,
+        }).format(m.amount_cents / 100) : null;
+    /** Only claimed when the year really is cheaper than twelve months of it. */
+    const savedPercent = prices?.annual && prices?.monthly && prices.monthly.amount_cents > 0
+        ? (() => {
+            const pct = Math.round((1 - prices.annual!.amount_cents / (prices.monthly!.amount_cents * 12)) * 100);
+            return pct >= 1 ? pct : null;
+        })()
+        : null;
 
     return (
         <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
@@ -348,7 +379,11 @@ export default function FaturacaoPage() {
                         <div className="glass rounded-[2rem] p-6 sm:p-8 flex flex-col gap-6 border border-hairline">
                             <div>
                                 <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-2">{t("monthlyPlan")}</p>
-                                <p className="text-3xl font-medium tracking-tight">{t("monthlyPrice")}</p>
+                                <p className="text-3xl font-medium tracking-tight tabular-nums">
+                                    {money(prices?.monthly) ?? "—"}
+                                    <span className="text-sm text-fg-40 font-medium ml-1">{tCard("perMonth")}</span>
+                                </p>
+                                <p className="text-[11px] text-fg-40 font-medium mt-2">{tCard("vatMonthly")}</p>
                             </div>
                             <button
                                 onClick={() => handleSubscribe("monthly")}
@@ -363,9 +398,15 @@ export default function FaturacaoPage() {
                             <div>
                                 <div className="flex items-center gap-2 mb-2">
                                     <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{t("annualPlan")}</p>
-                                    <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-accent-hot/15 text-accent-hot border border-accent-hot/25">{t("annualSaving")}</span>
+                                    {savedPercent !== null && (
+                                        <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-accent-hot/15 text-accent-hot border border-accent-hot/25">{tCard("savePercent", { pct: savedPercent })}</span>
+                                    )}
                                 </div>
-                                <p className="text-3xl font-medium tracking-tight">{t("annualPrice")}</p>
+                                <p className="text-3xl font-medium tracking-tight tabular-nums">
+                                    {money(prices?.annual) ?? "—"}
+                                    <span className="text-sm text-fg-40 font-medium ml-1">{tCard("perYear")}</span>
+                                </p>
+                                <p className="text-[11px] text-fg-40 font-medium mt-2">{tCard("vatAnnualPlain")}</p>
                             </div>
                             <button
                                 onClick={() => handleSubscribe("annual")}
@@ -436,8 +477,12 @@ export default function FaturacaoPage() {
                                                             <span className="font-mono text-[10px] text-soon uppercase tracking-[0.22em]" title={t("heuristicTooltip", { score: e.ix_match_score ?? "" })}>~</span>
                                                         )}
                                                     </a>
-                                                ) : (
+                                                ) : canHaveKaptaDocument(e) ? (
                                                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("processing")}</span>
+                                                ) : (
+                                                    // A failed attempt is never invoiced: "A processar"
+                                                    // beside one would promise a document that never comes.
+                                                    <span className="font-mono text-[10px] text-fg-40">—</span>
                                                 )}
                                             </td>
                                         </tr>

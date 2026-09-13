@@ -51,6 +51,9 @@ export async function GET() {
         owed: rows.filter((r) => r.state === "subscribed").length,
         max_rewards: MAX_REWARDS,
         reward_months: REWARD_MONTHS,
+        // Any admin reads this; only a hiperadmin may retry or void (POST). The
+        // card used to offer both buttons to a superadmin, who got a 401.
+        can_act: await isHiperadmin(userId),
     });
 }
 

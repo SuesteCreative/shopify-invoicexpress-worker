@@ -80,12 +80,16 @@ export default function SubscriptionCard(
 
     useEffect(() => {
         let alive = true;
-        fetch(`/api/billing/price?source=${encodeURIComponent(source ?? "faturacao")}`)
+        // The same (source, key) pair the checkout below sends. Without the key a
+        // "faturacao" card is priced on the account's primary connection, which
+        // is not the one this card charges when the page names its own.
+        const key = connectionKey ? `&connection_key=${encodeURIComponent(connectionKey)}` : "";
+        fetch(`/api/billing/price?source=${encodeURIComponent(source ?? "faturacao")}${key}`)
             .then(r => (r.ok ? r.json() : null))
             .then((d: any) => { if (alive && d) setPrices({ monthly: d.monthly ?? null, annual: d.annual ?? null }); })
             .catch(() => { /* the plate simply shows no figure */ });
         return () => { alive = false; };
-    }, [source]);
+    }, [source, connectionKey]);
 
     const money = (m: Money | null | undefined) =>
         m ? new Intl.NumberFormat(dateLocale || "pt-PT", {

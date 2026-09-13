@@ -1,5 +1,48 @@
 import { describe, it, expect } from "vitest";
-import { priceLookupFor } from "./billing-prices";
+import { priceLookupFor, resolveBilling, GENERIC_SOURCES } from "./billing-prices";
+import { CONNECTION_KEY_TO_SOURCE, SOURCE_TO_CONNECTION_KEY } from "./subscription-key";
+
+/**
+ * The price and the connection a checkout names used to be chosen by two
+ * different queries, so an account whose primary connection was not the
+ * Shopify pair could be filed against its own connection and charged the
+ * Shopify product. Whatever the page, both have to name the same pair.
+ */
+describe("which connection a checkout pays for, and at which price", () => {
+    const never = async (): Promise<string> => { throw new Error("primary connection read for a page that names its own"); };
+
+    it("prices a generic page on the account's primary connection, whatever the pair", () => Promise.all(
+        [...GENERIC_SOURCES].flatMap((raw) => Object.keys(CONNECTION_KEY_TO_SOURCE).map(async (primary) => {
+            const { connectionKey, source } = await resolveBilling(raw, null, async () => primary);
+            expect(connectionKey).toBe(primary);
+            expect(source).not.toBeNull();
+            expect(SOURCE_TO_CONNECTION_KEY[source!], `${raw || '""'} on ${primary}`).toBe(primary);
+            expect(priceLookupFor(source!, "monthly")).toBeTruthy();
+        })),
+    ));
+
+    it("does not sell the Shopify product to a Stripe→Moloni account paying from Faturação", async () => {
+        const { source } = await resolveBilling("faturacao", undefined, async () => "stripe:moloni");
+        expect(priceLookupFor(source!, "monthly")).toBe("stripe-moloni-monthly");
+    });
+
+    it("lets an explicit key decide, without asking for the primary", async () => {
+        expect(await resolveBilling("dashboard", "stripe_connect:invoicexpress", never))
+            .toEqual({ connectionKey: "stripe_connect:invoicexpress", source: "stripe-connect-ix" });
+        expect(await resolveBilling("faturacao", "shopify:invoicexpress", never))
+            .toEqual({ connectionKey: "shopify:invoicexpress", source: "faturacao" });
+    });
+
+    it("keeps a pair page on its own pair", async () => {
+        expect(await resolveBilling("lodgify-moloni", null, never))
+            .toEqual({ connectionKey: "lodgify:moloni", source: "lodgify-moloni" });
+    });
+
+    it("prices nothing for a primary connection nobody sells, instead of the Shopify pair", async () => {
+        const { source } = await resolveBilling("", null, async () => "fareharbor:moloni");
+        expect(source).toBeNull();
+    });
+});
 
 /**
  * The card beside the payment form and the button that charges read this same

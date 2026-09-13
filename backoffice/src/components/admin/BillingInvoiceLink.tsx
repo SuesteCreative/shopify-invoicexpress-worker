@@ -75,7 +75,9 @@ export function BillingInvoiceLink({ targetUserId }: { targetUserId: string }) {
         try {
             const res = await fetch(`/api/admin/dev-mode/link-ix?targetUserId=${encodeURIComponent(targetUserId)}`);
             const d: any = await res.json();
-            if (!res.ok) { setLoadError(d.error || `HTTP ${res.status}`); setEvents([]); return; }
+            // 404 is the visibility rule (mayViewAccount), answered the way the
+            // customer record answers it; "not_found" is not a sentence.
+            if (!res.ok) { setLoadError(res.status === 404 ? "Conta não encontrada." : d.error || `HTTP ${res.status}`); setEvents([]); return; }
             setEvents(d.events ?? []);
             setIxError(d.ix_error ?? null);
         } catch (e: any) {

@@ -44,7 +44,11 @@ export async function GET(req: NextRequest) {
             collapsed.push(paid || group[0]);
         }
 
-        const events = [...collapsed, ...refunds].sort(
+        // A payment of zero has no Kapta document and never will (cron/ix-match
+        // only sweeps amount_cents > 0), so listing it read "A processar" forever.
+        // Dropped after the collapse, not in SQL: a failed attempt later settled at
+        // zero must disappear with its paid row, not resurface as "failed".
+        const events = [...collapsed, ...refunds].filter(e => Number(e.amount_cents) > 0).sort(
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
 

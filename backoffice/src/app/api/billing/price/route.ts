@@ -1,8 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe, getDB } from "@/lib/stripe";
+import { getStripe, getDB, primaryConnectionKey } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
-import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
+import { priceLookupFor, resolvePrice, resolveBilling } from "@/lib/billing-prices";
 
 export const runtime = "edge";
 
@@ -19,13 +19,17 @@ export async function GET(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // "dashboard" names no product: the account's own set-up decides which one,
-    // exactly as the checkout resolves it.
-    const rawSource = new URL(request.url).searchParams.get("source") ?? "";
+    // A generic page names no product: the connection the checkout would bill
+    // decides, through the very function the checkout calls, so the figure
+    // printed is the one charged. Pass `connection_key` when the checkout does.
+    const params = new URL(request.url).searchParams;
+    const rawSource = params.get("source") ?? "";
     const targetUserId = await resolveAccountUser(request, userId);
-    const source = await resolveBillingSource(getDB(), targetUserId, rawSource);
-    if (!priceLookupFor(source, "monthly")) {
-        return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
+    const { connectionKey, source } = await resolveBilling(
+        rawSource, params.get("connection_key"), () => primaryConnectionKey(getDB(), targetUserId),
+    );
+    if (source === null || !priceLookupFor(source, "monthly")) {
+        return NextResponse.json({ error: `Unknown subscription source: "${source ?? connectionKey}"` }, { status: 400 });
     }
 
     // Nothing else to ask: the pair decides the price and nothing about the

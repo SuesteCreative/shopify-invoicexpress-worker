@@ -1,7 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
-import { isAdmin, isHiperadmin } from "@/lib/admin";
+import { isHiperadmin } from "@/lib/admin";
 import { callWorkerJson } from "@/lib/worker";
 import { resolveAudience, firstNameOf, FILTER_KEYS } from "@/lib/newsletter-audience";
 import { fill, fillContactForTest, requiredLegalOk, unknownVars } from "@/lib/newsletter-template";
@@ -46,7 +46,9 @@ function workerFailed(status: number, data: unknown) {
 
 export async function GET() {
     const { userId } = await auth();
-    if (!userId || !(await isAdmin(userId))) {
+    // Hiperadmin, like the page, POST and the template PUT: this answers every
+    // client's email address for the picker, which is more than an admin sees.
+    if (!userId || !(await isHiperadmin(userId))) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -201,33 +203,57 @@ export async function POST(request: NextRequest) {
             return workerFailed(status, data);
         }
 
+        const result = data as any;
+        // Who the worker actually sent to, not who we meant to reach. An address
+        // Resend refused was never mailed; filing it as a recipient would answer
+        // "did they get it?" wrongly for ever. The refused ones stay in
+        // result.candidates, with their error, for the operator to see.
+        const sentTo = new Set<string>(
+            (result?.candidates ?? []).filter((c: any) => c?.sent).map((c: any) => String(c.email)),
+        );
+        const reached = recipients.filter((r) => sentTo.has(r.email));
+
         // Written after Resend answers, so a row here means it really went. The
         // resolved list is stored beside the filters because re-running the
         // filters next week returns a different set of people.
-        const result = data as any;
-        await db().prepare(`
-            INSERT INTO newsletter_campaigns (
-              id, slug, subject, filters_json, recipients_json, recipients,
-              segment_id, broadcast_id, scheduled_at, sent_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(
-            crypto.randomUUID(),
-            slug,
-            subject,
-            JSON.stringify(filters),
-            // Code AND address. Filed under an email, a campaign can only ever
-            // be traced to a mailbox; filed under the customer number it is
-            // traceable to the account, which is the question anybody actually
-            // asks afterwards. A TEXT column, so no migration.
-            JSON.stringify(recipients.map((r) => ({ code: r.client_code, email: r.email }))),
-            recipients.length,
-            result?.segment_id ?? null,
-            result?.broadcast_id ?? null,
-            body.scheduled_at ?? null,
-            userId,
-        ).run();
+        //
+        // The reverse does not hold: by now the emails are out and cannot be
+        // recalled, so a failed write must still read as sent. Answered as an
+        // error, the panel kept Enviar live and a second click mailed everyone
+        // again.
+        try {
+            await db().prepare(`
+                INSERT INTO newsletter_campaigns (
+                  id, slug, subject, filters_json, recipients_json, recipients,
+                  segment_id, broadcast_id, scheduled_at, sent_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+                crypto.randomUUID(),
+                slug,
+                subject,
+                JSON.stringify(filters),
+                // Code AND address. Filed under an email, a campaign can only ever
+                // be traced to a mailbox; filed under the customer number it is
+                // traceable to the account, which is the question anybody actually
+                // asks afterwards. A TEXT column, so no migration.
+                JSON.stringify(reached.map((r) => ({ code: r.client_code, email: r.email }))),
+                reached.length,
+                // Columns from the Broadcast days: plain emails have no segment
+                // and no broadcast. Each message's Resend id is in result.candidates.
+                null,
+                null,
+                body.scheduled_at ?? null,
+                userId,
+            ).run();
+        } catch (e: any) {
+            console.error(`[admin/newsletter] SENT "${slug}" to ${reached.length} but the campaign row was not written:`, e?.message ?? e);
+            return NextResponse.json({
+                ...result,
+                warning: `Enviada a ${reached.length}, mas o registo da campanha não ficou gravado. Não voltes a enviar.`,
+            });
+        }
 
-        console.warn(`[admin/newsletter] SENT "${slug}" to ${recipients.length} by ${userId}`);
+        console.warn(`[admin/newsletter] SENT "${slug}" to ${reached.length} by ${userId}`);
         return NextResponse.json(result);
     } catch (error: any) {
         console.error("[admin/newsletter] failed:", error?.message ?? error);

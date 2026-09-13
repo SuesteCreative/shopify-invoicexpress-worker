@@ -214,6 +214,11 @@ export function NewsletterPanel() {
                 }),
             });
             const body = await readJson(res);
+            // Sent: the simulation that approved it goes, and the send button with
+            // it, so a second click cannot mail the same list again. That includes
+            // a send whose campaign row failed to write, which the route answers
+            // as 200 with a warning.
+            if (action === "send" && res.ok) { setPreview(null); setPreviewedFor(null); }
             if (!res.ok) {
                 // 409: the audience moved since Simular. The preview on screen is
                 // now a count of people who are not the list, so it goes, and the
@@ -233,7 +238,16 @@ export function NewsletterPanel() {
                         ? `Agendada para ${body.scheduled_at} · ${n(body.sent)} emails`
                         : `Enviada a ${n(body.sent)} contactos.${body.failed ? ` ${n(body.failed)} falharam: ${body.candidates?.find((c: any) => c.error)?.error ?? "sem detalhe"}` : ""}`,
                 );
-                setPreview(null); setPreviewedFor(null);
+                // Sent, but not to everyone, or not on record: said beside the
+                // success, never instead of it.
+                const failed: string[] = (body.candidates ?? []).filter((c: any) => !c.sent).map((c: any) => c.email);
+                const problems = [
+                    body.warning,
+                    failed.length
+                        ? `Não chegou a ${n(failed.length)}: ${failed.slice(0, 20).join(", ")}${failed.length > 20 ? "…" : ""}`
+                        : null,
+                ].filter(Boolean).join(" ");
+                if (problems) setError(problems);
                 void load();
             }
         } catch (e) {
@@ -326,7 +340,7 @@ export function NewsletterPanel() {
                 <div className="grid gap-3 sm:grid-cols-2">
                     <label className="space-y-1">
                         <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">Slug</span>
-                        <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="convite" className={FIELD} />
+                        <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="novidades-outubro" className={FIELD} />
                     </label>
                     <label className="space-y-1">
                         <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">Nome</span>
@@ -476,6 +490,13 @@ export function NewsletterPanel() {
                         <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em] block">Emails manuais</span>
                         <span className="text-[10px] text-fg-40 leading-snug block">
                             um por linha ou separados por vírgula; somam-se aos filtros, e sozinhos vão só para estes emails
+                        </span>
+                        {/* Each address becomes a Resend contact opted in to the
+                            news topic. Whether a person may be emailed is the
+                            owner's call, not the code's, so it is said here. */}
+                        <span className="text-[10px] text-soon leading-snug block">
+                            Junta só quem aceitou receber novidades da Rioko. Cada email leva o link
+                            para cancelar a subscrição.
                         </span>
                         <textarea
                             value={manualText}

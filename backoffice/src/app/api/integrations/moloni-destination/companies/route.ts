@@ -2,11 +2,9 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
-import { RIOKO_CONFIG } from "@/lib/config";
+import { callWorker } from "@/lib/worker";
 
 export const runtime = "edge";
-
-const WORKER_BASE = RIOKO_CONFIG.workerUrl.replace(/\/$/, "");
 
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
@@ -38,8 +36,9 @@ export async function GET(request: NextRequest) {
     const cfg = JSON.parse(row.destination_config_json);
 
     // Proxy through the Worker — CF Pages edge functions cannot reliably reach
-    // external APIs. The Worker runtime has no such restriction.
-    const workerRes = await fetch(`${WORKER_BASE}/moloni-proxy/companies`, {
+    // external APIs. The Worker runtime has no such restriction. callWorker
+    // carries the admin key the proxy requires.
+    const workerRes = await callWorker("/moloni-proxy/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({

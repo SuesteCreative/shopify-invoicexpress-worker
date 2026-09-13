@@ -17,6 +17,10 @@ describe("the token", () => {
         expect(referralLink("RIO-1A2B3C-9F2B41")).toBe("https://rioko.online/pt/convite/RIO-1A2B3C-9F2B41");
     });
 
+    it("opens in the sharer's language, with the same token", () => {
+        expect(referralLink("RIO-1A2B3C-9F2B41", "en")).toBe("https://rioko.online/en/convite/RIO-1A2B3C-9F2B41");
+    });
+
     it("splits the three segments back into two halves", () => {
         expect(splitReferralToken("RIO-1A2B3C-9F2B41")).toEqual({ code: "RIO-1A2B3C", suffix: "9F2B41" });
     });
@@ -116,6 +120,18 @@ describe("claimRefusal", () => {
         expect(claimRefusal({ ...ok, inviteeCreatedAt: "2026-08-01T10:00:00.000Z" })).toBe("not_new");
         // Both timestamp formats live in users.created_at.
         expect(claimRefusal({ ...ok, inviteeCreatedAt: "2026-09-14 08:00:00" })).toBeNull();
+    });
+
+    it("still applies the age rule before the D1 row exists", () => {
+        // The Clerk webhook can land after the first claim. A null created_at
+        // used to skip the rule, so an old Clerk account passed as new.
+        const noRow = { ...ok, inviteeCreatedAt: null };
+        expect(claimRefusal({ ...noRow, inviteeSignedUpAt: Date.parse("2026-08-01T10:00:00.000Z") })).toBe("not_new");
+        expect(claimRefusal({ ...noRow, inviteeSignedUpAt: Date.parse("2026-09-15T09:00:00.000Z") })).toBeNull();
+        // The D1 row wins when both are there.
+        expect(claimRefusal({ ...ok, inviteeSignedUpAt: Date.parse("2026-08-01T10:00:00.000Z") })).toBeNull();
+        // Nothing to prove the account is new: refused, never waved through.
+        expect(claimRefusal(noRow)).toBe("not_new");
     });
 });
 

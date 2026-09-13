@@ -364,9 +364,8 @@ function IntegrationStartRow({
 /**
  * Dormant by decision.
  *
- * A client we have parked (Fabrica Coffee Roasters, OPH Van de Ven) still has a
- * shop, a domain and open incidents, so every warning sender keeps writing to
- * them about work nobody intends to do. Off by default: only an operator who
+ * A client we have parked still has a shop, a domain and open incidents, so
+ * every warning sender keeps writing to them about work nobody intends to do. Off by default: only an operator who
  * knows the client is parked flips this, and only warnings stop — a newsletter
  * still reaches them.
  */

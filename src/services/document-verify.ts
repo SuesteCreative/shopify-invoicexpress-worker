@@ -13,7 +13,7 @@ import { reportIncident } from "./incidents";
  *   - Stripe sales were all documented as reference "Order #0", so the second
  *     one onwards was discarded as a duplicate of the first. Found by a merchant
  *     counting their own invoices, two days late, 3.278,95 € unbilled.
- *   - lliberta 11/LL was sent with exemption code M10 and InvoiceXpress stored
+ *   - A document was sent with exemption code M10 and InvoiceXpress stored
  *     M99 — on a document whose own observations still render the M10 text.
  *     Found by accident, while auditing something else.
  *
@@ -147,7 +147,7 @@ export function compareIntent(
       meaning:
         `O código de isenção é o que segue no SAF-T para a AT. Enviámos ${intent.exemptionCode} e ficou `
         + `${stored.exemption_code}, o que declara um regime diferente do da loja. O texto legal impresso `
-        + `no documento pode estar correcto e o código não — foi o caso da lliberta 11/LL.`,
+        + `no documento pode estar correcto e o código não, e é o código que conta para a AT.`,
     });
   }
 

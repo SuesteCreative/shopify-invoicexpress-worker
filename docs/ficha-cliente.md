@@ -1,10 +1,12 @@
 # Ficha de cliente — ponto de situação
 
-Em `main` e em produção desde 13/09/2026 (PRs #140 a #143).
+Em `main` e em produção desde 13/09/2026: #140–#143 (base), #147 (auditoria de
+código), #148 (aviso de desfecho em impersonação), #150 (verificação contra
+dados reais).
 Plano completo (contexto, decisões e porquês): `C:\Users\pedro\.claude\plans\deviamos-de-implementar-um-eager-goblet.md`.
 
-Estado: **entregue.** As migrações estão aplicadas e as páginas estão no ar. O
-que falta é conferência contra dados reais, listada abaixo.
+Estado: **entregue e verificado contra produção.** O que resta são decisões de
+operador sobre dados, listadas em "Verificação contra produção".
 
 Verificação no merge: `npm test` → 123 ficheiros / 1172 testes verdes;
 `tsc --noEmit` limpo no worker e no backoffice; `npm run build` no backoffice
@@ -50,27 +52,23 @@ Duas notas de quem as correu, para a próxima:
   super admin. Para uma migração de uma instrução, `--command` passa. Para uma
   maior, `npx wrangler login` e repetir.
 
-### 2. Abrir contra dados reais
+### 2. Conferir contra dados reais — FEITO a 13/09/2026, sem browser
 
-Nada disto foi aberto num browser. O plano diz contra quê:
+Em vez de abrir páginas, a lógica da rota correu contra a D1 de produção (só
+leitura: `npx wrangler d1 execute rioko-db --remote` funciona a partir da
+sessão), em duas passagens com verificação adversarial. Correcções em #148 e
+#150; o que ficou por decidir está em "Verificação contra produção", abaixo.
 
-- **Bikini Books** — 9 faturas, série `OL`, isenções M05/M40: a ficha tem de
-  bater com o que `/admin/client-rules` e `/admin/ops` dizem hoje.
-- **WHM** — duas ligações: têm de aparecer **duas** subscrições distintas, não
-  uma duplicada.
-- **Um membro convidado** — o código dele tem de redirigir para a ficha do dono,
-  com o aviso.
-- **`RIO-FFFFFF`** — tem de dar "não existe"; um código de conta apagada tem de
-  dar o recado do número reformado (`lookupRetiredCode`).
-- **`/pt/conta` como comerciante** — NIF em leitura, e um POST forjado a
-  `/api/user/profile` com outro NIF **não** o muda.
+- **Bikini Books** — a série `OL` e as isenções M05/M40 configuradas batem com
+  `/admin/client-rules`. Mas os "9 documentos" eram 42 (33 gravados sem
+  `user_id`), e o separador fiscal estava vazio. Ambos corrigidos.
+- **Membros, códigos, NIF bloqueado** — verificados sobre as 42 contas; o único
+  achado foi o código ditado com O/I/L, corrigido.
 
-### 3. Ligar o código à newsletter (opcional)
+### 3. Ligar o código à newsletter — FEITO pela sessão da campanha
 
-A newsletter (`0056_newsletter`) resolve destinatários por filtros e guarda um
-snapshot de endereços. Nada a obriga a conhecer o código do cliente, mas gravá-lo
-no snapshot tornaria uma campanha rastreável até à conta em vez de até a um
-email. Não está feito e não é urgente.
+Cada campanha guarda `{ code, email }` no snapshot e o código vai como
+propriedade do contacto no Resend (aaef575).
 
 ---
 
@@ -175,6 +173,62 @@ Revisão do que foi entregue em #140–#143, corrigida na branch
 
 Refutados: 0058 meio aplicada; janela `LIMIT 40`; `users.nif` não ser o NIF do
 emparelhador.
+
+---
+
+## Verificação contra produção (13/09/2026)
+
+A lógica da ficha correu contra a D1 real, só em leitura, com um verificador
+adversarial por achado; o diff das correcções foi revisto do mesmo modo antes do
+merge.
+
+Corrigido em #148 e #150:
+
+- **Aviso de desfecho em impersonação** voltava em cada separador (ficava em
+  sessionStorage). Agora fica dispensado no browser de quem o dispensou; o
+  cliente continua a vê-lo até ser ele a dispensar.
+- **"Subscrito"** passou a ser o veredicto do gate e não "tem linha". Oito
+  ligações ficaram a vermelho, todas confirmadas como recusadas pelo worker, e o
+  aviso diz porquê.
+- **Credenciais** por tipo de ligação, com o par IX lido como o worker o lê
+  (ligação, depois linha legada).
+- **Regras fiscais** do par legado visíveis, pela lista que a consola usa, agora
+  partilhada em `lib/redact`.
+- **Documentos e Registos** incluem as linhas gravadas sem `user_id` da loja da
+  conta. Sem dupla contagem: nenhum domínio está em duas contas.
+- **Stripe**: uma linha por pagamento, aviso com os dois documentos quando as
+  cópias divergem, tentativas falhadas a vermelho, clientes também a partir dos
+  pagamentos.
+- **link-subscription** deixou de criar a segunda linha `invoice.paid` para um
+  pagamento que a conta já tem, e nunca escreve na linha de outra conta.
+- **Conta e registo**: data de consentimento só no primeiro aceite; o Clerk deixa
+  de repor o nome de uma conta registada; um código ditado com O/I/L resolve.
+- **Client rules**: a secção legada deixou de mostrar quatro interruptores que não
+  são colunas ali.
+
+### Por decidir — dados, não código
+
+- **Lojas recusadas pelo gate**: RIO-876537, RIO-A25582, RIO-50FEC0 e RIO-8E2DD7
+  (early-bird até 31/08) e RIO-904EDB (até 11/09). Shopify activo, sem
+  subscrição Stripe; o varrimento das 04:00 salta as encomendas. Também
+  RIO-BAC43C (stripe:moloni cancelada, em rascunho).
+- **Bikini Books, 8 faturas com M99** em vez de M05: 48–50/OL e 54–58/OL, do lote
+  de 09/07, detectadas pela verificação de 15/08 e nunca regularizadas.
+- **Ligações IX pagas sem credenciais IX**: RIO-17DC06 (stripe_connect, dois
+  `create_failed`) e RIO-2A7209 (lodgify).
+- **Documentos Kapta**: o pagamento `in_1UE8NeJwZ8gzmNr4zJmIgdNd` da RIO-2A7209
+  tem dois documentos, 269945806 e 269945971; e os documentos 262819737,
+  263589335, 265162803 e 265775051 estão cada um ligado a dois pagamentos.
+- **`user_id` NULL** em 11.118 `processed_orders` e 4.471 `document_events`: os
+  handlers Shopify constroem `AppStorage` só com o domínio (`orders-created.ts`,
+  `orders-paid.ts`, reconciliação). A ficha já atribui pelo domínio; falta
+  corrigir o writer e fazer o backfill.
+- **Pedido fiscal feito em impersonação** aparece ao cliente como pedido dele.
+- **Pessoas singulares**: a Conta mostra o nome fiscal vazio, porque o nome que
+  sai na fatura vive em `users.name`, que é editável.
+
+Deixado de fora de propósito: a janela de 200 eventos nos Registos pode deixar
+prova antiga de fora nas contas maiores.
 
 ---
 

@@ -145,8 +145,12 @@ export async function POST(req: NextRequest) {
 
     const result = await bind(`
         UPDATE users${COLUMNS},
+            -- Only on the tick itself, 0 → 1. COALESCE(date, now) also stamped
+            -- every account that accepted before dates were kept, with the day
+            -- of whatever save came next: 27 live accounts would have acquired a
+            -- consent date nobody gave. Their "accepted, no date" is the record.
             privacy_policy_accepted_at = CASE
-                WHEN ? = 1 THEN COALESCE(privacy_policy_accepted_at, CURRENT_TIMESTAMP)
+                WHEN ? = 1 AND COALESCE(privacy_policy_accepted, 0) = 0 THEN CURRENT_TIMESTAMP
                 ELSE privacy_policy_accepted_at END,
             onboarding_source_kind = COALESCE(?, onboarding_source_kind),
             onboarding_destination_kind = COALESCE(?, onboarding_destination_kind)

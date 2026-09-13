@@ -50,11 +50,19 @@ export function newClientCode(): string {
  * using it. Separators and case are noise; the six hex characters are the code.
  * `R`, `I` and `O` are not hex, so stripping a leading RIO can never eat part of
  * a body.
+ *
+ * Read aloud, a 0 comes back as the letter O and a 1 as I or l — and 25 of the
+ * first 42 codes carry one. None of those letters is hex, so reading them as the
+ * digit cannot turn one valid code into another; it only rescues a misheard one.
+ * Mapped after the prefix is gone, or RIO would become R10. Dashes of any width
+ * count, because autocorrect turns "RIO-" into "RIO–".
  */
 export function normalizeClientCode(raw: string | null | undefined): string | null {
     if (!raw) return null;
-    const compact = String(raw).toUpperCase().replace(/[\s\-_]/g, "");
-    const body = compact.startsWith("RIO") ? compact.slice(3) : compact;
+    const compact = String(raw).toUpperCase().replace(/[\s\-_‐-―−]/g, "");
+    const body = (compact.startsWith("RIO") ? compact.slice(3) : compact)
+        .replace(/O/g, "0")
+        .replace(/[IL]/g, "1");
     return /^[0-9A-F]{6}$/.test(body) ? CLIENT_CODE_PREFIX + body : null;
 }
 
@@ -63,7 +71,12 @@ const UPSERT_SQL = `
     VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
     ON CONFLICT(id) DO UPDATE SET
         email = excluded.email,
-        name = excluded.name,
+        -- Clerk's first + last name, until the account is registered. After
+        -- that the name is what the merchant typed — for a person with no
+        -- company it is the name the invoices print — and a login reverting
+        -- it to the Clerk profile silently changed their billing identity.
+        name = CASE WHEN COALESCE(users.registration_completed, 0) = 1 AND COALESCE(users.name, '') <> ''
+                    THEN users.name ELSE excluded.name END,
         last_login = CURRENT_TIMESTAMP,
         -- A login never rewrites a code that exists, but it heals a row that
         -- somehow has none.
@@ -81,7 +94,12 @@ const UPSERT_SQL_NO_CODE = `
     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(id) DO UPDATE SET
         email = excluded.email,
-        name = excluded.name,
+        -- Clerk's first + last name, until the account is registered. After
+        -- that the name is what the merchant typed — for a person with no
+        -- company it is the name the invoices print — and a login reverting
+        -- it to the Clerk profile silently changed their billing identity.
+        name = CASE WHEN COALESCE(users.registration_completed, 0) = 1 AND COALESCE(users.name, '') <> ''
+                    THEN users.name ELSE excluded.name END,
         last_login = CURRENT_TIMESTAMP`;
 
 /** 0058 not applied yet: the column, or the ledger table, is not there. */

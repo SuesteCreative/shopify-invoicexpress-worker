@@ -156,3 +156,50 @@ describe("a save that carries no NIF", () => {
         expect(after.registration_completed).toBe(1);
     });
 });
+
+/**
+ * The consent date records the first tick of the box (migration 0049), so it
+ * must never be invented. Copied from the route's statement like COLUMNS above:
+ * every CASE reads the row as it was before the UPDATE.
+ */
+const CONSENT_SQL = `
+    UPDATE users SET privacy_policy_accepted = ?,
+        privacy_policy_accepted_at = CASE
+            WHEN ? = 1 AND COALESCE(privacy_policy_accepted, 0) = 0 THEN CURRENT_TIMESTAMP
+            ELSE privacy_policy_accepted_at END
+     WHERE id = ?`;
+
+function consentHarness(row: { accepted: number; at: string | null }) {
+    const nodeSqlite = "node:sqlite";
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DatabaseSync } = require(nodeSqlite);
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, privacy_policy_accepted INTEGER DEFAULT 0, privacy_policy_accepted_at TEXT)");
+    sqlite.prepare("INSERT INTO users VALUES ('user_a', ?, ?)").run(row.accepted, row.at);
+    return {
+        save: (accepted: 0 | 1) => sqlite.prepare(CONSENT_SQL).run(accepted, accepted, "user_a"),
+        at: () => (sqlite.prepare("SELECT privacy_policy_accepted_at AS at FROM users").get() as any).at,
+    };
+}
+
+describe("the privacy consent date", () => {
+    it("is stamped when the box is ticked for the first time", () => {
+        const h = consentHarness({ accepted: 0, at: null });
+        h.save(1);
+        expect(h.at()).toBeTruthy();
+    });
+
+    it("is not invented for an account that accepted before dates were kept", () => {
+        // 27 live accounts: accepted, no date. A later address correction must
+        // not make today the day they consented.
+        const h = consentHarness({ accepted: 1, at: null });
+        h.save(1);
+        expect(h.at()).toBeNull();
+    });
+
+    it("never moves once it is there", () => {
+        const h = consentHarness({ accepted: 1, at: "2026-06-01 10:00:00" });
+        h.save(1);
+        expect(h.at()).toBe("2026-06-01 10:00:00");
+    });
+});

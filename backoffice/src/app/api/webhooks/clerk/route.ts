@@ -2,6 +2,7 @@ import { Webhook } from "svix";
 import { headers } from "next/headers";
 import { WebhookEvent } from "@clerk/nextjs/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
+import { upsertUserRow } from "@/lib/client-code";
 
 export const runtime = "edge";
 
@@ -59,14 +60,11 @@ export async function POST(req: Request) {
 
         console.log(`[Clerk Webhook] Syncing user: ${email} (${id})`);
 
-        await db.prepare(`
-            INSERT INTO users (id, email, name, last_login)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(id) DO UPDATE SET
-                email = ?,
-                name = ?,
-                last_login = CURRENT_TIMESTAMP
-        `).bind(id, email, name, email, name).run();
+        // The row, and the customer number that comes with it. Both this and
+        // /api/auth/sync used to carry their own copy of this statement; they
+        // now share one, so neither can be the path that creates an account
+        // without a code. See lib/client-code.
+        await upsertUserRow(db, { id, email, name });
 
         // Extra user joining an existing account (migration 0039): bind the
         // pending seat to the Clerk id that just signed up. Matching falls back to
@@ -125,6 +123,13 @@ export async function POST(req: Request) {
          * Deliberately kept: `processed_orders`, `document_events` and `logs`.
          * Those are the record of documents actually issued, and what made that
          * orphan explicable at all. Same rule the admin delete follows.
+         *
+         * Deliberately kept too, and for a different reason: `client_codes`.
+         * It is the ledger of every customer number ever issued, and it exists
+         * precisely so a deleted account's number is never handed to anybody
+         * else — the documents above outlive the account and stay filed under
+         * it. Adding it to this list for symmetry would put two companies'
+         * history under one number. See lib/client-code.
          */
         for (const sql of [
             "DELETE FROM tag_routing_rules WHERE user_id = ?",

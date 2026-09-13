@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off, Pencil, Eye, Moon, Mail, Filter } from "lucide-react";
+import { ShieldCheck, User, LogOut, Loader2, Check, X, Search, ArrowUpDown, CalendarDays, HelpCircle, Trash2, ShieldOff, Crown, UserCog, Wrench, ChevronDown, Link2, Link2Off, Pencil, Eye, Moon, Mail, Filter, Copy, IdCard } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 // next/link, not the i18n one: every href below points inside /admin, which is
@@ -10,8 +10,36 @@ import { useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { kindLabel } from "@/lib/connection-kinds";
+import { normalizeClientCode } from "@/lib/client-code";
 
 type Role = "hiperadmin" | "superadmin" | "user";
+
+/**
+ * The customer number, clickable because it is meant to be quoted.
+ *
+ * An operator reads this out on a call and pastes it into an email; a code you
+ * have to select by hand off a card is a code that gets mistyped. Absent until
+ * migration 0058 is applied, and then it simply is not rendered.
+ */
+const ClientCodeChip = ({ code, title, copiedLabel }: { code?: string | null; title: string; copiedLabel: string }) => {
+    const [copied, setCopied] = useState(false);
+    if (!code) return null;
+    return (
+        <button
+            type="button"
+            title={copied ? copiedLabel : title}
+            onClick={() => {
+                navigator.clipboard?.writeText(code)
+                    .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); })
+                    .catch(() => { /* no clipboard permission: the code is still readable */ });
+            }}
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-surface-2 border border-hairline font-mono text-[10px] tracking-[0.18em] text-fg hover:bg-fg/5 transition-colors"
+        >
+            {copied ? <Check className="w-2.5 h-2.5 text-accent-ink" /> : <Copy className="w-2.5 h-2.5 text-fg-40" />}
+            {code}
+        </button>
+    );
+};
 
 const ROLE_ORDER: Record<Role, number> = { hiperadmin: 3, superadmin: 2, user: 1 };
 
@@ -208,6 +236,10 @@ export function SuperadminPanel() {
             .filter(u => {
                 const q = search.toLowerCase();
                 return (
+                    // The customer number, in whatever spelling was dictated:
+                    // searching for it is the reason it exists.
+                    (!!normalizeClientCode(search) && u.client_code === normalizeClientCode(search)) ||
+                    u.client_code?.toLowerCase().includes(q) ||
                     u.name?.toLowerCase().includes(q) ||
                     u.email?.toLowerCase().includes(q) ||
                     u.entry_label?.toLowerCase().includes(q) ||
@@ -495,6 +527,9 @@ export function SuperadminPanel() {
                         )}
                         <div className="flex flex-col gap-1.5">
                             <p className="text-fg-40 text-sm font-medium">{user.email}</p>
+                            <div className="flex items-center justify-center lg:justify-start">
+                                <ClientCodeChip code={user.client_code} title={t("clientCodeCopy")} copiedLabel={t("clientCodeCopied")} />
+                            </div>
                             <div className="flex items-center justify-center lg:justify-start gap-2 text-[10px] font-black text-fg-40 uppercase tracking-widest">
                                 <CalendarDays className="w-3 h-3 text-destructive/60" />
                                 {t("joined", { date: dateOf(user.created_at) ?? "—" })}
@@ -598,6 +633,14 @@ export function SuperadminPanel() {
                                 {t("impersonate")}
                             </button>
                         )}
+
+                        {/* The record. Addressed by the code when there is one,
+                            and by the raw id otherwise — the page resolves both,
+                            so this link works before and after migration 0058. */}
+                        <Link href={`/admin/clientes/${user.client_code || user.id}`}
+                            className="bg-fg/5 text-fg border border-hairline px-4 py-3 rounded-2xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-fg/10 transition-all active:scale-95">
+                            <IdCard className="w-3 h-3" /> {t("record")}
+                        </Link>
 
                         {!isSelf && (
                             <Link href={`/admin/users/${user.id}/dev-mode`}

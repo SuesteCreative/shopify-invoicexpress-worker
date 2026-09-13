@@ -1,6 +1,7 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { upsertUserRow } from "@/lib/client-code";
 
 export const runtime = "edge";
 
@@ -19,15 +20,10 @@ export async function POST() {
         const email = user.emailAddresses?.[0]?.emailAddress || null;
         const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || "User";
 
-        // Upsert user into DB. Don't overwrite role if it exists.
-        await db.prepare(`
-      INSERT INTO users (id, email, name, last_login)
-      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(id) DO UPDATE SET
-        email = ?,
-        name = ?,
-        last_login = CURRENT_TIMESTAMP
-    `).bind(userId, email, name, email, name).run();
+        // Upsert the user, role untouched, with the customer number that comes
+        // with a new row. Shared with the Clerk webhook so there is exactly one
+        // statement that creates an account — see lib/client-code.
+        await upsertUserRow(db, { id: userId, email, name });
 
         // A referred account's free month has to sit on the connection they end
         // up creating, and at claim time they had none. This page is called from

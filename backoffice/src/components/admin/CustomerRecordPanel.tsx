@@ -363,6 +363,66 @@ function FiscalField({ code, field, label, value, mono, onSaved }: {
 }
 
 /**
+ * The language this client is written to in — screens, toasts and emails.
+ *
+ * Two buttons and not a text field: there are two values and typing a third is
+ * the only mistake this setting can make. It writes through the same PATCH the
+ * fiscal fields use, so the change lands in `config_audit` beside everything
+ * else that was ever changed about this account, with who changed it.
+ *
+ * The client has the same selector on their Conta page. Whoever touched it last
+ * wins, which is the right answer for a preference and the wrong one for a NIF —
+ * hence the different gate.
+ */
+function LanguageField({ code, value, onSaved }: { code: string; value: string; onSaved: () => void }) {
+    const [busy, setBusy] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const current = value === "en" ? "en" : "pt";
+
+    const pick = async (language: string) => {
+        if (language === current) return;
+        setBusy(language); setError(null);
+        try {
+            const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ field: "language", value: language }),
+            });
+            const body: any = await res.json().catch(() => ({}));
+            if (!res.ok) { setError(body?.error || `HTTP ${res.status}`); return; }
+            onSaved();
+        } catch (e: any) {
+            setError(String(e));
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    return (
+        <div className="space-y-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Língua</span>
+            <div className="flex items-center gap-2 flex-wrap">
+                <div className="inline-flex items-center gap-0.5 rounded-full p-0.5 border border-hairline bg-surface-2">
+                    {[["pt", "Português"], ["en", "English"]].map(([value, label]) => (
+                        <button
+                            key={value} type="button" disabled={busy !== null}
+                            onClick={() => pick(value)}
+                            aria-pressed={current === value}
+                            className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-40 ${
+                                current === value ? "bg-fg text-surface" : "text-fg-40 hover:text-fg"
+                            }`}
+                        >
+                            {busy === value ? <Loader2 className="w-3 h-3 animate-spin" /> : label}
+                        </button>
+                    ))}
+                </div>
+                {error && <span className="text-[10px] font-black uppercase tracking-widest text-destructive">{error}</span>}
+            </div>
+        </div>
+    );
+}
+
+/**
  * Answer the request: grant it with the value the client asked for, or refuse it.
  *
  * Granting sends that value rather than making the operator retype it — the one
@@ -502,9 +562,10 @@ function IdentityTab({ data, code, onSaved }: { data: any; code: string; onSaved
             )}
 
             <Section icon={<Building2 className="w-5 h-5 text-accent-ink" />} title="Dados do registo"
-                desc="O que o cliente preencheu no onboarding. É o que a página Conta lê e, salvo o NIF e o nome fiscal, o que ele pode corrigir.">
+                desc="O que o cliente preencheu no onboarding. É o que a página Conta lê e, salvo o NIF e o nome fiscal, o que ele pode corrigir. A língua manda no painel que ele vê e em todos os emails que lhe enviamos.">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     <Field label="Código" value={c.client_code} mono />
+                    <LanguageField code={code} value={c.language} onSaved={onSaved} />
                     {data.fiscal_visible ? (
                         <>
                             <FiscalField code={code} field="company_name" label="Nome fiscal" value={c.company_name} onSaved={onSaved} />

@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { ReferralCard } from "@/components/ReferralCard";
+import { LangToggle } from "@/components/landing/LangToggle";
 import {
-    IdCard, Copy, Check, Loader2, Lock, Save, Send, X, Receipt, Zap, AlertCircle,
+    IdCard, Copy, Check, Languages, Loader2, Lock, Save, Send, X, Receipt, Zap, AlertCircle,
 } from "lucide-react";
 
 /**
@@ -151,6 +152,23 @@ export default function AccountPanel() {
                 ) : (
                     <p className="text-sm text-fg-40 font-medium">{t("codeMissing")}</p>
                 )}
+            </section>
+
+            {/* The language everything reaches them in. The pill is the one from
+                the site header, which already records the choice on the account
+                before it moves the page — so this is the same switch, said out
+                loud on the page where an account's settings live. */}
+            <section className="glass rounded-[2rem] p-6 sm:p-8 border-hairline space-y-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-surface-2 border border-hairline flex items-center justify-center shrink-0">
+                        <Languages className="w-5 h-5 text-accent-ink" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-black tracking-tight">{t("languageTitle")}</h2>
+                        <p className="text-fg-40 text-xs font-medium mt-1">{t("languageHelp")}</p>
+                    </div>
+                </div>
+                <LangToggle />
             </section>
 
             {pending && (

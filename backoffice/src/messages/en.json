@@ -1335,6 +1335,8 @@
         "codeLabel": "Customer code",
         "codeHelp": "This is the number we identify you by in support and in correspondence. It never changes, and it is not a password.",
         "codeMissing": "No code assigned yet.",
+        "languageTitle": "Language",
+        "languageHelp": "The language of this dashboard and of every email we send you. It changes here, right away.",
         "registrationPending": "Registration is not finished yet. Finish it to start invoicing.",
         "registrationPendingLink": "Finish registration",
         "fiscalTitle": "Fiscal identity",

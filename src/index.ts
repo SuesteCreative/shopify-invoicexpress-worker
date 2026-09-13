@@ -2669,22 +2669,27 @@ app.post("/admin/account-invite-email", async (c) => {
   const body = await c.req.json<{
     to: string; account: string; role?: "admin" | "viewer"; has_login?: boolean;
     dashboard_url?: string; invite_url?: string;
-    /** Whose skin to dress this in. `theme` wins; otherwise the account's own. */
-    theme?: "day" | "night"; user_id?: string;
+    /** Whose skin and language to dress this in. The explicit values win;
+     *  otherwise the account's own. */
+    theme?: "day" | "night"; language?: "pt" | "en"; user_id?: string;
   }>();
   if (!body.to || !body.account) return c.json({ error: "Missing to/account" }, 400);
 
-  const { renderAccountInviteEmail, renderInTheme } = await import("./services/email-templates");
+  const { renderAccountInviteEmail, renderInTheme, renderInLang } = await import("./services/email-templates");
   const { getUserTheme } = await import("./services/user-theme");
+  const { getUserLanguage } = await import("./services/user-language");
   const theme = body.theme ?? await getUserTheme(c.env, body.user_id);
-  const { subject, html } = renderInTheme(theme, () => renderAccountInviteEmail({
+  // The invitee has no account yet, so there is no language of their own to
+  // read: they are written to in the language of the account inviting them.
+  const language = body.language ?? await getUserLanguage(c.env, body.user_id);
+  const { subject, html } = renderInLang(language, () => renderInTheme(theme, () => renderAccountInviteEmail({
     accountLabel: body.account,
     email: body.to,
     role: body.role === "admin" ? "admin" : "viewer",
     hasLogin: !!body.has_login,
     inviteUrl: body.invite_url,
     dashboardUrl: body.dashboard_url,
-  }));
+  })));
 
   const res = await sendEmailDirect(c.env, { to: [body.to], subject, html, fromName: "Rioko" });
   return c.json({ ok: res.ok, status: res.status, provider: res.provider, id: res.id, detail: res.detail }, res.ok ? 200 : 500);
@@ -2701,17 +2706,19 @@ app.post("/admin/payment-failed-email", async (c) => {
     to: string | string[]; cc?: string[]; account: string; update_url: string;
     invoice_url?: string; amount_label?: string; next_attempt_label?: string;
     final_attempt?: boolean; dashboard_url?: string;
-    theme?: "day" | "night"; user_id?: string;
+    theme?: "day" | "night"; language?: "pt" | "en"; user_id?: string;
   }>();
   const to = Array.isArray(body.to) ? body.to : [body.to];
   if (to.length === 0 || !body.account || !body.update_url) {
     return c.json({ error: "Missing to/account/update_url" }, 400);
   }
 
-  const { renderPaymentFailedEmail, renderInTheme } = await import("./services/email-templates");
+  const { renderPaymentFailedEmail, renderInTheme, renderInLang } = await import("./services/email-templates");
   const { getUserTheme } = await import("./services/user-theme");
+  const { getUserLanguage } = await import("./services/user-language");
   const theme = body.theme ?? await getUserTheme(c.env, body.user_id);
-  const { subject, html } = renderInTheme(theme, () => renderPaymentFailedEmail({
+  const language = body.language ?? await getUserLanguage(c.env, body.user_id);
+  const { subject, html } = renderInLang(language, () => renderInTheme(theme, () => renderPaymentFailedEmail({
     accountLabel: body.account,
     updateUrl: body.update_url,
     invoiceUrl: body.invoice_url,
@@ -2719,7 +2726,7 @@ app.post("/admin/payment-failed-email", async (c) => {
     nextAttemptLabel: body.next_attempt_label,
     finalAttempt: !!body.final_attempt,
     dashboardUrl: body.dashboard_url,
-  }));
+  })));
 
   // A client who hits "Reply" here is asking us about their own money; that has
   // to land in a mailbox somebody reads.
@@ -2745,30 +2752,41 @@ app.post("/admin/legacy-price-email", async (c) => {
     next_amount_cents?: number | null;
     connection_key?: string;
     theme?: "day" | "night";
+    language?: "pt" | "en";
     user_id?: string;
   }>();
 
   const to = Array.isArray(body.to) ? body.to : [body.to];
   if (!to.length || !body.ends_at) return c.json({ error: "Missing to/ends_at" }, 400);
 
-  const eur = (cents: number | null | undefined) =>
-    typeof cents === "number" ? `${(cents / 100).toFixed(2).replace(".", ",")} €` : null;
+  const { renderLegacyPriceEmail, renderInTheme, renderInLang } = await import("./services/email-templates");
+  const { getUserTheme } = await import("./services/user-theme");
+  const { getUserLanguage } = await import("./services/user-language");
+  const theme = body.theme ?? await getUserTheme(c.env, body.user_id);
+  const language = body.language ?? await getUserLanguage(c.env, body.user_id);
+
+  // The same amount, written the way each reader writes it: 7,50 € against
+  // €7.50. The price is the subject of this email, so it is worth the two lines.
+  const eur = (cents: number | null | undefined) => {
+    if (typeof cents !== "number") return null;
+    const amount = (cents / 100).toFixed(2);
+    return language === "en" ? `€${amount}` : `${amount.replace(".", ",")} €`;
+  };
   const day = new Date(body.ends_at);
   const endsLabel = Number.isNaN(day.getTime())
     ? body.ends_at
     : `${String(day.getUTCDate()).padStart(2, "0")}/${String(day.getUTCMonth() + 1).padStart(2, "0")}/${day.getUTCFullYear()}`;
 
-  const { renderLegacyPriceEmail, renderInTheme } = await import("./services/email-templates");
-  const { getUserTheme } = await import("./services/user-theme");
-  const theme = body.theme ?? await getUserTheme(c.env, body.user_id);
-  const { subject, html } = renderInTheme(theme, () => renderLegacyPriceEmail({
+  const { subject, html } = renderInLang(language, () => renderInTheme(theme, () => renderLegacyPriceEmail({
     stage: body.stage === "ending" ? "ending" : "marked",
     accountLabel: body.name ?? null,
     endsAtLabel: endsLabel,
     interval: body.interval === "year" ? "year" : "month",
     currentAmountLabel: eur(body.current_amount_cents),
-    nextAmountLabel: eur(body.next_amount_cents) ?? (body.interval === "year" ? "75,00 €" : "7,50 €"),
-  }));
+    nextAmountLabel: eur(body.next_amount_cents) ?? (body.interval === "year"
+      ? (language === "en" ? "€75.00" : "75,00 €")
+      : (language === "en" ? "€7.50" : "7,50 €")),
+  })));
 
   // A client reading this is deciding whether to keep paying us; a reply has to
   // reach a person.

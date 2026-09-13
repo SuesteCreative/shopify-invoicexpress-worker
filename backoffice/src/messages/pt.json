@@ -1335,6 +1335,8 @@
         "codeLabel": "Código de cliente",
         "codeHelp": "É por este número que o identificamos no suporte e na correspondência. Não muda e não é uma palavra-passe.",
         "codeMissing": "Ainda sem código atribuído.",
+        "languageTitle": "Língua",
+        "languageHelp": "A língua do painel e de todos os emails que lhe enviamos. Muda já aqui.",
         "registrationPending": "O registo ainda não está concluído. Conclua-o para começar a faturar.",
         "registrationPendingLink": "Concluir o registo",
         "fiscalTitle": "Identidade fiscal",

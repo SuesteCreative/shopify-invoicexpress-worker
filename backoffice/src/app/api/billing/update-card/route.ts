@@ -2,6 +2,8 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getDB, primaryConnectionKey } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
+import { stripePreferredLocales } from "@/lib/stripe-locale";
+import { asLang } from "@/lib/user-language";
 
 export const runtime = "edge";
 
@@ -32,9 +34,15 @@ export async function POST(req: NextRequest) {
             }
             if (!email) return NextResponse.json({ error: "No email" }, { status: 400 });
             const stripe = getStripe();
+            // Stamped at creation so Stripe's own emails to this client — the
+            // receipt, the card-expiry notice — start out in the right language
+            // instead of waiting for the first change of the setting.
+            const langRow: any = await db.prepare("SELECT language FROM users WHERE id = ?")
+                .bind(targetUserId).first().catch(() => null);
             const created = await stripe.customers.create({
                 email,
                 metadata: { user_id: targetUserId },
+                preferred_locales: stripePreferredLocales(asLang(langRow?.language)),
             });
             customerId = created.id;
             await db.prepare(`

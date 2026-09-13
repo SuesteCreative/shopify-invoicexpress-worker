@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
@@ -16,6 +17,7 @@ type Props = {
 
 export function LangToggle(_props: Props = {}) {
   const t = useTranslations("lang");
+  const { isSignedIn } = useAuth();
   const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
@@ -29,9 +31,23 @@ export function LangToggle(_props: Props = {}) {
   React.useEffect(() => setPending(null), [locale]);
   const shown = pending ?? locale;
 
-  function switchTo(next: string) {
+  async function switchTo(next: string) {
     if (next === locale) return;
     setPending(next);
+
+    // For someone signed in, the pill is not a per-tab preference: it is the
+    // language their account is written to, emails included. It has to be
+    // recorded BEFORE the move, because the signed-in surface sends every page
+    // to the language on record — navigating first would be sent straight back.
+    // A visitor with no account has nothing to record and never waits for this.
+    if (isSignedIn) {
+      await fetch("/api/user/language", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ language: next }),
+      }).catch(() => { /* the screen still moves; the record catches up next time */ });
+    }
+
     // usePathname() already resolves dynamic segments, so pass as-is
     router.replace(pathname as any, { locale: next });
   }

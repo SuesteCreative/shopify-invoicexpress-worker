@@ -16,6 +16,8 @@ import { resolveTier, sunsetAt } from "@/lib/billing-legacy";
 import { priceBook } from "@/lib/price-book";
 import { getSeatPool } from "@/lib/account";
 import { loadAccountReferrals } from "@/lib/client-record-referrals";
+import { asLang, isLang } from "@/lib/user-language";
+import { syncAccountStripeLocale } from "@/lib/stripe-locale";
 
 export const runtime = "edge";
 
@@ -96,6 +98,13 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             .catch(() => db.prepare(`SELECT ${USER_COLUMNS_PRE_0058} FROM users u WHERE u.id = ?`)
                 .bind(accountId).first());
         if (!userRow) return NextResponse.json({ error: "not_found", retired: null }, { status: 404 });
+
+        // Read on its own, and not in USER_COLUMNS: a record that stops opening
+        // between the deploy and the hand-applied 0061 is a worse trade than a
+        // selector that shows Portuguese for those few minutes.
+        const languageRow: any = await db.prepare("SELECT language FROM users WHERE id = ?")
+            .bind(accountId).first().catch(() => null);
+        userRow.language = asLang(languageRow?.language);
 
         const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows, referrals] = await Promise.all([
             db.prepare(`
@@ -425,6 +434,12 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
 /** The two fields a merchant cannot change about themselves. */
 const OPERATOR_EDITABLE = new Set(["nif", "company_name"]);
 
+/** And the one they can, which an operator sets from here too: the language
+ *  every screen and every email reaches this client in. It decides nothing a
+ *  document says, so it does not carry the fiscal gate — any operator who can
+ *  open the record can set it, and the client can change it themselves. */
+const ADMIN_EDITABLE = new Set(["language"]);
+
 /**
  * Apply a fiscal identity change, from the page where the request is read.
  *
@@ -441,15 +456,15 @@ const OPERATOR_EDITABLE = new Set(["nif", "company_name"]);
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code: string }> }) {
     try {
         const { userId } = await auth();
-        if (!userId || !(await isHiperadmin(userId))) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await request.json() as { field?: string; value?: string; reject?: boolean; reason?: string };
         const field = String(body.field ?? "");
-        if (!OPERATOR_EDITABLE.has(field)) {
+        if (!OPERATOR_EDITABLE.has(field) && !ADMIN_EDITABLE.has(field)) {
             return NextResponse.json({ error: "field_not_editable" }, { status: 400 });
         }
+        const allowed = ADMIN_EDITABLE.has(field) ? await isAdmin(userId) : await isHiperadmin(userId);
+        if (!allowed) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const { env: rejectEnv } = getRequestContext();
         const rejectDb = (rejectEnv as any).DB;
@@ -490,6 +505,11 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
         if (field === "nif" && value !== null && !/^\d{9}$/.test(value)) {
             return NextResponse.json({ error: "nif_must_be_nine_digits" }, { status: 400 });
         }
+        // A language is picked from a list of two, never typed, and there is no
+        // such thing as "unset": every client is written to in something.
+        if (field === "language" && !isLang(value)) {
+            return NextResponse.json({ error: "unknown_language" }, { status: 400 });
+        }
 
         const { env } = getRequestContext();
         const db = (env as any).DB;
@@ -507,6 +527,14 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
         }
 
         await db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).bind(value, resolved.accountId).run();
+
+        // Stripe's own emails to this client — receipts, card expiry, dunning —
+        // are written from the Customer's `preferred_locales`, so the setting has
+        // to reach Stripe as well as our own templates. Best effort: the language
+        // is already saved, and a Stripe hiccup must not read as a failed save.
+        if (field === "language") {
+            await syncAccountStripeLocale(db, resolved.accountId, asLang(value));
+        }
 
         // The value is already written, so a failed audit is not a failed grant.
         // It is still said: without the row the request is only derived as

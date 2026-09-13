@@ -296,10 +296,16 @@ function RequestHistory() {
                 {states.map((s) => (
                     <div key={s.field} className="flex flex-wrap items-center gap-2 text-sm border-b border-hairline/60 pb-3">
                         <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{label(s.field)}</span>
-                        <span className="font-bold text-fg">{s.decided_value ?? s.requested}</span>
+                        {/* For a recorded decision, what the record says now — a
+                            corrected value, or nothing if it was cleared. While it
+                            is open, what was asked for. */}
+                        <span className="font-bold text-fg">{s.outcome === "applied" && s.decided_at ? (s.decided_value || "—") : s.requested}</span>
                         <span className={`text-[10px] font-black uppercase tracking-widest ${tone(s.outcome)}`}>{word(s.outcome)}</span>
+                        {/* The date of the decision, or of the request while it is
+                            open. A grant with no recorded decision has no date to
+                            give, and the request's date must not stand in for it. */}
                         <span className="text-[10px] text-fg-40 uppercase tracking-widest">
-                            {day(s.decided_at ?? s.requested_at)}
+                            {s.outcome === "pending" ? day(s.requested_at) : day(s.decided_at)}
                         </span>
                         {s.reason && <span className="w-full text-xs text-fg-40 italic">“{s.reason}”</span>}
                     </div>

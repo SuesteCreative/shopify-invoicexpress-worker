@@ -14,12 +14,12 @@ import { Check, X, AlertCircle } from "lucide-react";
  * the operator granted or refused it and the merchant found out by noticing the
  * value had changed, or never.
  *
- * It stays until dismissed, and the dismissal is stored on the account rather
- * than in this browser (migration 0059) — otherwise the next device would
- * re-announce a change from three weeks ago. The one case it cannot store is a
- * read-only member, who may not write to the account at all; there the server
- * says so and the notice is hidden for the session instead of a button that
- * silently does nothing.
+ * It stays until the account's OWNER dismisses it, and that dismissal is stored
+ * on the account rather than in this browser (migration 0059) — otherwise the
+ * next device would re-announce a change from three weeks ago. Anyone else who
+ * sees it (an invited member, an operator impersonating) is told by the server
+ * they may not store it, and the notice hides for their session instead: their
+ * click must not close it for the owner, who is the one it is for.
  *
  * Same shape and the same home as AccountSuspendedNotice: a notice nobody can
  * miss by adding a page.
@@ -35,6 +35,13 @@ interface Outcome {
     reason: string | null;
 }
 
+/** Where a notice that may not be stored is hidden for the rest of the session. */
+const SESSION_KEY = "rioko.identity-notice-hidden-until";
+
+function hiddenUntil(): string {
+    try { return sessionStorage.getItem(SESSION_KEY) ?? ""; } catch { return ""; }
+}
+
 export default function IdentityOutcomeNotice() {
     const t = useTranslations("conta");
     const [unread, setUnread] = useState<Outcome[]>([]);
@@ -45,8 +52,13 @@ export default function IdentityOutcomeNotice() {
             .then(r => (r.ok ? r.json() : null))
             .then((d: any) => {
                 if (!d) return;
-                setUnread(d.unread ?? []);
-                setCanDismiss(d.can_dismiss !== false);
+                const may = d.can_dismiss !== false;
+                // Decision timestamps come from one column in one format, so a
+                // string comparison orders them.
+                const since = may ? "" : hiddenUntil();
+                setCanDismiss(may);
+                setUnread(((d.unread ?? []) as Outcome[])
+                    .filter(o => !since || String(o.decided_at ?? "") > since));
             })
             .catch(() => { /* a notice is not worth a broken dashboard */ });
     }, []);
@@ -54,8 +66,12 @@ export default function IdentityOutcomeNotice() {
     if (unread.length === 0) return null;
 
     const dismiss = () => {
+        const newest = unread.map(o => String(o.decided_at ?? "")).sort().pop() ?? "";
         setUnread([]);
-        if (!canDismiss) return;
+        if (!canDismiss) {
+            try { sessionStorage.setItem(SESSION_KEY, newest); } catch { /* hidden until reload, then */ }
+            return;
+        }
         fetch("/api/user/identity-request", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -76,14 +92,20 @@ export default function IdentityOutcomeNotice() {
                         : <Check className="w-4 h-4 text-accent-ink" />}
                 </div>
                 <div className="space-y-2 min-w-0 flex-1">
-                    {granted.map(o => (
-                        <p key={`ok-${o.field}`} className="text-sm font-medium text-fg">
-                            {/* What the record NOW says, not what was once
-                                asked: an operator may have corrected a typo in
-                                the number the client sent. */}
-                            {t("noticeApplied", { field: label(o.field), value: o.decided_value ?? o.requested ?? "" })}
-                        </p>
-                    ))}
+                    {granted.map(o => {
+                        // What the record NOW says. For a recorded decision that is
+                        // the value written — which may be a corrected one, or
+                        // nothing at all if it was cleared — never the value once
+                        // asked for.
+                        const now = o.decided_at ? (o.decided_value ?? "") : (o.requested ?? "");
+                        return (
+                            <p key={`ok-${o.field}`} className="text-sm font-medium text-fg">
+                                {now
+                                    ? t("noticeApplied", { field: label(o.field), value: now })
+                                    : t("noticeCleared", { field: label(o.field) })}
+                            </p>
+                        );
+                    })}
                     {refused.map(o => (
                         <div key={`no-${o.field}`} className="space-y-1">
                             <p className="text-sm font-medium text-fg">

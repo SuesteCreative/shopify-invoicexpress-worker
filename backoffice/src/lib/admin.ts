@@ -33,6 +33,21 @@ export async function getRole(userId?: string | null): Promise<string> {
     return user?.role || "user";
 }
 
+/**
+ * May this caller look at that account at all?
+ *
+ * A hiperadmin's account is invisible to everyone below hiperadmin — the rule
+ * /api/admin/users already applies to its list. Decided on the REAL role of
+ * whoever is signed in, never the impersonated one: /api/admin/impersonate does
+ * not check the target's role, so a superadmin impersonating a hiperadmin would
+ * otherwise pass as one. One predicate, so the customer record and the routes
+ * that serve its tabs give the same answer instead of each deciding its own.
+ */
+export async function mayViewAccount(callerUserId: string, targetUserId: string): Promise<boolean> {
+    if ((await getRole(targetUserId)) !== "hiperadmin") return true;
+    return (await getRole(callerUserId)) === "hiperadmin";
+}
+
 export interface DevModeTarget {
     id: string;
     /** Display only, and nullable in D1 — coalesced so the panel's header reads

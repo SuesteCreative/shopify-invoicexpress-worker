@@ -110,20 +110,40 @@ function CodeChip({ code }: { code: string | null }) {
     );
 }
 
-const stripeUrl = (base: string, kind: "customers" | "subscriptions" | "invoices" | "payments", id: string) =>
-    `${base}/${kind}/${id}`;
+type StripeKind = "customers" | "subscriptions" | "invoices" | "payments";
 
-const StripeLink = ({ base, kind, id }: { base: string; kind: "customers" | "subscriptions" | "invoices" | "payments"; id: string | null }) =>
-    id ? (
-        <a href={stripeUrl(base, kind, id)} target="_blank" rel="noopener noreferrer"
+/**
+ * The dashboard section an id opens in, read from its own prefix.
+ *
+ * `billing_events.stripe_object_id` holds whatever object the event carried —
+ * an invoice, but also a refund or a charge — and linking every one of them to
+ * /invoices/ answered "not found" for objects that are perfectly fine, which
+ * reads as data loss. An id whose section is not known is shown, not linked.
+ */
+function kindOfStripeId(id: string | null): StripeKind | null {
+    if (!id) return null;
+    if (id.startsWith("in_")) return "invoices";
+    if (id.startsWith("sub_")) return "subscriptions";
+    if (id.startsWith("cus_")) return "customers";
+    if (id.startsWith("pi_") || id.startsWith("ch_") || id.startsWith("py_")) return "payments";
+    return null;
+}
+
+const StripeLink = ({ base, kind, id }: { base: string; kind?: StripeKind; id: string | null }) => {
+    if (!id) return <span className="text-fg-40">—</span>;
+    const section = kind ?? kindOfStripeId(id);
+    // Never elided: a truncated pi_ is unusable, and the ellipsis has swapped one
+    // payment for another before.
+    if (!section) return <span className="font-mono text-[11px] text-fg break-all">{id}</span>;
+    return (
+        <a href={`${base}/${section}/${id}`} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-1 font-mono text-[11px] text-accent-ink hover:underline break-all">
-            {/* Never elided: a truncated pi_ is unusable, and the ellipsis has
-                swapped one payment for another before. */}
             {id} <ExternalLink className="w-3 h-3 shrink-0" />
         </a>
-    ) : <span className="text-fg-40">—</span>;
+    );
+};
 
-export function CustomerRecordPanel({ code }: { code: string }) {
+export function CustomerRecordPanel({ code, askedForMember = null }: { code: string; askedForMember?: string | null }) {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -188,10 +208,13 @@ export function CustomerRecordPanel({ code }: { code: string }) {
                     ← Clientes
                 </Link>
 
-                {data.asked_for_member && (
+                {/* The page redirects a member's number to the owner's record and
+                    passes the number that was asked for; without it the URL would
+                    silently change under the operator. */}
+                {(askedForMember || data.asked_for_member) && (
                     <div className="glass rounded-2xl border border-soon/30 bg-soon/5 p-4 text-xs font-medium text-fg-40">
-                        O código pedido é de um utilizador convidado (<span className="font-mono">{data.asked_for_member}</span>).
-                        Um membro trabalha dentro da conta de outra pessoa e não tem dados próprios — esta é a ficha da conta.
+                        O código <span className="font-mono text-fg">{askedForMember ?? data.asked_for_member}</span> é de um utilizador convidado.
+                        Um membro trabalha dentro da conta de outra pessoa e não tem dados próprios — esta é a ficha dessa conta.
                     </div>
                 )}
 
@@ -453,8 +476,21 @@ function IdentityTab({ data, code, onSaved }: { data: any; code: string; onSaved
                                     {r.outcome === "applied" ? "aplicado" : "recusado"}
                                 </Pill>
                                 <span className="text-fg-40">{fieldLabel(r.field)}</span>
-                                <span className="font-mono text-xs font-bold text-fg">{r.decided_value ?? r.requested}</span>
-                                <span className="text-[10px] text-fg-40 uppercase tracking-widest">{moment(r.decided_at ?? r.requested_at)}</span>
+                                {/* For a recorded grant, what the record says now — a
+                                    corrected value, or nothing if it was cleared. For a
+                                    refusal, or a grant with no decision row, what was
+                                    asked for. */}
+                                <span className="font-mono text-xs font-bold text-fg">
+                                    {r.outcome === "applied" && r.decided_at ? (r.decided_value || "— (removido)") : r.requested}
+                                </span>
+                                {/* A grant read off the stored value has no decision row and
+                                    so no date; the request's date must not pose as the day
+                                    it was applied. */}
+                                <span className="text-[10px] text-fg-40 uppercase tracking-widest">
+                                    {r.decided_at
+                                        ? moment(r.decided_at)
+                                        : `pedido a ${moment(r.requested_at)} · decisão sem registo`}
+                                </span>
                                 {r.reason && <span className="w-full text-xs text-fg-40 italic">“{r.reason}”</span>}
                             </div>
                         ))}
@@ -600,6 +636,7 @@ function ConnectionsTab({ data }: { data: any }) {
                                     <span className="font-black text-sm">{connectionLabel(conn.source_kind, conn.destination_kind)}</span>
                                     <Pill tone={conn.status === "active" ? "good" : conn.status === "paused" ? "warn" : "neutral"}>{conn.status}</Pill>
                                     {conn.legacy && <Pill>legado</Pill>}
+                                    {conn.subscribed === false && <Pill tone="warn">sem subscrição — o worker recusa faturar</Pill>}
                                     {conn.admin_label && <span className="text-xs text-fg-40 font-bold">{conn.admin_label}</span>}
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -706,7 +743,7 @@ function StripeTab({ data, base }: { data: any; base: string }) {
                 <table className="w-full text-left border-collapse min-w-[720px]">
                     <thead>
                         <tr className="border-b border-hairline">
-                            {["Data", "Tipo", "Valor", "Estado", "Fatura Stripe", "Pagamento", "Documento Kapta"].map(h => (
+                            {["Data", "Tipo", "Valor", "Estado", "Objecto Stripe", "Pagamento", "Documento Kapta"].map(h => (
                                 <th key={h} className="py-3 pr-4 text-[10px] font-black uppercase tracking-widest text-fg-40">{h}</th>
                             ))}
                         </tr>
@@ -722,7 +759,7 @@ function StripeTab({ data, base }: { data: any; base: string }) {
                                 <td className="py-3 pr-4 text-xs font-bold text-fg whitespace-nowrap">{money(e.amount_cents, e.currency)}</td>
                                 <td className="py-3 pr-4"><Pill tone={e.status === "paid" ? "good" : e.status === "failed" ? "bad" : "neutral"}>{e.status}</Pill></td>
                                 <td className="py-3 pr-4">
-                                    <StripeLink base={base} kind="invoices" id={e.stripe_object_id} />
+                                    <StripeLink base={base} id={e.stripe_object_id} />
                                     {e.stripe_invoice_number && <div className="text-[10px] text-fg-40 font-mono">{e.stripe_invoice_number}</div>}
                                 </td>
                                 <td className="py-3 pr-4"><StripeLink base={base} kind="payments" id={e.payment_intent_id} /></td>
@@ -779,7 +816,9 @@ function LogsTab({ userId, connections }: { userId: string; connections: any[] }
     const auditByConn = groupByConnection(audit, (r: any) => connectionKeyForScope(r.scope));
     const eventsByConn = groupByConnection(events, (r: any) => connectionKeyForDocumentEvent(r));
 
-    const show = (key: string | null) => filter === null || filter === key;
+    // "Sem ligação" is the null bucket; comparing the sentinel to a null key
+    // never matched, so the button always showed an empty page.
+    const show = (key: string | null) => filter === null || (filter === "__none__" ? key === null : filter === key);
     const visibleAudit = [...auditByConn.entries()].filter(([k]) => show(k));
     const visibleEvents = [...eventsByConn.entries()].filter(([k]) => show(k));
 
@@ -818,7 +857,14 @@ function LogsTab({ userId, connections }: { userId: string; connections: any[] }
                         {(rows as any[]).map((r) => (
                             <div key={r.id} className="text-xs border-b border-hairline/60 py-2">
                                 <span className="font-mono text-fg font-bold">{r.field}</span>
-                                <span className="text-fg-40"> · {r.old_value ?? "—"} → {r.new_value ?? "—"}</span>
+                                {/* A refusal stores the reason in new_value and changes
+                                    nothing; drawn as "— → reason" it read as the NIF
+                                    being set to the operator's sentence. */}
+                                <span className="text-fg-40">
+                                    {r.scope === "profile_change_rejected"
+                                        ? ` · pedido recusado${r.new_value ? ` · motivo: ${r.new_value}` : " · sem motivo"}`
+                                        : `${r.scope === "profile_change_request" ? " · pedido" : r.scope === "profile" ? " · aplicado" : ""} · ${r.old_value ?? "—"} → ${r.new_value ?? "—"}`}
+                                </span>
                                 <span className="text-fg-40"> · {moment(r.created_at)}</span>
                                 {r.actor && <span className="text-fg-40"> · {r.actor}</span>}
                             </div>
@@ -828,7 +874,7 @@ function LogsTab({ userId, connections }: { userId: string; connections: any[] }
             </Section>
 
             <Section icon={<ScrollText className="w-5 h-5 text-accent-ink" />} title="Documentos"
-                desc="Rotina fica 90 dias, prova (falhas, derivas, notas de crédito, reemissões) fica 365. Um separador vazio numa conta antiga é a janela, não uma avaria.">
+                desc="Os últimos 200 eventos da conta, até 60 por ligação. Rotina fica 90 dias, prova (falhas, derivas, notas de crédito, reemissões) fica 365. Um separador vazio numa conta antiga é a janela, não uma avaria.">
                 {visibleEvents.length === 0 ? (
                     <p className="text-sm text-fg-40 font-medium">Nada na janela de retenção.</p>
                 ) : visibleEvents.map(([key, rows]) => (

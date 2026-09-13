@@ -2,7 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdmin, isHiperadmin, getRole, getImpersonationId } from "@/lib/admin";
+import { isAdmin, isHiperadmin, getRole, mayViewAccount } from "@/lib/admin";
 import { resolveClientCode, lookupRetiredCode, ensureClientCode } from "@/lib/client-code";
 import { accountLabel } from "@/lib/labels";
 import { auditConfigChange } from "@/lib/config-audit";
@@ -72,13 +72,15 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
 
         const accountId = resolved.accountId;
 
-        // The role rules of /api/admin/users apply here too: a superadmin cannot
-        // open a hiperadmin's record, impersonation included.
-        const viewerRole = await getRole((await getImpersonationId(request)) || userId);
-        const targetRole = await getRole(accountId);
-        if (targetRole === "hiperadmin" && viewerRole !== "hiperadmin") {
+        // A hiperadmin's record is invisible below hiperadmin, decided on the REAL
+        // role of whoever is signed in. It used to read the impersonated role,
+        // and /api/admin/impersonate does not check whom it impersonates — so a
+        // superadmin impersonating a hiperadmin passed as one. See mayViewAccount.
+        if (!(await mayViewAccount(userId, accountId))) {
             return NextResponse.json({ error: "not_found", retired: null }, { status: 404 });
         }
+        const viewerRole = await getRole(userId);
+        const targetRole = await getRole(accountId);
 
         // The fiscal configuration is hiperadmin-only wherever it is served
         // (/api/admin/client-rules gates both verbs on it, and gating the page
@@ -96,6 +98,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             db.prepare(`
                 SELECT ${CONNECTION_PUBLIC_SELECT},
                        destination_config_json,
+                       source_config_json,
                        json_extract(source_config_json, '$.stripe_account_id') AS stripe_account_id,
                        json_extract(source_config_json, '$.shop_domain')        AS shop_domain
                   FROM connections WHERE user_id = ? ORDER BY created_at ASC
@@ -109,12 +112,16 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
 
             // The payment ledger. `raw_json` holds the whole Stripe object and
             // never leaves the server; only the invoice number is read out of it.
+            // Payments only: the table also records checkout sessions and
+            // subscription updates, which carry no amount and no invoice, and were
+            // eating the 50-row window of an account with years of them.
             db.prepare(`
                 SELECT id, type, stripe_object_id, payment_intent_id, amount_cents, currency, status,
                        ix_invoice_id, ix_invoice_permalink, ix_match_method, ix_match_score, created_at,
                        json_extract(raw_json, '$.number') AS stripe_invoice_number
                   FROM billing_events
                  WHERE user_id = ?
+                   AND type IN ('invoice.paid', 'invoice.payment_failed', 'charge.refunded')
                  ORDER BY created_at DESC
                  LIMIT 50
             `).bind(accountId).all().catch(() => ({ results: [] })),
@@ -150,8 +157,34 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
         // day an old price ends. A Stripe outage costs the badge, not the page.
         const prices = await priceBook().catch(() => new Map());
 
-        const legacy = legacyRow ? stripIntegrationSecrets(legacyRow) : null;
-        const hasLegacyPipe = !!(legacyRow?.shopify_domain || legacyRow?.shopify_authorized || legacyRow?.ix_authorized);
+        // The legacy row, with credentials reduced to presence flags. Its OTHER
+        // columns — force_tax_rate, oss_enabled, the exemption reasons, the
+        // series — are the fiscal configuration of the whole Shopify fleet, and
+        // are gated to hiperadmin exactly like the connection blobs below.
+        // Everyone else gets what the Integrações tab shows. It used to go out
+        // whole, to any admin, under a route that says it withholds it.
+        const LEGACY_IDENTITY_FIELDS = [
+            "shopify_domain", "ix_account_name", "ix_environment", "webhooks_active",
+            "shopify_authorized", "ix_authorized", "has_ix_api_key", "has_shopify_token", "is_paused",
+        ];
+        const legacyStripped = legacyRow ? stripIntegrationSecrets(legacyRow) : null;
+        const legacyOut = legacyStripped && !fiscalVisible
+            ? Object.fromEntries(LEGACY_IDENTITY_FIELDS.map((k) => [k, legacyStripped[k] ?? null]))
+            : legacyStripped;
+
+        // A Shopify card needs a Shopify shop. A row with `ix_authorized` and no
+        // shop only ever held InvoiceXpress credentials — the store every
+        // connection-based integration files with — and drawing it as a live
+        // "Shopify → InvoiceXpress" pipe is the phantom that twice got a real
+        // connection's credentials deleted.
+        const hasLegacyPipe = !!legacyRow?.shopify_domain;
+
+        // The worker's gate with SUBSCRIPTION_PER_CONNECTION=1: a connection with
+        // no subscription row of its own is refused every document. Admin
+        // accounts are exempt, exactly as checkSubscriptionGate exempts them.
+        const exempt = targetRole === "superadmin" || targetRole === "hiperadmin";
+        const subscribedKeys = new Set((subscriptions as any[]).map((s) => s.connection_key));
+        const isSubscribed = (key: string) => exempt || subscribedKeys.has(key);
 
         const connections: any[] = [];
         if (hasLegacyPipe) {
@@ -167,16 +200,26 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 created_at: legacyRow.created_at ?? null,
                 identifier: legacyRow.shopify_domain ?? null,
                 identifier_kind: legacyRow.shopify_domain ? "domain" : null,
-                // The legacy row's fiscal settings are columns, not a blob, and
-                // `legacy` already carries them with the credentials stripped.
+                // The legacy row's fiscal settings are columns, not a blob; for a
+                // hiperadmin `legacy` carries them with the credentials stripped.
                 fiscal: null,
                 credentials_present: null,
+                subscribed: isSubscribed(LEGACY_CONNECTION_KEY),
             });
         }
         for (const row of ((connRows as any).results ?? []) as any[]) {
             const { fiscal, present } = redactConfigJson(row.destination_config_json);
+            // Credentials live in BOTH blobs — a Stripe source keeps its restricted
+            // key and webhook secret in source_config_json — while the destination
+            // redaction floors every credential it does not hold to false, which
+            // printed "✗ restricted_key" beside a working Stripe connection. A key
+            // on the checklist is present if either blob has it. Only booleans leave.
+            const { present: sourcePresent } = redactConfigJson(row.source_config_json);
+            for (const k of Object.keys(present)) if (sourcePresent[k]) present[k] = true;
+
+            const key = `${row.source_kind}:${row.destination_kind}`;
             connections.push({
-                key: `${row.source_kind}:${row.destination_kind}`,
+                key,
                 id: row.id,
                 source_kind: row.source_kind,
                 destination_kind: row.destination_kind,
@@ -189,6 +232,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 identifier_kind: row.stripe_account_id ? "stripe_account" : (row.shop_domain ? "domain" : null),
                 fiscal: fiscalVisible ? fiscal : null,
                 credentials_present: present,
+                subscribed: isSubscribed(key),
             });
         }
 
@@ -201,9 +245,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 ...s,
                 // The same verdict the worker's gate applies, or this page says
                 // "active" while the invoices are being refused.
-                sub_state: targetRole === "superadmin" || targetRole === "hiperadmin"
-                    ? "exempt"
-                    : subscriptionUIState(s as any),
+                sub_state: exempt ? "exempt" : subscriptionUIState(s as any),
                 tier,
                 interval,
                 unit_amount_cents: price?.unit_amount ?? null,
@@ -227,7 +269,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             // the page says so rather than silently showing someone else.
             asked_for_member: resolved.memberOf,
             connections,
-            legacy,
+            legacy: legacyOut,
             subscriptions: subs,
             stripe: {
                 dashboard_base: stripeDashboardBase(),
@@ -296,7 +338,10 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
             if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
             const reason = String(body.reason ?? "").trim().slice(0, 300) || null;
-            await auditConfigChange(rejectDb, {
+            // The row IS the refusal: without it the request still reads as
+            // pending and the client is never told. Saying "recusado" over a
+            // failed write would be the page lying to the operator.
+            const recorded = await auditConfigChange(rejectDb, {
                 userId: target.accountId,
                 actor: userId,
                 scope: "profile_change_rejected",
@@ -304,6 +349,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
                 oldValue: null,
                 newValue: reason,
             });
+            if (!recorded) return NextResponse.json({ error: "write_failed" }, { status: 500 });
             return NextResponse.json({ success: true, rejected: true });
         }
 
@@ -332,7 +378,10 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
 
         await db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).bind(value, resolved.accountId).run();
 
-        await auditConfigChange(db, {
+        // The value is already written, so a failed audit is not a failed grant.
+        // It is still said: without the row the request is only derived as
+        // granted, and the client's notice has no decision date.
+        const audited = await auditConfigChange(db, {
             userId: resolved.accountId,
             actor: userId,
             scope: "profile",
@@ -341,7 +390,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
             newValue: value,
         });
 
-        return NextResponse.json({ success: true, value });
+        return NextResponse.json({ success: true, value, audited });
     } catch (error: any) {
         console.error("[admin/clientes] PATCH failed:", error?.message ?? error);
         return NextResponse.json({ error: "write_failed" }, { status: 500 });

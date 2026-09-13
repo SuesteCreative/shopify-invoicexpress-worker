@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin";
+import { isAdmin, mayViewAccount } from "@/lib/admin";
 import { callWorkerJson } from "@/lib/worker";
 
 export const runtime = "edge";
@@ -24,6 +24,14 @@ export async function GET(request: NextRequest) {
   const limit = params.get("limit");
   if (!externalId && !targetUserId) {
     return NextResponse.json({ error: "external_id or user_id required" }, { status: 400 });
+  }
+
+  // A client's whole history answers to the same visibility rule as their
+  // record. The worker behind this trusts one shared admin key and has no idea
+  // who is asking, so the rule has to hold here — or the record's 404 hides an
+  // account whose documents are one request away.
+  if (!externalId && targetUserId && !(await mayViewAccount(userId, targetUserId))) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
   const query = new URLSearchParams();

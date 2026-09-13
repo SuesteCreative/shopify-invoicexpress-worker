@@ -54,6 +54,7 @@ const ALREADY_SUBSCRIBED = "already_subscribed";
 export default function OnboardingSubscribe({ source, connectionKey, returnSlug, onSubscribed }: Props) {
     const t = useTranslations("onboardingSubscribe");
     const tCard = useTranslations("subscriptionCard");
+    const tRef = useTranslations("referral");
     const locale = useLocale();
     const params = useSearchParams();
 
@@ -83,18 +84,110 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
     // subscription; anything short of an explicit yes, a failed request included,
     // is the ordinary price.
     const [trialMonths, setTrialMonths] = useState<number | null>(null);
-    useEffect(() => {
-        let alive = true;
-        fetch("/api/referral/me")
-            .then(r => (r.ok ? r.json() : null))
-            .then((d: any) => {
-                if (!alive || d?.invited_pending !== true) return;
+    // Whether to offer the field below. An invite link only ever reached the
+    // browser that opened it: a friend who read it on their phone and signed up
+    // on a laptop arrives here with nothing, and used to pay full price without
+    // ever being told what went missing. Offered only while claims are open, and
+    // only to an account that did not already come in through a link.
+    const [canEnterCode, setCanEnterCode] = useState(false);
+
+    /**
+     * What the server says this account is owed, which is the ONLY thing this
+     * page may promise.
+     *
+     * `invited_pending` is `state = 'pending'` and the campaign still open — the
+     * very predicate `billing/checkout` uses to stamp the trial on the session.
+     * Reading anything else here, including an optimistic "the claim returned
+     * 200, so there must be a trial", lets the plates say "Hoje 0 €" over a
+     * session that will take the full price.
+     *
+     * Answers whether a trial is actually pending — or null when the server
+     * could not be asked, which is NOT the same as "no trial" and must not be
+     * reported to the visitor as one.
+     */
+    const readReferral = useCallback(async (): Promise<boolean | null> => {
+        try {
+            const res = await fetch("/api/referral/me");
+            const d: any = res.ok ? await res.json() : null;
+            if (!d) return null;
+            if (d.invited_pending === true) {
                 const n = Number(d.trial_months);
                 setTrialMonths(Number.isInteger(n) && n > 0 ? n : REWARD_MONTHS);
-            })
-            .catch(() => { /* not referred, as far as this page knows */ });
-        return () => { alive = false; };
+                setCanEnterCode(false);
+                return true;
+            }
+            setTrialMonths(null);
+            setCanEnterCode(d.campaign_open === true);
+            return false;
+        } catch {
+            return null;
+        }
     }, []);
+
+    useEffect(() => { void readReferral(); }, [readReferral]);
+
+    const [codeOpen, setCodeOpen] = useState(false);
+    const [code, setCode] = useState("");
+    const [claiming, setClaiming] = useState(false);
+    const [codeError, setCodeError] = useState<string | null>(null);
+    /**
+     * Bumped when a code is accepted, to build the Checkout Session again.
+     *
+     * The two months are an absolute `trial_end` stamped on the session AS IT IS
+     * CREATED, from the referral row. The session in the frame was made before
+     * the code was typed, so it carries no trial: leaving it there would take the
+     * card at full price and quietly spend the invite.
+     */
+    const [sessionNonce, setSessionNonce] = useState(0);
+
+    const submitCode = useCallback(async () => {
+        // Whitespace out of the middle too, not just the ends: a code read off a
+        // phone and typed by hand arrives as "RIO-1A2B3C - 9F2B41" often enough,
+        // and the parser would call that invalid and spend an attempt on it.
+        const token = code.replace(/\s+/g, "");
+        if (!token || claiming) return;
+        setClaiming(true);
+        setCodeError(null);
+        try {
+            const res = await fetch("/api/referral/claim", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token }),
+            });
+            const json: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                // The server's own word, in the visitor's language. Anything this
+                // build has no sentence for keeps the generic line.
+                const refusal = typeof json.refusal === "string" ? json.refusal : null;
+                setCodeError(refusal && tRef.has(`refusal.${refusal}`)
+                    ? tRef(`refusal.${refusal}`)
+                    : t("inviteCodeFailed"));
+                return;
+            }
+            // 200 is not the same as "a trial is coming". The route answers a
+            // replay of a code this account already used with 200 {already:true},
+            // above the rules and on purpose — and an account whose referral has
+            // since been paid out, or voided, is exactly who gets offered this
+            // field. Believing the status there put "Hoje 0 €" on the plates over
+            // a session that charges in full. So ask what is actually pending.
+            const granted = await readReferral();
+            if (granted === false) {
+                setCodeError(tRef.has("refusal.already") ? tRef("refusal.already") : t("inviteCodeFailed"));
+                return;
+            }
+            // true, or null for "could not ask". Either way the session is built
+            // again, because the session is made from the referral row and not
+            // from anything believed here: if a trial is owed it gets stamped,
+            // and if it is not, Stripe shows the real amount. Only the banner
+            // waits for a yes.
+            setCode("");
+            setSessionNonce(n => n + 1);
+        } catch {
+            setCodeError(t("inviteCodeFailed"));
+        } finally {
+            setClaiming(false);
+        }
+    }, [code, claiming, t, tRef, readReferral]);
 
     // Set when Stripe brings the merchant back to this page.
     const returnedSessionId = params.get("stripe") === "return" ? params.get("session_id") : null;
@@ -139,7 +232,9 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
             .catch(e => { if (!cancelled) setError(e?.message ?? "Unknown error"); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [plan, createSession, returnedSessionId]);
+        // sessionNonce: a code accepted after this ran needs the session rebuilt,
+        // because the trial is stamped at creation.
+    }, [plan, createSession, returnedSessionId, sessionNonce]);
 
     // Stripe.js is loaded once, with the key the server just handed us.
     const stripePromise = useMemo<Promise<Stripe | null> | null>(
@@ -158,13 +253,16 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
     const frameRef = useRef<HTMLDivElement | null>(null);
     const [frameEmpty, setFrameEmpty] = useState(false);
     useEffect(() => {
-        if (!clientSecret || !stripePromise) return;
+        // Not while a code is being claimed: the frame is unmounted on purpose
+        // then, and this would time out against its own absence and offer the
+        // hosted page as though Stripe had failed to load.
+        if (!clientSecret || !stripePromise || claiming) return;
         setFrameEmpty(false);
         const timer = setTimeout(() => {
             setFrameEmpty(!frameRef.current?.querySelector("iframe"));
         }, 8000);
         return () => clearTimeout(timer);
-    }, [clientSecret, stripePromise]);
+    }, [clientSecret, stripePromise, claiming]);
 
     // Back from Stripe: say what happened, then wait for the webhook to write the
     // row. Without this the step would read "no subscription" for the few seconds
@@ -296,6 +394,54 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                 </div>
             )}
 
+            {canEnterCode && (
+                <div className="rounded-2xl border border-hairline bg-surface-2/30 px-5 py-4">
+                    {!codeOpen ? (
+                        <button
+                            type="button"
+                            onClick={() => setCodeOpen(true)}
+                            className="flex items-center gap-2 text-[12px] font-medium text-fg-60 transition-colors hover:text-fg"
+                        >
+                            <Gift className="w-4 h-4 text-accent-ink" />
+                            {t("inviteCodeToggle")}
+                        </button>
+                    ) : (
+                        <div className="space-y-2.5">
+                            <label htmlFor="rioko-invite-code" className="flex items-center gap-2 text-[12px] font-medium text-fg">
+                                <Gift className="w-4 h-4 shrink-0 text-accent-ink" />
+                                {t("inviteCodeLabel")}
+                            </label>
+                            <div className="flex flex-col gap-2 sm:flex-row">
+                                <input
+                                    id="rioko-invite-code"
+                                    value={code}
+                                    onChange={e => setCode(e.target.value.toUpperCase())}
+                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void submitCode(); } }}
+                                    placeholder={t("inviteCodePlaceholder")}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    disabled={claiming}
+                                    className="min-w-0 flex-1 rounded-xl border border-hairline bg-surface px-3.5 py-2.5 font-mono text-[13px] uppercase tracking-[0.08em] text-fg placeholder:text-fg-40 focus:border-accent focus:outline-none disabled:opacity-50"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => void submitCode()}
+                                    disabled={claiming || !code.trim()}
+                                    className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-fg px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-surface transition-colors hover:bg-accent hover:text-on-accent disabled:opacity-50"
+                                >
+                                    {claiming && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    {t("inviteCodeApply")}
+                                </button>
+                            </div>
+                            {codeError && <p role="alert" className="text-[12px] text-destructive">{codeError}</p>}
+                            <p className="text-[11px] leading-relaxed text-fg-40">
+                                {t("inviteCodeHint", { months: REWARD_MONTHS })}
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {(["monthly", "annual"] as const).map(option => {
                     const selected = plan === option;
@@ -415,7 +561,13 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                 </div>
             )}
 
-            {!loading && !error && clientSecret && stripePromise && (
+            {/* `!claiming`: the form on screen belongs to a session made BEFORE
+                the code was typed, so it carries no trial. Disabling the input and
+                the Apply button left it fully payable for the whole round trip —
+                a merchant with the card already filled could press Stripe's own
+                button a second later and be charged in full. It comes straight
+                back, from the same client secret, if the code is refused. */}
+            {!loading && !error && !claiming && clientSecret && stripePromise && (
                 // No plate of our own behind it: the iframe paints its own
                 // surface from the Stripe branding settings, and a white card
                 // under a dark one is what made it read as a box dropped on the
@@ -423,7 +575,13 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                 <div ref={frameRef} className="rounded-2xl border border-hairline overflow-hidden">
                     {/* Keyed by plan: a plan change is a different session, and the
                         form has to be built again rather than updated. */}
-                    <EmbeddedCheckoutProvider key={plan} stripe={stripePromise} options={{ clientSecret }}>
+                    {/* Keyed on the session, not just the plan. The provider reads
+                        clientSecret once, at mount, and ignores it changing — which
+                        is why the plan was already a key. A code accepted here
+                        fetches a new session WITH the trial, and without the nonce
+                        in this key the old trial-less iframe stayed mounted and took
+                        the card at full price. */}
+                    <EmbeddedCheckoutProvider key={`${plan}:${sessionNonce}`} stripe={stripePromise} options={{ clientSecret }}>
                         <EmbeddedCheckout className="min-h-[520px]" />
                     </EmbeddedCheckoutProvider>
                 </div>

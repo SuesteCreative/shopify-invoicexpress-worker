@@ -223,7 +223,8 @@
             "not_new": "Invitations are for new accounts, and this one is not new any more.",
             "already": "Someone has already invited this account.",
             "inviter_inactive": "Whoever invited you does not have an active subscription right now.",
-            "already_subscribed": "Invitations are for new accounts, and this one already has a subscription."
+            "already_subscribed": "Invitations are for new accounts, and this one already has a subscription.",
+            "too_many": "Too many attempts. Wait an hour and try again."
         },
         "landingClaimRetry": "We could not confirm the invitation just now. It is saved, and we will try again when you open the dashboard."
     },
@@ -3618,7 +3619,13 @@
         "referralPlateToday": "Today {amount}",
         "referralPlateAfter": "This price starts after {months, plural, one {the free month} other {the # free months}}",
         "alreadySubscribedTitle": "This connection already has a subscription",
-        "alreadySubscribedBody": "There is no need to open another one, and nothing was charged now. Payments and card are managed in Billing."
+        "alreadySubscribedBody": "There is no need to open another one, and nothing was charged now. Payments and card are managed in Billing.",
+        "inviteCodeToggle": "I have an invitation code",
+        "inviteCodeLabel": "A friend's invitation code",
+        "inviteCodePlaceholder": "RIO-1A2B3C-9F2B41",
+        "inviteCodeApply": "Apply",
+        "inviteCodeHint": "You both get {months} free months. New accounts only, and the code has to be applied before paying.",
+        "inviteCodeFailed": "The code could not be applied. Please try again."
     },
     "taxRegistrations": {
         "title": "Tax registrations",

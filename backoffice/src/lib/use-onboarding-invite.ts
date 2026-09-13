@@ -75,8 +75,13 @@ export function useOnboardingInvite(invite: string | undefined, opts: InviteClai
                 // not new, already invited by someone else): replaying it on every
                 // load changes nothing, so it goes. Anything else (no session yet,
                 // a 500, a dropped connection) keeps it for the next load.
+                //
+                // 429 is the exception that carries a code anyway: the referral
+                // claim caps wrong codes per account, and "too_many" is a wait,
+                // not a verdict. Throwing the token away over it would lose a
+                // perfectly good invite to somebody else's typing.
                 const refusal = typeof json.refusal === "string" ? json.refusal : undefined;
-                if (refusal) clearInvite(KEY_);
+                if (refusal && res.status !== 429) clearInvite(KEY_);
                 return { state: "refused", reason: String(json.error ?? `HTTP ${res.status}`), refusal };
             }
             clearInvite(KEY_);

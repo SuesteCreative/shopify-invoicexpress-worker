@@ -4,9 +4,45 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { resolveAccountUser } from "@/lib/account";
 import { getImpersonationId } from "@/lib/admin";
 import { resolveClientCode } from "@/lib/client-code";
-import { claimRefusal, existingClaim, splitReferralToken } from "@/lib/referral";
+import {
+    claimRefusal, existingClaim, splitReferralToken,
+    countsTowardClaimLimit, CLAIM_ATTEMPT_LIMIT, CLAIM_ATTEMPT_WINDOW_MINUTES,
+} from "@/lib/referral";
 
 export const runtime = "edge";
+
+/**
+ * Wrong codes typed in the last hour.
+ *
+ * Fails open, and deliberately: the table arrives with migration 0061, which is
+ * applied by hand, and a deploy that lands first must not refuse every claim in
+ * the meantime. What it guards is cost, not secrecy — the code itself is 48 bits
+ * — so a window where it does not count is a window where nothing is lost.
+ */
+async function recentBadAttempts(db: D1Database, userId: string): Promise<number> {
+    try {
+        const row: any = await db.prepare(
+            `SELECT COUNT(*) AS n FROM referral_claim_attempts
+              WHERE user_id = ? AND attempted_at > datetime('now', ?)`
+        ).bind(userId, `-${CLAIM_ATTEMPT_WINDOW_MINUTES} minutes`).first();
+        return Number(row?.n ?? 0);
+    } catch {
+        return 0;
+    }
+}
+
+async function recordBadAttempt(db: D1Database, userId: string): Promise<void> {
+    try {
+        await db.prepare("INSERT INTO referral_claim_attempts (user_id) VALUES (?)").bind(userId).run();
+        // Swept here rather than by a cron: the only account that pays for the
+        // tidying is one that has been typing wrong codes.
+        await db.prepare(
+            "DELETE FROM referral_claim_attempts WHERE user_id = ? AND attempted_at < datetime('now', '-1 day')"
+        ).bind(userId).run();
+    } catch {
+        /* 0061 not applied yet */
+    }
+}
 
 /**
  * Claim a referral, once.
@@ -37,13 +73,21 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Não é possível resgatar um convite a impersonar." }, { status: 403 });
         }
 
+        const db = (getRequestContext().env as any).DB as D1Database;
+        const invitee = await resolveAccountUser(request, userId);
+
+        // Before any of the work, because the work is what the cap is protecting.
+        if (await recentBadAttempts(db, invitee) >= CLAIM_ATTEMPT_LIMIT) {
+            return NextResponse.json({ error: "too_many", refusal: "too_many" }, { status: 429 });
+        }
+
         const body = await request.json().catch(() => ({})) as { token?: string };
         const token = String(body.token ?? "").trim();
         const parts = splitReferralToken(token);
-        if (!parts) return NextResponse.json({ error: "invalid", refusal: "invalid" }, { status: 400 });
-
-        const db = (getRequestContext().env as any).DB as D1Database;
-        const invitee = await resolveAccountUser(request, userId);
+        if (!parts) {
+            await recordBadAttempt(db, invitee);
+            return NextResponse.json({ error: "invalid", refusal: "invalid" }, { status: 400 });
+        }
 
         const existing: any = await db.prepare(
             "SELECT inviter_user_id FROM referrals WHERE invitee_user_id = ?"
@@ -104,6 +148,9 @@ export async function POST(request: NextRequest) {
             now: new Date(),
         });
         if (refusal) {
+            // Only a code that resolves to nobody counts against the cap; the
+            // rest are true answers about a code that exists.
+            if (countsTowardClaimLimit(refusal)) await recordBadAttempt(db, invitee);
             // 409 for "already": the request is well formed, the account is taken.
             return NextResponse.json({ error: refusal, refusal }, { status: refusal === "already" ? 409 : 400 });
         }

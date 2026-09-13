@@ -83,7 +83,33 @@ export type ReferralRefusal =
     | "not_new"          // this account has been here too long to be a referral
     | "already"          // already referred by somebody
     | "inviter_inactive"  // whoever invited has no live subscription to add months to
-    | "already_subscribed"; // the invitee already pays us: clause 4 is new customers only
+    | "already_subscribed" // the invitee already pays us: clause 4 is new customers only
+    | "too_many";        // too many wrong codes typed in an hour
+
+/**
+ * How many wrong codes an account may type in an hour, and over what window.
+ *
+ * The code can also be typed by hand now, because a link only ever reached the
+ * browser that opened it. Guessing one is not a real threat — a customer number
+ * and its suffix are six hex characters each — but an authenticated loop should
+ * not get several D1 reads and a Clerk call per try for free. A friend types the
+ * code they were sent once, or twice if they fumble it.
+ */
+export const CLAIM_ATTEMPT_LIMIT = 10;
+export const CLAIM_ATTEMPT_WINDOW_MINUTES = 60;
+
+/**
+ * Whether a refusal is somebody fishing for a code, rather than a right answer
+ * about a real one.
+ *
+ * Only a token that does not parse, or one that resolves to nobody, says
+ * anything about guessing. "You are not new any more" and "someone already
+ * invited this account" are answers about a code that exists, and counting them
+ * would lock out the one person who read their own invite twice.
+ */
+export function countsTowardClaimLimit(refusal: ReferralRefusal | null): boolean {
+    return refusal === "invalid" || refusal === "unknown";
+}
 
 export interface ClaimContext {
     token: string;

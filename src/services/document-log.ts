@@ -239,11 +239,16 @@ export async function logDocumentEvent(env: Env, input: DocumentEventInput): Pro
        (id, external_id, user_id, shopify_domain, source_kind, destination_kind,
         invoice_id, event, severity, summary, detail_json, detail_truncated,
         actor, dedup_key, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, COALESCE(?, (SELECT user_id FROM integrations WHERE shopify_domain = ?)), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     crypto.randomUUID(),
     String(input.externalId),
+    // A caller that knows the shop but not the account (the document-verify
+    // history run copied a NULL user from processed_orders: 4,471 rows) still
+    // files the event under the shop's owner. Same rule as OWNER_ID_SQL in
+    // storage.ts, inlined so this module does not pull the storage class in.
     input.userId ?? null,
+    input.shopifyDomain ?? null,
     input.shopifyDomain ?? null,
     input.sourceKind ?? null,
     input.destinationKind ?? null,

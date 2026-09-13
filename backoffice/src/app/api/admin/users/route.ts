@@ -84,6 +84,9 @@ export async function GET(request: NextRequest) {
         COALESCE(u.is_inactive, 0) AS is_inactive,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
         i.ix_authorized, i.ix_error,
+        -- Both halves of the IX credential, as one boolean: ix_authorized is a
+        -- verdict about a key tested once and never withdrawn when it was cleared.
+        (COALESCE(i.ix_account_name, '') <> '' AND COALESCE(i.ix_api_key, '') <> '') AS ix_creds_present,
         m.role as member_role, m.account_id as member_of_id,
         mo_label.label as member_of_label
       FROM users u
@@ -104,7 +107,10 @@ export async function GET(request: NextRequest) {
         u.acq_utm_source, u.acq_utm_medium, u.acq_referrer, u.acq_landing, u.acq_country, u.acq_captured_at,
         0 AS is_inactive,
         i.shopify_domain, i.shopify_authorized, i.shopify_error,
-        i.ix_authorized, i.ix_error
+        i.ix_authorized, i.ix_error,
+        -- Both halves of the IX credential, as one boolean: ix_authorized is a
+        -- verdict about a key tested once and never withdrawn when it was cleared.
+        (COALESCE(i.ix_account_name, '') <> '' AND COALESCE(i.ix_api_key, '') <> '') AS ix_creds_present
       FROM users u
       LEFT JOIN integrations i ON u.id = i.user_id
       ORDER BY u.created_at DESC
@@ -237,7 +243,14 @@ export async function GET(request: NextRequest) {
 
             // 1. The legacy Shopify->IX pipe, which lives in `integrations` and
             //    has no row in `connections` at all.
-            const hasLegacy = !!(u.shopify_domain || u.shopify_authorized || u.ix_authorized);
+            //
+            // A Shopify card needs a shop. A row with only `ix_authorized` holds
+            // what a non-Shopify setup once saved there; drawn as "Shopify → IX"
+            // under "Sem integração" — with the account-delete trash on it, as the
+            // account's first card — it is the card that got MeetFrank deleted and
+            // still sat on Farracemota. Same rule as the Integrações page and the
+            // customer record.
+            const hasLegacy = !!u.shopify_domain;
             if (hasLegacy) {
                 entries.push(withSub({
                     ...base,
@@ -257,10 +270,12 @@ export async function GET(request: NextRequest) {
                     source_ok: !!u.shopify_authorized,
                     source_err: u.shopify_error ?? null,
                     source_off: !u.shopify_domain,
-                    dest_ok: !!u.ix_authorized,
+                    // "IX API OK" only with the key actually there: the stale flag
+                    // alone showed OK on an account with no credentials at all.
+                    dest_ok: !!(u.ix_authorized && u.ix_creds_present),
                     dest_err: u.ix_error ?? null,
                     dest_off: false,
-                    integrated: !!(u.shopify_authorized && u.ix_authorized),
+                    integrated: !!(u.shopify_authorized && u.ix_authorized && u.ix_creds_present),
                 }, LEGACY_KEY));
             }
 

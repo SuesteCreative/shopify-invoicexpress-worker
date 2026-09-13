@@ -336,6 +336,53 @@ function FiscalField({ code, field, label, value, mono, onSaved }: {
     );
 }
 
+/**
+ * Grant the request, with the value the client actually asked for.
+ *
+ * Without it the operator reads the value here and retypes it into the field
+ * below — the one step in this loop where a wrong digit can be introduced, on
+ * the number that prints on every future invoice. There is nothing to type.
+ */
+function ApplyRequest({ code, field, value, onApplied }: {
+    code: string; field: string; value: string; onApplied: () => void;
+}) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    return (
+        <>
+            <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                    setBusy(true); setError(null);
+                    try {
+                        const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}`, {
+                            method: "PATCH",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ field, value }),
+                        });
+                        const body: any = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                            setError(body?.error === "nif_must_be_nine_digits" ? "O NIF pedido não tem nove dígitos." : (body?.error || `HTTP ${res.status}`));
+                            return;
+                        }
+                        onApplied();
+                    } catch (e: any) {
+                        setError(String(e));
+                    } finally {
+                        setBusy(false);
+                    }
+                }}
+                className="ml-auto bg-fg text-surface px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:opacity-90 transition-all disabled:opacity-30"
+            >
+                {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Aplicar
+            </button>
+            {error && <span className="w-full text-[10px] font-black uppercase tracking-widest text-destructive">{error}</span>}
+        </>
+    );
+}
+
 function IdentityTab({ data, code, onSaved }: { data: any; code: string; onSaved: () => void }) {
     const c = data.customer;
     const identity = c.identity ?? {};
@@ -355,6 +402,9 @@ function IdentityTab({ data, code, onSaved }: { data: any; code: string; onSaved
                                 <span className="text-fg-40">→</span>
                                 <span className="font-mono text-xs font-bold text-fg">{r.new_value}</span>
                                 <span className="text-[10px] text-fg-40 uppercase tracking-widest">{moment(r.created_at)}</span>
+                                {data.fiscal_visible && (
+                                    <ApplyRequest code={code} field={r.field} value={r.new_value} onApplied={onSaved} />
+                                )}
                             </div>
                         ))}
                     </div>

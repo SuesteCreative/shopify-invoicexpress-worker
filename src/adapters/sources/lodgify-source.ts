@@ -63,8 +63,12 @@ export class LodgifySource implements SourceAdapter {
   async verifyWebhook(rawBody: string, signatureHeader: string, secret: string): Promise<boolean> {
     if (!signatureHeader || !secret) return false;
 
-    // Header format: "sha256=<hex>" — strip prefix
-    const hex = signatureHeader.startsWith("sha256=") ? signatureHeader.slice(7) : signatureHeader.trim();
+    // Header format: "sha256=<hex>". Lodgify documents the signature as
+    // uppercase ("the header will be Uppercase"), and this compared lowercase hex
+    // exactly — so every signed delivery was refused: 2,035 for Overbuilding from
+    // July on. Case is not part of a hex value, in the prefix or the digits.
+    const raw = signatureHeader.trim();
+    const hex = (/^sha256=/i.test(raw) ? raw.slice(7) : raw).toLowerCase();
     if (!hex) return false;
 
     const enc = new TextEncoder();
@@ -165,8 +169,8 @@ export class LodgifySource implements SourceAdapter {
     // This ran as `balanceDue > 0 ⇒ skip`, which passes a booking whose balance
     // is zero because nobody ever owed Lodgify anything — the OTA case that
     // billed a fleet of future reservations through the poll. The poll is fixed;
-    // this door has to be shut too, or registering Lodgify webhooks (partner
-    // OAuth, still pending) would silently reintroduce the same bug.
+    // this door has to be shut too, or any path that hands this adapter a raw
+    // booking (an admin replay of a thin envelope) would silently reintroduce it.
     //
     // Only applies to real webhook payloads. `_preloaded_booking` arrives from
     // the poll, which has ALREADY applied this rule — and on the progressive

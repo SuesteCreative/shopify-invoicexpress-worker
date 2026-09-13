@@ -29,14 +29,19 @@ import { runAdapterPipeline, classifyPipelineError } from "../handlers/generic-p
 import { takeBackLodgifyDocuments } from "../handlers/lodgify-billing";
 import { settleLodgifyReceipts } from "../handlers/lodgify-settlement";
 import { delay } from "../utils";
+import { claimRunLock, releaseRunLock } from "./run-lock";
 
-// ── Lodgify booking poller (cron) ─────────────────────────────────────────────
-// Lodgify does not expose webhook registration to user-level API keys (partner
-// OAuth only), so new-customer bookings never arrive via /webhooks/lodgify/*.
-// This poll lists Booked bookings per active connection and drives the SAME
-// pipeline the webhook uses (with a preloaded booking), deduped on the shared
-// `lodgify/created` webhook-info key so a booking is invoiced at most once
-// regardless of which path sees it first.
+// ── Lodgify booking poller (cron + verified webhooks) ────────────────────────
+// The one place Lodgify bookings are billed. The 30-minute cron runs it for every
+// active connection; a verified Lodgify webhook runs it for that one account
+// (/webhooks/lodgify/:userId). Either way the same list, mirror, cutoff,
+// instalment, settlement and dedup rules apply, deduped on the shared
+// `lodgify/created` webhook-info key, and a per-account run lock keeps two passes
+// off the same account at once.
+//
+// Webhook registration works with the account's own API key — it was long
+// believed to need partner OAuth, which is why this poll came first — but a
+// delivery is only ever a signal to run this pass, never a second billing path.
 
 // First non-empty trimmed string among vals, or null. Used to pull the guest
 // comment (where the NIF is typed) out of whichever field Lodgify carries it in.
@@ -414,9 +419,8 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
     : await env.DB.prepare(baseSql).all();
   const rows = (conns?.results ?? []) as any[];
 
-  for (const conn of rows) {
-    result.connections++;
-
+  // One connection's pass. Runs under that account's lock — see the loop at the end.
+  const pollConnection = async (conn: any): Promise<void> => {
     let sourceCfg: Record<string, any> = {};
     try { sourceCfg = conn.source_config_json ? JSON.parse(conn.source_config_json) : {}; } catch { /* ignore */ }
     // Connection-level failures below use a DAILY bucket: the poll runs every
@@ -435,7 +439,7 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
         connection_label: connLabel,
         bucket: "daily",
       });
-      continue;
+      return;
     }
 
     let destinationConfig: Record<string, any> | undefined;
@@ -472,7 +476,7 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
           bucket: "daily",
         });
       }
-      continue;
+      return;
     }
 
     // Full-list sync from Lodgify v1 (`/v1/reservation`). v1 has no reliable
@@ -495,7 +499,7 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
       await reportLodgifyFetchFailure(env, {
         userId: conn.user_id, connLabel, message: msg, egress, relayed: gateway.relayed,
       });
-      continue;
+      return;
     }
 
     // Mirror every fetched booking into D1 so the conciliação view reads locally
@@ -551,10 +555,10 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
       if (!bookingId) continue;
 
       // A booking that stopped being "Booked" after we billed it must have that
-      // document taken back. The declined → credit-note branch lives on the
-      // Lodgify webhook, which never fires here (user API keys cannot register
-      // webhooks — partner OAuth only), so before this the poll simply skipped
-      // cancelled bookings and left their documents standing forever.
+      // document taken back. That used to be left to a declined → credit-note
+      // branch on the Lodgify webhook, which never verified a single delivery,
+      // so the poll skipped cancelled bookings and left their documents standing
+      // forever. A verified webhook now just runs this same pass.
       if (status !== "booked") {
         // Reversal deletes drafts and clears markers — never on a dry run.
         if (!dryRun && (status === "declined" || status === "cancelled" || status === "canceled")) {
@@ -754,6 +758,37 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
     // NOT on dry runs: the feeder's cycle is dry-then-real, so marking the dry
     // half would keep the light green while every real run failed.
     if (!dryRun) await markLodgifyIngest(env, conn.user_id);
+  };
+
+  // One pass per account at a time. The pass starts from the cron and from every
+  // verified webhook, and a new paid booking fires two webhooks together: two
+  // passes over the same booking both read "not processed" before either writes
+  // its marker, and both issue a document. A pass that finds the account busy
+  // skips it; the running pass or the next one picks the booking up.
+  // ponytail: a change landing mid-pass after its list was fetched waits for the
+  // next pass (≤30 min); add a "rerun requested" flag if that latency matters.
+  const LODGIFY_RUN_STALE_MS = 15 * 60 * 1000;
+  for (const conn of rows) {
+    result.connections++;
+    // A dry run issues nothing, so it needs no lock.
+    if (dryRun) { await pollConnection(conn); continue; }
+
+    const lockKey = `lodgify-run:${conn.user_id}`;
+    let token: string | null = null;
+    try {
+      token = await claimRunLock(env.DB, lockKey, LODGIFY_RUN_STALE_MS);
+    } catch (e: any) {
+      console.warn(`[LodgifyPoll] user ${conn.user_id}: run lock unavailable (${e?.message ?? e}) — skipping this pass`);
+    }
+    if (!token) {
+      console.log(`[LodgifyPoll] user ${conn.user_id}: another pass is running — skipping`);
+      continue;
+    }
+    try {
+      await pollConnection(conn);
+    } finally {
+      await releaseRunLock(env.DB, lockKey, token).catch(() => { /* expires after LODGIFY_RUN_STALE_MS */ });
+    }
   }
 
   return result;

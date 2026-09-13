@@ -2,7 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isHiperadmin } from "@/lib/admin";
-import { redactConfigJson, FISCAL_CONFIG_KEYS } from "@/lib/redact";
+import { redactConfigJson, FISCAL_CONFIG_KEYS, INTEGRATION_FISCAL_COLUMNS } from "@/lib/redact";
 import { auditConfigChange } from "@/lib/config-audit";
 
 export const runtime = "edge";
@@ -21,19 +21,8 @@ export const runtime = "edge";
  * SQL and some of them decide the VAT on every subsequent invoice.
  */
 
-/** Fiscal columns on the legacy `integrations` row, readable in the console. */
-const INTEGRATION_FISCAL_COLUMNS = [
-  "vat_included", "auto_finalize", "only_invoice_when_paid", "invoice_zero_total",
-  "ix_exemption_reason", "ix_b2b_exemption_reason", "ix_stamp_exemption_note",
-  "ix_sequence_name", "ix_document_type", "ix_payment_term",
-  "force_tax_rate", "force_shipping_tax_rate", "oss_enabled", "b2b_reverse_charge",
-  "ix_retention_enabled", "ix_retention", "custom_invoice_note",
-  "pos_mode", "client_sync", "is_paused",
-  // Stripe→IX fiscal rework (migration 0037), all default 0.
-  "ix_derive_exemption", "ix_adapter_safety_nets", "stripe_tax_from_source",
-  "tag_route_by_country", "ix_require_series", "stripe_metadata_map",
-  "ix_multicurrency", "stripe_routing_hints",
-] as const;
+// Fiscal columns on the legacy `integrations` row: INTEGRATION_FISCAL_COLUMNS in
+// lib/redact, shared with the customer record so the two cannot show different lists.
 
 /**
  * Settings that change the VAT or the fiscal identity of every future document.

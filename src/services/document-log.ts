@@ -330,9 +330,16 @@ export async function readMerchantTimeline(
   const rows = await env.DB.prepare(
     `SELECT id, external_id, invoice_id, event, severity, summary, detail_json, actor, created_at,
             source_kind, destination_kind, shopify_domain
-       FROM document_events WHERE user_id = ?
+       FROM document_events
+      WHERE user_id = ?
+         -- Rows written with no user: a Shopify handler that only knew the shop.
+         -- One account's 8 drift findings lived only there, so its record showed
+         -- none. Attributed through the account's legacy row, the one place a
+         -- shop maps to a user.
+         OR (user_id IS NULL AND shopify_domain IN (
+               SELECT shopify_domain FROM integrations WHERE user_id = ? AND shopify_domain IS NOT NULL))
       ORDER BY created_at DESC, rowid DESC LIMIT ?`,
-  ).bind(opts.userId, limit).all();
+  ).bind(opts.userId, opts.userId, limit).all();
 
   return ((rows.results ?? []) as any[]).map((r) => ({
     id: String(r.id),

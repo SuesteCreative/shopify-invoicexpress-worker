@@ -10,6 +10,10 @@ import { readMerchantTimeline } from "./document-log";
  * row under the connection its subscription pays for, so the pair has to come
  * back on the row; without it every sale lands in the "no connection" bucket and
  * the split silently stops meaning anything.
+ *
+ * A third, found in production: legacy Shopify handlers write the shop and no
+ * user. One account's 8 drift findings existed only as such rows, so its record
+ * showed none of them.
  */
 
 async function withDb(fn: (env: any) => Promise<void>) {
@@ -31,7 +35,11 @@ async function withDb(fn: (env: any) => Promise<void>) {
         source_kind TEXT, destination_kind TEXT, invoice_id TEXT,
         event TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info',
         summary TEXT NOT NULL, detail_json TEXT, actor TEXT, created_at TEXT NOT NULL
-    );`);
+    );
+    CREATE TABLE integrations (id TEXT PRIMARY KEY, user_id TEXT, shopify_domain TEXT);
+    INSERT INTO integrations VALUES ('i_a', 'user_a', '2d0604-3.myshopify.com');
+    INSERT INTO integrations VALUES ('i_b', 'user_b', 'outra-loja.myshopify.com');
+    INSERT INTO integrations VALUES ('i_c', 'user_c', NULL);`);
 
     const insert = sqlite.prepare(`INSERT INTO document_events
         (id, external_id, user_id, shopify_domain, source_kind, destination_kind, invoice_id,
@@ -44,6 +52,9 @@ async function withDb(fn: (env: any) => Promise<void>) {
         ["e3", "4799", "user_a", "2d0604-3.myshopify.com", null, null, "inv_2", "drift", "error", "Código de isenção diferente", '{"sent":"M05","stored":"M99"}', "sweep", "2026-09-11T09:00:00Z"],
         // Another merchant's row, at the same minute.
         ["e4", "pi_3TrIAOBBB", "user_b", null, "stripe", "invoicexpress", "inv_3", "created", "info", "Documento criado", null, "pipeline", "2026-09-11T09:00:00Z"],
+        // Written with no user, for user_a's shop — and for another shop.
+        ["e5", "4800", null, "2d0604-3.myshopify.com", "shopify", "invoicexpress", "inv_4", "drift", "error", "Código de isenção diferente", null, "cron:document-verify", "2026-09-12T09:00:00Z"],
+        ["e6", "9001", null, "outra-loja.myshopify.com", "shopify", "invoicexpress", "inv_5", "verified", "info", "Documento verificado", null, "cron:document-verify", "2026-09-12T09:00:00Z"],
     ];
     for (const r of rows) insert.run(...r);
 
@@ -68,8 +79,24 @@ describe("readMerchantTimeline", () => {
     it("returns only this merchant's rows, newest first", async () => {
         await withDb(async (env) => {
             const rows = await readMerchantTimeline(env, { userId: "user_a" });
-            expect(rows.map(r => r.id)).toEqual(["e3", "e2", "e1"]);
+            expect(rows.map(r => r.id)).toEqual(["e5", "e3", "e2", "e1"]);
             expect(rows.some(r => r.external_id === "pi_3TrIAOBBB")).toBe(false);
+        });
+    });
+
+    it("includes rows written with no user for this account's own shop, and no other shop's", async () => {
+        await withDb(async (env) => {
+            const a = await readMerchantTimeline(env, { userId: "user_a" });
+            expect(a.map(r => r.id)).toContain("e5");
+            expect(a.map(r => r.id)).not.toContain("e6");
+
+            // user_b owns the other shop: its unattributed row, not user_a's.
+            const b = await readMerchantTimeline(env, { userId: "user_b" });
+            expect(b.map(r => r.id)).toEqual(["e6", "e4"]);
+
+            // An account whose legacy row has no shop must not match every
+            // row with no shop.
+            expect(await readMerchantTimeline(env, { userId: "user_c" })).toEqual([]);
         });
     });
 
@@ -100,7 +127,7 @@ describe("readMerchantTimeline", () => {
 
     it("caps what it will read back, however large the ask", async () => {
         await withDb(async (env) => {
-            expect(await readMerchantTimeline(env, { userId: "user_a", limit: 10_000 })).toHaveLength(3);
+            expect(await readMerchantTimeline(env, { userId: "user_a", limit: 10_000 })).toHaveLength(4);
             expect(await readMerchantTimeline(env, { userId: "user_a", limit: 1 })).toHaveLength(1);
         });
     });

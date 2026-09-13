@@ -146,6 +146,29 @@ export const CONNECTION_PUBLIC_COLUMNS = [
 export const CONNECTION_PUBLIC_SELECT = CONNECTION_PUBLIC_COLUMNS.join(", ");
 
 /**
+ * The fiscal columns of the legacy `integrations` row — the Shopify→InvoiceXpress
+ * pair keeps its settings as columns, not in a blob.
+ *
+ * One list for the two readers: the fiscal console (/api/admin/client-rules),
+ * which edits them, and the customer record, which shows them. The record used
+ * to show none, so its fiscal tab was empty for every account whose only pipe is
+ * the legacy one. A route file may not export it (Next rejects non-route exports),
+ * hence here. None of these is a credential.
+ */
+export const INTEGRATION_FISCAL_COLUMNS = [
+  "vat_included", "auto_finalize", "only_invoice_when_paid", "invoice_zero_total",
+  "ix_exemption_reason", "ix_b2b_exemption_reason", "ix_stamp_exemption_note",
+  "ix_sequence_name", "ix_document_type", "ix_payment_term",
+  "force_tax_rate", "force_shipping_tax_rate", "oss_enabled", "b2b_reverse_charge",
+  "ix_retention_enabled", "ix_retention", "custom_invoice_note",
+  "pos_mode", "client_sync", "is_paused",
+  // Stripe→IX fiscal rework (migration 0037), all default 0.
+  "ix_derive_exemption", "ix_adapter_safety_nets", "stripe_tax_from_source",
+  "tag_route_by_country", "ix_require_series", "stripe_metadata_map",
+  "ix_multicurrency", "stripe_routing_hints",
+] as const;
+
+/**
  * The legacy `integrations` row is the other shape credentials live in: not a
  * JSON blob but columns, one row per account, and it is the row /api/integrations
  * used to spread whole into a browser — the Shopify Admin token, the webhook

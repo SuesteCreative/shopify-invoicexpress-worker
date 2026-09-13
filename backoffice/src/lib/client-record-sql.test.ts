@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
     LEGACY_CONNECTION_KEY, connectionKeyForScope,
-    connectionKeyForDocumentEvent, groupByConnection,
+    connectionKeyForDocumentEvent, attributeDocumentEvent, groupByConnection,
     identityRequestStates, unreadIdentityOutcomes,
 } from "./client-record-sql";
 
@@ -58,6 +58,28 @@ describe("connectionKeyForDocumentEvent", () => {
         expect(connectionKeyForDocumentEvent({})).toBeNull();
         expect(connectionKeyForDocumentEvent({ source_kind: "stripe" })).toBeNull();
         expect(connectionKeyForDocumentEvent({ destination_kind: "moloni" })).toBeNull();
+    });
+});
+
+describe("attributeDocumentEvent", () => {
+    it("keeps the exact answer when the row carries one", () => {
+        expect(attributeDocumentEvent({ source_kind: "stripe", destination_kind: "moloni" }, ["lodgify:moloni"]))
+            .toBe("stripe:moloni");
+    });
+
+    it("files a source-only row under the one connection that takes that source", () => {
+        // The dead-letter queue's create_failed: "stripe", no destination, on an
+        // account whose only connection is Stripe Connect.
+        expect(attributeDocumentEvent({ source_kind: "stripe" }, ["stripe_connect:invoicexpress"]))
+            .toBe("stripe_connect:invoicexpress");
+        expect(attributeDocumentEvent({ source_kind: "lodgify" }, ["lodgify:moloni", "shopify:invoicexpress"]))
+            .toBe("lodgify:moloni");
+    });
+
+    it("does not choose between two, or invent one", () => {
+        expect(attributeDocumentEvent({ source_kind: "stripe" }, ["stripe:moloni", "stripe_connect:invoicexpress"])).toBeNull();
+        expect(attributeDocumentEvent({ source_kind: "stripe" }, ["lodgify:moloni"])).toBeNull();
+        expect(attributeDocumentEvent({}, ["stripe:moloni"])).toBeNull();
     });
 });
 

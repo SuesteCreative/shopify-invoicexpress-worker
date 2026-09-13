@@ -125,7 +125,11 @@ const LEGACY_FIELDS: FieldDef[] = [
   { key: "ix_retention_enabled", kind: "bool", i18n: "ixRetentionEnabled" },
   { key: "ix_retention", kind: "number", i18n: "ixRetention" },
   { key: "vat_included", kind: "bool", i18n: "vatIncludedLegacy", dangerous: true },
-  ...TAX_BEHAVIOUR_FIELDS,
+  // Only the four that are columns on the legacy row. The other four live in a
+  // connection's blob alone: shown here they read "off" for every Shopify
+  // account, and saving one answered 400 "Field not allowed".
+  ...TAX_BEHAVIOUR_FIELDS.filter((f) =>
+    ["oss_enabled", "b2b_reverse_charge", "force_tax_rate", "force_shipping_tax_rate"].includes(f.key)),
   ...STRIPE_IX_FISCAL_FIELDS,
 ];
 

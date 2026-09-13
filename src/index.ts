@@ -2256,7 +2256,7 @@ app.post("/admin/billing/paused-notices", async (c) => {
   }
 })
 
-// Admin: send a newsletter, as a Resend Broadcast.
+// Admin: send a newsletter, one plain email per recipient (services/newsletter.ts).
 //   { dry_run?: boolean (default TRUE), slug, subject, html, preview_text?,
 //     recipients: [{ email, first_name?, user_id?, label? }], scheduled_at? }
 // The audience is resolved in the backoffice, against D1, by the same function

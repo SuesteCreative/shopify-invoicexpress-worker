@@ -230,8 +230,8 @@ export function NewsletterPanel() {
             } else {
                 setNote(
                     body.scheduled_at
-                        ? `Agendada para ${body.scheduled_at} · ${n(body.synced)} contactos`
-                        : `Enviada a ${n(body.synced)} contactos.`,
+                        ? `Agendada para ${body.scheduled_at} · ${n(body.sent)} emails`
+                        : `Enviada a ${n(body.sent)} contactos.${body.failed ? ` ${n(body.failed)} falharam: ${body.candidates?.find((c: any) => c.error)?.error ?? "sem detalhe"}` : ""}`,
                 );
                 setPreview(null); setPreviewedFor(null);
                 void load();
@@ -272,9 +272,10 @@ export function NewsletterPanel() {
             <header>
                 <h1 className="text-2xl font-medium tracking-tight text-fg">Newsletter</h1>
                 <p className="mt-1 text-[11px] text-fg-40 leading-snug max-w-2xl">
-                    Vai por Broadcast da Resend, que é dona do cancelamento de subscrição: quem
-                    cancelar deixa de receber newsletters e continua a receber avisos de
-                    facturação e de serviço, porque esses saem por outro caminho.
+                    Sai como email normal pela Resend, um por destinatário, com o nome preenchido
+                    e um link de cancelamento só dessa pessoa. Quem cancelar deixa de receber
+                    newsletters e continua a receber avisos de facturação e de serviço, porque
+                    esses saem por outro caminho.
                 </p>
             </header>
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { ReferralCard } from "@/components/ReferralCard";
 import {
     IdCard, Copy, Check, Loader2, Lock, Save, Send, X, Receipt, Zap, AlertCircle,
 } from "lucide-react";
@@ -231,6 +232,12 @@ export default function AccountPanel() {
                     {error && <span className="text-[10px] font-black uppercase tracking-widest text-destructive">{error}</span>}
                 </div>
             </section>
+
+            {/* The invite link belongs on the record, beside the number it is
+                built from: RIO-1A2B3C-9F2B41 is the customer number plus a
+                suffix. The card takes itself off the page when the campaign
+                ends, so nothing here has to be removed by hand. */}
+            <ReferralCard />
 
             {/* Where the rest lives */}
             <section className="flex flex-wrap gap-3">

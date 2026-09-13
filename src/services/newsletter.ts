@@ -31,6 +31,9 @@ export interface NewsletterRecipient {
   first_name?: string | null;
   user_id?: string | null;
   label?: string | null;
+  /** The customer number (0058). Carried so a contact in Resend's own dashboard
+   *  can be traced back to an account, not just to a mailbox. */
+  client_code?: string | null;
 }
 
 export interface NewsletterCandidate {
@@ -216,6 +219,7 @@ function propertiesOf(r: NewsletterRecipient): Record<string, string> {
   const p: Record<string, string> = {};
   if (r.user_id) p.user_id = String(r.user_id).slice(0, 100);
   if (r.label) p.label = String(r.label).slice(0, 100);
+  if (r.client_code) p.client_code = String(r.client_code).slice(0, 100);
   return p;
 }
 

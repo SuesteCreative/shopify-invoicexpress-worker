@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { Activity, ShieldCheck, BookOpen, Zap, ScrollText, Receipt, Users, Gift } from "lucide-react";
+import { Activity, ShieldCheck, BookOpen, Zap, ScrollText, Receipt, Users, Gift, IdCard } from "lucide-react";
 import { kindLabel } from "@/lib/connection-kinds";
 
 import { cn } from "@/lib/utils";
@@ -143,6 +143,10 @@ export function NavLinks({ canAccessAdmin, isHiperadmin }: { canAccessAdmin: boo
                         tooltip={t("tooltipNeedRegister")}
                     />
                     <LinkItem href="/faturacao" icon={Receipt} label={t("faturacao")} />
+                    {/* Not gated on registration: this is where an account that
+                        has not finished registering reads its own details, and
+                        where anyone finds the customer code to quote to us. */}
+                    <LinkItem href="/conta" icon={IdCard} label={t("conta")} />
                     <LinkItem href="/convidar" icon={Gift} label={t("convidar")} />
                     <LinkItem href="/users" icon={Users} label={t("users")} />
                     <LinkItem href="/help" icon={BookOpen} label={t("help")} />

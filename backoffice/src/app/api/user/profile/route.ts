@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { isAdmin } from "@/lib/admin";
 import { isDestinationKind, isSourceKind } from "@/lib/connection-kinds";
 
 export const runtime = 'edge';
@@ -15,6 +16,27 @@ async function resolveTargetUser(request: NextRequest, userId: string) {
     return resolveAccountUser(request, userId);
 }
 
+/**
+ * What the account may read about itself. Never `SELECT *`.
+ *
+ * This route used to spread the whole `users` row into a browser: the role, the
+ * dormancy flag, the internal `admin_label`, the chosen theme and the eight
+ * acquisition columns — none of which the client has any business holding, and
+ * all of which the next migration would have silently added to. An allowlist,
+ * for the same reason lib/redact is one.
+ *
+ * Every field below has a reader: the four onboarding wizards prefill from them
+ * (nif … privacy_policy_accepted), GeneralOnboarding resumes a half-finished
+ * setup from the pair, and the Conta page shows the customer number.
+ */
+const SELF_COLUMNS = `
+    id, email, name, nif, company_name, fiscal_address, phone, website,
+    registration_completed, privacy_policy_accepted, privacy_policy_accepted_at,
+    onboarding_source_kind, onboarding_destination_kind, client_code`;
+
+/** The same list for a database where 0058 has not been applied yet. */
+const SELF_COLUMNS_PRE_0058 = SELF_COLUMNS.replace(", client_code", ", NULL AS client_code");
+
 export async function GET(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return new NextResponse("Unauthorized", { status: 401 });
@@ -24,7 +46,8 @@ export async function GET(request: NextRequest) {
     const { env } = getRequestContext();
     const db = (env as any).DB;
 
-    const user = await db.prepare("SELECT * FROM users WHERE id = ?").bind(targetUserId).first();
+    const user = await db.prepare(`SELECT ${SELF_COLUMNS} FROM users WHERE id = ?`).bind(targetUserId).first()
+        .catch(() => db.prepare(`SELECT ${SELF_COLUMNS_PRE_0058} FROM users WHERE id = ?`).bind(targetUserId).first());
     return NextResponse.json(user);
 }
 
@@ -64,6 +87,23 @@ export async function POST(req: NextRequest) {
 
     const accepted = data.privacy_policy_accepted ? 1 : 0;
 
+    /**
+     * Who may still change the fiscal identity.
+     *
+     * The NIF and the legal company name are what already-issued Kapta invoices
+     * print and what the payment matcher pairs on. A merchant types them once,
+     * during registration; afterwards a correction is a support decision, not a
+     * form field — the Conta page shows them read-only and offers to request the
+     * change.
+     *
+     * Enforced HERE, in the one UPDATE every caller routes through, and not with
+     * a `disabled` input: a disabled field is a suggestion to anyone who can
+     * send a POST. An operator filling the form while impersonating is an admin
+     * and keeps being able to fix a wrong NIF, which is the whole point of the
+     * escape hatch.
+     */
+    const mayEditFiscal = (await isAdmin(userId)) ? 1 : 0;
+
     // `privacy_policy_accepted_at` is stamped on the FIRST acceptance and never
     // moved afterwards: a consent that re-dates itself every time the merchant
     // corrects their address records nothing. COALESCE on the two onboarding
@@ -71,9 +111,9 @@ export async function POST(req: NextRequest) {
     // different pair should say so, and a request that omits them changes them
     // back to nothing.
     const bind = (sql: string, extra: unknown[]) => db.prepare(sql).bind(
-        data.nif,
+        mayEditFiscal, data.nif,
         (data.name || "").trim(),
-        data.company_name,
+        mayEditFiscal, data.company_name,
         data.fiscal_address,
         data.phone,
         data.website,
@@ -82,10 +122,13 @@ export async function POST(req: NextRequest) {
         targetUserId,
     ).run();
 
+    // The CASE reads the row as it was BEFORE this statement, which is what makes
+    // the first registration work: `registration_completed` is still 0 there, so
+    // the NIF lands. Every later save by a non-admin keeps what is stored.
     const COLUMNS = `
-        SET nif = ?,
+        SET nif = CASE WHEN registration_completed = 1 AND ? = 0 THEN nif ELSE ? END,
             name = COALESCE(NULLIF(?, ''), name),
-            company_name = ?,
+            company_name = CASE WHEN registration_completed = 1 AND ? = 0 THEN company_name ELSE ? END,
             fiscal_address = ?,
             phone = ?,
             website = ?,
@@ -115,5 +158,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "user_row_missing" }, { status: 409 });
     }
 
-    return NextResponse.json({ success: true, user_id: targetUserId });
+    // Said out loud, so a form can show what it is allowed to change rather than
+    // letting a merchant retype a NIF that silently will not move.
+    return NextResponse.json({ success: true, user_id: targetUserId, fiscal_locked: mayEditFiscal === 0 });
 }

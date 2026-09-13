@@ -24,6 +24,9 @@ const isPublicRoute = createRouteMatcher([
     // The page reads the code and sends them to sign-up; the claim behind it is
     // still behind auth, and the code alone grants nothing.
     "/:locale/convite(.*)",
+    // The campaign terms: read before signing up, and still readable by
+    // anyone who took part after it ends.
+    "/:locale/campanha-convites",
     "/sign-in(.*)",
     "/sign-up(.*)",
     "/privacy",
@@ -35,6 +38,7 @@ const isPublicRoute = createRouteMatcher([
     "/invoicexpress-vs-moloni-vs-vendus",
     "/onboarding(.*)",
     "/convite(.*)",
+    "/campanha-convites",
     "/api/webhooks/clerk",
     "/api/webhooks/stripe",
     // Shopify's OAuth redirect. Whoever presses Install is signed in to Shopify,

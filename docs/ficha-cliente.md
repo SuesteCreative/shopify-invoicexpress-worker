@@ -1,15 +1,17 @@
 # Ficha de cliente — ponto de situação
 
-Trabalho na branch `fix/no-credentials-to-browser`, **sem commit**.
+Em `main` desde 13/09/2026 (PR #140, três commits).
 Plano completo (contexto, decisões e porquês): `C:\Users\pedro\.claude\plans\deviamos-de-implementar-um-eager-goblet.md`.
 
-Estado a 13/09/2026: **as três fases estão escritas.** Falta aplicar a migração em
-produção e abrir as páginas contra dados reais.
+Estado: **as três fases estão escritas e mergidas.** Falta **aplicar a migração
+em produção** e **abrir as páginas contra dados reais** — nada disto foi aberto
+num browser.
 
-Verificação nesse momento: `npm test` → 226 ficheiros / 2133 testes verdes;
+Verificação no merge: `npm test` → 123 ficheiros / 1172 testes verdes;
 `tsc --noEmit` limpo no worker e no backoffice; `npm run build` no backoffice
 com exit 0 e as rotas novas todas dinâmicas (`/[locale]/conta`,
-`/admin/clientes/[code]`, `/api/admin/clientes/[code]`).
+`/admin/clientes/[code]`, `/api/admin/clientes/[code]`). A migração foi aplicada
+e verificada numa base local.
 
 ---
 
@@ -73,11 +75,12 @@ Nada disto foi aberto num browser. O plano diz contra quê:
 - **`/pt/conta` como comerciante** — NIF em leitura, e um POST forjado a
   `/api/user/profile` com outro NIF **não** o muda.
 
-### 3. Decidir o commit
+### 3. Ligar o código à newsletter (opcional)
 
-Nada foi commitado. A branch actual já trazia trabalho de outra coisa
-(`fix/no-credentials-to-browser`), por isso convém stage explícito por caminho —
-nunca `git add .` a partir da raiz.
+A newsletter (`0056_newsletter`) resolve destinatários por filtros e guarda um
+snapshot de endereços. Nada a obriga a conhecer o código do cliente, mas gravá-lo
+no snapshot tornaria uma campanha rastreável até à conta em vez de até a um
+email. Não está feito e não é urgente.
 
 ---
 

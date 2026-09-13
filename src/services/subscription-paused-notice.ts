@@ -2,14 +2,16 @@ import type { Env } from "../env";
 import { AppStorage } from "../storage";
 import { sendEmail } from "./email";
 import { loadInactiveUserIds } from "./inactive-accounts";
-import { legalLinks } from "./email-templates";
+import { legalLinks, renderInLang, T, lang } from "./email-templates";
+import { getUserLanguage } from "./user-language";
 
 // Internal address copied on every send so Kapta sees exactly what the
 // merchant saw, in the same thread they may reply to.
 const OPS_EMAIL = "pedro@kapta.pt";
 
-/** The billing page — the subscribe cards live here. */
-const BILLING_URL = "https://rioko.online/pt/faturacao";
+/** The billing page — the subscribe cards live here. A function, not a
+ *  constant: the locale segment follows the language being rendered. */
+const billingUrl = () => `https://rioko.online/${lang()}/faturacao`;
 
 export interface PausedNoticeCandidate {
   user_id: string;
@@ -49,15 +51,17 @@ export function pausedNoticeEmail(
   pending: number,
   sincePt: string | null,
 ): { subject: string; html: string } {
-  const who = name && name.trim() ? name.trim().split(/\s+/)[0] : "Olá";
+  const who = name && name.trim() ? name.trim().split(/\s+/)[0] : T("Olá", "Hello");
   const n = pending;
-  const invoiceWord = n === 1 ? "fatura" : "faturas";
-  const waitingLine = n === 1 ? "encomenda paga à espera de fatura" : "encomendas pagas à espera de fatura";
-  const subject = `A tua faturação está parada: ${n} ${invoiceWord} por emitir`;
-  const sinceLine = sincePt ? ` desde <strong>${sincePt}</strong>` : "";
+  const invoiceWord = n === 1 ? T("fatura", "invoice") : T("faturas", "invoices");
+  const waitingLine = n === 1
+    ? T("encomenda paga à espera de fatura", "paid order waiting for an invoice")
+    : T("encomendas pagas à espera de fatura", "paid orders waiting for an invoice");
+  const subject = T(`A tua faturação está parada: ${n} ${invoiceWord} por emitir`, `Your invoicing is paused: ${n} ${invoiceWord} still to be issued`);
+  const sinceLine = sincePt ? T(` desde <strong>${sincePt}</strong>`, ` since <strong>${sincePt}</strong>`) : "";
 
   const html = `<!-- subscription paused · ${n} pending -->
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${n} ${waitingLine}. Ativa um plano para retomar a emissão automática.</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${T(`${n} ${waitingLine}. Ativa um plano para retomar a emissão automática.`, `${n} ${waitingLine}. Activate a plan to resume automatic issuing.`)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f8fa;margin:0;padding:32px 12px;">
   <tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid #e3e8ee;border-radius:18px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -67,17 +71,17 @@ export function pausedNoticeEmail(
       <tr><td style="padding:32px 36px 0;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
           <td style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:#0b1524;padding-right:10px;">Rioko</td>
-          <td style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#e11d48;background:#fdeaee;border-radius:999px;padding:4px 10px;">Faturação parada</td>
+          <td style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#e11d48;background:#fdeaee;border-radius:999px;padding:4px 10px;">${T("Faturação parada", "Invoicing paused")}</td>
         </tr></table>
       </td></tr>
 
       <tr><td style="padding:22px 36px 0;">
         <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:650;letter-spacing:-0.02em;color:#0b1524;">${who},</h1>
         <p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3c4a5c;">
-          A tua subscrição Rioko não está ativa, por isso <strong>a emissão automática de faturas parou</strong>.
+          ${T("A tua subscrição Rioko não está ativa, por isso <strong>a emissão automática de faturas parou</strong>.", "Your Rioko subscription is not active, so <strong>automatic invoicing has stopped</strong>.")}
         </p>
         <p style="margin:0 0 18px;font-size:15px;line-height:1.65;color:#3c4a5c;">
-          As vendas continuam a entrar normalmente na tua loja. O que ficou por fazer foi a fatura.
+          ${T("As vendas continuam a entrar normalmente na tua loja. O que ficou por fazer foi a fatura.", "Sales keep coming into your shop as usual. What was left undone is the invoice.")}
         </p>
       </td></tr>
 
@@ -92,29 +96,30 @@ export function pausedNoticeEmail(
 
       <tr><td style="padding:22px 36px 0;">
         <p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#3c4a5c;">
-          Ativa um plano e retomamos de imediato: as encomendas que ficaram para trás
-          são faturadas e volta tudo ao automático, sem tocares em nada.
+          ${T(`Ativa um plano e retomamos de imediato: as encomendas que ficaram para trás
+          são faturadas e volta tudo ao automático, sem tocares em nada.`, `Activate a plan and we pick up straight away: the orders left behind
+          get invoiced and everything goes back to automatic, without you touching anything.`)}
         </p>
       </td></tr>
 
       <tr><td style="padding:0 36px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
           <td style="background:#028dc4;border-radius:10px;">
-            <a href="${BILLING_URL}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:-0.01em;">Ativar subscrição &nbsp;&rarr;</a>
+            <a href="${billingUrl()}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:-0.01em;">${T("Ativar subscrição", "Activate subscription")} &nbsp;&rarr;</a>
           </td>
         </tr></table>
         <p style="margin:12px 0 0;font-size:13px;line-height:1.6;color:#7a8899;">
-          7,50&euro;/mês ou 75&euro;/ano (+ IVA). Os cartões de pagamento estão nessa página, em Faturação.
+          ${T("7,50&euro;/mês ou 75&euro;/ano (+ IVA). Os cartões de pagamento estão nessa página, em Faturação.", "&euro;7.50/month or &euro;75/year (+ VAT). The payment cards are on that page, under Billing.")}
         </p>
       </td></tr>
 
       <tr><td style="padding:24px 36px 32px;">
         <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#5b6879;">
-          Se achas que isto é engano, ou queres ajuda a escolher o plano, responde a este email ou escreve para
+          ${T("Se achas que isto é engano, ou queres ajuda a escolher o plano, responde a este email ou escreve para", "If you think this is a mistake, or you want help choosing the plan, reply to this email or write to")}
           <a href="mailto:${OPS_EMAIL}" style="color:#028dc4;text-decoration:none;font-weight:500;">${OPS_EMAIL}</a>.
         </p>
         <div style="border-top:1px solid #eceff3;padding-top:16px;">
-          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">Equipa Rioko · Kapta<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>${legalLinks("#8a97a6")}
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">${T("Equipa Rioko · Kapta", "Rioko Team · Kapta")}<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>${legalLinks("#8a97a6")}
         </div>
       </td></tr>
 
@@ -263,7 +268,12 @@ export async function runSubscriptionPausedNotices(
     });
     if (dryRun) continue;
 
-    const { subject, html } = pausedNoticeEmail(b.name, pendingIds.length, entry?.since ? ptDate(entry.since) : null);
+    // The blocked row is built off `users.id`, so that is the account whose
+    // language this is. Read before the render: `renderInLang` is synchronous
+    // by contract and nothing inside it may await.
+    const language = await getUserLanguage(env, b.user_id);
+    const { subject, html } = renderInLang(language, () =>
+      pausedNoticeEmail(b.name, pendingIds.length, entry?.since ? ptDate(entry.since) : null));
     const res = await sendEmail(env, { to: recipients, cc, subject, html });
     if (res.ok) {
       result.sent++;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Gift, Copy, Check, Loader2, AlertTriangle } from "lucide-react";
 
@@ -45,19 +45,22 @@ const ptDate = (iso: string) => {
 
 export function ReferralCard() {
     const t = useTranslations("referral");
+    const locale = useLocale();
     const [me, setMe] = useState<Me | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
-        fetch("/api/referral/me")
+        // The locale picks the language the shared link opens in; the token is
+        // the same either way.
+        fetch(`/api/referral/me?locale=${encodeURIComponent(locale)}`)
             .then(async (r) => {
                 const body = await r.json() as any;
                 if (!r.ok) throw new Error(body?.error ?? `HTTP ${r.status}`);
                 setMe(body as Me);
             })
             .catch((e) => setError(String(e.message ?? e)));
-    }, []);
+    }, [locale]);
 
     const copy = async () => {
         if (!me?.link) return;

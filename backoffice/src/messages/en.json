@@ -214,7 +214,18 @@
         "inviteCodeLabel": "Invite code",
         "claimedNotice": "Invitation recorded on this account. If you create your subscription by 31 October 2026, the first {months} months are free.",
         "refusedNoticeTitle": "The invitation could not be used",
-        "noticeDismiss": "Dismiss notice"
+        "noticeDismiss": "Dismiss notice",
+        "refusal": {
+            "invalid": "This invitation link is not valid.",
+            "unknown": "This invitation no longer exists.",
+            "self": "You cannot use your own invitation link.",
+            "closed": "The referral campaign ended on 31 October.",
+            "not_new": "Invitations are for new accounts, and this one is not new any more.",
+            "already": "Someone has already invited this account.",
+            "inviter_inactive": "Whoever invited you does not have an active subscription right now.",
+            "already_subscribed": "Invitations are for new accounts, and this one already has a subscription."
+        },
+        "landingClaimRetry": "We could not confirm the invitation just now. It is saved, and we will try again when you open the dashboard."
     },
     "dashboardHome": {
         "welcome": "Welcome",

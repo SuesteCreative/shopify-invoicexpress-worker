@@ -9,7 +9,7 @@ import { CreditCard, Loader2, Check, ChevronRight, Settings2, Zap, Info, ShieldC
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
-import TrialBanner from "@/components/TrialBanner";
+import SubscriptionCard from "@/components/SubscriptionCard";
 import { RETURN_SLUG_WIZARD_IX } from "@/lib/oauth-return";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
@@ -32,9 +32,11 @@ import { cn } from "@/lib/utils";
  * wizard's (`stripeConnectMoloniSetup`): they configure the same things, and two
  * translations of one sentence drift apart.
  *
- * Subscribing is a link to /faturacao rather than price buttons. The prices this
- * connection bills at live on the Stripe Legacy → IX product, and duplicating
- * them into a third namespace is how a wizard ends up quoting a stale figure.
+ * Subscribing happens on this page, through the same card the Stripe→IX page
+ * mounts, named with this connection's key: status, price and checkout all ask
+ * about `stripe_connect:invoicexpress`. It used to be a link to /faturacao,
+ * which reads and bills the account's PRIMARY connection, so an account with an
+ * older shop was shown this pair as unpaid and then sent to pay for the other.
  */
 
 const CONNECT_ENABLED = process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED === "1";
@@ -62,10 +64,8 @@ export default function StripeConnectIxIntegration() {
     const t = useTranslations("stripeConnectMoloniSetup");
     const tIx = useTranslations("stripeIxSetup");
     const tPage = useTranslations("stripeConnectIxSetup");
-    const tB = useTranslations("faturacao");
     const params = useSearchParams();
 
-    const [sub, setSub] = useState<any>(null);
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -97,7 +97,7 @@ export default function StripeConnectIxIntegration() {
     // Whether the account can actually reach InvoiceXpress. Separate from
     // `settingsSaved`, which only says a series and a document type were
     // chosen: this step asks for both halves and used to show its green tick on
-    // the fiscal half alone. Bestisafil saved the settings, never pasted the
+    // the fiscal half alone. A merchant saved the settings, never pasted the
     // credentials, and read "AUTORIZADO" for a day while every payment died at
     // the proxy with UNAUTHENTICATED.
     const [ixCredsSaved, setIxCredsSaved] = useState(false);
@@ -166,7 +166,6 @@ export default function StripeConnectIxIntegration() {
 
     useEffect(() => {
         (async () => { await load(); setLoading(false); })();
-        fetch("/api/billing/subscription").then(r => r.json()).then(setSub).catch(() => setSub(null));
     }, [load]);
 
     // The OAuth callback comes back here with its verdict in the query string.
@@ -236,7 +235,7 @@ export default function StripeConnectIxIntegration() {
             // gave an account with no Shopify an `integrations` row anyway, the
             // admin console drew it as a broken "Shopify → InvoiceXpress" pipe,
             // and deleting the pipe that did not exist destroyed the credential
-            // that did. It cost MeetFrank and Bestisafil their invoicing.
+            // that did. It cost two merchants their invoicing.
             const fiscalRes = await postSource({
                 ix_credentials: {
                     ix_account_name: ixAccount.trim(),
@@ -290,13 +289,6 @@ export default function StripeConnectIxIntegration() {
         }
     };
 
-    const subData = sub?.subscription;
-    const uiState = sub?.ui_state;
-    // A Stripe trial is a subscription being paid for (an invitee's first two
-    // months, an inviter's reward): no plans, and no banner saying access is free.
-    const hasActiveSub = uiState === "active" || uiState === "trialing";
-    const showSubCta = sub !== null && !hasActiveSub && uiState !== "exempt";
-    const subBlocked = !!sub?.blocked;
     const allComplete = connectionStatus === "active";
 
     if (!CONNECT_ENABLED) {
@@ -528,21 +520,11 @@ export default function StripeConnectIxIntegration() {
 
     return (
         <div className="max-w-5xl mx-auto space-y-8 pb-24">
-            {showSubCta && (
-                <div className="space-y-4">
-                    {!subBlocked && <TrialBanner trialEnd={subData?.trial_end} />}
-                    <div className="glass rounded-2xl border-hairline p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
-                            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("subscribeHeading")}</p>
-                            <p className="text-[11px] text-fg-60 leading-relaxed">{tPage("subscribeHint")}</p>
-                        </div>
-                        <Link href="/faturacao" className="px-5 py-3 rounded-2xl bg-accent text-surface font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-accent-hot transition-all flex items-center gap-2 shrink-0">
-                            <CreditCard className="w-4 h-4" />
-                            {tB("subscribeHeading")}
-                        </Link>
-                    </div>
-                </div>
-            )}
+            <SubscriptionCard
+                onSuccess={params.get("stripe") === "success"}
+                source="stripe-connect-ix"
+                connectionKey={`${SOURCE_KIND}:${DESTINATION_KIND}`}
+            />
 
             <StepperHeader
                 backHref="/integrations"

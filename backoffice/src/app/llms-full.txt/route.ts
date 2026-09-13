@@ -1,5 +1,6 @@
 import { listArticles } from "@/lib/blog";
 import { statusLine } from "@/lib/integration-status";
+import { campaignOpen } from "@/lib/referral";
 import pt from "@/messages/pt.json";
 import en from "@/messages/en.json";
 
@@ -53,6 +54,17 @@ export async function GET() {
         `- ${statusLine("invoicing", "pt")}`,
         `- ${statusLine("invoicing", "en")}`,
         "",
+        // Listed only while the campaign runs, as llms.txt and the sitemap do.
+        // Afterwards the page still answers for whoever took part, but an agent
+        // reading this file must not offer a campaign that has ended.
+        ...(campaignOpen()
+            ? [
+                "## Campanha de convites / Referral campaign",
+                "- [Campanha de convites](https://rioko.online/pt/campanha-convites): termos da campanha \"Convida 1 amigo\", 2 meses grátis para quem convida e para quem é convidado, até 31 de outubro de 2026",
+                "- [Referral campaign](https://rioko.online/en/campanha-convites): terms of the \"Invite a friend\" campaign, 2 free months for the inviter and the invitee, until 31 October 2026",
+                "",
+            ]
+            : []),
         "## FAQ (Português)",
         ...faqPt.flatMap((it) => [`### ${it.q}`, it.a, ""]),
         "## FAQ (English)",

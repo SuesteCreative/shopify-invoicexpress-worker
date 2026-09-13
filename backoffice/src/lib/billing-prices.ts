@@ -1,6 +1,6 @@
 // Relative, not aliased: this module is unit-tested and the runner at the repo
 // root does not resolve the `@/` alias.
-import { CONNECTION_KEY_TO_SOURCE, SOURCE_TO_CONNECTION_KEY } from "./subscription-key";
+import { CONNECTION_KEY_TO_SOURCE, SOURCE_TO_CONNECTION_KEY, keyFromRequest } from "./subscription-key";
 
 /**
  * Which Stripe price each integration bills on.
@@ -87,19 +87,35 @@ export async function resolvePrice(stripe: any, lookupOrId: string): Promise<any
     return null;
 }
 
+/** Pages that sit above every integration and so cannot name the one they sell. */
+export const GENERIC_SOURCES = new Set(["", "faturacao", "dashboard"]);
+
 /**
- * Which product a page that cannot name one is really asking about.
+ * Which connection a checkout pays for, and the price it is sold at.
  *
- * The dashboard card sits above every integration, so it says "dashboard" and
- * the account's own set-up decides: oldest connection wins, and an account with
- * nothing set up yet falls back to the original Shopify product. Shared with
- * the checkout, because a card that prints one price while the button charges
- * another is the bug this file exists to prevent.
+ * One answer, not two. The connection used to come from the account (legacy
+ * Shopify shop or oldest connection) while the price came from a second query
+ * that only looked at `connections`, and only for "dashboard": "faturacao" and
+ * "" always priced the Shopify pair. An account paying for another pair was
+ * filed against its own connection and charged the Shopify product.
+ *
+ * So the connection is chosen first and the price is READ from it. An explicit
+ * key wins; a generic page takes the account's primary connection; a pair page
+ * names its own. The source comes back null for a connection nothing sells,
+ * which the callers turn into a 400 rather than defaulting to the Shopify price.
+ *
+ * `primaryKey` is passed in rather than imported: the lookup lives next to
+ * `getRequestContext`, and this has to stay testable.
  */
-export async function resolveBillingSource(db: any, userId: string, rawSource: string): Promise<string> {
-    if (rawSource !== "dashboard") return rawSource;
-    const conn: any = await db.prepare(
-        "SELECT source_kind, destination_kind FROM connections WHERE user_id = ? AND status IN ('active','paused') ORDER BY created_at ASC LIMIT 1"
-    ).bind(userId).first();
-    return (conn && CONNECTION_KEY_TO_SOURCE[`${conn.source_kind}:${conn.destination_kind}`]) || "faturacao";
+export async function resolveBilling(
+    rawSource: string,
+    explicitKey: string | null | undefined,
+    primaryKey: () => Promise<string>,
+): Promise<{ connectionKey: string; source: string | null }> {
+    const generic = GENERIC_SOURCES.has(rawSource);
+    const connectionKey = explicitKey
+        ? keyFromRequest(explicitKey, null)
+        : generic ? await primaryKey() : keyFromRequest(null, rawSource);
+    const source = generic ? CONNECTION_KEY_TO_SOURCE[connectionKey] ?? null : rawSource;
+    return { connectionKey, source };
 }

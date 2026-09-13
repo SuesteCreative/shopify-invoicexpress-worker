@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin";
+import { isAdmin, mayViewAccount } from "@/lib/admin";
 import { getDB } from "@/lib/stripe";
 import { getDocumentSummaries, getReferenceSummaries, listDocumentIndex } from "@/lib/invoicexpress-kapta";
 import { findInIndex, type KaptaDocSummary } from "@/lib/kapta-doc-number";
@@ -100,13 +100,22 @@ export async function GET(req: NextRequest) {
     const targetUserId = req.nextUrl.searchParams.get("targetUserId");
     if (!targetUserId) return NextResponse.json({ error: "targetUserId required" }, { status: 400 });
 
+    // Same visibility rule as the customer record this tab belongs to, and the
+    // same answer: without it the record's 404 hides an account whose payments
+    // are one request away.
+    if (!(await mayViewAccount(userId, targetUserId))) {
+        return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+
+    // Not a payment of zero: it has no Kapta document to show or to correct, and
+    // cron/ix-match never sweeps one (amount_cents > 0).
     const db = getDB();
     const rows: any = await db.prepare(`
         SELECT id, type, stripe_object_id, payment_intent_id, amount_cents, currency,
                status, ix_invoice_id, ix_invoice_permalink, ix_match_method, ix_match_score, created_at,
                json_extract(raw_json, '$.number') AS stripe_invoice_number
         FROM billing_events
-        WHERE user_id = ? AND type IN (${LISTED_TYPES.map(() => "?").join(",")})
+        WHERE user_id = ? AND type IN (${LISTED_TYPES.map(() => "?").join(",")}) AND amount_cents > 0
         ORDER BY created_at DESC
         LIMIT 100
     `).bind(targetUserId, ...LISTED_TYPES).all();
@@ -222,17 +231,25 @@ export async function POST(req: NextRequest) {
     if (!body.targetUserId || !body.billing_event_id) {
         return NextResponse.json({ error: "targetUserId and billing_event_id are required" }, { status: 400 });
     }
+    if (!(await mayViewAccount(userId, body.targetUserId))) {
+        return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     if (!body.ix_number?.trim() && !body.ix_permalink?.trim()) {
         return NextResponse.json({ error: "ix_number (or ix_permalink) is required" }, { status: 400 });
     }
 
     const db = getDB();
     const event: any = await db.prepare(`
-        SELECT id, type, ix_invoice_id, ix_match_method FROM billing_events
+        SELECT id, type, amount_cents, ix_invoice_id, ix_match_method FROM billing_events
          WHERE id = ? AND user_id = ? AND type IN (${LISTED_TYPES.map(() => "?").join(",")})
     `).bind(body.billing_event_id, body.targetUserId, ...LISTED_TYPES).first();
     if (!event) {
         return NextResponse.json({ error: "No matching billing event for that id / user" }, { status: 404 });
+    }
+    // Not even with `force`: nothing was charged, so no Kapta document belongs to
+    // this payment, and one linked here would be billed to it in the merchant's view.
+    if (!(Number(event.amount_cents) > 0)) {
+        return NextResponse.json({ error: "A zero-amount payment has no Kapta document to link" }, { status: 422 });
     }
 
     let docId: string;

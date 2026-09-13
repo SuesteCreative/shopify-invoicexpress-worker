@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Gift, Check } from "lucide-react";
-import { useOnboardingInvite } from "@/lib/use-onboarding-invite";
+import { useOnboardingInvite, type InviteClaim } from "@/lib/use-onboarding-invite";
 import { REFERRAL_INVITE } from "@/components/ReferralClaim";
 import { LegalLinks } from "@/components/LegalLinks";
 
@@ -21,16 +21,27 @@ export function ReferralLanding({ code, locale }: { code: string; locale: string
     const t = useTranslations("referral");
     const { isLoaded, isSignedIn } = useAuth();
     const claim = useOnboardingInvite(code, REFERRAL_INVITE);
-    const [refusal, setRefusal] = useState<string | null>(null);
+    const [result, setResult] = useState<InviteClaim | null>(null);
 
     useEffect(() => {
         if (!isLoaded || !isSignedIn) return;
         // The answer is shown, not swallowed. A merchant whose account is older
         // than the window, or who opened their own link, is refused by the
         // server — and telling them it was recorded anyway leaves two people
-        // waiting for months that are never coming.
-        void claim().then((r) => setRefusal(r.state === "refused" ? r.reason : null));
+        // waiting for months that are never coming. `idle` is a second run of
+        // this effect, with nothing new to say.
+        void claim().then((r) => { if (r.state !== "idle") setResult(r); });
     }, [isLoaded, isSignedIn, claim]);
+
+    // Only a refusal CODE is a refusal. A 401 from a Clerk session that has not
+    // settled, a 500 or a dropped connection used to show "Unauthorized" in red,
+    // as if the link were dead; the token is still stashed and ReferralClaim
+    // spends it on the dashboard, so all that deserves is a quiet word.
+    const refusal = result?.state === "refused" ? result.refusal : undefined;
+    const message = !result ? null
+        : result.state === "claimed" ? t("landingAlreadyIn")
+        : refusal ? (t.has(`refusal.${refusal}`) ? t(`refusal.${refusal}`) : t("refusedNoticeTitle"))
+        : t("landingClaimRetry");
 
     return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6">
@@ -62,9 +73,11 @@ export function ReferralLanding({ code, locale }: { code: string; locale: string
 
                 {isSignedIn ? (
                     <div className="space-y-2">
-                        <p className={`text-sm ${refusal ? "text-destructive" : "text-fg"}`}>
-                            {refusal ?? t("landingAlreadyIn")}
-                        </p>
+                        {message && (
+                            <p className={`text-sm ${refusal ? "text-destructive" : result?.state === "claimed" ? "text-fg" : "text-fg-60"}`}>
+                                {message}
+                            </p>
+                        )}
                         <Link
                             href="/dashboard"
                             className="inline-flex px-5 py-2.5 rounded-xl text-sm font-medium bg-fg text-surface hover:bg-accent hover:text-on-accent transition-all"

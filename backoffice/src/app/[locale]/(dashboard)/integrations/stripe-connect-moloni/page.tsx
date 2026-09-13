@@ -154,7 +154,9 @@ export default function StripeConnectMoloniIntegration() {
     useEffect(() => {
         if (!CONNECT_ENABLED) { setLoading(false); return; }
         fetch("/api/auth/sync", { method: "POST" }).catch(console.error);
-        fetch("/api/billing/subscription").then(r => r.json()).then(setSub).catch(() => setSub(null));
+        // This page's own connection, the one its checkout bills — not the
+        // account's primary, which may be another pair entirely.
+        fetch("/api/billing/subscription?connection_key=stripe_connect:moloni").then(r => r.json()).then(setSub).catch(() => setSub(null));
         load().finally(() => setLoading(false));
     }, [load]);
 

@@ -2,11 +2,9 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
-import { RIOKO_CONFIG } from "@/lib/config";
+import { callWorker } from "@/lib/worker";
 
 export const runtime = "edge";
-
-const WORKER_BASE = RIOKO_CONFIG.workerUrl.replace(/\/$/, "");
 
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
@@ -68,7 +66,8 @@ export async function POST(request: NextRequest) {
 
         // Step 1: fetch companies via Worker (AbortSignal.timeout is supported in CF Workers,
         // not in Next.js edge runtime — this is why we proxy through the Worker).
-        const companiesRes = await fetch(`${WORKER_BASE}/moloni-proxy/companies`, {
+        // callWorker carries the admin key the proxy requires.
+        const companiesRes = await callWorker("/moloni-proxy/companies", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(creds),
@@ -95,7 +94,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Step 2: fetch document sets via Worker.
-        const dsRes = await fetch(`${WORKER_BASE}/moloni-proxy/document-sets`, {
+        const dsRes = await callWorker("/moloni-proxy/document-sets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ...creds, company_id: company.id }),

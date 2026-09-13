@@ -65,9 +65,14 @@ export function splitReferralToken(raw: unknown): { code: string; suffix: string
     return { code, suffix };
 }
 
-export const REFERRAL_LINK_BASE = "https://rioko.online/pt/convite";
-export function referralLink(token: string): string {
-    return `${REFERRAL_LINK_BASE}/${token}`;
+/**
+ * The link opens in the language of whoever shares it: an English dashboard
+ * handing out a Portuguese landing read as a mistake. Only the path segment
+ * changes, never the token. The caller validates the locale against the routing;
+ * this file stays free of next-intl so the root test run can import it.
+ */
+export function referralLink(token: string, locale = "pt"): string {
+    return `https://rioko.online/${locale}/convite/${token}`;
 }
 
 export type ReferralRefusal =
@@ -87,6 +92,11 @@ export interface ClaimContext {
     inviteeUserId: string;
     /** users.created_at for the invitee, in either timestamp format. */
     inviteeCreatedAt: string | null;
+    /**
+     * Clerk's own createdAt (epoch ms), for when users.created_at is not there
+     * yet: the Clerk webhook that writes the row can land after the first claim.
+     */
+    inviteeSignedUpAt?: number | null;
     alreadyReferred: boolean;
     /** The invitee already holds a Stripe subscription. Optional: absent means no. */
     inviteeHasSubscription?: boolean;
@@ -112,15 +122,21 @@ export function claimRefusal(ctx: ClaimContext): ReferralRefusal | null {
 
     if (!ctx.inviterHasLiveSubscription) return "inviter_inactive";
 
-    if (ctx.inviteeCreatedAt) {
-        // Both timestamp formats live in users.created_at — "2026-09-08 14:52:25"
-        // from CURRENT_TIMESTAMP and ISO with a T and a Z from application code —
-        // and they sort wrong against each other from position 11. Compare dates.
-        const created = String(ctx.inviteeCreatedAt).slice(0, 10);
-        const cutoff = new Date(ctx.now.getTime() - NEW_ACCOUNT_WINDOW_DAYS * 86_400_000)
-            .toISOString().slice(0, 10);
-        if (created < cutoff) return "not_new";
-    }
+    // Both timestamp formats live in users.created_at — "2026-09-08 14:52:25"
+    // from CURRENT_TIMESTAMP and ISO with a T and a Z from application code —
+    // and they sort wrong against each other from position 11. Compare dates.
+    //
+    // A missing row used to skip this rule altogether, so an old Clerk account
+    // whose D1 row the webhook had not written yet passed as new. Clerk's date
+    // fills in, and with neither nothing proves the account is new: refused.
+    const created = ctx.inviteeCreatedAt
+        ? String(ctx.inviteeCreatedAt).slice(0, 10)
+        : ctx.inviteeSignedUpAt != null
+            ? new Date(ctx.inviteeSignedUpAt).toISOString().slice(0, 10)
+            : null;
+    const cutoff = new Date(ctx.now.getTime() - NEW_ACCOUNT_WINDOW_DAYS * 86_400_000)
+        .toISOString().slice(0, 10);
+    if (!created || created < cutoff) return "not_new";
     return null;
 }
 
@@ -145,14 +161,3 @@ export function existingClaim(
 export function campaignOpen(now = new Date()): boolean {
     return now.toISOString().slice(0, 10) <= CAMPAIGN_END;
 }
-
-export const REFUSAL_PT: Record<ReferralRefusal, string> = {
-    invalid: "Este link de convite não é válido.",
-    unknown: "Este convite já não existe.",
-    self: "Não podes usar o teu próprio link de convite.",
-    closed: "A campanha de convites terminou a 31 de Outubro.",
-    not_new: "Os convites são para contas novas, e esta já não é.",
-    already: "Esta conta já foi convidada por alguém.",
-    inviter_inactive: "Quem te convidou não tem uma subscrição activa neste momento.",
-    already_subscribed: "Os convites são para contas novas, e esta já tem uma subscrição.",
-};

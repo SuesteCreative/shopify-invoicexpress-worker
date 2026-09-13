@@ -34,31 +34,25 @@ npx wrangler d1 execute rioko-db --remote --command \
    UNION ALL SELECT 'subscriptions.reward_until' FROM sqlite_master WHERE type='table' AND name='subscriptions' AND sql LIKE '%reward_until%'"
 ```
 
-## 2. O topic da Resend
+## 2. O cancelamento
 
-No dashboard da Resend, criar um topic:
+**Desde o #161 (13/09/2026) a newsletter sai como emails normais**, um por
+destinatário, e o cancelamento é nosso. O link de cada email aponta para
+`https://rioko.online/api/newsletter/unsubscribe?t=<token>`, assinado para aquele
+endereço, e grava em `newsletter_optouts` (migração 0060, aplicada em produção).
+O mesmo link vai no cabeçalho `List-Unsubscribe` de um clique, que é o botão que
+o Gmail e o Outlook mostram ao lado do remetente. A página só pergunta num GET e
+só grava num POST, para os scanners de links não cancelarem ninguém.
 
-| campo | valor |
-|---|---|
-| name | `Novidades Rioko` |
-| defaultSubscription | `opt_in` |
-| visibility | `public` |
+Um endereço em `newsletter_optouts` não entra em nenhuma simulação nem envio
+seguinte: a audiência já é resolvida sem ele.
 
-`visibility` não existe no SDK instalado, por isso o topic tem mesmo de ser
-criado no dashboard (Audience → separador Topics). Copiar o id para
-`wrangler.jsonc` → `vars.RESEND_TOPIC_NEWS` e fazer merge; o CI deploya.
-
-**Feito a 13/09/2026**: id `22e21222-c176-40b1-9e3d-23cc684ba99b`. A página de
-cancelamento da Resend (Audience → Topics → Page) usa a pele Day: fundo
-`#F6F3EE`, texto `#111111`, destaque `#C75C4A`, logo `rioko2-logo-light2.png`.
-
-Se alguma vez voltar a ficar vazio, os broadcasts saem na mesma, mas sem topic:
-quem quiser sair só tem a opção grossa de cancelar tudo, em vez de cancelar a
-newsletter.
+O topic "Novidades Rioko" da Resend (`22e21222-c176-40b1-9e3d-23cc684ba99b`) e a
+página de cancelamento da Resend com as cores Day são do tempo dos Broadcasts e
+já não são usados. `RESEND_TOPIC_NEWS` continua em `wrangler.jsonc`, sem efeito.
 
 **O que isto não afecta**: emails de incidente, de dunning, de renovação e de
-quota. Esses saem por `sendEmail()` → `POST /emails`, que não consulta o flag
-`unsubscribed`. É por isso que o rodapé pode prometer, com verdade, que "avisos
+quota. Esses saem por `sendEmail()` e nunca lêem `newsletter_optouts`. É por isso que o rodapé pode prometer, com verdade, que "avisos
 de facturação e de serviço continuam a chegar mesmo que cancele estas
 comunicações", e é o mesmo contrato que a migração 0046 já faz sobre contas
 paradas.
@@ -67,17 +61,26 @@ paradas.
 
 Em `/admin/newsletter`, para cada ficheiro em `Claude outputs/`:
 
-1. escrever o slug (`convite`, `clientes`, `frios`) e o nome;
+1. escrever o slug (`convites-2-meses-gratis`, `clientes`, `frios`) e o nome;
 2. colar o assunto e o HTML;
 3. **Gravar template**.
 
-**Feito a 13/09/2026 para o `convite`**: carregado de
-`Claude outputs/rioko-convite-pt.final.html`, com o campo **Pré-visualização na
+**Feito a 13/09/2026 para o `convites-2-meses-gratis`**: carregado de
+`Claude outputs/rioko-convite-pt.daynight.html`, com o campo **Pré-visualização na
 caixa de entrada** vazio. De propósito: o HTML traz o seu próprio preheader (o
 `div` escondido a seguir ao comentário `<!-- preheader -->`), e preencher também
 o campo põe um segundo preheader no email, que a caixa de entrada mostra a
 seguir ao primeiro: a mesma frase duas vezes. Regra para os próximos: se o
 ficheiro já traz preheader, o campo fica vazio.
+
+O ficheiro traz as duas peles do site. A Day vai nos estilos inline, por isso é
+a que vê um cliente que não lê CSS. A Night entra por
+`@media (prefers-color-scheme: dark)` (Apple Mail, iOS Mail) e pelos selectores
+`data-ogsc`/`data-ogsb` (Outlook.com e apps do Outlook). A imagem principal vai
+em duas cópias alojadas em `{{IMG_BASE}}` (`https://rioko.online/images`):
+`rioko-macbook.png` na Day e `rioko-macbook-night.png` na Night, que o Outlook de
+computador nunca mostra. As duas vivem em `backoffice/public/images/`: apagar ou
+renomear uma parte a imagem nos emails que já saíram.
 
 O que o HTML tem de trazer, senão o botão de enviar fica morto e diz porquê:
 
@@ -87,28 +90,26 @@ O que o HTML tem de trazer, senão o botão de enviar fica morto e diz porquê:
 
 Duas sintaxes convivem no mesmo ficheiro e não são a mesma coisa:
 
-| forma | de quem | quando resolve |
+| forma | quem enche | quando |
 |---|---|---|
-| `{{VAR}}` | nossa | no envio, igual para toda a gente |
-| `{{{VAR}}}` | da Resend | na entrega, por destinatário |
+| `{{VAR}}` | o backoffice | antes de chamar o worker, igual para toda a gente |
+| `{{{VAR}}}` | o worker (`personalise`) | no envio, por destinatário |
 
-`{{GREETING_NAME}}` é o ponto onde as duas se tocam: resolve para
-`{{{contact.first_name|}}}`, que é como cada pessoa é tratada pelo nome sem
-existir um ciclo de envio nosso.
+Só dois triplos são enchidos: `{{{contact.first_name|alternativa}}}` (o primeiro
+nome, ou a alternativa) e `{{{RESEND_UNSUBSCRIBE_URL}}}` (o link de cancelamento
+assinado; o nome ficou do tempo dos Broadcasts para os templates não mudarem).
+`{{GREETING_NAME}}` resolve para o primeiro. Qualquer outro triplo sai tal como
+está.
 
 ## 4. O primeiro envio
 
-0. na Resend, **Audience → Properties**, criar três propriedades do tipo
-   `string`: `user_id`, `label` e `client_code`. Um contacto criado com uma
-   propriedade que a Resend não conhece é recusado inteiro. O worker volta a
-   criá-lo sem propriedades, por isso o envio não pára sem elas, mas é por elas
-   que um contacto no dashboard da Resend se liga a uma conta Rioko;
-   - o envio é pausado para o limite da Resend (10 pedidos por segundo para a
-     equipa inteira, emails de serviço incluídos): duas a três chamadas por
-     destinatário, a cada 150 ms. Umas dezenas de contas levam uns 15 a 30
-     segundos. Uma lista de centenas já não cabe num pedido, ver o `ponytail:`
-     em `src/services/newsletter.ts`;
-1. escolher o template `convite`;
+0. nada a configurar na Resend: sem contactos, segmentos, topics nem
+   propriedades. O envio faz um pedido por destinatário, pausado para o limite
+   da Resend (10 pedidos por segundo para a equipa inteira, emails de serviço
+   incluídos). Umas dezenas de contas levam uns 10 a 15 segundos; uma lista de
+   centenas já não cabe num pedido, ver o `ponytail:` em
+   `src/services/newsletter.ts`;
+1. escolher o template `convites-2-meses-gratis`;
 2. filtros: **só Activa, no grupo Subscrição** (`sub:active`), e mais nada. Não
    **Já pagou** nem **Bloqueada**: uma conta bloqueada, ou que nunca pagou, não
    pode convidar, porque o link só é aceite a quem tem uma subscrição Stripe
@@ -121,20 +122,21 @@ existir um ciclo de envio nosso.
      não resolve, porque apanha também os early birds sem subscrição Stripe, que
      não podem convidar;
 3. **Simular**, conferir a contagem contra `/admin`;
-4. **Enviar teste a mim**, abrir no Gmail e no Outlook. Serve para o aspecto,
-   **não para o cancelamento**: o teste sai como email transaccional
-   (`/admin/notify`), não como broadcast, e as tags da Resend
-   (`{{{RESEND_UNSUBSCRIBE_URL}}}`, `{{{contact.first_name|}}}`) chegam
-   literais. Vê-las literais prova que sobreviveram até ao payload; o link de
-   cancelamento do teste não leva a lado nenhum;
+4. **Enviar teste a mim**, abrir no Gmail, no Outlook e num cliente em modo
+   escuro (Apple Mail ou iOS Mail), que é onde se vê a pele Night. Serve para o aspecto,
+   **não para o cancelamento**: o teste sai por `/admin/notify`, com o teu
+   primeiro nome no lugar do `{{{contact.first_name|…}}}`, mas o
+   `{{{RESEND_UNSUBSCRIBE_URL}}}` chega literal, porque só o envio real assina um
+   link por destinatário;
 5. **Enviar a N**. O servidor resolve a audiência outra vez e **recusa (409) um
    envio cuja contagem não seja a da simulação**: alguém registou-se ou cancelou
    entre Simular e Enviar. Simular de novo, conferir, enviar;
-6. o contrato de cancelamento verifica-se na **cópia real do broadcast**, numa
-   caixa nossa que esteja na lista simulada: clicar no link de cancelamento,
-   confirmar que abre a página da Resend com o topic **Novidades Rioko**, e
-   confirmar que depois disso ainda chega um email de incidente a essa conta. É o
-   contrato inteiro.
+6. o contrato de cancelamento verifica-se na **cópia real**, numa caixa nossa
+   que esteja na lista simulada: clicar em "Cancelar subscrição", confirmar na
+   página de `rioko.online` (abrir só pergunta, o botão é que grava), ver o
+   endereço em `newsletter_optouts`, simular de novo e confirmar que já não
+   conta, e confirmar que depois disso ainda chega um email de incidente a essa
+   conta. É o contrato inteiro.
 
 O botão de enviar só acende depois de uma simulação feita para exactamente o
 texto e os filtros que estão no ecrã. Mudar um caracter deita a simulação fora,
@@ -331,8 +333,8 @@ teste tem de acabar desfeito.
 
 ## 6. O que ficou deliberadamente de fora
 
-- **Tracking de aberturas e cliques nosso.** A Resend já o dá, e por
-  `GET /broadcasts/{id}/recipients` e `/clicked-links`. Não duplicar.
+- **Tracking de aberturas e cliques nosso.** A Resend já o dá por email; o id de
+  cada mensagem vem em `candidates[].id` na resposta do envio. Não duplicar.
 - **Listas frias.** `rioko-cold-pt.html` continua por enviar: a audiência são
   contas registadas em D1, e mandar para uma lista comprada é outra tabela, um
   importador e um risco de RGPD diferente.

@@ -69,7 +69,11 @@ export default function ReferralClaim() {
                 {refused ? (
                     <>
                         <p className="text-sm font-medium text-fg">{t("refusedNoticeTitle")}</p>
-                        <p className="text-xs text-fg-60">{notice.reason}</p>
+                        {/* Worded here from the code, in the visitor's language.
+                            A code this build does not know keeps the title alone. */}
+                        {notice.refusal && t.has(`refusal.${notice.refusal}`) && (
+                            <p className="text-xs text-fg-60">{t(`refusal.${notice.refusal}`)}</p>
+                        )}
                     </>
                 ) : (
                     <p className="text-sm font-medium text-fg">{t("claimedNotice", { months: REWARD_MONTHS })}</p>

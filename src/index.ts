@@ -2258,7 +2258,7 @@ app.post("/admin/billing/paused-notices", async (c) => {
 
 // Admin: send a newsletter, one plain email per recipient (services/newsletter.ts).
 //   { dry_run?: boolean (default TRUE), slug, subject, html, preview_text?,
-//     recipients: [{ email, first_name?, user_id?, label? }], scheduled_at? }
+//     recipients: [{ email, first_name?, user_id?, label?, client_code? }], scheduled_at? }
 // The audience is resolved in the backoffice, against D1, by the same function
 // that drew the preview; this end never picks recipients, it only delivers to
 // the ones it was handed. Resend lives here because the API key does.
@@ -2268,7 +2268,7 @@ app.post("/admin/newsletter/broadcast", async (c) => {
   const body = await c.req.json<{
     dry_run?: boolean; slug?: string; subject?: string; html?: string;
     preview_text?: string; scheduled_at?: string;
-    recipients?: { email: string; first_name?: string; user_id?: string; label?: string }[];
+    recipients?: { email: string; first_name?: string; user_id?: string; label?: string; client_code?: string }[];
   }>().catch(() => ({} as any));
 
   if (!body.slug || !body.subject || !body.html) {
@@ -2816,8 +2816,8 @@ app.post("/admin/test-quota-email", async (c) => {
   const { sendEmail } = await import("./services/email");
   const tpl = renderInTheme(body.theme ?? "day", () => renderQuotaEmail({
     kind: body.kind === "warning" ? "warning" : "reached",
-    merchantName: body.merchantName ?? "Zoo de Lagos",
-    ixAccount: body.ixAccount ?? "pelicanzooparquez",
+    merchantName: body.merchantName ?? "Loja Exemplo",
+    ixAccount: body.ixAccount ?? "conta-exemplo",
     periodStart: "30/05/2026",
     periodEnd: "30/06/2026",
   }));
@@ -2874,10 +2874,14 @@ app.post("/admin/test-incident-email", async (c) => {
 
 // ── Moloni API proxy ──────────────────────────────────────────────────────────
 // CF Pages edge functions cannot reach api.moloni.pt reliably. These routes run
-// on the Worker (which can) and accept credentials in the POST body. Security:
-// valid Moloni credentials are required to get any data back.
+// on the Worker (which can) and accept credentials in the POST body. Admin key
+// required: without it these were an open relay, anyone could push Moloni
+// credentials through Rioko's IP. The only callers are the backoffice API routes
+// under /api/integrations/moloni-destination, which send it via callWorker.
 
 app.post("/moloni-proxy/companies", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
   const body = await c.req.json<{
     client_id: string; client_secret: string; username: string; password: string; environment?: string;
   }>().catch(() => null);
@@ -2923,6 +2927,8 @@ app.post("/moloni-proxy/companies", async (c) => {
 });
 
 app.post("/moloni-proxy/document-sets", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
   const body = await c.req.json<{
     client_id: string; client_secret: string; username: string; password: string; environment?: string; company_id: string;
   }>().catch(() => null);

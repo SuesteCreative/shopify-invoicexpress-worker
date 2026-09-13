@@ -2,10 +2,9 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getStripeEnvOptional, getDB, primaryConnectionKey, EMBEDDED_CHECKOUT_API_VERSION, EMBEDDED_CHECKOUT_UI_MODE } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
-import { keyFromRequest } from "@/lib/subscription-key";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { resolveReturnPath } from "@/lib/oauth-return";
-import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
+import { priceLookupFor, resolvePrice, resolveBilling } from "@/lib/billing-prices";
 import { addMonths } from "@/lib/referral-reward";
 import { REWARD_MONTHS, campaignOpen } from "@/lib/referral";
 import { alreadySubscribed } from "@/lib/subscription-state";
@@ -50,28 +49,18 @@ export async function POST(req: NextRequest) {
         const stripe = getStripe();
         const db = getDB();
 
-        // The dashboard card sits above every integration, so the page cannot say
-        // which price to bill. Resolve it from the merchant's own set-up connection
-        // (oldest wins when there is more than one); with nothing set up yet, the
-        // default Shopify→IX price applies.
-        const source = await resolveBillingSource(db, targetUserId, rawSource);
-
-        // Which connection this subscription pays for (0044). Carried in the
-        // subscription's own metadata so the webhook can file the row against
-        // the right one — a customer can now hold several, and the events for
-        // them are indistinguishable otherwise.
-        // A generic page (Billing, dashboard) cannot name a connection, and the
-        // static map answers "shopify:invoicexpress" for all of them. On an
-        // account whose only connection is another pair that key names nothing:
-        // the payment is filed against a connection that does not exist and the
-        // billing page keeps reading "inactive" for the one that does. Resolve
-        // it from the account instead. An explicit key still wins.
-        const GENERIC_SOURCES = new Set(["", "faturacao", "dashboard"]);
-        const connectionKey = body.connection_key
-            ? keyFromRequest(body.connection_key, null)
-            : GENERIC_SOURCES.has(rawSource)
-                ? await primaryConnectionKey(db, targetUserId)
-                : keyFromRequest(null, source);
+        // Which connection this subscription pays for (0044), and the price it
+        // is sold at, decided together. The key is carried in the subscription's
+        // own metadata so the webhook can file the row against the right one — a
+        // customer can now hold several, and the events for them are
+        // indistinguishable otherwise.
+        // A generic page (Billing, dashboard) cannot name a connection, so the
+        // account's primary one is used, and the price is read FROM that key.
+        // Chosen separately, a Stripe→Moloni account paying from Faturação was
+        // filed against its own connection and charged the Shopify product.
+        const { connectionKey, source } = await resolveBilling(
+            rawSource, body.connection_key, () => primaryConnectionKey(db, targetUserId),
+        );
 
         // Each integration bills its OWN price; an unknown source is rejected
         // rather than silently defaulting to the Shopify one. The map lives in
@@ -80,9 +69,9 @@ export async function POST(req: NextRequest) {
         // Always the current price, including for a client holding an old 5 €/50 €
         // subscription elsewhere: the old plan is inherited on the subscription
         // that already carries it, never sold again on a new integration.
-        const lookupOrId = priceLookupFor(source, plan);
+        const lookupOrId = source === null ? null : priceLookupFor(source, plan);
         if (!lookupOrId) {
-            return NextResponse.json({ error: `Unknown subscription source: "${source}"` }, { status: 400 });
+            return NextResponse.json({ error: `Unknown subscription source: "${source ?? connectionKey}"` }, { status: 400 });
         }
 
         const price: any = await resolvePrice(stripe, lookupOrId);
@@ -150,7 +139,7 @@ export async function POST(req: NextRequest) {
         };
         const appBaseUrl = new URL(getStripeEnv("SUCCESS_REDIRECT_URL")).origin;
         // Come back where the merchant clicked, not where the price came from.
-        const paths = SOURCE_PATHS[rawSource] ?? SOURCE_PATHS[source] ?? null;
+        const paths = SOURCE_PATHS[rawSource] ?? null;
         const successUrl = paths ? `${appBaseUrl}${paths.ok}` : getStripeEnv("SUCCESS_REDIRECT_URL");
         const cancelUrl  = paths ? `${appBaseUrl}${paths.cancel}` : getStripeEnv("CANCEL_REDIRECT_URL");
         const taxRateId = getStripeEnvOptional("STRIPE_TAX_RATE_ID");

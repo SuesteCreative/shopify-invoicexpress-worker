@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { resolveAccountUser } from "@/lib/account";
 import { ensureClientCode } from "@/lib/client-code";
+import { routing } from "@/i18n/routing";
 import {
     newReferralSuffix, referralToken, referralLink,
     campaignOpen, CAMPAIGN_END, MAX_REWARDS, REWARD_MONTHS,
@@ -74,6 +75,10 @@ export async function GET(request: NextRequest) {
         // trial on the session, so the page never promises a trial the checkout
         // will not create.
         const open = campaignOpen();
+        // The link opens in the viewer's language. Checked against the routing,
+        // because it is interpolated into a URL somebody else will open.
+        const asked = request.nextUrl.searchParams.get("locale") ?? "";
+        const locale = (routing.locales as readonly string[]).includes(asked) ? asked : routing.defaultLocale;
         const invitedRow: any = await db.prepare(
             "SELECT 1 AS ok FROM referrals WHERE invitee_user_id = ? AND state = 'pending' LIMIT 1"
         ).bind(accountId).first();
@@ -81,7 +86,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
             code: code ?? null,
             token: code && suffix ? referralToken(code, suffix) : null,
-            link: code && suffix ? referralLink(referralToken(code, suffix)) : null,
+            link: code && suffix ? referralLink(referralToken(code, suffix), locale) : null,
             campaign_end: CAMPAIGN_END,
             campaign_open: open,
             eligible: Boolean(live?.ok),

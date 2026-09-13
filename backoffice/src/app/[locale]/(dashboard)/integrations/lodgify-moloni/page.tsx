@@ -117,7 +117,9 @@ export default function LodgifyMoloniIntegration() {
 
     useEffect(() => {
         fetch("/api/auth/sync", { method: "POST" }).catch(console.error);
-        fetch("/api/billing/subscription").then(r => r.json()).then(setSub).catch(() => setSub(null));
+        // This page's own connection, the one its checkout bills — not the
+        // account's primary, which may be another pair entirely.
+        fetch("/api/billing/subscription?connection_key=lodgify:moloni").then(r => r.json()).then(setSub).catch(() => setSub(null));
         Promise.all([
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
             fetch("/api/integrations/lodgify-source?destination_kind=moloni").then(r => r.json()).catch(() => ({})),

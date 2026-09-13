@@ -214,7 +214,18 @@
         "inviteCodeLabel": "Código de convite",
         "claimedNotice": "Convite registado nesta conta. Se criares a subscrição até 31 de outubro de 2026, os primeiros {months} meses são grátis.",
         "refusedNoticeTitle": "Não foi possível usar o convite",
-        "noticeDismiss": "Dispensar aviso"
+        "noticeDismiss": "Dispensar aviso",
+        "refusal": {
+            "invalid": "Este link de convite não é válido.",
+            "unknown": "Este convite já não existe.",
+            "self": "Não podes usar o teu próprio link de convite.",
+            "closed": "A campanha de convites terminou a 31 de Outubro.",
+            "not_new": "Os convites são para contas novas, e esta já não é.",
+            "already": "Esta conta já foi convidada por alguém.",
+            "inviter_inactive": "Quem te convidou não tem uma subscrição activa neste momento.",
+            "already_subscribed": "Os convites são para contas novas, e esta já tem uma subscrição."
+        },
+        "landingClaimRetry": "Não conseguimos confirmar o convite agora. Fica guardado e voltamos a tentar quando abrires o dashboard."
     },
     "dashboardHome": {
         "welcome": "Bem-vindo",

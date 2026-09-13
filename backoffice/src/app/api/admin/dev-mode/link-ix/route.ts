@@ -31,7 +31,14 @@ export const runtime = "edge";
  *    undo; allowing them silently would only move the problem.
  */
 
-const LISTED_TYPES = ["invoice.paid", "invoice.payment_failed", "charge.refunded"] as const;
+/**
+ * Payments that money actually moved on, and so have a Kapta document: a paid
+ * invoice, and a refund's credit note. Not `invoice.payment_failed`: a failed
+ * attempt invoices nothing, and listing it beside the payment that followed
+ * offered to attach the same document to both — the nightly matcher
+ * (cron/ix-match) never considered failed attempts either.
+ */
+const LISTED_TYPES = ["invoice.paid", "charge.refunded"] as const;
 
 /** Payments whose Kapta document is read from InvoiceXpress on a visit. */
 const IX_LOOKUP_EVENTS = 25;
@@ -221,8 +228,9 @@ export async function POST(req: NextRequest) {
 
     const db = getDB();
     const event: any = await db.prepare(`
-        SELECT id, type, ix_invoice_id, ix_match_method FROM billing_events WHERE id = ? AND user_id = ?
-    `).bind(body.billing_event_id, body.targetUserId).first();
+        SELECT id, type, ix_invoice_id, ix_match_method FROM billing_events
+         WHERE id = ? AND user_id = ? AND type IN (${LISTED_TYPES.map(() => "?").join(",")})
+    `).bind(body.billing_event_id, body.targetUserId, ...LISTED_TYPES).first();
     if (!event) {
         return NextResponse.json({ error: "No matching billing event for that id / user" }, { status: 404 });
     }

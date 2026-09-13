@@ -759,17 +759,20 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
                             <p className="font-medium text-fg">{t("lodgify.savedTitle")}</p>
                             <p>{t("lodgify.savedBody")}</p>
                         </Notice>
-                        {webhookUrl && (
+                        {/* The URL only once Rioko has registered it: Lodgify has no screen
+                            to paste one into, and a hand-made subscription's secret never
+                            reaches us, so its deliveries are refused. */}
+                        {webhookUrl && !needsManualWebhook && (
                             <div className="rounded-2xl border border-hairline bg-surface-2/40 p-5 space-y-3">
                                 <p className="text-sm font-medium text-fg">{tLod("webhookSection")}</p>
                                 <p className="text-[11px] leading-relaxed text-fg-40">{tLod("webhookBody")}</p>
                                 <code className="block rounded-xl border border-hairline bg-surface-2/60 px-4 py-3 font-mono text-[11px] break-all">
                                     {webhookUrl}
                                 </code>
-                                {needsManualWebhook && (
-                                    <Notice tone="warn"><p>{tLod("webhookManualNote")}</p></Notice>
-                                )}
                             </div>
+                        )}
+                        {needsManualWebhook && (
+                            <Notice tone="warn"><p>{tLod("webhookManualNote")}</p></Notice>
                         )}
                     </>
                 )}

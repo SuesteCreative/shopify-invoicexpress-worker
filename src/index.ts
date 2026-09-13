@@ -631,12 +631,14 @@ app.post("/webhooks/eupago/:userId", async (c) => {
 });
 
 // ── Lodgify webhooks ──────────────────────────────────────────────────────────
-//   POST /webhooks/lodgify/<user_id>
-//   Headers: ms-signature: sha256=<hex_hmac_sha256> (fallback: x-lodgify-signature)
-//   Body: { "event": "booking_new_booked", "data": { "bookingId": 12345 } }
+//   POST /webhooks/lodgify/<user_id>[?e=change|?e=declined]
+//   Headers: ms-signature: sha256=<HMAC-SHA256 of the raw body, uppercase hex>
+//            (fallback: x-lodgify-signature)
+//   One subscription per event, each with its own secret, registered by
+//   /admin/lodgify/reregister-webhooks with the account's own API key.
 //
-//   Thin envelope — the actual booking is fetched inside LodgifySource.toNormalized()
-//   via GET /v2/reservations/{bookingId} using the stored api_key.
+//   Verified and acknowledged, nothing more: bookings are billed by the
+//   30-minute pass in services/lodgify-poll.ts. See the note at the end.
 // ────────────────────────────────────────────────────────────────────────────
 app.post("/webhooks/lodgify/:userId", async (c) => {
   const userId = c.req.param("userId");
@@ -666,94 +668,43 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     eventParam === "change"   ? sourceCfg.webhook_secret_change :
     sourceCfg.webhook_secret;
 
+  // No secret, no delivery. This used to log and carry on unsigned — and the body
+  // it then trusted carried the booking, its amounts and the internal
+  // `_preloaded_booking` / `_force` / `_partial` levers, so anyone who knew an
+  // account id could have a document issued for any amount. A connection with
+  // no stored secret has no subscription of ours to deliver anyway, and the
+  // 30-minute poll covers its bookings.
   if (!webhookSecret) {
-    console.warn(`[Lodgify] no webhook_secret for ${userId} (e=${eventParam}) — skipping HMAC verification`);
-  } else {
-    if (!await lodgifyAdapter.verifyWebhook(rawBody, sig, webhookSecret)) {
-      console.error(`[Lodgify] Invalid signature for user ${userId} (e=${eventParam})`);
-      await reportIncident(c.env, {
-        user_id: userId,
-        severity: "critical",
-        kind: "webhook_invalid_signature",
-        summary: "Lodgify webhook rejeitado por assinatura inválida.",
-        connection_label: `lodgify → ${conn.destination_kind ?? "invoicexpress"}`,
-        bucket: "daily",
-      });
-      return c.text("Invalid signature", 401);
-    }
+    console.warn(`[Lodgify] no webhook_secret for ${userId} (e=${eventParam}) — refusing an unsigned delivery`);
+    return c.text("Webhook not registered", 401);
   }
-
-  let body: any;
-  try { body = JSON.parse(rawBody); } catch { return c.text("Invalid JSON", 400); }
-
-  // Determine pipeline topic from the event type:
-  // booking_status_change_declined → "refund" (issue credit note if booking was paid)
-  // booking_change / booking_new_status_booked → "created" (invoice when fully paid)
-  const isDeclined = eventParam === "declined"
-    || String(body?.action ?? body?.event ?? "").includes("declined");
-  const pipelineTopic = isDeclined ? "refund" : "created";
-
-  const externalId = (() => {
-    try { return lodgifyAdapter.externalId(body); } catch { return null; }
-  })();
-  if (!externalId) return c.text("Missing bookingId in payload", 400);
-
-  const storageTopic = `lodgify/${pipelineTopic}` as any;
-  const appStorage = new AppStorage(c.env, null, userId);
-  const { isProcessed, state } = await appStorage.isWebhookProcessed(externalId, storageTopic);
-  if (isProcessed && state !== "failed") return c.text("Already processed", 200);
-  await appStorage.markWebhookAsProcessing(externalId, storageTopic);
-
-  let destinationConfig: Record<string, any> | undefined;
-  try {
-    destinationConfig = conn.destination_config_json ? JSON.parse(conn.destination_config_json) : undefined;
-  } catch { destinationConfig = undefined; }
-
-  // Lodgify users may not have an integrations row (no Shopify-IX setup).
-  // Synthesize a minimal config so the pipeline can run.
-  const legacy: any = (await c.env.DB.prepare("SELECT * FROM integrations WHERE user_id = ?").bind(userId).first()) ?? {
-    user_id: userId,
-    shopify_domain: null,
-    auto_finalize: destinationConfig?.auto_finalize ? 1 : 0,
-    b2b_reverse_charge: 0,
-    ix_send_email: 0,
-  };
-  applyConnectionEmailPref(legacy, destinationConfig);
-
-  const gate = await checkSubscriptionGate(c.env, legacy, { source: "lodgify", destination: conn.destination_kind ?? "moloni" });
-  if (!gate.allowed) {
-    console.warn(`[Lodgify] Subscription gate blocked for ${userId}: ${gate.reason}`);
+  if (!await lodgifyAdapter.verifyWebhook(rawBody, sig, webhookSecret)) {
+    // The header's shape, never the secret: enough to tell a format mismatch
+    // (case, prefix, encoding) from a wrong secret.
+    console.error(`[Lodgify] Invalid signature for user ${userId} (e=${eventParam}) header_len=${sig.length} header_prefix=${JSON.stringify(sig.slice(0, 7))}`);
     await reportIncident(c.env, {
       user_id: userId,
-      severity: "warning",
-      kind: "subscription_inactive",
-      summary: `Lodgify webhook bloqueado: subscrição inativa (${gate.reason}).`,
-      connection_label: `lodgify → ${conn.destination_kind ?? "moloni"}`,
+      severity: "critical",
+      kind: "webhook_invalid_signature",
+      summary: "Lodgify webhook rejeitado por assinatura inválida.",
+      connection_label: `lodgify → ${conn.destination_kind ?? "invoicexpress"}`,
       bucket: "daily",
     });
-    await appStorage.markWebhookAsProcessed(externalId, storageTopic, "failed");
-    return c.text("Subscription inactive", 402);
+    return c.text("Invalid signature", 401);
   }
 
-  try {
-    await runAdapterPipeline({
-      env: c.env,
-      config: legacy,
-      source: "lodgify",
-      destination: (conn.destination_kind as any) ?? "moloni",
-      topic: pipelineTopic as any,
-      webhookId: externalId,
-      body,
-      sourceConfig: sourceCfg,
-      destinationConfig,
-    });
-    await appStorage.markWebhookAsProcessed(externalId, storageTopic, "success");
-    return c.text("OK", 200);
-  } catch (e: any) {
-    console.error(`[Lodgify] Pipeline error for booking ${externalId} (${pipelineTopic}):`, e);
-    await appStorage.markWebhookAsProcessed(externalId, storageTopic, "failed");
-    return errorResponse(c, e, "Pipeline error");
-  }
+  // A verified delivery is acknowledged, and that is all it does. Lodgify bookings
+  // are billed in one place — the 30-minute pass in services/lodgify-poll.ts —
+  // which applies invoice_cutoff, the instalment ledger, the settlement rule,
+  // dedup and cancellations, and honours LODGIFY_POLL_ENABLED and the relay probe.
+  // This route used to run its own pipeline on the payload and skipped the first
+  // two (14 already-paid pre-cutoff bookings and 23 instalment stays on
+  // Overbuilding would have been billed again). Running the whole pass here
+  // instead would hold Lodgify's delivery open for up to two minutes, and a
+  // disconnect can cancel a request halfway through a document.
+  // ponytail: a booking reaches its invoice within 30 minutes, not seconds. For
+  // real time, send { userId } to a queue whose consumer runs pollLodgifyBookings.
+  return c.text("OK", 200);
 });
 
 // ── Admin: what is actually deployed ─────────────────────────────────────────
@@ -951,33 +902,45 @@ app.post("/admin/lodgify/replay", async (c) => {
  *
  * Shared by re-registration and by connection teardown so both leave through
  * the allowlisted relay and both agree on what "ours" means (target_url carries
- * our host). Lodgify accepts DELETE on /webhooks/v1/unsubscribe/{id} for some
- * accounts and POST for others, hence the two-method attempt.
+ * our host).
+ *
+ * The documented call is DELETE /webhooks/v1/unsubscribe with the id in a JSON
+ * body (docs.lodgify.com/reference/webhooksapi_unsubscribe_delete). This sent
+ * the id in the path, which Lodgify never documented and which most likely
+ * removed nothing; that form is kept only as a fallback.
  */
 async function unsubscribeOurLodgifyWebhooks(
   apiKey: string,
   gateway: LodgifyGateway,
   workerHost: string,
-): Promise<{ deleted: Record<string, number>; liveList: any[] }> {
+): Promise<{ deleted: Record<string, number>; liveList: any[]; listed: boolean }> {
   const listRes = await lodgifyFetch("/webhooks/v1/list", { apiKey, gateway });
-  const liveList: any[] = listRes.ok ? ((await listRes.json().catch(() => [])) as any[]) : [];
+  // A failed list used to read as "nothing registered": nothing deleted, and
+  // the caller told it went fine. Said now, so a teardown can be retried.
+  const listed = listRes.ok;
+  const liveList: any[] = listed ? ((await listRes.json().catch(() => [])) as any[]) : [];
   const ours = liveList.filter((w: any) => (w.target_url ?? w.url ?? "").includes(workerHost));
 
   const deleted: Record<string, number> = {};
   for (const w of ours) {
-    const wId = w.id ?? w.webhook_id;
-    let status = 0;
-    for (const method of ["DELETE", "POST"] as const) {
-      const dr = await lodgifyFetch(
+    const wId = String(w.id ?? w.webhook_id ?? "");
+    if (!wId) continue;
+    const documented = await lodgifyFetch("/webhooks/v1/unsubscribe", {
+      apiKey, gateway, method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: wId }),
+    }).catch(() => null);
+    let status = documented?.status ?? 0;
+    if (!(status >= 200 && status < 300)) {
+      const legacy = await lodgifyFetch(
         `/webhooks/v1/unsubscribe/${assertSafePathSegment(wId, "webhook id")}`,
-        { apiKey, gateway, method },
+        { apiKey, gateway, method: "DELETE" },
       ).catch(() => null);
-      status = dr?.status ?? 0;
-      if (status >= 200 && status < 300) break;
+      status = legacy?.status ?? status;
     }
     deleted[wId] = status;
   }
-  return { deleted, liveList };
+  return { deleted, liveList, listed };
 }
 
 // Admin: drop this connection's Lodgify webhooks and forget the stored secrets.
@@ -1047,9 +1010,12 @@ app.post("/admin/lodgify/reregister-webhooks", async (c) => {
   const results: Record<string, any> = {};
 
   // Drop every webhook already pointing at our Worker, then re-subscribe below.
-  const { deleted, liveList } = await unsubscribeOurLodgifyWebhooks(
+  const { deleted, liveList, listed } = await unsubscribeOurLodgifyWebhooks(
     apiKey, gateway, new URL(workerBase).hostname,
   );
+  // Said out loud: when the list call fails nothing was deleted, so every URL
+  // still registered answers 409 below and keeps its old secret.
+  results["_listed"] = listed;
   results["_deleted"] = deleted;
   results["_live_list"] = liveList.map((w: any) => ({ id: w.id, event: w.event ?? w.type, url: w.target_url ?? w.url }));
 
@@ -1231,11 +1197,11 @@ app.post("/admin/run-reconciliation-sweep", async (c) => {
 
 // Admin: run the Lodgify booking poll on demand.
 //
-// Lodgify is the only source with no webhook and no healer — the */30 cron is
-// the sole path by which a booking ever becomes an invoice. That left no way to
-// recover a backlog without waiting for the next tick, or to tell "the cron
-// isn't firing" apart from "the poll runs but emits nothing". Same function the
-// cron calls, so behaviour is identical.
+// Lodgify has no healer, and its webhooks are only acknowledged — the */30 cron
+// is the path by which a booking becomes an invoice. That left no way to recover
+// a backlog without waiting for the next tick, or to tell "the cron isn't firing"
+// apart from "the poll runs but emits nothing". Same function the cron calls, so
+// behaviour is identical.
 app.post("/admin/lodgify/poll", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
@@ -1252,6 +1218,11 @@ app.post("/admin/lodgify/poll", async (c) => {
   }
   try {
     const result = await pollLodgifyBookings(c.env, { userId: body.user_id, bookings: body.bookings, dryRun: body.dry_run });
+    // An account whose run lock was held ran nothing. Answering 200 with zeros
+    // would tell a recovery caller that the bookings it supplied were handled.
+    if (body.user_id && result.busy?.includes(body.user_id)) {
+      return c.json({ ranAt: new Date().toISOString(), error: "busy", ...result }, 409);
+    }
     return c.json({ ranAt: new Date().toISOString(), ...result });
   } catch (e) {
     return errorResponse(c, e, "Lodgify poll failed");
@@ -3421,8 +3392,8 @@ export default {
   },
   async scheduled(event: ScheduledController, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
     configureIxBaseUrl(env);
-    // Every 30 min — Lodgify booking poll. Lodgify user-level API keys cannot
-    // register webhooks (partner OAuth only), so bookings are polled and
+    // Every 30 min — Lodgify booking poll. Webhooks are registered with the
+    // account's own key but only acknowledged, so bookings are polled and
     // invoiced here. Runs on its own cron so it never rides the ops sweep.
     if (event.cron === "*/30 * * * *") {
       if (env.LODGIFY_POLL_ENABLED === "0") {

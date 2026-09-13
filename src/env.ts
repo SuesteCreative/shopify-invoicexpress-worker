@@ -61,8 +61,9 @@ export interface Env {
   ANTHROPIC_MODEL?: string;               // optional model override; defaults to claude-sonnet-4-6
   AI_TRIAGE_HOURLY_CAP?: string;          // soft per-hour cost ceiling for triage calls; defaults to "40"
   AI_PATTERN_REPORT_ENABLED?: string;     // "0" | "1" — gates the Friday cross-incident pattern report
-  // Lodgify booking poller (30-min cron). Lodgify does not expose webhook
-  // registration to user-level API keys, so bookings are polled instead.
+  // Lodgify booking poller (30-min cron): the one place Lodgify bookings are
+  // billed. Webhooks register with the account's own API key, but a verified
+  // delivery is only acknowledged.
   // On by default; set to "0" to kill the poll without redeploying crons.
   LODGIFY_POLL_ENABLED?: string;          // "0" disables; any other value (or unset) = enabled
   LODGIFY_SETTLE_AUTO?: string;           // "1" lets the poll issue Recibos on its own; default off

@@ -98,8 +98,8 @@ export async function GET(request: NextRequest) {
             // Only the account's owner, signed in as themselves, marks an answer
             // seen. The mark is one date on the ACCOUNT, so an invited member —
             // or an operator impersonating — closing it would close it for the
-            // owner, who is the person it is for. For them the notice hides for
-            // the session instead.
+            // owner, who is the person it is for. For them the notice hides in
+            // their own browser instead.
             can_dismiss: accountId === userId,
         });
     } catch (error: any) {

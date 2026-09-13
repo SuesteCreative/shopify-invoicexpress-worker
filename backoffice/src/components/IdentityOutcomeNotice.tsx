@@ -18,7 +18,7 @@ import { Check, X, AlertCircle } from "lucide-react";
  * on the account rather than in this browser (migration 0059) — otherwise the
  * next device would re-announce a change from three weeks ago. Anyone else who
  * sees it (an invited member, an operator impersonating) is told by the server
- * they may not store it, and the notice hides for their session instead: their
+ * they may not store it, and the notice hides in their browser instead: their
  * click must not close it for the owner, who is the one it is for.
  *
  * Same shape and the same home as AccountSuspendedNotice: a notice nobody can
@@ -35,11 +35,24 @@ interface Outcome {
     reason: string | null;
 }
 
-/** Where a notice that may not be stored is hidden for the rest of the session. */
-const SESSION_KEY = "rioko.identity-notice-hidden-until";
+/**
+ * Where a viewer who may not store the dismissal remembers it instead.
+ *
+ * localStorage, not sessionStorage: a session-scoped hide came back in every new
+ * tab, which read as a close button that did nothing. Keyed by the decision
+ * itself rather than by a date, so hiding one account's answer while
+ * impersonating it never hides a different account's.
+ */
+const HIDDEN_KEY = "rioko.identity-notice-hidden";
 
-function hiddenUntil(): string {
-    try { return sessionStorage.getItem(SESSION_KEY) ?? ""; } catch { return ""; }
+const signature = (o: Outcome) =>
+    `${o.field}|${o.outcome}|${o.decided_at ?? ""}|${o.decided_value ?? o.reason ?? ""}`;
+
+function hiddenSignatures(): string[] {
+    try {
+        const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]");
+        return Array.isArray(v) ? v.map(String) : [];
+    } catch { return []; }
 }
 
 export default function IdentityOutcomeNotice() {
@@ -53,12 +66,9 @@ export default function IdentityOutcomeNotice() {
             .then((d: any) => {
                 if (!d) return;
                 const may = d.can_dismiss !== false;
-                // Decision timestamps come from one column in one format, so a
-                // string comparison orders them.
-                const since = may ? "" : hiddenUntil();
+                const hidden = may ? [] : hiddenSignatures();
                 setCanDismiss(may);
-                setUnread(((d.unread ?? []) as Outcome[])
-                    .filter(o => !since || String(o.decided_at ?? "") > since));
+                setUnread(((d.unread ?? []) as Outcome[]).filter(o => !hidden.includes(signature(o))));
             })
             .catch(() => { /* a notice is not worth a broken dashboard */ });
     }, []);
@@ -66,10 +76,14 @@ export default function IdentityOutcomeNotice() {
     if (unread.length === 0) return null;
 
     const dismiss = () => {
-        const newest = unread.map(o => String(o.decided_at ?? "")).sort().pop() ?? "";
+        const shown = unread;
         setUnread([]);
         if (!canDismiss) {
-            try { sessionStorage.setItem(SESSION_KEY, newest); } catch { /* hidden until reload, then */ }
+            // ponytail: per browser — the same operator on another device sees it
+            // once more there. A per-viewer column when that ever matters.
+            try {
+                localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hiddenSignatures(), ...shown.map(signature)].slice(-50)));
+            } catch { /* hidden until reload, then */ }
             return;
         }
         fetch("/api/user/identity-request", {

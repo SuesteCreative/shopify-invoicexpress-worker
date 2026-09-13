@@ -86,58 +86,55 @@ de propósito: uma contagem de antes de uma edição não é uma contagem.
 
 ## 5. Campanha de convites
 
-Não precisa de nada no Stripe. O mês grátis do convidado é `early_bird = 1` com
-`trial_end` a 30 dias na própria linha de `subscriptions`, que é o que o gate já
-lê; não há cupões para criar nem nada para configurar.
+**Regras**: convida 1 amigo, recebem os dois 2 meses. Quem convida precisa de
+subscrição activa; quem é convidado conclui o onboarding, deixa cartão e é
+cobrado ao fim do 2.º mês. Máximo 3 recompensas por conta, 6 meses. Resgates até
+31/10/2026.
 
-Uma subtileza que vale a pena saber, se algum dia parecer que o mês grátis não
-apareceu: a linha é por par `(conta, ligação)` desde a 0044, e quem chega por um
-link de convite ainda não tem ligação nenhuma. Por isso a graça é reaplicada a
-partir de `/api/auth/sync`, que todas as páginas de integração já chamam: seja o
-que for que o convidado ligue, o mês grátis assenta lá na visita seguinte. A data
-está ancorada no resgate, nunca em "agora", senão cada visita empurrava o fim
-mais 30 dias para a frente.
+**Não precisa de nada no Stripe.** Não há cupões. Os dois meses do convidado são
+um trial nativo (`trial_end` na Checkout Session); os do convidante são o mesmo
+`trial_end`, empurrado na subscrição que já corre. Isso move o
+`billing_cycle_anchor` com ele, que é o que faz a próxima cobrança acontecer dois
+meses mais tarde e o que trata o plano anual como foi prometido.
 
-O que convém vigiar, em `/admin/financeiro` → **Convites**:
+**O link** é `RIO-XXXXXX-YYYYYY`: o número de cliente da ficha, mais um sufixo
+aleatório que o torna não-adivinhável. Um número por cliente, e o sufixo é o que
+mantém a regra da 0058 de que o número nunca abre uma página pública nu.
 
-- **a pagar** — o convidado pagou e o convidante ainda não foi creditado. O
-  webhook tenta sozinho em dois momentos (quando o convidado paga, e quando o
-  convidante faz um checkout seu). O que ficar aqui tem uma razão, e a razão
-  está na nota da linha;
-- `no_stripe_customer` — convidante que ainda nunca pagou. Fica em espera e é
-  creditado sozinho no primeiro checkout dele. Não é preciso fazer nada;
-- `no_ledger_amount` — tem cliente Stripe mas nunca foi facturado, por isso não
-  há valor para dobrar. Esse precisa de decisão humana;
-- `same_fiscal_id` — as duas contas têm o mesmo NIF. Não é creditado de propósito:
-  a copy diz "uma vez por empresa convidada", e um mês pago a comprar dois
+### O que vigiar, em `/admin/financeiro` → Convites
+
+A coluna que interessa é **`invitee_paid`**: a recompensa é dada quando a
+subscrição do convidado é criada, o que acontece **antes de ter entrado dinheiro
+nenhum**. Foi uma decisão deliberada, e é isto que a torna visível. Uma linha
+creditada há meses cujo convidado nunca pagou é a forma que o abuso tem.
+
+Estados e notas possíveis:
+
+- `subscribed` — o convidado subscreveu e a recompensa não foi dada. A nota diz
+  porquê. O botão **Creditar** volta a tentar;
+- `inviter_no_live_subscription` — quem convidou não tinha subscrição activa
+  nessa altura. Fica em espera, e é decisão humana quando passar a ter;
+- `same_fiscal_id` — os dois lados têm o mesmo NIF. **Não é creditado de
+  propósito**: os termos dizem uma vez por empresa, e um mês pago a comprar dois
   creditados seria lucrativo se nada o travasse;
-- `reconciled_from_stripe` — o crédito já estava no Stripe e a linha é que tinha
-  ficado para trás. Não é erro, é a linha a apanhar a realidade.
+- `cap_reached` — a 4.ª recompensa daquela conta. Registada, não paga.
 
 ### Reembolsos
 
-**Um reembolso não reverte o crédito**, e isso é decisão, não esquecimento: os
-reembolsos são feitos à mão no nosso Stripe, portanto quem os faz já lá está, com
-o saldo do convidante a um clique. Automatizar a reversão custava mais do que o
-risco.
+**Um reembolso não reverte a recompensa automaticamente**, e isso é decisão: os
+reembolsos são feitos à mão no nosso Stripe, portanto quem os faz já lá está.
 
 O passo que falta, quando se reembolsa a **primeira** factura de alguém:
 
 1. em `/admin/financeiro` → **Convites**, procurar a linha em que essa pessoa é a
-   convidada. Se não existir nenhuma, ou se estiver em `inscreveu-se`, acabou:
-   ninguém foi creditado por ela;
-2. se estiver em `creditado`, a linha diz o valor. No Stripe, no cliente do
-   **convidante** → *Balance* → *Adjust balance*, lançar esse valor **positivo**
-   (o crédito é negativo, logo o simétrico anula-o), com uma descrição a dizer
-   porquê.
+   convidada. Se não existir, ou estiver em `inscreveu-se`, acabou;
+2. se estiver em `creditado`, a linha diz até quando a subscrição de quem
+   convidou foi empurrada. No Stripe, nessa subscrição, encurtar o `trial_end`
+   para a data que tinha antes. A cláusula 9 dos termos guarda-nos esse direito.
 
-Não mexer na linha da base de dados: ela é o registo do que aconteceu, e pô-la de
-novo a `paid` faz o próximo pagamento do convidante creditar tudo outra vez.
+Não mexer na linha da base de dados para a pôr outra vez a `pending`: isso faz a
+subscrição seguinte do convidado creditar tudo de novo.
 
-A data de fim (31/10/2026) vive em `CAMPAIGN_END`, em
-`backoffice/src/lib/referral.ts`. Fecha o **resgate**, nunca o **crédito**: quem
-convidou dentro do prazo recebe, mesmo que o convidado só pague em Novembro. É o
-que a copy promete.
 
 ## 6. O que ficou deliberadamente de fora
 
@@ -146,9 +143,10 @@ que a copy promete.
 - **Listas frias.** `rioko-cold-pt.html` continua por enviar: a audiência são
   contas registadas em D1, e mandar para uma lista comprada é outra tabela, um
   importador e um risco de RGPD diferente.
-- **Link pessoal dentro do email.** O convite leva um link só, para
-  `rioko.online/pt/convidar`. Um link pessoal colado no corpo de um email é
-  reencaminhado, e um link pessoal reencaminhado credita a conta errada.
+- **Link pessoal dentro do email.** O convite leva um link só, para a página de
+  Faturação, onde cada um encontra o seu. Um link pessoal colado no corpo de um
+  email é reencaminhado, e um link pessoal reencaminhado credita a conta errada.
+- **Reversão automática de recompensa num reembolso.** Ver a secção 5.
 - **Uma tabela de destinatários por campanha.** A lista resolvida fica em
   `newsletter_campaigns.recipients_json`, o que chega para uma frota desta
   dimensão. Parte-se em tabela quando alguém quiser cruzar aberturas com contas.

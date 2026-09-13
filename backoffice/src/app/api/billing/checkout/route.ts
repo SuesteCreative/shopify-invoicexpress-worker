@@ -6,6 +6,8 @@ import { keyFromRequest } from "@/lib/subscription-key";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { resolveReturnPath } from "@/lib/oauth-return";
 import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
+import { addMonths } from "@/lib/referral-reward";
+import { REWARD_MONTHS } from "@/lib/referral";
 
 export const runtime = "edge";
 
@@ -103,6 +105,23 @@ export async function POST(req: NextRequest) {
         // Stripe trial. early_bird metadata mirrors the DB flag for reference only.
         const earlyBirdMeta = sub?.early_bird ? "1" : "0";
 
+        // Somebody who arrived through a referral link subscribes with two
+        // months on the house. This is the ONLY place that grant exists: it is a
+        // real Stripe trial, so Stripe runs the clock and takes the card on its
+        // own at the end, and the gate already lets a trial with a subscription
+        // id behind it through.
+        //
+        // An absolute `trial_end`, not `trial_period_days`: two calendar months
+        // is 59, 60, 61 or 62 days depending on where in the year it lands, and
+        // the terms promise months. A Checkout Session expires within 24 hours,
+        // so a date computed here cannot go stale before the form is submitted.
+        const referred: any = await db.prepare(
+            "SELECT 1 AS ok FROM referrals WHERE invitee_user_id = ? AND state = 'pending'"
+        ).bind(targetUserId).first().catch(() => null);
+        const referralTrialEnd = referred?.ok
+            ? Math.floor(new Date(addMonths(new Date().toISOString(), REWARD_MONTHS)).getTime() / 1000)
+            : null;
+
         const SOURCE_PATHS: Record<string, { ok: string; cancel: string }> = {
             "lodgify-moloni": { ok: "/integrations/lodgify-moloni?stripe=success", cancel: "/integrations/lodgify-moloni?stripe=cancel" },
             "stripe-moloni":  { ok: "/integrations/stripe-moloni?stripe=success",  cancel: "/integrations/stripe-moloni?stripe=cancel" },
@@ -189,7 +208,19 @@ export async function POST(req: NextRequest) {
                     early_bird: earlyBirdMeta,
                     plan,
                     connection_key: connectionKey,
+                    ...(referralTrialEnd ? { referral_role: "invitee" } : {}),
                 },
+                ...(referralTrialEnd
+                    ? {
+                        trial_end: referralTrialEnd,
+                        // A backstop, not the normal path: the card is collected
+                        // below and stays on the subscription. It only matters if
+                        // the merchant removes it from the portal mid-trial, and
+                        // cancelling is kinder than Stripe's default of invoicing
+                        // them into past_due, which the gate reads as blocked.
+                        trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+                    }
+                    : {}),
             },
             payment_method_collection: "always",
             metadata: {
@@ -205,7 +236,10 @@ export async function POST(req: NextRequest) {
                 ? { ui_mode: EMBEDDED_CHECKOUT_UI_MODE as any, return_url: returnUrl! }
                 : { success_url: successUrl, cancel_url: cancelUrl }
             ),
-            allow_promotion_codes: true,
+            // Not on a referral. Two free months and a promotion code on top is
+            // two offers stacked, which the campaign terms say does not happen,
+            // and this is the only place that could let it.
+            ...(referralTrialEnd ? {} : { allow_promotion_codes: true }),
         },
             // The embedded session is created against a NEWER API version than the
             // one this client pins. The browser SDK mounts embedded Checkout with

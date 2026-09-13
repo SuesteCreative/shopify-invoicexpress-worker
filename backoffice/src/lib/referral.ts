@@ -1,78 +1,117 @@
-import { newInviteToken, isValidToken, TOKEN_PATTERN } from "./onboarding-invites";
+import { normalizeClientCode } from "./client-code";
 
 /**
- * "Convide um amigo, ganhe 2 meses."
+ * "Convida 1 amigo, recebem os dois 2 meses grátis."
  *
- * The rules, in one place, because they are promises made in writing to clients
- * and the copy in Claude outputs/rioko-convite-pt.txt is the specification:
+ * The rules live here because they are promises made in writing to clients, and
+ * the terms page and this file have to say the same thing:
  *
- *   - 2 free months for the inviter, per referral, no cap.
- *   - 1 free month for the invitee, no card.
- *   - The campaign ends 31 October. What has to happen by then is the CLAIM —
- *     "contam os convites em que a conta nova liga a primeira integração até essa
- *     data" — not the payment, which may land later. So the end date closes the
- *     claim and never the credit: someone who invited on the 30th and whose
- *     friend pays in November is owed the two months, and gets them.
- *   - "Válido para contas novas": an account that has been around for a while
- *     cannot retroactively be somebody's referral.
+ *   - both sides get 2 free months;
+ *   - whoever invites needs an account AND a live subscription — the reward is
+ *     two months added to a subscription, so there has to be one to add them to;
+ *   - whoever is invited finishes onboarding and leaves a card. Their
+ *     subscription is created with a 2-month trial and Stripe charges it on its
+ *     own at the end. Nothing here grants that: it is `trial_period_days` on the
+ *     Checkout, and the gate already lets a Stripe trial through;
+ *   - unlimited invitations, at most 3 rewards, so at most 6 free months;
+ *   - claims close on 31 October. The REWARD does not: somebody who invited on
+ *     the 30th and whose friend subscribes in November is owed those months, and
+ *     gets them. That distinction is in the terms and has to stay true here.
  *
- * The invitee's free month is not a Stripe coupon. It is `early_bird = 1` with a
- * `trial_end` thirty days out, which is what the gate already reads — the same
- * grace the Shopify pilots had. That is also the only version of this that is
- * honestly "sem cartão": a 100%-off coupon still walks the merchant through a
- * Checkout, and a Checkout that collects no card leaves the second month to fail.
+ * THE INVITE CODE IS THE CUSTOMER NUMBER, plus a suffix. `RIO-1A2B3C-9F2B41`.
+ * One number per client — the one they dictate on the phone, the one on their
+ * record, the one the newsletter files a campaign under — and the suffix is what
+ * keeps migration 0058's rule intact: the number never opens a public page naked.
  */
 
-/** The token shape is the onboarding invite's, which is tested and known good:
- *  a readable slug plus 12 hex, so the company name alone is never the secret. */
-export { newInviteToken as newReferralCode, isValidToken as isValidReferralCode, TOKEN_PATTERN };
-
 export const CAMPAIGN_END = "2026-10-31";
-export const INVITEE_FREE_DAYS = 30;
-/** How new "conta nova" means. Wide enough that someone can sign up, look
- *  around, and come back to the link the next day. */
+export const REWARD_MONTHS = 2;
+/** 3 × 2 months = the 6-month ceiling the campaign copy promises. */
+export const MAX_REWARDS = 3;
+/** How new "conta nova" means. Wide enough to sign up, look around, come back. */
 export const NEW_ACCOUNT_WINDOW_DAYS = 7;
 
+const SUFFIX_RE = /^[0-9A-F]{6}$/;
+const HEX = "0123456789ABCDEF";
+
+/** Six hex characters, the same shape and alphabet as the customer number. */
+export function newReferralSuffix(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(3));
+    let out = "";
+    for (const b of bytes) out += HEX[(b >> 4) & 0xf] + HEX[b & 0xf];
+    return out;
+}
+
+export function referralToken(clientCode: string, suffix: string): string {
+    return `${clientCode}-${suffix}`;
+}
+
+/**
+ * `RIO-1A2B3C-9F2B41` → its two halves, or null.
+ *
+ * The customer number carries a dash of its own, so the token has three
+ * segments and the LAST one is the suffix. The code half goes through
+ * normalizeClientCode rather than a second regex — one normaliser, in
+ * lib/client-code, or the two drift and a link stops resolving for a reason
+ * nobody can see.
+ */
+export function splitReferralToken(raw: unknown): { code: string; suffix: string } | null {
+    if (typeof raw !== "string") return null;
+    const parts = raw.trim().toUpperCase().split("-").filter(Boolean);
+    if (parts.length !== 3) return null;
+    const code = normalizeClientCode(`${parts[0]}-${parts[1]}`);
+    const suffix = parts[2];
+    if (!code || !SUFFIX_RE.test(suffix)) return null;
+    return { code, suffix };
+}
+
 export const REFERRAL_LINK_BASE = "https://rioko.online/pt/convite";
-export function referralLink(code: string): string {
-    return `${REFERRAL_LINK_BASE}/${code}`;
+export function referralLink(token: string): string {
+    return `${REFERRAL_LINK_BASE}/${token}`;
 }
 
 export type ReferralRefusal =
-    | "invalid"        // not a token shape
-    | "unknown"        // no such code
-    | "self"           // inviting yourself
-    | "closed"         // campaign over
-    | "not_new";       // the account has been here too long to be a referral
+    | "invalid"          // not a token shape
+    | "unknown"          // no such code, or the suffix does not match
+    | "self"             // inviting yourself
+    | "closed"           // the campaign is over
+    | "not_new"          // this account has been here too long to be a referral
+    | "already"          // already referred by somebody
+    | "inviter_inactive"; // whoever invited has no live subscription to add months to
 
 export interface ClaimContext {
-    code: string;
+    token: string;
     inviterUserId: string | null;
+    inviterHasLiveSubscription: boolean;
     inviteeUserId: string;
-    /** users.created_at for the invitee, either timestamp format. */
+    /** users.created_at for the invitee, in either timestamp format. */
     inviteeCreatedAt: string | null;
+    alreadyReferred: boolean;
     now: Date;
 }
 
 /**
  * Why a claim is refused, or null when it stands.
  *
- * Deliberately pure and date-injected: the campaign boundary is a promise with a
- * date on it, and a rule that can only be exercised by waiting for November is a
- * rule nobody checks.
+ * Pure and date-injected: the campaign boundary is a promise with a date on it,
+ * and a rule that can only be exercised by waiting for November is a rule nobody
+ * checks.
  */
 export function claimRefusal(ctx: ClaimContext): ReferralRefusal | null {
-    if (!isValidToken(ctx.code)) return "invalid";
+    if (!splitReferralToken(ctx.token)) return "invalid";
     if (!ctx.inviterUserId) return "unknown";
     if (ctx.inviterUserId === ctx.inviteeUserId) return "self";
+    if (ctx.alreadyReferred) return "already";
 
     const today = ctx.now.toISOString().slice(0, 10);
     if (today > CAMPAIGN_END) return "closed";
 
+    if (!ctx.inviterHasLiveSubscription) return "inviter_inactive";
+
     if (ctx.inviteeCreatedAt) {
-        // Both timestamp formats live in this column — "2026-09-08 14:52:25" from
-        // CURRENT_TIMESTAMP and ISO with a T and a Z from application code — and
-        // they sort wrong against each other from position 11. Compare the dates.
+        // Both timestamp formats live in users.created_at — "2026-09-08 14:52:25"
+        // from CURRENT_TIMESTAMP and ISO with a T and a Z from application code —
+        // and they sort wrong against each other from position 11. Compare dates.
         const created = String(ctx.inviteeCreatedAt).slice(0, 10);
         const cutoff = new Date(ctx.now.getTime() - NEW_ACCOUNT_WINDOW_DAYS * 86_400_000)
             .toISOString().slice(0, 10);
@@ -81,9 +120,10 @@ export function claimRefusal(ctx: ClaimContext): ReferralRefusal | null {
     return null;
 }
 
-// When the free month runs out is computed in ONE place, graceEndFrom() in
-// referral-grace.ts, anchored to the claim. A second function doing the same
-// arithmetic from `now` is how a grace ends up quietly extending itself.
+/** Is the campaign still taking claims? */
+export function campaignOpen(now = new Date()): boolean {
+    return now.toISOString().slice(0, 10) <= CAMPAIGN_END;
+}
 
 export const REFUSAL_PT: Record<ReferralRefusal, string> = {
     invalid: "Este link de convite não é válido.",
@@ -91,4 +131,6 @@ export const REFUSAL_PT: Record<ReferralRefusal, string> = {
     self: "Não podes usar o teu próprio link de convite.",
     closed: "A campanha de convites terminou a 31 de Outubro.",
     not_new: "Os convites são para contas novas, e esta já não é.",
+    already: "Esta conta já foi convidada por alguém.",
+    inviter_inactive: "Quem te convidou não tem uma subscrição activa neste momento.",
 };

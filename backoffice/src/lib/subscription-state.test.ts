@@ -119,6 +119,7 @@ describe("the subscription gate", () => {
             row({ status: "trialing", early_bird: 1, trial_end: future }),
             row({ status: "trialing", early_bird: 1, trial_end: past }),
             row({ status: "trialing", stripe_subscription_id: "sub_1" }),
+            row({ status: "trialing", stripe_subscription_id: "sub_1", reward_until: future }),
             row({ status: "exempt" }),
         ];
         for (const c of cases) {
@@ -126,5 +127,36 @@ describe("the subscription gate", () => {
             const badge = subscriptionUIState(c);
             expect(badge === "blocked").toBe(blocked);
         }
+    });
+});
+
+describe("a referral reward is not a trial", () => {
+    /**
+     * Two months added to a paying subscription arrive as a Stripe trial, so the
+     * row says `trialing` and looks exactly like a new account's first weeks.
+     * Telling a client of a year that they are "em período de teste", with a
+     * countdown, reads as a demotion and contradicts the campaign terms.
+     */
+    it("names the reward instead of the trial that carries it", () => {
+        const r = row({ status: "trialing", stripe_subscription_id: "sub_1", reward_until: future });
+        expect(subscriptionUIState(r)).toBe("reward");
+        expect(isSubscriptionBlocked(r)).toBe(false);
+    });
+
+    it("goes back to being a plain trial once the reward has run out", () => {
+        const r = row({ status: "trialing", stripe_subscription_id: "sub_1", reward_until: past });
+        expect(subscriptionUIState(r)).toBe("trialing");
+    });
+
+    it("does not turn a blocked row into a reward", () => {
+        // The column says why a trial is happening; it never grants access.
+        const r = row({ status: "canceled", reward_until: future });
+        expect(subscriptionUIState(r)).toBe("blocked");
+        expect(isSubscriptionBlocked(r)).toBe(true);
+    });
+
+    it("counts as converted for an early bird who later earned one", () => {
+        const r = row({ status: "trialing", stripe_subscription_id: "sub_1", early_bird: 1, reward_until: future });
+        expect(earlyBirdState(r)).toBe("converted");
     });
 });

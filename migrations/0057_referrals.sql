@@ -1,56 +1,69 @@
--- "Convide um amigo, ganhe 2 meses."
+-- "Convida 1 amigo, recebem os dois 2 meses grátis."
 --
--- The states are the money, so each one is guarded by a constraint rather than
--- by a check in application code. The two things that must never happen — an
--- account referred twice, an account referring itself — are cheaper to make
--- impossible than to test for, and a UNIQUE index does not forget under a
--- concurrent webhook the way an `if` around a SELECT does.
+-- REESCRITA. A primeira versão deste ficheiro desenhava outra campanha (2 meses
+-- para quem convida, 1 mês sem cartão para quem é convidado) e trazia uma tabela
+-- `referral_codes` com um token próprio. Nunca correu em lado nenhum: confirmado
+-- contra produção a 13/09/2026, onde `referrals` e `referral_codes` não existiam.
+-- Uma migração que nunca foi aplicada e cuja funcionalidade mudou corrige-se; a
+-- alternativa era criar duas tabelas para as deitar fora na semana seguinte.
 --
--- Three rules, three constraints:
---   * PRIMARY KEY (invitee_user_id)      one account is referred once, for ever
---   * CHECK (inviter <> invitee)         nobody invites themselves
---   * UNIQUE (invitee_first_invoice_id)  one credit per invoice, whatever Stripe
---                                        re-delivers
+-- Antes de aplicar, confirmar que continua a ser verdade:
+--   SELECT name FROM sqlite_master WHERE name IN ('referrals','referral_codes');
+-- Se devolver alguma coisa, PARAR: esta versão já não serve e é preciso uma 0059
+-- com ALTER em vez desta reescrita.
 --
--- The inviter's reward is a Stripe CUSTOMER BALANCE credit, not a coupon on the
--- subscription. An inviter may be monthly, annual, on a legacy price, or not yet
--- paying at all; a balance credit is the only instrument that behaves in all
--- four cases, stacks without limit across referrals (the copy promises no cap),
--- and lands on whatever invoice comes next. It is deliberately account-scoped:
--- the balance lives on the Stripe Customer and an account has one Customer with
--- several subscriptions (PK (user_id, connection_key) since 0044). Trying to bind
--- a credit to a connection would be inventing data — `billing_events` does not
--- even carry connection_key.
+-- O CÓDIGO DE CONVITE NÃO É UMA TABELA. É o número de cliente da 0058
+-- (`RIO-1A2B3C`) mais um sufixo aleatório: `RIO-1A2B3C-9F2B41`. Assim há UM só
+-- número por cliente — o mesmo que ele dita ao telefone, que aparece na ficha e
+-- que a newsletter usa — e mesmo assim a 0058 continua a ser respeitada, porque
+-- ela escreveu que o número nunca abre uma página pública sem um sufixo próprio,
+-- como o token de convite da 0051 já leva. O sufixo vive em `users`, não numa
+-- tabela: é um campo por conta, cunhado à primeira visita.
 --
--- The invitee's free month is NOT in this table. It is `early_bird = 1` plus a
--- `trial_end` thirty days out on their own `subscriptions` row, which is what the
--- gate already reads — the feature existed, it just had nobody granting it.
+-- AS REGRAS SÃO CONSTRAINTS, não verificações espalhadas pelo código:
+--   * PRIMARY KEY (invitee_user_id)         uma conta é convidada uma vez, para sempre
+--   * CHECK (inviter <> invitee)            ninguém se convida a si próprio
+--   * UNIQUE (invitee_subscription_id)      uma recompensa por subscrição
+-- O tecto de 3 recompensas não é constraint: é uma contagem, porque depende do
+-- estado das outras linhas e não desta.
+--
+-- A RECOMPENSA NÃO É UM CRÉDITO NEM UM CUPÃO. São dois meses acrescentados à
+-- subscrição que já corre, empurrando `trial_end` e, com ele, o
+-- `billing_cycle_anchor`. É a única forma que trata o plano anual como foi
+-- prometido: a renovação passa a ser dois meses mais tarde. Um cupão de 100%
+-- num plano anual daria um ano grátis, e um crédito no saldo daria 1/6 de uma
+-- fatura anual, que não são dois meses de calendário.
+--
+-- `subscriptions.reward_until` existe por causa do rótulo, não do acesso: durante
+-- a recompensa o Stripe põe a subscrição em `trialing`, e sem esta coluna o
+-- painel diria "período de teste" a um cliente que paga há um ano.
 --
 -- Apply by hand:
 --   npx wrangler d1 execute rioko-db --remote --file migrations/0057_referrals.sql
 -- NEVER `d1 migrations apply` on this database: its ledger is stuck at 0017 and
 -- it would replay 0018+ onto columns that already exist.
 
-CREATE TABLE referral_codes (
-  code       TEXT PRIMARY KEY,           -- slug-12hex, same shape as an onboarding invite
-  user_id    TEXT NOT NULL UNIQUE,       -- one code per account, minted once and kept
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+ALTER TABLE users ADD COLUMN referral_suffix TEXT;
 
 CREATE TABLE referrals (
-  invitee_user_id          TEXT PRIMARY KEY,
-  code                     TEXT NOT NULL,
-  inviter_user_id          TEXT NOT NULL,
-  state                    TEXT NOT NULL DEFAULT 'pending', -- pending|paid|credited
-  claimed_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  invitee_first_invoice_id TEXT,          -- set when the invitee first pays
-  invitee_paid_at          TEXT,
-  credit_cents             INTEGER,
-  credit_txn_id            TEXT,          -- Stripe balance transaction
-  credited_at              TEXT,
-  note                     TEXT,          -- why a credit is still parked, when it is
+  invitee_user_id         TEXT PRIMARY KEY,
+  inviter_user_id         TEXT NOT NULL,
+  -- Denormalizado de propósito: é a referência que se mostra no admin e nos
+  -- relatórios, e tem de sobreviver à conta de quem convidou ser apagada.
+  inviter_client_code     TEXT NOT NULL,
+  state                   TEXT NOT NULL DEFAULT 'pending', -- pending|subscribed|rewarded|void
+  claimed_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  invitee_subscription_id TEXT,      -- o sub_ do convidado que disparou a recompensa
+  invitee_subscribed_at   TEXT,
+  reward_months           INTEGER,
+  reward_until            TEXT,      -- o trial_end para onde a subscrição foi empurrada
+  rewarded_at             TEXT,
+  void_reason             TEXT,      -- porque é que uma recompensa foi recusada ou revertida
+  note                    TEXT,
   CHECK (inviter_user_id <> invitee_user_id)
 );
 
-CREATE INDEX        idx_referrals_inviter ON referrals(inviter_user_id, state);
-CREATE UNIQUE INDEX idx_referrals_invoice ON referrals(invitee_first_invoice_id);
+CREATE UNIQUE INDEX idx_referrals_invitee_sub ON referrals(invitee_subscription_id);
+CREATE INDEX        idx_referrals_inviter     ON referrals(inviter_user_id, state);
+
+ALTER TABLE subscriptions ADD COLUMN reward_until TEXT;

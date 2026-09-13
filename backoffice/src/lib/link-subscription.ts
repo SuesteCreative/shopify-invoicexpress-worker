@@ -195,15 +195,22 @@ export async function linkSubscriptionToConnection(opts: {
             const custEmail = typeof sub.customer === "object" ? sub.customer?.email : null;
             const custName = typeof sub.customer === "object" ? sub.customer?.name : null;
 
+            // Only when the webhook has not already recorded this invoice. It keys
+            // its row on the EVENT id and this one on the invoice id, so INSERT OR
+            // IGNORE never collided: the same payment got two rows, each matched to
+            // a different Kapta document (seen on 2026-09-10). admin-stats-sql
+            // already collapses the pair for revenue; the ledger should not hold it.
             await db.prepare(`
                 INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, payment_intent_id, amount_cents, currency, status, raw_json)
-                VALUES (?, ?, 'invoice.paid', ?, ?, ?, ?, 'paid', ?)
+                SELECT ?, ?, 'invoice.paid', ?, ?, ?, ?, 'paid', ?
+                 WHERE NOT EXISTS (SELECT 1 FROM billing_events WHERE stripe_object_id = ? AND type = 'invoice.paid')
             `).bind(
                 inv.id, userId, inv.id, piId, inv.amount_paid || 0, inv.currency || "eur",
                 // The invoice NUMBER goes in, not just the subscription id: it is the
                 // reference Kapta stamps on the document, and without it a retry of
                 // this event by the nightly cron has nothing exact left to search on.
                 JSON.stringify({ manual_link: true, subscription: sub.id, number: inv.number || null }),
+                inv.id,
             ).run();
 
             const match = await matchStripeChargeToIX({
@@ -220,9 +227,12 @@ export async function linkSubscriptionToConnection(opts: {
             });
             if (match.ix_invoice_id) {
                 ixMatched = true;
+                // By the payment, so it reaches the webhook's row when that is the
+                // one that exists — and never over a document already matched: a
+                // weaker heuristic here replaced nothing, it added a second answer.
                 await db.prepare(`
                     UPDATE billing_events SET ix_invoice_id = ?, ix_invoice_permalink = ?, ix_match_method = ?, ix_match_score = ?
-                    WHERE id = ?
+                    WHERE stripe_object_id = ? AND type = 'invoice.paid' AND ix_invoice_id IS NULL
                 `).bind(match.ix_invoice_id, match.ix_invoice_permalink, match.ix_match_method, match.ix_match_score, inv.id).run();
             }
         }

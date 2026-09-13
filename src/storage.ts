@@ -190,6 +190,25 @@ export interface SettlementState {
   lastMessage: string | null;
 }
 
+/**
+ * The owner of a row, resolved inside the statement that writes it.
+ *
+ * Most Shopify handlers build AppStorage from the shop domain alone
+ * (orders-created, orders-paid, orders-updated, refunds-create, admin) and never
+ * call loadConfig on that instance, so `this.userId` stayed null and every
+ * Shopify document of the last month was written with no account: 11k
+ * processed_orders rows, which every screen that reads by account then missed —
+ * including the legacy-row delete guard, which counted 0 documents.
+ *
+ * Fixed here, where all those callers write, instead of at seventeen
+ * constructors the next `new AppStorage(env, shop)` would forget. A known id
+ * wins; a shop with no integrations row (a deleted account) stays NULL rather
+ * than failing a write that protects an invoice from being issued twice. No
+ * extra round trip: the lookup rides in the same statement.
+ * ponytail: integrations.shopify_domain has no index (17 rows, a scan); add one if it grows.
+ */
+const OWNER_ID_SQL = "COALESCE(?, (SELECT user_id FROM integrations WHERE shopify_domain = ?))";
+
 export class AppStorage {
   private db: D1Database;
   private kv: KVNamespace;
@@ -317,11 +336,12 @@ export class AppStorage {
   async saveLog(data: { shopify_domain: string | null; topic: string; payload: any; response: any; status: number; user_id?: string | null }) {
     try {
       await this.db.prepare(
-        "INSERT INTO logs (id, shopify_domain, user_id, topic, payload, response, status) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        `INSERT INTO logs (id, shopify_domain, user_id, topic, payload, response, status) VALUES (?, ?, ${OWNER_ID_SQL}, ?, ?, ?, ?)`
       ).bind(
         crypto.randomUUID(),
         data.shopify_domain,
         data.user_id ?? this.userId,
+        data.shopify_domain ?? this.shopDomain,
         data.topic,
         JSON.stringify(data.payload),
         JSON.stringify(data.response),
@@ -462,12 +482,13 @@ export class AppStorage {
       // whose order no longer matches a tag rule must forget the old route
       // rather than keep finalizing against a series the merchant removed.
       await this.db.prepare(
-        "INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, user_id, created_at, source_kind, destination_kind, hold_reason, routed_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        `INSERT OR REPLACE INTO processed_orders (id, invoice_id, shopify_domain, user_id, created_at, source_kind, destination_kind, hold_reason, routed_json) VALUES (?, ?, ?, ${OWNER_ID_SQL}, ?, ?, ?, ?, ?)`
       ).bind(
         String(orderId),
         String(invoiceId),
         this.shopDomain,
         this.userId,
+        this.shopDomain,
         new Date().toISOString(),
         sourceKind,
         destinationKind,
@@ -669,11 +690,12 @@ export class AppStorage {
   }) {
     try {
       await this.db.prepare(
-        "INSERT INTO dev_jobs (id, shopify_domain, user_id, type, params, status, triggered_by, reason, started_at, source_kind, destination_kind) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)"
+        `INSERT INTO dev_jobs (id, shopify_domain, user_id, type, params, status, triggered_by, reason, started_at, source_kind, destination_kind) VALUES (?, ?, ${OWNER_ID_SQL}, ?, ?, 'running', ?, ?, ?, ?, ?)`
       ).bind(
         params.id,
         this.shopDomain,
         this.userId,
+        this.shopDomain,
         params.type,
         JSON.stringify(params.params),
         params.triggered_by ?? null,
@@ -1649,13 +1671,14 @@ export class AppStorage {
 
   async markWebhookAsProcessing(webhookId: string, topic: string) {
     try {
-      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain, user_id) VALUES (?, ?, ?, ?, ?, ?)").bind(
+      await this.db.prepare(`INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain, user_id) VALUES (?, ?, ?, ?, ?, ${OWNER_ID_SQL})`).bind(
         webhookId,
         topic,
         "processing",
         new Date().toISOString(),
         this.shopDomain,
         this.userId,
+        this.shopDomain,
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to mark webhook as processing:", e);
@@ -1664,13 +1687,17 @@ export class AppStorage {
 
   async markWebhookAsProcessed(webhookId: string, topic: string, state: string = "success") {
     try {
-      await this.db.prepare("INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain, user_id) VALUES (?, ?, ?, ?, ?, ?)").bind(
+      // INSERT OR REPLACE over the "processing" row the queue consumer wrote with
+      // the account: without the owner lookup the handler's instance put a NULL
+      // back over it (orders/paid: 3,348 of the last month's rows).
+      await this.db.prepare(`INSERT OR REPLACE INTO webhook_info (webhook_id, topic, state, created_at, shopify_domain, user_id) VALUES (?, ?, ?, ?, ?, ${OWNER_ID_SQL})`).bind(
         webhookId,
         topic,
         state,
         new Date().toISOString(),
         this.shopDomain,
         this.userId,
+        this.shopDomain,
       ).run();
     } catch (e) {
       console.warn("[Rioko] Failed to mark webhook as processed:", e);

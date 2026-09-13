@@ -271,7 +271,11 @@ export async function runDocumentVerifySweep(
             ? null
             : possibleExemptionCodes(connCtx.config, connCtx.destinationConfig),
         },
-        userId: c.userId,
+        // The candidate's user comes from processed_orders, which the legacy
+        // Shopify handlers left NULL; the resolved connection knows the account.
+        // Without it a history run wrote its events and drift incidents with no
+        // account (4,471 events, 10 incidents on 2026-08-15).
+        userId: c.userId ?? connCtx.userId,
         shopifyDomain: c.shopifyDomain,
         sourceKind: c.sourceKind,
         destinationKind: c.destinationKind,

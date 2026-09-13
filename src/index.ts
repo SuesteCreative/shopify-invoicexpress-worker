@@ -3236,14 +3236,15 @@ async function processStripeBatch(batch: MessageBatch<StripeQueueMessage>, env: 
       // Defense: ensure the row never lingers in `processing`. The pipeline marks
       // success on its own paths, but a path that returns without marking would
       // otherwise leave a stuck row; re-marking is idempotent (INSERT OR REPLACE).
-      try { await new AppStorage(env).markWebhookAsProcessed(eventId, `stripe/${topic}`, "success"); } catch { /* best-effort */ }
+      // With the account: a Stripe event has no shop to resolve an owner from.
+      try { await new AppStorage(env, null, userId).markWebhookAsProcessed(eventId, `stripe/${topic}`, "success"); } catch { /* best-effort */ }
 
       message.ack();
     } catch (e) {
       console.error(`[Stripe] Queue handler error for event ${eventId}:`, e);
       const { permanent } = classifyPipelineError(e);
       try {
-        const appStorage = new AppStorage(env);
+        const appStorage = new AppStorage(env, null, userId);
         if (eventId) {
           await appStorage.markWebhookAsProcessed(eventId, `stripe/${topic}`, "failed");
         }

@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/admin";
 import { getDB } from "@/lib/stripe";
-import { listDocumentIndex } from "@/lib/invoicexpress-kapta";
+import { getDocumentSummaries, getReferenceSummaries, listDocumentIndex } from "@/lib/invoicexpress-kapta";
 import { findInIndex, type KaptaDocSummary } from "@/lib/kapta-doc-number";
 
 export const runtime = "edge";
@@ -32,6 +32,19 @@ export const runtime = "edge";
  */
 
 const LISTED_TYPES = ["invoice.paid", "invoice.payment_failed", "charge.refunded"] as const;
+
+/** Payments whose Kapta document is read from InvoiceXpress on a visit. */
+const IX_LOOKUP_EVENTS = 25;
+/** How long the panel waits for InvoiceXpress before showing the payments without it. */
+const IX_PANEL_DEADLINE_MS = 20_000;
+
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`O InvoiceXpress não respondeu em ${ms / 1000}s`)), ms);
+    });
+    return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
+}
 
 /** A refund is credited by a credit note; everything else by an invoice. */
 function docTypeFor(eventType: string): "invoice" | "credit_note" {
@@ -111,29 +124,52 @@ export async function GET(req: NextRequest) {
 
     // The number and the state, which is what identifies a document to a human.
     // Best-effort: InvoiceXpress being slow must not empty the panel.
-    let invoices = new Map<string, KaptaDocSummary>();
-    let creditNotes = new Map<string, KaptaDocSummary>();
-    let ixError: string | null = null;
-    try {
-        const linkedTypes = new Set(events.filter(e => e.ix_invoice_id).map(e => docTypeFor(String(e.type))));
-        if (linkedTypes.has("invoice")) invoices = await listDocumentIndex("invoice");
-        if (linkedTypes.has("credit_note")) creditNotes = await listDocumentIndex("credit_note");
-    } catch (e: any) {
-        ixError = String(e?.message || e);
-    }
-
+    //
+    // Only this account's documents, one GET each. This used to read the whole
+    // Kapta account, page after page and with no time limit, on every visit: the
+    // tab sat on "A ler os pagamentos…" for every client, and the payments it
+    // already had from D1 were never shown.
+    const invoices = new Map<string, KaptaDocSummary>();
+    const creditNotes = new Map<string, KaptaDocSummary>();
     // What the reference says, which for a subscription payment is not an opinion:
     // Kapta stamps Stripe's own invoice number ("C2715CFE-1396") on the document.
     // Everything linked by heuristic was linked without this being tried, so show
     // it next to the link and let it be compared.
     const byReference = new Map<string, KaptaDocSummary>();
-    for (const doc of invoices.values()) {
-        if (!doc.reference) continue;
-        const key = doc.reference.trim();
-        // A cancelled document and its replacement share the reference. The one
-        // that stands wins, whichever order the list happens to be in.
-        const held = byReference.get(key);
-        if (!held || held.state === "canceled") byReference.set(key, doc);
+    let ixError: string | null = null;
+
+    // ponytail: documents are looked up for the most recent IX_LOOKUP_EVENTS
+    // payments; older rows still show, without a number. Plenty for one account's
+    // record; raise it if a history ever needs more.
+    const recent = events.slice(0, IX_LOOKUP_EVENTS);
+    const linkedIds = (type: "invoice" | "credit_note") => recent
+        .filter(e => e.ix_invoice_id && docTypeFor(String(e.type)) === type)
+        .map(e => String(e.ix_invoice_id));
+    try {
+        await withDeadline((async () => {
+            const [inv, cn] = await Promise.all([
+                linkedIds("invoice").length ? getDocumentSummaries(linkedIds("invoice"), "invoice") : new Map<string, KaptaDocSummary>(),
+                linkedIds("credit_note").length ? getDocumentSummaries(linkedIds("credit_note"), "credit_note") : new Map<string, KaptaDocSummary>(),
+            ]);
+            for (const [k, v] of inv) invoices.set(k, v);
+            for (const [k, v] of cn) creditNotes.set(k, v);
+
+            // Searched by reference only where the linked document does not already
+            // carry the Stripe number: a link that confirms itself needs no second
+            // opinion, and skipping it keeps a normal account to one GET a payment.
+            const refs = [...new Set(recent
+                .filter(e => docTypeFor(String(e.type)) === "invoice" && e.stripe_invoice_number)
+                .filter(e => {
+                    const id = e.ix_invoice_id ? String(e.ix_invoice_id).replace(/\.0$/, "") : null;
+                    return (id ? invoices.get(id)?.reference?.trim() : null) !== String(e.stripe_invoice_number).trim();
+                })
+                .map(e => String(e.stripe_invoice_number).trim()))];
+            if (refs.length) {
+                for (const [k, v] of await getReferenceSummaries(refs)) byReference.set(k, v);
+            }
+        })(), IX_PANEL_DEADLINE_MS);
+    } catch (e: any) {
+        ixError = String(e?.message || e);
     }
 
     return NextResponse.json({

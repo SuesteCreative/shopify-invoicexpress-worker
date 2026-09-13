@@ -1,5 +1,5 @@
 import { getStripeEnv, getStripeEnvOptional } from "./stripe";
-import type { KaptaDocSummary } from "./kapta-doc-number";
+import { documentFromGetResponse, remainingPages, summarizeIxDoc, type KaptaDocSummary } from "./kapta-doc-number";
 
 export { findInIndex, normalizeDocNumber, docNumberSpellings, type KaptaDocSummary } from "./kapta-doc-number";
 
@@ -59,24 +59,72 @@ function getConfig(): KaptaIXConfig | null {
     return { account, apiKey, env };
 }
 
+/**
+ * Every call to InvoiceXpress gives up after this long.
+ *
+ * None had a limit. A page that never answered held the request open until
+ * Cloudflare cut it, and the admin's Faturas Kapta tab sat on "A ler os
+ * pagamentos…" with nothing to say why — on every client, because every visit
+ * walked the whole account. A timeout turns that into an error the panel shows.
+ */
+const IX_FETCH_TIMEOUT_MS = 10_000;
+
+function ixFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    return fetch(url, { ...init, signal: AbortSignal.timeout(IX_FETCH_TIMEOUT_MS) });
+}
+
+/** `limit` at a time, in order of the input. A rejection stops nothing else. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
+    const out: PromiseSettledResult<R>[] = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < items.length) {
+            const i = next++;
+            try { out[i] = { status: "fulfilled", value: await fn(items[i]) }; }
+            catch (reason) { out[i] = { status: "rejected", reason }; }
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
+}
+
+/** The host answers the same for the life of an isolate; no need to ask per call. */
+const _baseUrlCache = new Map<string, string>();
+
 async function getBaseUrl(cfg: KaptaIXConfig): Promise<string> {
+    const cached = _baseUrlCache.get(cfg.account);
+    if (cached) return cached;
+
     const isTest = cfg.env === "sandbox" || cfg.env === "test" || cfg.env === "macewindu";
     const suffix = isTest ? ".macewindu.invoicexpress.com" : ".invoicexpress.com";
     const domain = cfg.account.toLowerCase().endsWith(".invoicexpress.com")
         ? cfg.account
         : `${cfg.account}${suffix}`;
 
+    let url = `https://${domain}`;
     if (!isTest && !cfg.account.includes(".app") && !cfg.account.endsWith(".invoicexpress.com")) {
         try {
-            const check = await fetch(`https://${domain}/clients.json?per_page=1&api_key=${cfg.apiKey}`, { method: "HEAD" });
-            if (check.status === 530 || check.status === 404) return `https://${cfg.account}.app.invoicexpress.com`;
-        } catch { return `https://${cfg.account}.app.invoicexpress.com`; }
+            const check = await ixFetch(`https://${domain}/clients.json?per_page=1&api_key=${cfg.apiKey}`, { method: "HEAD" });
+            if (check.status === 530 || check.status === 404) url = `https://${cfg.account}.app.invoicexpress.com`;
+        } catch { url = `https://${cfg.account}.app.invoicexpress.com`; }
     }
-    return `https://${domain}`;
+    _baseUrlCache.set(cfg.account, url);
+    return url;
 }
 
 function buildPermalink(cfg: KaptaIXConfig, baseUrl: string, doc: IXDocument): string {
     return `${baseUrl}/${doc.type}/${doc.id}`;
+}
+
+type IxEndpoint = { endpoint: string; list: string; type: "invoice_receipts" | "invoices" | "credit_notes" };
+
+function endpointsFor(docType: "invoice" | "credit_note"): IxEndpoint[] {
+    return docType === "credit_note"
+        ? [{ endpoint: "credit_notes", list: "credit_notes", type: "credit_notes" }]
+        : [
+            { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
+            { endpoint: "invoices", list: "invoices", type: "invoices" },
+        ];
 }
 
 // Per-account doc-list cache. matchStripeChargeToIX runs once per pending event in
@@ -89,6 +137,8 @@ function buildPermalink(cfg: KaptaIXConfig, baseUrl: string, doc: IXDocument): s
 const IX_LIST_PAGE_SIZE = 100;
 const IX_LIST_MAX_PAGES = 20; // ≤2000 docs per type — covers the whole Kapta account
 const IX_LIST_CACHE_TTL_MS = 60_000;
+/** Pages fetched at once once IX has said how many there are. */
+const IX_LIST_CONCURRENCY = 4;
 const _listCache = new Map<string, { at: number; docs: IXDocument[] }>();
 
 async function listRecent(cfg: KaptaIXConfig, baseUrl: string, docType: "invoice" | "credit_note" = "invoice"): Promise<IXDocument[]> {
@@ -97,27 +147,46 @@ async function listRecent(cfg: KaptaIXConfig, baseUrl: string, docType: "invoice
     if (hit && Date.now() - hit.at < IX_LIST_CACHE_TTL_MS) return hit.docs;
 
     const authHeaders = { "X-InvoiceXpress-API-Key": cfg.apiKey, "Accept": "application/json" };
-    const types: { endpoint: string; list: string; type: "invoice_receipts" | "invoices" | "credit_notes" }[] =
-        docType === "credit_note"
-            ? [{ endpoint: "credit_notes", list: "credit_notes", type: "credit_notes" }]
-            : [
-                { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
-                { endpoint: "invoices", list: "invoices", type: "invoices" },
-            ];
     const docs: IXDocument[] = [];
-    for (const t of types) {
-        for (let page = 1; page <= IX_LIST_MAX_PAGES; page++) {
-            try {
-                const res = await fetch(`${baseUrl}/${t.endpoint}.json?per_page=${IX_LIST_PAGE_SIZE}&page=${page}&api_key=${cfg.apiKey}`, { headers: authHeaders });
-                if (!res.ok) break;
-                const data: any = await res.json();
-                const list = data[t.list] || [];
-                for (const d of list) docs.push({ ...d, type: t.type });
-                if (list.length < IX_LIST_PAGE_SIZE) break; // last page reached
-            } catch (err) {
-                console.error(`[Kapta IX] listRecent ${t.endpoint} p${page} error`, err);
-                break;
+    for (const t of endpointsFor(docType)) {
+        const pageUrl = (page: number) => `${baseUrl}/${t.endpoint}.json?per_page=${IX_LIST_PAGE_SIZE}&page=${page}&api_key=${cfg.apiKey}`;
+        try {
+            const res = await ixFetch(pageUrl(1), { headers: authHeaders });
+            if (!res.ok) continue;
+            const first: any = await res.json();
+            const list = first[t.list] || [];
+            for (const d of list) docs.push({ ...d, type: t.type });
+            if (list.length < IX_LIST_PAGE_SIZE) continue; // one page was all of it
+
+            // When IX says how many pages there are, the rest are fetched a few at
+            // a time instead of one after another: the account is hundreds of
+            // documents, and a page at a time made every read take as long as all
+            // of them together.
+            const rest = remainingPages(first, IX_LIST_MAX_PAGES);
+            if (rest) {
+                const pages = await mapLimit(rest, IX_LIST_CONCURRENCY, async (page) => {
+                    const r = await ixFetch(pageUrl(page), { headers: authHeaders });
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    const data: any = await r.json();
+                    return (data[t.list] || []) as any[];
+                });
+                for (const p of pages) {
+                    if (p.status === "fulfilled") for (const d of p.value) docs.push({ ...d, type: t.type });
+                    else console.error(`[Kapta IX] listRecent ${t.endpoint} page error`, p.reason);
+                }
+                continue;
             }
+
+            for (let page = 2; page <= IX_LIST_MAX_PAGES; page++) {
+                const r = await ixFetch(pageUrl(page), { headers: authHeaders });
+                if (!r.ok) break;
+                const data: any = await r.json();
+                const more = data[t.list] || [];
+                for (const d of more) docs.push({ ...d, type: t.type });
+                if (more.length < IX_LIST_PAGE_SIZE) break; // last page reached
+            }
+        } catch (err) {
+            console.error(`[Kapta IX] listRecent ${t.endpoint} error`, err);
         }
     }
     _listCache.set(cacheKey, { at: Date.now(), docs });
@@ -129,17 +198,10 @@ export async function findByReference(reference: string, docType: "invoice" | "c
     if (!cfg) return null;
     const baseUrl = await getBaseUrl(cfg);
     const authHeaders = { "X-InvoiceXpress-API-Key": cfg.apiKey, "Accept": "application/json" };
-    const types: { endpoint: string; list: string; type: "invoice_receipts" | "invoices" | "credit_notes" }[] =
-        docType === "credit_note"
-            ? [{ endpoint: "credit_notes", list: "credit_notes", type: "credit_notes" }]
-            : [
-                { endpoint: "invoice_receipts", list: "invoice_receipts", type: "invoice_receipts" },
-                { endpoint: "invoices", list: "invoices", type: "invoices" },
-            ];
-    for (const t of types) {
+    for (const t of endpointsFor(docType)) {
         for (let page = 1; page <= IX_LIST_MAX_PAGES; page++) {
             try {
-                const res = await fetch(`${baseUrl}/${t.endpoint}.json?per_page=${IX_LIST_PAGE_SIZE}&page=${page}&api_key=${cfg.apiKey}&text=${encodeURIComponent(reference)}`, { headers: authHeaders });
+                const res = await ixFetch(`${baseUrl}/${t.endpoint}.json?per_page=${IX_LIST_PAGE_SIZE}&page=${page}&api_key=${cfg.apiKey}&text=${encodeURIComponent(reference)}`, { headers: authHeaders });
                 if (!res.ok) break;
                 const data: any = await res.json();
                 const list = data[t.list] || [];
@@ -171,13 +233,11 @@ export async function findByReference(reference: string, docType: "invoice" | "c
 /**
  * The whole Kapta account, indexed by document id.
  *
- * Serves both halves of a manual relink: reading (an event holds an id, and an id
- * is not something a human can identify — the number and the state are) and
- * writing (the admin types a number, and only a lookup turns it into an id).
- *
- * IX has no lookup by `sequence_number`, so this is the same paged list the
- * matcher already walks, behind the same one-minute cache: one fetch run per
- * account, whatever the panel then asks of it.
+ * Only for the one question that needs all of it: turning a number an admin
+ * typed into a document (IX has no lookup by `sequence_number`). Reading what an
+ * account's payments point at does NOT go through here any more — see
+ * getDocumentSummaries — because walking hundreds of documents to show one
+ * client's three is what kept the Faturas Kapta tab loading forever.
  */
 export async function listDocumentIndex(
     docType: "invoice" | "credit_note" = "invoice",
@@ -187,24 +247,64 @@ export async function listDocumentIndex(
     if (!cfg) return index;
     const baseUrl = await getBaseUrl(cfg);
     for (const d of await listRecent(cfg, baseUrl, docType)) {
-        const id = String(d.id);
-        index.set(id, {
-            id,
-            // The printed spelling first: an admin types what the document shows.
-            // Either way findInIndex matches both, but only one is recognisable.
-            number: d.inverted_sequence_number ?? d.sequence_number ?? null,
-            reference: d.reference ?? null,
-            state: d.state ?? null,
-            total: d.total ?? null,
-            date: d.date ?? null,
-            // Prefer IX's own public permalink: what buildPermalink makes is behind
-            // the Kapta login, and this link is shown to the MERCHANT.
-            permalink: (typeof d.permalink === "string" && d.permalink)
-                ? d.permalink
-                : buildPermalink(cfg, baseUrl, { ...d, id }),
-        });
+        const summary = summarizeIxDoc(d, buildPermalink(cfg, baseUrl, { ...d, id: String(d.id) }));
+        index.set(summary.id, summary);
     }
     return index;
+}
+
+/**
+ * The documents behind these ids, one GET each.
+ *
+ * An id does not say which endpoint it lives under, so an invoice id is tried as
+ * a fatura-recibo first and then as a fatura. Ids IX does not know are simply
+ * absent from the answer. Throws only when not a single request got an answer,
+ * so the caller can tell "no such document" from "InvoiceXpress is down".
+ */
+export async function getDocumentSummaries(
+    ids: string[],
+    docType: "invoice" | "credit_note" = "invoice",
+): Promise<Map<string, KaptaDocSummary>> {
+    const found = new Map<string, KaptaDocSummary>();
+    const cfg = getConfig();
+    if (!cfg) return found;
+    const baseUrl = await getBaseUrl(cfg);
+    const authHeaders = { "X-InvoiceXpress-API-Key": cfg.apiKey, "Accept": "application/json" };
+    const unique = [...new Set(ids.map((id) => String(id).replace(/\.0$/, "")).filter(Boolean))];
+
+    let answered = 0;
+    let failed: unknown = null;
+    await mapLimit(unique, IX_LIST_CONCURRENCY, async (id) => {
+        for (const t of endpointsFor(docType)) {
+            try {
+                const res = await ixFetch(`${baseUrl}/${t.endpoint}/${encodeURIComponent(id)}.json?api_key=${cfg.apiKey}`, { headers: authHeaders });
+                answered++;
+                if (!res.ok) continue; // not under this endpoint
+                const doc = documentFromGetResponse(await res.json());
+                if (!doc) continue;
+                found.set(id, summarizeIxDoc(doc, buildPermalink(cfg, baseUrl, { ...(doc as any), id, type: t.type })));
+                return;
+            } catch (e) {
+                failed = e;
+            }
+        }
+    });
+    if (unique.length > 0 && answered === 0 && failed) throw failed;
+    return found;
+}
+
+/** The standing document each of these Stripe invoice numbers is stamped on. */
+export async function getReferenceSummaries(references: string[]): Promise<Map<string, KaptaDocSummary>> {
+    const found = new Map<string, KaptaDocSummary>();
+    const cfg = getConfig();
+    if (!cfg) return found;
+    const baseUrl = await getBaseUrl(cfg);
+    const unique = [...new Set(references.map((r) => r.trim()).filter(Boolean))];
+    await mapLimit(unique, IX_LIST_CONCURRENCY, async (reference) => {
+        const doc = await findByReference(reference, "invoice");
+        if (doc) found.set(reference, summarizeIxDoc(doc, buildPermalink(cfg, baseUrl, doc)));
+    });
+    return found;
 }
 
 function normalize(s: string | null | undefined): string {

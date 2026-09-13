@@ -358,12 +358,24 @@ export async function POST(req: NextRequest) {
                 const details = session.customer_details;
                 const addr = details?.address;
 
+                // "Nome da empresa" is required at checkout and arrives prefilled from
+                // the account, because it is the name the service invoice is meant to
+                // carry. Nothing read it: the subscription kept the name typed beside
+                // the card, usually a person's, and so did the Stripe customer, so a
+                // company NIF travelled with a person's name everywhere downstream.
+                // Sessions opened before the field existed have none and keep the
+                // card name, as before.
+                const companyName = session.custom_fields?.find(f => f.key === "company_name")?.text?.value?.trim() || null;
+
                 // Update customer metadata. Always include user_id; only set fiscal_id if NIF provided.
                 const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
                 if (customerId) {
                     const customerMetadata: Record<string, string> = { user_id: userId };
                     if (nif) customerMetadata.fiscal_id = nif;
-                    await stripe.customers.update(customerId, { metadata: customerMetadata });
+                    await stripe.customers.update(customerId, {
+                        metadata: customerMetadata,
+                        ...(companyName ? { name: companyName } : {}),
+                    });
                 }
 
                 // Pull subscription
@@ -433,7 +445,7 @@ export async function POST(req: NextRequest) {
                     isoFromUnix(sub?.trial_end),
                     sub?.cancel_at_period_end ? 1 : 0,
                     nif,
-                    details?.name || null,
+                    companyName || details?.name || null,
                     details?.email || null,
                     details?.phone || null,
                     addr?.line1 || null,

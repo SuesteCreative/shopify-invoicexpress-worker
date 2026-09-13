@@ -69,6 +69,18 @@ export function fill(html: string, vars: Record<string, string> = standardVars()
 }
 
 /**
+ * Resend fills `{{{contact.*}}}` only inside a Broadcast. "Enviar teste a mim"
+ * goes out as a plain email, where the greeting would arrive as the literal tag,
+ * so the test fills it with the sender's own first name, as the broadcast will
+ * for each recipient; the tag's fallback stays for a nameless sender. Every other
+ * triple, the unsubscribe URL above all, is left alone: outside a broadcast there
+ * is no contact to resolve it against.
+ */
+export function fillContactForTest(html: string, firstName: string): string {
+    return html.replace(/\{\{\{contact\.first_name\|([^}]*)\}\}\}/g, (_m, fallback: string) => firstName.trim() || fallback);
+}
+
+/**
  * The last gate before a broadcast is created.
  *
  * Called on the FILLED html, because that is the copy that gets sent, and

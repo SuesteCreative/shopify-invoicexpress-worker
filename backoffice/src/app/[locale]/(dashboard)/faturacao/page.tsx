@@ -277,11 +277,14 @@ export default function FaturacaoPage() {
                                 )}>
                                     {uiState === "active" ? t("statusActive") : uiState === "trialing_earlybird" ? t("statusEarlyBird") : uiState === "trialing" ? (reward ? t("statusReward") : t("statusTrial")) : uiState === "blocked" ? t("statusInactive") : t("statusNone")}
                                 </span>
-                                {s?.plan && (
+                                {/* Only what this subscription really bills. The fallback here
+                                    stated 7,50 €/75 €, which is wrong for everyone on the old
+                                    5 €/50 € — and the fallback ran precisely when Stripe could
+                                    not be read, so nobody could tell it apart from the truth.
+                                    No label beats a wrong one; the amount is on the invoice. */}
+                                {s?.plan && sub?.plan_price && (
                                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
-                                        {sub?.plan_price
-                                            ? t(sub.plan_price.interval === "year" ? "planDynamicAnnual" : "planDynamicMonthly", { amount: (sub.plan_price.amount_cents / 100).toFixed(2) })
-                                            : (s.plan === "annual" ? t("planAnnual") : t("planMonthly"))}
+                                        {t(sub.plan_price.interval === "year" ? "planDynamicAnnual" : "planDynamicMonthly", { amount: (sub.plan_price.amount_cents / 100).toFixed(2) })}
                                     </span>
                                 )}
                                 {s?.cancel_at_period_end === 1 && (

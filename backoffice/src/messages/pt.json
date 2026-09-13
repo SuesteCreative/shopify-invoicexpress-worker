@@ -308,8 +308,6 @@
         "titleTrial": "Trial em curso",
         "titleBlocked": "Subscrição inativa",
         "titleNone": "Subscreve o Rioko 2.0",
-        "planAnnual": "Anual · 75€/ano",
-        "planMonthly": "Mensal · 7,50€/mês",
         "planDynamicAnnual": "Anual · {amount}€/ano + IVA",
         "planDynamicMonthly": "Mensal · {amount}€/mês + IVA",
         "cancels": "Cancela {date}",
@@ -329,7 +327,6 @@
         "perMonth": "/mês",
         "perYear": "/ano",
         "vatMonthly": "+ IVA · cobrança mensal",
-        "vatAnnual": "+ IVA · equivale a 6,25€/mês",
         "ctaReactivate": "Reativar",
         "ctaAddPayment": "Adicionar Pagamento",
         "ctaSubscribe": "Subscrever",
@@ -1392,10 +1389,6 @@
         "statusTrial": "Trial",
         "statusInactive": "Inativa",
         "statusNone": "Sem subscrição",
-        "planAnnual": "Anual · 75€/ano",
-        "planMonthly": "Mensal · 7,50€/mês",
-        "planAnnualStripeMoloni": "Anual · 50€/ano + IVA",
-        "planMonthlyStripeMoloni": "Mensal · 5€/mês + IVA",
         "planDynamicMonthly": "Mensal · {amount}€/mês + IVA",
         "planDynamicAnnual": "Anual · {amount}€/ano + IVA",
         "cancels": "Cancela {date}",
@@ -1443,10 +1436,7 @@
         "suspendedBody": "Enquanto a subscrição estiver inativa, o sistema está suspenso e não são emitidas faturas. Ativa uma subscrição abaixo e o processamento de faturas recomeça automaticamente.",
         "subscribeHeading": "Ativar subscrição",
         "monthlyPlan": "Mensal",
-        "monthlyPrice": "7,50 €/mês + IVA",
         "annualPlan": "Anual",
-        "annualPrice": "75 €/ano + IVA",
-        "annualSaving": "Poupa 17%",
         "btnSubscribeMonthly": "Subscrever mensal",
         "btnSubscribeAnnual": "Subscrever anual"
     },
@@ -2448,8 +2438,6 @@
         "documentTypeDesc": "Fatura-Recibo para pagamentos já liquidados (o caso do Stripe); Fatura para faturação a crédito.",
         "documentTypeInvoice": "Fatura",
         "documentTypeInvoiceReceipt": "Fatura-Recibo",
-        "monthlyPrice": "5 €/mês + IVA",
-        "annualPrice": "50 €/ano + IVA",
         "exemptionDesc": "Aplicada quando a fatura tem IVA 0% (isenção, autoliquidação, etc).",
         "activateWarning": "Ao marcar como ativo, o Rioko começa a processar webhooks Stripe e a emitir faturas Moloni em tempo real. Pode pausar a qualquer momento.",
         "integrationDoneTitle": "Integração Concluída",
@@ -2522,8 +2510,7 @@
         "step2Desc": "A conta que emite os documentos e a identidade fiscal desta ligação",
         "ixIntroTitle": "As credenciais são da conta, a identidade fiscal é desta ligação",
         "ixIntroBody": "O nome da conta e a chave de API do InvoiceXpress são partilhados por todas as integrações que emitem para lá. Já a série, o tipo de documento e o código de isenção pertencem a esta ligação: pode ter uma série aqui e outra diferente noutra integração da mesma conta.",
-        "seqHint": "Deixe vazio para usar a série que a conta já tem definida.",
-        "subscribeHint": "Esta ligação é faturada no mesmo plano que o Stripe Legacy + InvoiceXpress."
+        "seqHint": "Deixe vazio para usar a série que a conta já tem definida."
     },
     "stripeIxSetup": {
         "backToIntegrations": "Voltar para Integrações",
@@ -3442,7 +3429,6 @@
         },
         "subscribe": {
             "title": "Subscrever",
-            "desc": "7,50 € por mês, ou 75 € por ano",
             "body": "O pagamento acontece na página segura do Stripe. A ligação já está feita: a subscrição é o que a mantém a emitir.",
             "inviteRefused": "O link que recebeste já foi usado ou expirou. Podes subscrever aqui normalmente, ou falar connosco para receberes outro.",
             "note": "Preços sem IVA, acrescido à taxa legal. Cancela quando quiser no painel, sem período mínimo."
@@ -3512,7 +3498,6 @@
         },
         "subscribe": {
             "title": "Subscrever",
-            "desc": "7,50 € por mês, ou 75 € por ano",
             "body": "O pagamento é feito na página segura do Stripe. A ligação já está montada: a subscrição é o que a mantém a emitir.",
             "inviteRefused": "O link que recebeste já foi usado ou expirou. Podes subscrever aqui normalmente, ou falar connosco para receberes outro.",
             "note": "Preços sem IVA, acrescido à taxa legal. Cancela quando quiser, a partir do painel, sem período mínimo."

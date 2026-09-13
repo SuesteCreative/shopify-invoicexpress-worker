@@ -1,69 +1,47 @@
 import { describe, it, expect } from "vitest";
-import { runNewsletterBroadcast, UNSUBSCRIBE_TAG, type ResendLike } from "./newsletter";
+import { runNewsletterBroadcast, personalise, unsubscribeToken, UNSUBSCRIBE_TAG, type ResendLike } from "./newsletter";
 // Across the worker/backoffice boundary on purpose, and only in a test — the
 // same trick connection-config-writable.test.ts uses. Nothing is imported at
-// runtime; this asserts the two halves of one rule have not drifted apart.
+// runtime; these assert the two halves of one rule have not drifted apart.
 import { requiredLegalOk } from "../../backoffice/src/lib/newsletter-template";
+import { verifyUnsubscribeToken } from "../../backoffice/src/lib/newsletter-unsubscribe";
 
 /**
- * What this guards is not an exception, it is a delivered email.
- *
- * The dangerous path is the second one: a contact Resend already knows. Adding
- * them to a segment is right; re-asserting `unsubscribed` or `topics` while
- * doing it would quietly walk back an opt-out, and the only person it happens to
- * is the one who asked us to stop.
+ * What this guards is not an exception, it is a delivered email: one per person,
+ * greeted by their own name, carrying a way out that works for that address and
+ * no other.
  */
 
 function fake() {
-  const calls: { method: string; payload: any }[] = [];
-  const existing = new Set<string>();
-  /** Custom property keys Resend knows. Empty, as it was before the first send. */
-  const properties = new Set<string>();
-  /** Addresses whose next `get` answers 429 once. */
+  const sent: any[] = [];
+  /** Addresses Resend refuses. */
+  const refuse = new Set<string>();
+  /** Addresses whose next send answers 429 once. */
   const rateLimitOnce = new Set<string>();
-  /** Addresses whose `get` fails with something that is not "not found". */
-  const brokenGet = new Set<string>();
   const client: ResendLike = {
-    segments: {
-      async create(p) { calls.push({ method: "segments.create", payload: p }); return { data: { id: "seg_1" } }; },
-    },
-    contacts: {
-      async get(p: any) {
-        calls.push({ method: "contacts.get", payload: p });
-        if (rateLimitOnce.delete(p.email)) {
+    emails: {
+      async send(p: any) {
+        if (rateLimitOnce.delete(p.to)) {
           return { data: null, error: { statusCode: 429, name: "rate_limit_exceeded", message: "Too many requests" } };
         }
-        if (brokenGet.has(p.email)) return { data: null, error: { statusCode: 500, name: "application_error", message: "boom" } };
-        if (existing.has(p.email)) return { data: { id: `con_${p.email}` } };
-        return { data: null, error: { statusCode: 404, name: "not_found", message: "Contact not found" } };
+        if (refuse.has(p.to)) {
+          return { data: null, error: { statusCode: 422, name: "validation_error", message: "You can only send 100 emails per day" } };
+        }
+        sent.push(p);
+        return { data: { id: `em_${sent.length}` } };
       },
-      async create(p: any) {
-        calls.push({ method: "contacts.create", payload: p });
-        if (existing.has(p.email)) return { data: null, error: { message: "Contact already exists" } };
-        const unknown = Object.keys(p.properties ?? {}).filter((k) => !properties.has(k));
-        if (unknown.length) return { data: null, error: { statusCode: 422, name: "validation_error", message: `Property ${unknown[0]} does not exist` } };
-        existing.add(p.email);
-        return { data: { id: `con_${p.email}` } };
-      },
-      segments: {
-        async add(p: any) { calls.push({ method: "contacts.segments.add", payload: p }); return { data: { id: "seg_1" } }; },
-      },
-    },
-    broadcasts: {
-      async create(p: any) { calls.push({ method: "broadcasts.create", payload: p }); return { data: { id: "bc_1" } }; },
-      async send(id: string, p?: any) { calls.push({ method: "broadcasts.send", payload: { id, ...p } }); return { data: { id } }; },
     },
   };
-  return { client, calls, existing, properties, rateLimitOnce, brokenGet };
+  return { client, sent, refuse, rateLimitOnce };
 }
 
 const ENV: any = {
   RESEND_API_KEY: "re_test",
   RESEND_FROM_EMAIL: "noreply@rioko.online",
-  RESEND_TOPIC_NEWS: "topic_news",
+  ADMIN_API_KEY: "admin_key_for_tests",
 };
 
-const HTML = `<p>Olá</p><a href="${UNSUBSCRIBE_TAG}">sair</a>`;
+const HTML = `<html><body><p>Olá {{{contact.first_name|}}},</p><a href="${UNSUBSCRIBE_TAG}">sair</a></body></html>`;
 
 const base = (over: any = {}) => ({
   slug: "convite",
@@ -74,131 +52,115 @@ const base = (over: any = {}) => ({
   ...over,
 });
 
+const hrefOf = (html: string) => html.match(/href="([^"]+)"/)![1];
+
 describe("dry run", () => {
   it("touches Resend not at all", async () => {
     const f = fake();
     const r = await runNewsletterBroadcast(ENV, base({ client: f.client }));
-    expect(f.calls).toHaveLength(0);
     expect(r.dry_run).toBe(true);
-    expect(r.segment_id).toBeNull();
-    expect(r.broadcast_id).toBeNull();
-    expect(r.checked).toBe(1);
+    expect(r.candidates).toHaveLength(1);
+    expect(f.sent).toHaveLength(0);
   });
 
   it("is the default, so forgetting the flag cannot send anything", async () => {
     const f = fake();
     const r = await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: undefined }));
     expect(r.dry_run).toBe(true);
-    expect(f.calls).toHaveLength(0);
+    expect(f.sent).toHaveLength(0);
   });
 });
 
 describe("a real send", () => {
-  it("makes one segment, looks each contact up, creates the new ones, one broadcast, one send", async () => {
+  it("sends one email per recipient, greeted by name, from Rioko with replies to support", async () => {
     const f = fake();
     const r = await runNewsletterBroadcast(ENV, base({
       client: f.client,
       dryRun: false,
       recipients: [
         { email: "a@x.pt", first_name: "Ana" },
-        { email: "b@x.pt", first_name: "Rui" },
+        { email: "b@x.pt", first_name: "Bruno" },
       ],
     }));
-
-    expect(f.calls.map((c) => c.method)).toEqual([
-      "segments.create",
-      "contacts.get",
-      "contacts.create",
-      "contacts.get",
-      "contacts.create",
-      "broadcasts.create",
-      "broadcasts.send",
-    ]);
-    expect(r.synced).toBe(2);
+    expect(r.sent).toBe(2);
     expect(r.failed).toBe(0);
-    expect(r.segment_id).toBe("seg_1");
-    expect(r.broadcast_id).toBe("bc_1");
-
-    const bc = f.calls.find((c) => c.method === "broadcasts.create")!.payload;
-    expect(bc.segmentId).toBe("seg_1");
-    expect(bc.topicId).toBe("topic_news");
-    expect(bc.from).toBe("Rioko <noreply@rioko.online>");
-    // The tag has to survive everything we do to the html, redaction included.
-    expect(bc.html).toContain(UNSUBSCRIBE_TAG);
+    expect(f.sent.map((e) => e.to)).toEqual(["a@x.pt", "b@x.pt"]);
+    expect(f.sent[0]).toMatchObject({ from: "Rioko <noreply@rioko.online>", replyTo: "suporte@kapta.pt" });
+    expect(f.sent[0].html).toContain("<p>Olá Ana,</p>");
+    expect(f.sent[1].html).toContain("<p>Olá Bruno,</p>");
+    expect(r.candidates[1]).toMatchObject({ email: "b@x.pt", sent: true, id: "em_2" });
   });
 
-  it("only adds an existing contact to the segment, and never creates it again", async () => {
+  it("gives each address its own unsubscribe link, one the backoffice accepts for that address only", async () => {
     const f = fake();
-    f.existing.add("old@x.pt");
-    const r = await runNewsletterBroadcast(ENV, base({
-      client: f.client,
-      dryRun: false,
-      recipients: [{ email: "old@x.pt", first_name: "Velho" }],
-    }));
-
-    expect(r.synced).toBe(1);
-    // A create on a known address might update it, topic included. It never happens.
-    expect(f.calls.filter((c) => c.method === "contacts.create")).toHaveLength(0);
-    const add = f.calls.find((c) => c.method === "contacts.segments.add");
-    expect(add?.payload).toEqual({ email: "old@x.pt", segmentId: "seg_1" });
-    // The whole point: nothing on this path may carry these.
-    expect(JSON.stringify(add?.payload)).not.toContain("unsubscribed");
-    expect(JSON.stringify(add?.payload)).not.toContain("topics");
-  });
-
-  it("still creates the contact, without properties, when Resend does not know them", async () => {
-    // Before the first send no custom property exists in Resend, and a create
-    // that names one fails outright. Every contact failed with it, and the
-    // broadcast aborted with nobody in the segment.
-    const f = fake();
-    const r = await runNewsletterBroadcast(ENV, base({
-      client: f.client,
-      dryRun: false,
-      recipients: [{ email: "a@x.pt", first_name: "Ana", user_id: "user_a", label: "Loja A", client_code: "RIO-1A2B3C" }],
-    }));
-
-    expect(r.synced).toBe(1);
-    expect(r.candidates[0].created).toBe(true);
-    const creates = f.calls.filter((c) => c.method === "contacts.create").map((c) => c.payload);
-    expect(creates).toHaveLength(2);
-    expect(creates[0].properties).toEqual({ user_id: "user_a", label: "Loja A", client_code: "RIO-1A2B3C" });
-    expect(creates[1].properties).toBeUndefined();
-    // The topic and the segment are not what failed, so they stay.
-    expect(creates[1].topics).toEqual([{ id: "topic_news", subscription: "opt_in" }]);
-    expect(creates[1].segments).toEqual([{ id: "seg_1" }]);
-  });
-
-  it("sends the properties when Resend has them", async () => {
-    const f = fake();
-    ["user_id", "label", "client_code"].forEach((k) => f.properties.add(k));
-    await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false }));
-    const creates = f.calls.filter((c) => c.method === "contacts.create");
-    expect(creates).toHaveLength(1);
-    expect(creates[0].payload.properties).toEqual({ user_id: "user_a", label: "Loja A" });
-  });
-
-  it("neither creates nor mails an address it could not look up", async () => {
-    // Not "missing", not "there": it may be somebody who opted out.
-    const f = fake();
-    f.brokenGet.add("b@x.pt");
-    const r = await runNewsletterBroadcast(ENV, base({
+    await runNewsletterBroadcast(ENV, base({
       client: f.client,
       dryRun: false,
       recipients: [{ email: "a@x.pt" }, { email: "b@x.pt" }],
     }));
-    expect(r.synced).toBe(1);
-    expect(r.failed).toBe(1);
-    expect(r.candidates.find((c) => c.email === "b@x.pt")?.error).toBe("boom");
-    expect(f.calls.some((c) => c.method !== "contacts.get" && c.payload?.email === "b@x.pt")).toBe(false);
+    const links = f.sent.map((e) => hrefOf(e.html));
+    expect(links[0]).not.toBe(links[1]);
+    expect(links[0]).toMatch(/^https:\/\/rioko\.online\/api\/newsletter\/unsubscribe\?t=/);
+    for (const [i, email] of ["a@x.pt", "b@x.pt"].entries()) {
+      const token = new URL(links[i]).searchParams.get("t")!;
+      expect(await verifyUnsubscribeToken(ENV.ADMIN_API_KEY, token)).toBe(email);
+      expect(await verifyUnsubscribeToken("another key", token)).toBeNull();
+      // The inbox's own button points at the same place, and says it takes one click.
+      expect(f.sent[i].headers).toEqual({
+        "List-Unsubscribe": `<${links[i]}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      });
+    }
+    expect(f.sent.some((e) => e.html.includes(UNSUBSCRIBE_TAG))).toBe(false);
+  });
+
+  it("refuses a token whose address was swapped", async () => {
+    const good = await unsubscribeToken(ENV.ADMIN_API_KEY, "a@x.pt");
+    const forged = `${btoa("b@x.pt").replace(/=+$/, "")}.${good.split(".")[1]}`;
+    expect(await verifyUnsubscribeToken(ENV.ADMIN_API_KEY, forged)).toBeNull();
+    expect(await verifyUnsubscribeToken(ENV.ADMIN_API_KEY, "nonsense")).toBeNull();
+  });
+
+  it("puts the inbox preview line first in the body", async () => {
+    const f = fake();
+    await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false, previewText: "Dois meses <grátis>" }));
+    expect(f.sent[0].html).toMatch(/^<html><body><div style="display:none[^"]*">Dois meses &lt;grátis&gt;<\/div><p>/);
+  });
+
+  it("passes a schedule through to every email", async () => {
+    const f = fake();
+    await runNewsletterBroadcast(ENV, base({
+      client: f.client, dryRun: false, scheduledAt: "2026-10-01T09:00:00.000Z",
+    }));
+    expect(f.sent[0].scheduledAt).toBe("2026-10-01T09:00:00.000Z");
   });
 
   it("waits out a rate limit instead of counting the recipient as failed", async () => {
     const f = fake();
     f.rateLimitOnce.add("a@x.pt");
     const r = await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false }));
-    expect(r.synced).toBe(1);
+    expect(r.sent).toBe(1);
     expect(r.failed).toBe(0);
-    expect(f.calls.filter((c) => c.method === "contacts.get")).toHaveLength(2);
+  });
+
+  it("counts a refused address and still sends to the rest", async () => {
+    const f = fake();
+    f.refuse.add("b@x.pt");
+    const r = await runNewsletterBroadcast(ENV, base({
+      client: f.client,
+      dryRun: false,
+      recipients: [{ email: "a@x.pt" }, { email: "b@x.pt" }],
+    }));
+    expect(r.sent).toBe(1);
+    expect(r.failed).toBe(1);
+    expect(r.candidates[1].error).toBe("Resend: You can only send 100 emails per day");
+  });
+
+  it("says what Resend said when nothing at all went out", async () => {
+    const f = fake();
+    f.refuse.add("a@x.pt");
+    const e = await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false })).catch((x) => x);
+    expect(e.message).toBe("Nothing was sent: Resend: You can only send 100 emails per day");
   });
 
   it("drops invalid and duplicate addresses before sending", async () => {
@@ -214,27 +176,40 @@ describe("a real send", () => {
       ],
     }));
     expect(r.skipped_invalid_email).toBe(2);
-    expect(r.synced).toBe(1);
-    expect(f.calls.filter((c) => c.method === "contacts.create")).toHaveLength(1);
+    expect(r.sent).toBe(1);
+    expect(f.sent).toHaveLength(1);
+  });
+});
+
+describe("personalise", () => {
+  const link = "https://rioko.online/api/newsletter/unsubscribe?t=x.y";
+
+  it("greets by name, falls back, and collapses cleanly with neither", () => {
+    const text = "Olá {{{contact.first_name|}}}, ou {{{contact.first_name|amigo}}}";
+    expect(personalise(text, { email: "a@x.pt", first_name: "Ana" }, link)).toBe("Olá Ana, ou Ana");
+    expect(personalise(text, { email: "a@x.pt", first_name: "" }, link)).toBe("Olá, ou amigo");
   });
 
-  it("passes a schedule through instead of sending now", async () => {
-    const f = fake();
-    await runNewsletterBroadcast(ENV, base({
-      client: f.client, dryRun: false, scheduledAt: "2026-10-01T09:00:00.000Z",
-    }));
-    const send = f.calls.find((c) => c.method === "broadcasts.send")!;
-    expect(send.payload).toEqual({ id: "bc_1", scheduledAt: "2026-10-01T09:00:00.000Z" });
+  it("leaves every other triple alone", () => {
+    expect(personalise("{{{contact.company|}}}", { email: "a@x.pt" }, link)).toBe("{{{contact.company|}}}");
   });
 });
 
 describe("refusals", () => {
-  it("will not create anything for copy with no unsubscribe link", async () => {
+  it("will not send copy with no unsubscribe link", async () => {
     const f = fake();
     await expect(runNewsletterBroadcast(ENV, base({
       client: f.client, dryRun: false, html: "<p>sem saída</p>",
     }))).rejects.toThrow(/RESEND_UNSUBSCRIBE_URL/);
-    expect(f.calls).toHaveLength(0);
+    expect(f.sent).toHaveLength(0);
+  });
+
+  it("will not send when there is no key to sign the way out with", async () => {
+    const f = fake();
+    await expect(runNewsletterBroadcast({ ...ENV, ADMIN_API_KEY: "" }, base({
+      client: f.client, dryRun: false,
+    }))).rejects.toThrow(/ADMIN_API_KEY/);
+    expect(f.sent).toHaveLength(0);
   });
 
   it("will not send to an empty list", async () => {
@@ -242,27 +217,7 @@ describe("refusals", () => {
     await expect(runNewsletterBroadcast(ENV, base({
       client: f.client, dryRun: false, recipients: [],
     }))).rejects.toThrow(/no valid recipients/);
-    expect(f.calls).toHaveLength(0);
-  });
-
-  it("says what Resend said when it refuses the segment, and nothing else", async () => {
-    // The real refusal from 13/09, headers and all: stringified whole, the one
-    // readable line was buried, and the panel never showed it at all.
-    const f = fake();
-    f.client.segments.create = async () => ({
-      data: null,
-      error: { statusCode: 400, name: "validation_error", message: "Your plan includes 3 segments. Upgrade to add more." },
-      headers: { "cf-ray": "a3a8356a7c6ecfbd-MAD", "content-type": "application/json" },
-    });
-    const e = await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false })).catch((x) => x);
-    expect(e.message).toBe("Resend: Your plan includes 3 segments. Upgrade to add more.");
-  });
-
-  it("names the first recipient's reason when nobody reached the segment", async () => {
-    const f = fake();
-    f.brokenGet.add("a@x.pt");
-    const e = await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false })).catch((x) => x);
-    expect(e.message).toBe("No contact reached the segment, nothing was sent: boom");
+    expect(f.sent).toHaveLength(0);
   });
 
   it("stops rather than mail a crowd by accident", async () => {
@@ -271,7 +226,7 @@ describe("refusals", () => {
     await expect(runNewsletterBroadcast(ENV, base({
       client: f.client, dryRun: false, recipients: many,
     }))).rejects.toThrow(/Too many recipients/);
-    expect(f.calls).toHaveLength(0);
+    expect(f.sent).toHaveLength(0);
   });
 });
 

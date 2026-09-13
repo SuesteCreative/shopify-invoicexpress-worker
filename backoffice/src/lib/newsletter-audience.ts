@@ -249,7 +249,12 @@ export async function resolveAudience(db: any, keys: string[]): Promise<Recipien
         const { sql, binds } = audienceQuery(rest);
         results = (await db.prepare(sql).bind(...binds).all()).results ?? [];
     }
-    const seen = new Set<string>();
+    // Whoever pressed "Cancelar subscrição" is out of every newsletter, picked by
+    // hand or typed in included. Starting `seen` with them drops them from both
+    // loops below without a second rule. One small table, read whole.
+    const optedOut = ((await db.prepare("SELECT email FROM newsletter_optouts").bind().all()).results ?? [])
+        .map((r: any) => String(r.email ?? "").trim().toLowerCase());
+    const seen = new Set<string>(optedOut);
     const out: Recipient[] = [];
     for (const r of (results ?? []) as any[]) {
         const email = String(r.email ?? "").trim().toLowerCase();

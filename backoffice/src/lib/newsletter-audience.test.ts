@@ -43,6 +43,7 @@ function db() {
             id TEXT PRIMARY KEY, user_id TEXT, type TEXT NOT NULL, created_at TEXT
         );
         CREATE TABLE processed_orders (id TEXT PRIMARY KEY, invoice_id TEXT, user_id TEXT);
+        CREATE TABLE newsletter_optouts (email TEXT PRIMARY KEY, source TEXT, created_at TEXT);
     `);
 
     return {
@@ -62,6 +63,20 @@ function db() {
         },
     };
 }
+
+describe("opted out", () => {
+    it("never receives a newsletter again, however it was chosen", async () => {
+        const d = db();
+        fleet(d);
+        d.exec(`INSERT INTO newsletter_optouts (email, source) VALUES ('stripe@x.pt', 'link'), ('lead@y.pt', 'one-click')`);
+        // Everyone, picked by hand, or typed in: the address that left stays out.
+        expect((await resolveAudience(d.d1, [])).map((r) => r.email)).not.toContain("stripe@x.pt");
+        expect(await resolveAudience(d.d1, ["user:user_stripe"])).toEqual([]);
+        expect(await resolveAudience(d.d1, ["email:lead@y.pt", "email:STRIPE@x.pt"])).toEqual([]);
+        // And nobody else goes with them.
+        expect((await resolveAudience(d.d1, [])).map((r) => r.email)).toContain("shop@x.pt");
+    });
+});
 
 describe("picked by hand", () => {
     it("sends to exactly the clients picked", () => {

@@ -47,6 +47,9 @@ const isPublicRoute = createRouteMatcher([
     "/api/shopify/oauth/callback",
     "/api/internal/(.*)",
     "/api/cron/(.*)",
+    // A newsletter's "Cancelar subscrição". Whoever clicks it may never have had a
+    // session; the signed token in the link is the authority, for that one address.
+    "/api/newsletter/unsubscribe",
 ]);
 
 // Root-level crawler/SEO endpoints served by app routes. They must bypass the

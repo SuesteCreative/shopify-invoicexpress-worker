@@ -401,6 +401,12 @@ export function NewsletterPanel() {
                                 onFocus={() => setPickerOpen(true)}
                                 onKeyDown={(e) => { if (e.key === "Escape") setPickerOpen(false); }}
                                 placeholder={`Procurar entre ${n(clients.length)} clientes: nome, código ou email`}
+                                // A search box, not a login: keeps password managers
+                                // from stamping their icon over it when an email is typed.
+                                autoComplete="off"
+                                data-1p-ignore
+                                data-lpignore="true"
+                                data-bwignore
                                 className={FIELD}
                             />
                             {pickerOpen && (
@@ -417,7 +423,10 @@ export function NewsletterPanel() {
                                                     onChange={() => toggle(key)}
                                                     className="accent-accent shrink-0"
                                                 />
-                                                <span className="text-sm text-fg truncate flex-1">{c.label}</span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block text-sm text-fg truncate">{c.label}</span>
+                                                    <span className="block font-mono text-[10px] text-fg-40 truncate">{c.email}</span>
+                                                </span>
                                                 <span className="font-mono text-[10px] text-fg-40 shrink-0">{c.client_code ?? "sem código"}</span>
                                             </label>
                                         );

@@ -80,7 +80,8 @@
     "lang": {
         "pt": "PT",
         "en": "EN",
-        "switchTo": "Switch language"
+        "switchTo": "Switch language",
+        "notSavedImpersonating": "This screen only: the language of this account is set on its customer record."
     },
     "dashboardLayout": {
         "developedBy": "Developed by",

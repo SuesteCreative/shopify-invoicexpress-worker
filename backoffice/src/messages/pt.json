@@ -80,7 +80,8 @@
     "lang": {
         "pt": "PT",
         "en": "EN",
-        "switchTo": "Mudar idioma"
+        "switchTo": "Mudar idioma",
+        "notSavedImpersonating": "Só neste ecrã: a língua desta conta muda na ficha do cliente."
     },
     "dashboardLayout": {
         "developedBy": "Developed by",

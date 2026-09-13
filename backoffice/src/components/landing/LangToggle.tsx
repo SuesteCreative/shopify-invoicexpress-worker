@@ -31,6 +31,9 @@ export function LangToggle(_props: Props = {}) {
   React.useEffect(() => setPending(null), [locale]);
   const shown = pending ?? locale;
 
+  /** Set when the server took the click but wrote nothing — see switchTo. */
+  const [note, setNote] = React.useState(false);
+
   async function switchTo(next: string) {
     if (next === locale) return;
     setPending(next);
@@ -41,11 +44,19 @@ export function LangToggle(_props: Props = {}) {
     // to the language on record — navigating first would be sent straight back.
     // A visitor with no account has nothing to record and never waits for this.
     if (isSignedIn) {
-      await fetch("/api/user/language", {
+      const saved = await fetch("/api/user/language", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ language: next }),
-      }).catch(() => { /* the screen still moves; the record catches up next time */ });
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null) as { persisted?: boolean } | null;
+
+      // The route refuses to write while an operator is impersonating, so that
+      // reading a client's panel in your own language cannot rewrite theirs.
+      // That refusal has to be visible: a deliberate click that changes only
+      // this screen, and says nothing, reads as a setting that was saved.
+      setNote(saved?.persisted === false);
     }
 
     // usePathname() already resolves dynamic segments, so pass as-is
@@ -53,6 +64,7 @@ export function LangToggle(_props: Props = {}) {
   }
 
   return (
+    <>
     <div
       role="group"
       aria-label={t("switchTo")}
@@ -73,5 +85,14 @@ export function LangToggle(_props: Props = {}) {
         );
       })}
     </div>
+    {/* Only ever seen by an operator inside someone else's account: the screen
+        moved, the client's record did not. A fragment rather than a wrapper, so
+        the pill keeps the box every caller already lays out around it. */}
+    {note && (
+      <span role="status" className="text-[10px] font-medium text-fg-40 max-w-[240px] leading-snug">
+        {t("notSavedImpersonating")}
+      </span>
+    )}
+    </>
   );
 }

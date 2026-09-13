@@ -53,3 +53,64 @@ export function findInIndex(index: Map<string, KaptaDocSummary>, number: string)
     }
     return null;
 }
+
+/** The fields of an InvoiceXpress document this module reads, from a list or a GET. */
+export interface IxDocFields {
+    id: string | number;
+    sequence_number?: string | null;
+    inverted_sequence_number?: string | null;
+    reference?: string | null;
+    state?: string | null;
+    total?: string | null;
+    date?: string | null;
+    permalink?: string | null;
+}
+
+/**
+ * One document as the admin surface shows it.
+ *
+ * `fallbackPermalink` only when IX sends none: IX's own public permalink opens
+ * without a login and is what a MERCHANT is shown, while the back-office URL we
+ * can build sits behind the Kapta sign-in.
+ */
+export function summarizeIxDoc(d: IxDocFields, fallbackPermalink: string): KaptaDocSummary {
+    return {
+        id: String(d.id).replace(/\.0$/, ""),
+        // The printed spelling first: an admin types what the document shows.
+        number: d.inverted_sequence_number ?? d.sequence_number ?? null,
+        reference: d.reference ?? null,
+        state: d.state ?? null,
+        total: d.total ?? null,
+        date: d.date ?? null,
+        permalink: typeof d.permalink === "string" && d.permalink ? d.permalink : fallbackPermalink,
+    };
+}
+
+/**
+ * The document inside a `GET /<endpoint>/<id>.json` answer.
+ *
+ * The root key follows the document type ("invoice", "invoice_receipt",
+ * "credit_note"), so rather than keep a map of spellings this takes the one
+ * object that carries an id. Anything else — an error body, a 200 with
+ * `success:false` — is not a document.
+ */
+export function documentFromGetResponse(json: unknown): IxDocFields | null {
+    if (!json || typeof json !== "object") return null;
+    for (const value of Object.values(json as Record<string, unknown>)) {
+        if (value && typeof value === "object" && !Array.isArray(value) && (value as any).id != null) {
+            return value as IxDocFields;
+        }
+    }
+    return null;
+}
+
+/**
+ * The pages still to fetch after the first, when InvoiceXpress says how many
+ * there are; null when it does not, and the caller walks page by page.
+ */
+export function remainingPages(firstPage: unknown, maxPages: number): number[] | null {
+    const total = Number((firstPage as any)?.pagination?.total_pages);
+    if (!Number.isInteger(total) || total < 1) return null;
+    const last = Math.min(total, maxPages);
+    return last < 2 ? [] : Array.from({ length: last - 1 }, (_, i) => i + 2);
+}

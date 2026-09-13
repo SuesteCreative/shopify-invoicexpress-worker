@@ -1,5 +1,41 @@
 import { describe, it, expect } from "vitest";
-import { findInIndex, type KaptaDocSummary } from "./kapta-doc-number";
+import { documentFromGetResponse, findInIndex, remainingPages, summarizeIxDoc, type KaptaDocSummary } from "./kapta-doc-number";
+
+describe("reading one document without walking the account", () => {
+    it("finds the document whatever the root key of the GET is", () => {
+        expect(documentFromGetResponse({ invoice_receipt: { id: 269984367, state: "final" } })?.id).toBe(269984367);
+        expect(documentFromGetResponse({ invoice: { id: "1", state: "final" } })?.id).toBe("1");
+        expect(documentFromGetResponse({ credit_note: { id: 7 } })?.id).toBe(7);
+    });
+
+    it("is not fooled by an error body or a 200 that failed", () => {
+        expect(documentFromGetResponse({ errors: [{ error: "not found" }] })).toBeNull();
+        expect(documentFromGetResponse({ success: false, message: "x" })).toBeNull();
+        expect(documentFromGetResponse(null)).toBeNull();
+    });
+
+    it("summarises with the printed number and IX's own permalink", () => {
+        const s = summarizeIxDoc(
+            { id: "268993350.0", sequence_number: "673/Kapta2026", inverted_sequence_number: "Kapta2026/673", permalink: "https://public/x" },
+            "https://backoffice/invoices/268993350",
+        );
+        expect(s).toMatchObject({ id: "268993350", number: "Kapta2026/673", permalink: "https://public/x" });
+        expect(summarizeIxDoc({ id: 1 }, "https://backoffice/invoices/1").permalink).toBe("https://backoffice/invoices/1");
+    });
+});
+
+describe("remainingPages", () => {
+    it("lists the pages after the first, capped", () => {
+        expect(remainingPages({ pagination: { total_pages: 4 } }, 20)).toEqual([2, 3, 4]);
+        expect(remainingPages({ pagination: { total_pages: 50 } }, 3)).toEqual([2, 3]);
+        expect(remainingPages({ pagination: { total_pages: 1 } }, 20)).toEqual([]);
+    });
+
+    it("says it does not know when IX does not say", () => {
+        expect(remainingPages({ invoices: [] }, 20)).toBeNull();
+        expect(remainingPages({ pagination: { total_pages: "abc" } }, 20)).toBeNull();
+    });
+});
 
 /**
  * Looking a Kapta document up by the number printed on it.

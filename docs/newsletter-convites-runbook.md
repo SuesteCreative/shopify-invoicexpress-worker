@@ -98,6 +98,16 @@ existir um ciclo de envio nosso.
 
 ## 4. O primeiro envio
 
+0. na Resend, **Audience → Properties**, criar três propriedades do tipo
+   `string`: `user_id`, `label` e `client_code`. Um contacto criado com uma
+   propriedade que a Resend não conhece é recusado inteiro. O worker volta a
+   criá-lo sem propriedades, por isso o envio não pára sem elas, mas é por elas
+   que um contacto no dashboard da Resend se liga a uma conta Rioko;
+   - o envio é pausado para o limite da Resend (10 pedidos por segundo para a
+     equipa inteira, emails de serviço incluídos): duas a três chamadas por
+     destinatário, a cada 150 ms. Umas dezenas de contas levam uns 15 a 30
+     segundos. Uma lista de centenas já não cabe num pedido, ver o `ponytail:`
+     em `src/services/newsletter.ts`;
 1. escolher o template `convite`;
 2. filtros: **só Activa, no grupo Subscrição** (`sub:active`), e mais nada. Não
    **Já pagou** nem **Bloqueada**: uma conta bloqueada, ou que nunca pagou, não

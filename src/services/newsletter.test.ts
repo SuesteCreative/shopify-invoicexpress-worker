@@ -245,6 +245,26 @@ describe("refusals", () => {
     expect(f.calls).toHaveLength(0);
   });
 
+  it("says what Resend said when it refuses the segment, and nothing else", async () => {
+    // The real refusal from 13/09, headers and all: stringified whole, the one
+    // readable line was buried, and the panel never showed it at all.
+    const f = fake();
+    f.client.segments.create = async () => ({
+      data: null,
+      error: { statusCode: 400, name: "validation_error", message: "Your plan includes 3 segments. Upgrade to add more." },
+      headers: { "cf-ray": "a3a8356a7c6ecfbd-MAD", "content-type": "application/json" },
+    });
+    const e = await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false })).catch((x) => x);
+    expect(e.message).toBe("Resend: Your plan includes 3 segments. Upgrade to add more.");
+  });
+
+  it("names the first recipient's reason when nobody reached the segment", async () => {
+    const f = fake();
+    f.brokenGet.add("a@x.pt");
+    const e = await runNewsletterBroadcast(ENV, base({ client: f.client, dryRun: false })).catch((x) => x);
+    expect(e.message).toBe("No contact reached the segment, nothing was sent: boom");
+  });
+
   it("stops rather than mail a crowd by accident", async () => {
     const f = fake();
     const many = Array.from({ length: 2001 }, (_, i) => ({ email: `u${i}@x.pt` }));

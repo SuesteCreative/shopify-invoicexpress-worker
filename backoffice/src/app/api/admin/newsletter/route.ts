@@ -30,6 +30,20 @@ export const runtime = "edge";
 
 const db = () => (getRequestContext().env as any).DB as D1Database;
 
+/**
+ * The worker's reason, handed to the panel as it is ("Resend: Your plan includes
+ * 3 segments"). Not a 502: sent from here, that status reached the browser as an
+ * HTML error page in place of this JSON, and the panel could only say
+ * "Unexpected token '<'".
+ */
+function workerFailed(status: number, data: unknown) {
+    const reason = (data as any)?.error;
+    return NextResponse.json(
+        { error: typeof reason === "string" && reason ? reason : `O worker falhou (HTTP ${status})` },
+        { status: 422 },
+    );
+}
+
 export async function GET() {
     const { userId } = await auth();
     if (!userId || !(await isAdmin(userId))) {
@@ -148,7 +162,7 @@ export async function POST(request: NextRequest) {
             });
             if (!ok) {
                 console.error(`[admin/newsletter] test worker ${status}:`, JSON.stringify(data));
-                return NextResponse.json({ error: "worker_failed", status }, { status: 502 });
+                return workerFailed(status, data);
             }
             console.warn(`[admin/newsletter] test "${slug}" to ${to} by ${userId}`);
             return NextResponse.json({ tested: to });
@@ -184,7 +198,7 @@ export async function POST(request: NextRequest) {
 
         if (!ok) {
             console.error(`[admin/newsletter] worker ${status}:`, JSON.stringify(data));
-            return NextResponse.json({ error: "worker_failed", status, detail: data }, { status: 502 });
+            return workerFailed(status, data);
         }
 
         // Written after Resend answers, so a row here means it really went. The

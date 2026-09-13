@@ -292,7 +292,9 @@ export default function StripeConnectIxIntegration() {
 
     const subData = sub?.subscription;
     const uiState = sub?.ui_state;
-    const hasActiveSub = uiState === "active";
+    // A Stripe trial is a subscription being paid for (an invitee's first two
+    // months, an inviter's reward): no plans, and no banner saying access is free.
+    const hasActiveSub = uiState === "active" || uiState === "trialing";
     const showSubCta = sub !== null && !hasActiveSub && uiState !== "exempt";
     const subBlocked = !!sub?.blocked;
     const allComplete = connectionStatus === "active";

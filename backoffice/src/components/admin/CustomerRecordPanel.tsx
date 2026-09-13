@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
     IdCard, Copy, Check, X, Loader2, AlertTriangle, ExternalLink, Wrench, UserCog,
-    Building2, CreditCard, Zap, Scale, Receipt, ScrollText, Moon, Users,
+    Building2, CreditCard, Zap, Scale, Receipt, ScrollText, Moon, Users, Gift,
 } from "lucide-react";
 
 import { Section } from "@/components/admin/Section";
@@ -565,7 +565,103 @@ function IdentityTab({ data, code, onSaved }: { data: any; code: string; onSaved
                     <Field label="Capturado" value={day(c.acq_captured_at)} />
                 </div>
             </Section>
+
+            <ReferralsSection referrals={data.referrals} />
         </div>
+    );
+}
+
+/** The same words ReferralsCard uses, so the campaign reads alike on both pages. */
+const REFERRAL_STATE_PT: Record<string, string> = {
+    pending: "inscreveu-se",
+    subscribed: "subscreveu, por pagar",
+    rewarded: "creditado",
+    void: "anulado",
+};
+
+const REFERRAL_STATE_TONE: Record<string, "neutral" | "good" | "warn" | "bad"> = {
+    pending: "neutral",
+    subscribed: "warn",
+    rewarded: "good",
+    void: "bad",
+};
+
+/** Another account, by name and number, the number opening its own record. */
+const AccountRef = ({ label, id, code }: { label: string | null; id: string; code: string | null }) => (
+    <span className="inline-flex flex-wrap items-center gap-2">
+        <span className="font-bold text-fg">{label || id}</span>
+        {code && (
+            <Link href={`/admin/clientes/${code}`} className="font-mono text-[11px] tracking-[0.18em] text-accent-ink hover:underline">
+                {code}
+            </Link>
+        )}
+    </span>
+);
+
+/**
+ * Both directions of the referral campaign for this account.
+ *
+ * The paid flag is on every row it was invited, and it is only a warning where
+ * it matters: a reward is granted when the invitee's subscription is created,
+ * before any money, so "creditado" beside "ainda não pagou" is the shape abuse
+ * takes. A failed read says so rather than claiming nobody was invited.
+ */
+function ReferralsSection({ referrals }: { referrals: any }) {
+    if (!referrals) {
+        return (
+            <Section icon={<Gift className="w-5 h-5 text-soon" />} title="Convites">
+                <p className="text-sm text-fg-40 font-medium">Não foi possível ler os convites desta conta.</p>
+            </Section>
+        );
+    }
+
+    const by = referrals.invited_by;
+    const invited: any[] = referrals.invited ?? [];
+
+    return (
+        <Section icon={<Gift className="w-5 h-5 text-accent-ink" />} title="Convites"
+            desc={`${referrals.rewards_used}/${referrals.max_rewards} recompensas usadas. Cada uma são 2 meses empurrados na subscrição de quem convida, dados quando a do convidado é criada, antes de haver pagamento.`}>
+            <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Convidado por</span>
+                {!by ? (
+                    <p className="text-sm text-fg-40 font-medium">Ninguém. Não chegou por convite.</p>
+                ) : (
+                    <div className="text-sm flex flex-wrap items-center gap-2">
+                        <AccountRef label={by.inviter_label} id={by.inviter_user_id} code={by.inviter_client_code} />
+                        <Pill tone={REFERRAL_STATE_TONE[by.state]}>{REFERRAL_STATE_PT[by.state] ?? by.state}</Pill>
+                        <span className="text-[10px] text-fg-40 uppercase tracking-widest">convite a {day(by.claimed_at)}</span>
+                        {by.reward_until && (
+                            <span className="text-[10px] text-fg-40 uppercase tracking-widest">
+                                2 meses a quem convidou, até {day(by.reward_until)}
+                            </span>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Convidou</span>
+                {invited.length === 0 ? (
+                    <p className="text-sm text-fg-40 font-medium">Ninguém.</p>
+                ) : invited.map((r) => (
+                    <div key={r.invitee_user_id} className="text-sm flex flex-wrap items-center gap-2 border-b border-hairline/60 pb-2">
+                        <AccountRef label={r.invitee_label} id={r.invitee_user_id} code={r.invitee_client_code} />
+                        <Pill tone={REFERRAL_STATE_TONE[r.state]}>{REFERRAL_STATE_PT[r.state] ?? r.state}</Pill>
+                        <Pill tone={r.invitee_paid ? "good" : r.state === "rewarded" ? "warn" : "neutral"}>
+                            {r.invitee_paid ? "já pagou" : "ainda não pagou"}
+                        </Pill>
+                        <span className="text-[10px] text-fg-40 uppercase tracking-widest">
+                            convite a {day(r.claimed_at)}
+                            {r.invitee_subscribed_at ? ` · subscreveu a ${day(r.invitee_subscribed_at)}` : ""}
+                            {r.reward_until ? ` · creditado até ${day(r.reward_until)}` : ""}
+                        </span>
+                        {(r.void_reason || r.note) && (
+                            <span className="w-full text-xs text-destructive">{r.void_reason || r.note}</span>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </Section>
     );
 }
 

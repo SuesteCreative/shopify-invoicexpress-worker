@@ -145,7 +145,7 @@
         },
         "s7": {
             "title": "7. When the reward is granted",
-            "body": "Both rewards are applied when the <b>invitee's subscription is created</b>, that is, when they complete onboarding and provide a valid payment method.<p>The inviter's reward is applied to the subscription running at that moment. If the inviter has no active subscription then, the reward is held and granted once that condition is met, subject to the period in clause 2.</p><p>Granting immediately is done in the expectation that the invitee remains a customer. If they do not, clause 9 applies.</p>"
+            "body": "Both rewards are applied when the <b>invitee's subscription is created</b>, that is, when they complete onboarding and provide a valid payment method.<p>The inviter's reward is applied to the subscription running at that moment. If you have no active subscription then, your reward is suspended and is not granted automatically. If your subscription becomes active again before the end of the Campaign, you may ask for it by email to <mail>pedro@kapta.pt</mail>, and Kapta will review the request.</p><p>Granting immediately is done in the expectation that the invitee remains a customer. If they do not, clause 9 applies.</p>"
         },
         "s8": {
             "title": "8. How the invitation may be shared",
@@ -208,7 +208,13 @@
         "landingCta": "Create account",
         "landingAlreadyIn": "You are already signed in, so the invitation was recorded on this account.",
         "landingGoToDashboard": "Go to the dashboard",
-        "landingTerms": "Valid for new accounts, once per company, until 31 October 2026."
+        "landingTerms": "Valid for new accounts, once per company, until 31 October 2026.",
+        "campaignName": "\"Invite a friend\" campaign",
+        "clientRefLabel": "Client reference",
+        "inviteCodeLabel": "Invite code",
+        "claimedNotice": "Invitation recorded on this account. If you create your subscription by 31 October 2026, the first {months} months are free.",
+        "refusedNoticeTitle": "The invitation could not be used",
+        "noticeDismiss": "Dismiss notice"
     },
     "dashboardHome": {
         "welcome": "Welcome",
@@ -3513,7 +3519,13 @@
         "doneBody": "Everything is paid and connected. You can close this page.",
         "failedTitle": "The payment was not completed",
         "failedBody": "Nothing was charged. You can try again.",
-        "retry": "Try again"
+        "retry": "Try again",
+        "referralTitle": "Invite accepted: {months, plural, one {# free month} other {# free months}}, {amount} today",
+        "referralBody": "The card is only asked for to create the subscription. Nothing is charged until the end of month {months}: the first charge is automatic, on {date}.",
+        "referralPlateToday": "Today {amount}",
+        "referralPlateAfter": "This price starts after {months, plural, one {the free month} other {the # free months}}",
+        "alreadySubscribedTitle": "This connection already has a subscription",
+        "alreadySubscribedBody": "There is no need to open another one, and nothing was charged now. Payments and card are managed in Billing."
     },
     "taxRegistrations": {
         "title": "Tax registrations",

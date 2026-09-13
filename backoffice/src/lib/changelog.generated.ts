@@ -33,7 +33,7 @@ export const CHANGELOG: ChangelogEntry[] = [
             },
             {
                 "t": "li",
-                "text": "Convida quem quiser e ganha 2 meses por cada pessoa que ligar uma integração. O teu link está em Convidar, no menu."
+                "text": "Convida 1 amigo e ficam os dois com 2 meses grátis. O teu link está no cartão da campanha, na página de Faturação."
             },
             {
                 "t": "li",
@@ -91,7 +91,7 @@ export const CHANGELOG: ChangelogEntry[] = [
         "publicBody": [
             {
                 "t": "li",
-                "text": "Convida quem quiser e ganha 2 meses por cada pessoa que ligar uma integração. O teu link está em Convidar, no menu."
+                "text": "Convida 1 amigo e ficam os dois com 2 meses grátis. O teu link está no cartão da campanha, na página de Faturação."
             },
             {
                 "t": "li",
@@ -117,7 +117,7 @@ export const CHANGELOG: ChangelogEntry[] = [
             },
             {
                 "t": "li",
-                "text": "Convida quem quiser: por cada pessoa que entrar pelo teu link e ligar uma integração, ganhas 2 meses. Quem entra tem o primeiro mês grátis, sem cartão. O teu link está em **Convidar**, no menu."
+                "text": "Convida 1 amigo e ficam os dois com 2 meses grátis. O teu amigo tem de ser cliente novo: conclui o onboarding, deixa o cartão e só é cobrado ao fim dos 2 meses. Tu, com a subscrição activa, ganhas 2 meses quando a subscrição dele é criada: a próxima cobrança passa 2 meses para a frente, também no plano anual. Convites sem limite, até 6 meses ganhos por conta, até 31 de outubro de 2026. O teu link está no cartão da campanha, na página de **Faturação**."
             },
             {
                 "t": "li",
@@ -299,7 +299,7 @@ export const CHANGELOG: ChangelogEntry[] = [
         "publicBody": [
             {
                 "t": "li",
-                "text": "Convida quem quiser: por cada pessoa que entrar pelo teu link e ligar uma integração, ganhas 2 meses. Quem entra tem o primeiro mês grátis, sem cartão. O teu link está em **Convidar**, no menu."
+                "text": "Convida 1 amigo e ficam os dois com 2 meses grátis. O teu amigo tem de ser cliente novo: conclui o onboarding, deixa o cartão e só é cobrado ao fim dos 2 meses. Tu, com a subscrição activa, ganhas 2 meses quando a subscrição dele é criada: a próxima cobrança passa 2 meses para a frente, também no plano anual. Convites sem limite, até 6 meses ganhos por conta, até 31 de outubro de 2026. O teu link está no cartão da campanha, na página de **Faturação**."
             },
             {
                 "t": "li",

@@ -8,6 +8,7 @@ import { resolveReturnPath } from "@/lib/oauth-return";
 import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
 import { addMonths } from "@/lib/referral-reward";
 import { REWARD_MONTHS, campaignOpen } from "@/lib/referral";
+import { alreadySubscribed } from "@/lib/subscription-state";
 
 export const runtime = "edge";
 
@@ -95,6 +96,19 @@ export async function POST(req: NextRequest) {
         const sub: any = await db.prepare(
             "SELECT stripe_customer_id, stripe_subscription_id, status, early_bird, trial_end FROM subscriptions WHERE user_id = ? AND connection_key = ?"
         ).bind(targetUserId, connectionKey).first();
+
+        // One subscription per connection. Stripe would happily open a second,
+        // parallel one and charge the integration twice; the pages hide the
+        // button from a paying client, but a stale tab or a page reading another
+        // connection still gets here. alreadySubscribed() says which rows may
+        // still check out: an early bird converting, a dead subscription.
+        if (alreadySubscribed(sub)) {
+            return NextResponse.json({
+                error: "Já tens uma subscrição para esta integração. Podes geri-la em Faturação.",
+                code: "already_subscribed",
+            }, { status: 409 });
+        }
+
         const anySub: any = sub ?? await db.prepare(
             "SELECT stripe_customer_id FROM subscriptions WHERE user_id = ? AND stripe_customer_id IS NOT NULL ORDER BY created_at ASC LIMIT 1"
         ).bind(targetUserId).first();

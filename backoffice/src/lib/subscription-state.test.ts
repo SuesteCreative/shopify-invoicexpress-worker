@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { earlyBirdState, isSubscriptionBlocked, subscriptionUIState } from "./subscription-state";
+import { alreadySubscribed, earlyBirdState, isSubscriptionBlocked, subscriptionUIState } from "./subscription-state";
 
 /**
  * `early_bird` records that the deal was GRANTED and is never turned off again.
@@ -148,5 +148,36 @@ describe("a referral reward is still a trial, as far as the state goes", () => {
     it("counts as converted for an early bird who later earned one", () => {
         const r = row({ status: "trialing", stripe_subscription_id: "sub_1", early_bird: 1, reward_until: future });
         expect(earlyBirdState(r)).toBe("converted");
+    });
+});
+
+/**
+ * The checkout route refuses on this. The pages hide the button from a paying
+ * client, but a page can be stale or read another connection; Stripe would
+ * simply open a second subscription and charge the integration twice.
+ */
+describe("a second checkout for the same connection", () => {
+    it("is refused while Stripe is billing the connection, trial included", () => {
+        for (const status of ["active", "trialing", "past_due", "unpaid"]) {
+            expect(alreadySubscribed(row({ status, stripe_subscription_id: "sub_1" }))).toBe(true);
+        }
+        // An invitee's two months and an inviter's reward are both this shape.
+        expect(alreadySubscribed(row({ status: "trialing", stripe_subscription_id: "sub_1", reward_until: future }))).toBe(true);
+    });
+
+    it("is allowed for an early bird, which converts exactly by checking out", () => {
+        expect(alreadySubscribed(row({ status: "trialing", trial_end: future }))).toBe(false);
+        expect(alreadySubscribed(row({ status: "trialing", trial_end: past }))).toBe(false);
+    });
+
+    it("is allowed once the subscription is dead or never started", () => {
+        for (const status of ["canceled", "incomplete_expired", "incomplete"]) {
+            expect(alreadySubscribed(row({ status, stripe_subscription_id: "sub_1" }))).toBe(false);
+        }
+    });
+
+    it("is allowed for a connection with no row", () => {
+        expect(alreadySubscribed(null)).toBe(false);
+        expect(alreadySubscribed(undefined)).toBe(false);
     });
 });

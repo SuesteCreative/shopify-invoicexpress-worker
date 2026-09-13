@@ -346,7 +346,10 @@ export async function POST(req: NextRequest) {
                     ).bind(userId, session.customer_details?.email || null, session.customer_details?.name || "User").run();
                 }
 
-                const rawNif = session.custom_fields?.find(f => f.key === "nif")?.text?.value?.trim() || null;
+                // Checkout asks for the NIF as a "numeric" field, whose answer is in
+                // numeric.value; text.value only covers sessions opened before that switch.
+                const nifField = session.custom_fields?.find(f => f.key === "nif");
+                const rawNif = (nifField?.numeric?.value ?? nifField?.text?.value)?.trim() || null;
                 // PT NIF: exactly 9 digits. Reject anything else (free-text "abc", phone numbers, etc.)
                 const nif = rawNif && /^\d{9}$/.test(rawNif) ? rawNif : null;
                 if (rawNif && !nif) {

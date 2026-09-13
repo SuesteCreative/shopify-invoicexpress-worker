@@ -9,6 +9,10 @@ import { useTranslations } from "next-intl";
  * paid Stripe subscription — i.e. an admin-granted early-bird trial or an
  * exempt account. Invoices are being issued normally; the subscribe cards below
  * stay available so the user can start paying whenever they want.
+ *
+ * Never for a paying Stripe trial ("trialing"), which every invitee starts in:
+ * its copy says no payment is needed and invites them to subscribe, that is, to
+ * open a second subscription. The pages keep it behind hasActiveSub.
  */
 export default function TrialBanner({ trialEnd }: { trialEnd?: string | null }) {
     const t = useTranslations("faturacao");

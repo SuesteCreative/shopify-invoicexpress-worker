@@ -181,7 +181,11 @@ export default function FaturacaoPage() {
             });
             const d: any = await r.json();
             if (d.url) window.location.href = d.url;
-            else alert(d.error || t("genericError"));
+            else {
+                alert(d.error || t("genericError"));
+                // A subscription landed since the page loaded: show it instead.
+                if (d.code === "already_subscribed") await load();
+            }
         } finally {
             setSubscribing(null);
         }

@@ -59,6 +59,9 @@ export interface DevModeTarget {
     role: string;
     nif: string | null;
     company_name: string | null;
+    /** RIO-XXXXXX, the number the client dictates on the phone. Null until it is
+     *  minted (first visit to the record) or on a database without 0058. */
+    client_code: string | null;
     shopify_domain: string | null;
     shopify_authorized: boolean;
     ix_authorized: boolean;
@@ -76,15 +79,21 @@ export async function getDevModeTarget(id: string): Promise<DevModeTarget | null
     const db = (env as any).DB;
     if (!db) return null;
 
-    const t: any = await db.prepare(`
+    // Read again with `NULL AS client_code` on a database 0058 has not reached,
+    // the same fallback /api/admin/clientes carries: a missing number must not
+    // take the whole toolbox down with it.
+    const sql = (clientCode: string) => `
       SELECT u.id, u.name, u.email, u.role, u.nif, u.company_name,
+             ${clientCode} AS client_code,
              COALESCE(u.is_inactive, 0) AS is_inactive,
              i.shopify_domain, i.shopify_authorized, i.ix_authorized,
              i.shopify_error, i.ix_error
       FROM users u
       LEFT JOIN integrations i ON u.id = i.user_id
       WHERE u.id = ?
-    `).bind(id).first();
+    `;
+    const t: any = await db.prepare(sql("u.client_code")).bind(id).first()
+        .catch(() => db.prepare(sql("NULL")).bind(id).first());
 
     if (!t) return null;
 
@@ -95,6 +104,7 @@ export async function getDevModeTarget(id: string): Promise<DevModeTarget | null
         role: t.role || "user",
         nif: t.nif,
         company_name: t.company_name,
+        client_code: t.client_code ?? null,
         shopify_domain: t.shopify_domain,
         shopify_authorized: !!t.shopify_authorized,
         ix_authorized: !!t.ix_authorized,

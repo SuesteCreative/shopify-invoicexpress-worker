@@ -10,6 +10,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import TrialBanner from "@/components/TrialBanner";
+import { alreadySubscribed } from "@/lib/subscription-state";
 import { RIOKO_CONFIG } from "@/lib/config";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
@@ -616,7 +617,11 @@ export default function LodgifyMoloniIntegration() {
     const subData = sub?.subscription;
     const uiState = sub?.ui_state;
     const hasActiveSub = !!subData?.stripe_subscription_id && (uiState === "active" || uiState === "trialing" || uiState === "trialing_earlybird" || uiState === "exempt");
-    const showSubCta = sub !== null && !hasActiveSub && uiState !== "exempt";
+    // past_due and unpaid read "blocked" but still hold the Stripe subscription:
+    // plates there were a button the checkout always refuses (409). They get the
+    // change-card link instead, under an inactive badge.
+    const liveSub = hasActiveSub || alreadySubscribed(subData);
+    const showSubCta = sub !== null && !liveSub && uiState !== "exempt";
     // An admin-granted early bird has no Stripe subscription but is NOT blocked —
     // invoices flow normally. Only a truly blocked account gets the red banner.
     const subBlocked = !!sub?.blocked;
@@ -633,7 +638,7 @@ export default function LodgifyMoloniIntegration() {
             {/* Billing card */}
             {sub !== null && (
                 <div className="glass rounded-[2rem] p-5 sm:p-8">
-                    {hasActiveSub ? (
+                    {liveSub ? (
                         <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-2xl bg-accent-hot/15 ring-1 ring-accent-hot/30 flex items-center justify-center">
@@ -641,8 +646,8 @@ export default function LodgifyMoloniIntegration() {
                                 </div>
                                 <div>
                                     <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("subscribeHeading")}</p>
-                                    <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-accent-hot/10 text-accent-hot border-accent-hot/20">
-                                        {tB("statusActive")}
+                                    <span className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border ${subBlocked ? "bg-destructive/10 text-destructive border-destructive/20" : "bg-accent-hot/10 text-accent-hot border-accent-hot/20"}`}>
+                                        {subBlocked ? tB("statusInactive") : tB("statusActive")}
                                     </span>
                                 </div>
                             </div>

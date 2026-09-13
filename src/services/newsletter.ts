@@ -67,12 +67,15 @@ export interface NewsletterOptions {
   dryRun?: boolean;
   /** Test seam. Production passes nothing and gets a real client. */
   client?: ResendLike;
+  /** Test seam. Milliseconds between Resend calls; production uses RESEND_PACE_MS. */
+  paceMs?: number;
 }
 
 /** Only what this service uses, so a test can stand in for it honestly. */
 export interface ResendLike {
   segments: { create(p: { name: string }): Promise<any> };
   contacts: {
+    get(p: { email: string }): Promise<any>;
     create(p: any): Promise<any>;
     segments: { add(p: any): Promise<any> };
   };
@@ -95,8 +98,18 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 export const UNSUBSCRIBE_TAG = "{{{RESEND_UNSUBSCRIBE_URL}}}";
 
-/** A campaign can be large; a runaway loop against a paid API cannot. */
+/**
+ * A campaign can be large; a runaway loop against a paid API cannot.
+ * ponytail: the whole send runs inside one request, paced for Resend's rate
+ * limit at two or three calls per recipient, so a few hundred recipients is the
+ * practical ceiling long before this one. Move contact sync to a queue before an
+ * audience gets there.
+ */
 const MAX_RECIPIENTS = 2000;
+
+/** Between Resend calls: about six a second, under the team's ten, with room
+ *  left for the transactional mail that shares the same limit. */
+const RESEND_PACE_MS = 150;
 
 export async function runNewsletterBroadcast(
   env: Env,
@@ -144,8 +157,13 @@ export async function runNewsletterBroadcast(
   if (!valid.length) throw new Error("Newsletter has no valid recipients");
 
   const resend = opts.client ?? (new Resend(env.RESEND_API_KEY) as unknown as ResendLike);
+  // Resend allows ten requests a second for the whole team, transactional mail
+  // included, and this loop makes two or three per recipient. Unpaced, the tail
+  // of a list came back 429, was counted as failed, and the broadcast went out
+  // to whoever happened to get in first.
+  const call = paced(opts.paceMs ?? RESEND_PACE_MS);
 
-  const segment = await resend.segments.create({ name: `rioko-${opts.slug}-${stamp()}` });
+  const segment = await call(() => resend.segments.create({ name: `rioko-${opts.slug}-${stamp()}` }));
   const segmentId = idOf(segment);
   if (!segmentId) throw new Error(`Resend did not return a segment id: ${JSON.stringify(segment)}`);
   result.segment_id = segmentId;
@@ -155,33 +173,54 @@ export async function runNewsletterBroadcast(
   for (let i = 0; i < valid.length; i++) {
     const r = valid[i];
     const card = result.candidates.find((c) => c.email === r.email)!;
+
+    // All an existing contact ever gets: this campaign's segment. NOTHING else —
+    // not `unsubscribed`, not `topics`. Re-asserting either would walk an opt-out
+    // backwards, silently, for the one person who asked us to stop.
+    const addToSegment = async () => {
+      const added = await call(() => resend.contacts.segments.add({ email: r.email, segmentId }));
+      if (errorOf(added)) throw new Error(messageOf(errorOf(added)));
+    };
+
     try {
-      // First sight of an address: create it with the topic opted in, which is
-      // what the merchant agreed to by registering.
-      const created = await resend.contacts.create({
-        email: r.email,
-        firstName: r.first_name || undefined,
-        properties: propertiesOf(r),
-        segments: [{ id: segmentId }],
-        ...(topicId ? { topics: [{ id: topicId, subscription: "opt_in" as const }] } : {}),
-      });
-      if (errorOf(created)) throw new Error(String(errorOf(created)));
-      card.created = true;
+      // Look before creating. Whether POST /contacts on an address Resend already
+      // knows fails or quietly updates it is not documented, and an update would
+      // put the topic back to opt_in for somebody who left it.
+      const found = await call(() => resend.contacts.get({ email: r.email }));
+      if (idOf(found)) {
+        await addToSegment();
+      } else if (isNotFound(errorOf(found))) {
+        // First sight of an address: created with the topic opted in, which is
+        // what the merchant agreed to by registering.
+        const contact = {
+          email: r.email,
+          firstName: r.first_name || undefined,
+          segments: [{ id: segmentId }],
+          ...(topicId ? { topics: [{ id: topicId, subscription: "opt_in" as const }] } : {}),
+        };
+        let made = await call(() => resend.contacts.create({ ...contact, properties: propertiesOf(r) }));
+        // A property key missing from Audience → Properties fails the whole
+        // create, and none existed before the first send. The properties only
+        // trace a contact back to an account in Resend's dashboard; the email is
+        // the point, so it goes without them rather than not at all.
+        if (errorOf(made)) made = await call(() => resend.contacts.create(contact));
+        if (errorOf(made)) {
+          // Created by somebody else between the look and now: still only the segment.
+          const why = messageOf(errorOf(made));
+          await addToSegment().catch((e: any) => { throw new Error(`${why}; ${e?.message ?? e}`); });
+        } else {
+          card.created = true;
+        }
+      } else {
+        // Neither there nor missing. With no way to tell whether this address
+        // opted out, it is neither created nor mailed.
+        throw new Error(messageOf(errorOf(found)));
+      }
       card.synced = true;
       result.synced++;
-    } catch {
-      // Already a contact. Add them to this campaign's segment and touch NOTHING
-      // else — not `unsubscribed`, not `topics`. Re-asserting either would walk
-      // an opt-out backwards, silently, for the one person who asked us to stop.
-      try {
-        const added = await resend.contacts.segments.add({ email: r.email, segmentId });
-        if (errorOf(added)) throw new Error(String(errorOf(added)));
-        card.synced = true;
-        result.synced++;
-      } catch (e: any) {
-        card.error = e?.message ?? String(e);
-        result.failed++;
-      }
+    } catch (e: any) {
+      card.error = e?.message ?? String(e);
+      result.failed++;
     }
   }
 
@@ -190,7 +229,7 @@ export async function runNewsletterBroadcast(
   // redactSecrets is applied inside sendEmail() for every other email we send. A
   // Broadcast does not go through it, so the net has to be re-hung here rather
   // than remembered by whoever writes the next template.
-  const created = await resend.broadcasts.create({
+  const created = await call(() => resend.broadcasts.create({
     segmentId,
     from: `Rioko <${env.RESEND_FROM_EMAIL ?? "noreply@rioko.online"}>`,
     replyTo: "suporte@kapta.pt",
@@ -199,15 +238,15 @@ export async function runNewsletterBroadcast(
     name: `rioko-${opts.slug}-${stamp()}`,
     ...(opts.previewText ? { previewText: opts.previewText } : {}),
     ...(topicId ? { topicId } : {}),
-  });
+  }));
   const broadcastId = idOf(created);
   if (!broadcastId) throw new Error(`Resend did not return a broadcast id: ${JSON.stringify(created)}`);
   result.broadcast_id = broadcastId;
 
-  const sent = await resend.broadcasts.send(
+  const sent = await call(() => resend.broadcasts.send(
     broadcastId,
     opts.scheduledAt ? { scheduledAt: opts.scheduledAt } : undefined,
-  );
+  ));
   if (errorOf(sent)) throw new Error(`Broadcast ${broadcastId} was created but not sent: ${JSON.stringify(errorOf(sent))}`);
 
   return result;
@@ -221,6 +260,42 @@ function propertiesOf(r: NewsletterRecipient): Record<string, string> {
   if (r.label) p.label = String(r.label).slice(0, 100);
   if (r.client_code) p.client_code = String(r.client_code).slice(0, 100);
   return p;
+}
+
+/**
+ * Resend calls one at a time, at least `ms` apart. A 429 is waited out up to
+ * three times, a second longer each time, before its error is handed back like
+ * any other.
+ */
+function paced(ms: number) {
+  let last = 0;
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      const wait = last + ms - Date.now();
+      if (wait > 0) await sleep(wait);
+      last = Date.now();
+      const res: any = await fn();
+      if (!isRateLimited(errorOf(res)) || attempt >= 3) return res;
+      if (ms > 0) await sleep(1000 * (attempt + 1));
+    }
+  };
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function isRateLimited(err: any): boolean {
+  return Boolean(err) && (err.statusCode === 429 || err.name === "rate_limit_exceeded");
+}
+
+function isNotFound(err: any): boolean {
+  return Boolean(err) && (err.statusCode === 404 || err.name === "not_found");
+}
+
+/** The SDK's errors are objects; `String()` of one is "[object Object]". */
+function messageOf(err: unknown): string {
+  if (typeof err === "string") return err;
+  const m = (err as any)?.message;
+  return m ? String(m) : JSON.stringify(err);
 }
 
 /** The SDK answers `{ data, error }`; older shapes answer the object directly. */

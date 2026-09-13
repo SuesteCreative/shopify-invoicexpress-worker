@@ -145,7 +145,7 @@
         },
         "s7": {
             "title": "7. Quando o prémio é atribuído",
-            "body": "Ambos os prémios são aplicados no momento em que a <b>subscrição do convidado é criada</b>, isto é, quando este conclui a adesão e fornece um meio de pagamento válido.<p>O prémio de quem convida é aplicado à subscrição em curso nesse momento. Se, nessa altura, quem convidou não tiver subscrição ativa, o prémio fica suspenso e é atribuído quando essa condição se verificar, sem prejuízo do prazo da cláusula 2.</p><p>A atribuição imediata é feita na expectativa de que o convidado se mantenha cliente. Não se mantendo, aplica-se a cláusula 9.</p>"
+            "body": "Ambos os prémios são aplicados no momento em que a <b>subscrição do convidado é criada</b>, isto é, quando este conclui a adesão e fornece um meio de pagamento válido.<p>O prémio de quem convida é aplicado à subscrição em curso nesse momento. Se, nessa altura, não tiveres subscrição ativa, o teu prémio fica suspenso e não é atribuído automaticamente. Se a tua subscrição voltar a ficar ativa antes do fim da Campanha, podes pedi-lo por email para <mail>pedro@kapta.pt</mail>, e a Kapta analisa o pedido.</p><p>A atribuição imediata é feita na expectativa de que o convidado se mantenha cliente. Não se mantendo, aplica-se a cláusula 9.</p>"
         },
         "s8": {
             "title": "8. Divulgação do convite",
@@ -208,7 +208,13 @@
         "landingCta": "Criar conta",
         "landingAlreadyIn": "Já tens sessão iniciada, por isso o convite ficou registado nesta conta.",
         "landingGoToDashboard": "Ir para o dashboard",
-        "landingTerms": "Válido para contas novas, uma vez por empresa, até 31 de Outubro de 2026."
+        "landingTerms": "Válido para contas novas, uma vez por empresa, até 31 de Outubro de 2026.",
+        "campaignName": "Campanha \"Convida 1 amigo\"",
+        "clientRefLabel": "Referência de cliente",
+        "inviteCodeLabel": "Código de convite",
+        "claimedNotice": "Convite registado nesta conta. Se criares a subscrição até 31 de outubro de 2026, os primeiros {months} meses são grátis.",
+        "refusedNoticeTitle": "Não foi possível usar o convite",
+        "noticeDismiss": "Dispensar aviso"
     },
     "dashboardHome": {
         "welcome": "Bem-vindo",
@@ -3513,7 +3519,13 @@
         "doneBody": "Está tudo pago e ligado. Pode fechar esta página.",
         "failedTitle": "O pagamento não foi concluído",
         "failedBody": "Nada foi cobrado. Pode tentar outra vez.",
-        "retry": "Tentar outra vez"
+        "retry": "Tentar outra vez",
+        "referralTitle": "Convite aceite: {months, plural, one {# mês grátis} other {# meses grátis}}, {amount} hoje",
+        "referralBody": "O cartão é pedido só para criar a subscrição. Não é cobrado nada até ao fim do {months}.º mês: a primeira cobrança é automática, a {date}.",
+        "referralPlateToday": "Hoje {amount}",
+        "referralPlateAfter": "Este preço começa depois {months, plural, one {do mês grátis} other {dos # meses grátis}}",
+        "alreadySubscribedTitle": "Esta ligação já tem uma subscrição",
+        "alreadySubscribedBody": "Não é preciso abrir outra, e nada foi cobrado agora. Pagamentos e cartão ficam em Faturação."
     },
     "taxRegistrations": {
         "title": "Registos fiscais",

@@ -11,7 +11,7 @@ versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
 ### Para o comerciante
 
-- Convida quem quiser e ganha 2 meses por cada pessoa que ligar uma integração. O teu link está em Convidar, no menu.
+- Convida 1 amigo e ficam os dois com 2 meses grátis. O teu link está no cartão da campanha, na página de Faturação.
 - Nada. Correcção de ferramentas internas.
 - Tem uma página Conta nova, com o seu código de cliente e os seus dados. Pode corrigir nome, telefone, website e morada; o NIF e o nome fiscal ficam em leitura, com um botão para nos pedir a alteração — são o que sai impresso nas faturas que já lhe emitimos.
 
@@ -38,7 +38,7 @@ versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
 ### Para o comerciante
 
-- Convida quem quiser: por cada pessoa que entrar pelo teu link e ligar uma integração, ganhas 2 meses. Quem entra tem o primeiro mês grátis, sem cartão. O teu link está em **Convidar**, no menu.
+- Convida 1 amigo e ficam os dois com 2 meses grátis. O teu amigo tem de ser cliente novo: conclui o onboarding, deixa o cartão e só é cobrado ao fim dos 2 meses. Tu, com a subscrição activa, ganhas 2 meses quando a subscrição dele é criada: a próxima cobrança passa 2 meses para a frente, também no plano anual. Convites sem limite, até 6 meses ganhos por conta, até 31 de outubro de 2026. O teu link está no cartão da campanha, na página de **Faturação**.
 - O cartão da subscrição passa a mostrar o preço que pagas mesmo. Quem está no plano antigo via 75 €/ano no painel e pagava 50 €.
 - Uma ligação deixa de poder ficar activa sem as credenciais do destino. Havia contas subscritas, com tudo verde, que não emitiam nada e não davam sinal.
 - Nos assistentes de integração, a explicação da opção de IVA passa a dizer o que ela faz mesmo. Prometia somar 23% em sete dos nove sítios onde nem sequer era lida.

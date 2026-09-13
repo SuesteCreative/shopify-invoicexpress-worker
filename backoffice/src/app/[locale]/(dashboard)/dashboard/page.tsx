@@ -137,9 +137,11 @@ export default function WelcomeDashboard() {
   return (
     <div className="space-y-12 animate-in fade-in duration-1000 slide-in-from-bottom-4">
       {/* Payment card, first thing on the page, for any account that is not
-          paying: blocked, trialing, or never subscribed. An account whose
-          invoices are about to stop should not have to go looking for this. */}
-      {subState && subState !== "active" && subState !== "exempt" && (
+          paying: blocked, in the early-bird grace, or never subscribed. A Stripe
+          trial IS paying (every invitee starts in one) and, like active, gets
+          no card. An account whose invoices are about to stop should not have
+          to go looking for this. */}
+      {subState && subState !== "active" && subState !== "trialing" && subState !== "exempt" && (
         <SubscriptionCard source="dashboard" />
       )}
 

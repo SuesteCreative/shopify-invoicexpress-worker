@@ -13,6 +13,7 @@ import { listSubscriptions, stripeDashboardBase, subscriptionUIState } from "@/l
 import { resolveTier, sunsetAt } from "@/lib/billing-legacy";
 import { priceBook } from "@/lib/price-book";
 import { getSeatPool } from "@/lib/account";
+import { loadAccountReferrals } from "@/lib/client-record-referrals";
 
 export const runtime = "edge";
 
@@ -94,7 +95,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 .bind(accountId).first());
         if (!userRow) return NextResponse.json({ error: "not_found", retired: null }, { status: 404 });
 
-        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows] = await Promise.all([
+        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows, referrals] = await Promise.all([
             db.prepare(`
                 SELECT ${CONNECTION_PUBLIC_SELECT},
                        destination_config_json,
@@ -151,6 +152,10 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                    AND scope IN ('profile_change_request', 'profile', 'profile_change_rejected')
                  ORDER BY created_at DESC, rowid DESC LIMIT 40
             `).bind(accountId).all().catch(() => ({ results: [] })),
+
+            // Who invited this account and whom it invited. Null, not empty, when
+            // the read fails: "nobody" would be the page inventing an answer.
+            loadAccountReferrals(db, accountId).catch(() => null),
         ]);
 
         // What each subscription costs, so the record can name the plan and the
@@ -255,6 +260,16 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             };
         });
 
+        // Every invitee is a new account, and a new account's number is minted
+        // lazily: one who subscribed from an integration page, or never got past
+        // the claim, has none yet, and its row had no link to its record. The same
+        // safety net as this account's own code, just below.
+        if (referrals) {
+            await Promise.all(referrals.invited
+                .filter((r) => !r.invitee_client_code)
+                .map(async (r) => { r.invitee_client_code = await ensureClientCode(db, r.invitee_user_id); }));
+        }
+
         const clientCode = userRow.client_code ?? await ensureClientCode(db, accountId);
 
         return NextResponse.json({
@@ -283,6 +298,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             // of it. The page shows the pending ones as work and the decided ones
             // as history.
             identity_requests: identityRequestStates(((requestRows as any).results ?? []) as any[], userRow),
+            referrals,
             fiscal_visible: fiscalVisible,
             viewer_role: viewerRole,
         });

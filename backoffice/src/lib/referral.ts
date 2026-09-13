@@ -124,6 +124,23 @@ export function claimRefusal(ctx: ClaimContext): ReferralRefusal | null {
     return null;
 }
 
+/**
+ * A claim from an account that already has a referral row.
+ *
+ * The same inviter again is a replay (the landing and the layout both claim, a
+ * reload claims again) and answers ok whatever has changed since: by then they
+ * may well have subscribed, which is the point. A different inviter is a second
+ * person's link, and the first one stands. Answering "registado" to it had a
+ * second friend waiting for two months that were never theirs to give.
+ */
+export function existingClaim(
+    existingInviterUserId: string | null | undefined,
+    inviterUserId: string | null,
+): "none" | "same" | "other" {
+    if (!existingInviterUserId) return "none";
+    return String(existingInviterUserId) === inviterUserId ? "same" : "other";
+}
+
 /** Is the campaign still taking claims? */
 export function campaignOpen(now = new Date()): boolean {
     return now.toISOString().slice(0, 10) <= CAMPAIGN_END;

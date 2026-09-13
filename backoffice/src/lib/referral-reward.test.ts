@@ -45,22 +45,38 @@ function fixture() {
     };
 
     const updates: any[] = [];
+    const sessionLists: any[] = [];
     let current: any = {
         id: "sub_inviter", status: "active", metadata: {},
         current_period_end: unix("2026-10-01T00:00:00.000Z"), trial_end: null,
     };
+    let updateError: Error | null = null;
+    // What `checkout.sessions.list` answers: the sessions, or the error it throws.
+    let checkout: { data: any[] } | Error = { data: [] };
     const stripe = {
         subscriptions: {
             async retrieve(id: string) { return { ...current, id }; },
             async update(id: string, params: any, options: any) {
                 updates.push({ id, params, options });
+                if (updateError) { const e = updateError; updateError = null; throw e; }
                 current = { ...current, trial_end: params.trial_end, status: "trialing" };
                 return current;
             },
         },
+        checkout: {
+            sessions: {
+                async list(params: any) {
+                    sessionLists.push(params);
+                    if (checkout instanceof Error) throw checkout;
+                    return checkout;
+                },
+            },
+        },
     };
     const setSubscription = (patch: any) => { current = { ...current, ...patch }; };
-    return { sqlite, db, stripe, updates, setSubscription };
+    const failNextUpdate = (e: Error) => { updateError = e; };
+    const setCheckout = (answer: { data: any[] } | Error) => { checkout = answer; };
+    return { sqlite, db, stripe, updates, sessionLists, setSubscription, failNextUpdate, setCheckout };
 }
 
 const pending = `
@@ -121,7 +137,7 @@ describe("rewardInviter", () => {
         expect(u.params.trial_end).toBe(unix("2026-12-01T00:00:00.000Z"));
         // Without this Stripe writes adjustment lines into a clean reward.
         expect(u.params.proration_behavior).toBe("none");
-        expect(u.options.idempotencyKey).toBe("rioko-reward-user_b");
+        expect(u.options.idempotencyKey).toBe(`rioko-reward-user_b-${unix("2026-12-01T00:00:00.000Z")}`);
 
         const ref = f.sqlite.prepare("SELECT * FROM referrals WHERE invitee_user_id='user_b'").get() as any;
         expect(ref.state).toBe("rewarded");
@@ -180,6 +196,59 @@ describe("rewardInviter", () => {
         expect(row.state).toBe("void");
     });
 
+    it("reads the invitee's NIF off their Checkout when it is not stored yet", async () => {
+        // subscription.created usually beats checkout.session.completed, which is
+        // what stores the NIF. Without the lookup the guard sees nothing.
+        const f = fixture();
+        f.sqlite.exec(pending + `INSERT INTO users (id, nif) VALUES ('user_a','516277421'), ('user_b', NULL);`);
+        f.setCheckout({ data: [{ custom_fields: [{ key: "nif", type: "numeric", numeric: { value: "516277421" } }] }] });
+
+        const r = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee");
+        expect(r.reason).toBe("same_fiscal_id");
+        expect(f.updates).toHaveLength(0);
+        expect(f.sessionLists).toEqual([{ subscription: "sub_invitee", limit: 1 }]);
+        const row = f.sqlite.prepare("SELECT state, void_reason FROM referrals WHERE invitee_user_id='user_b'").get() as any;
+        expect(row.state).toBe("void");
+        expect(row.void_reason).toBe("same_fiscal_id");
+    });
+
+    it("pays anyway when the Checkout lookup fails, and says so on the row", async () => {
+        // The months are owed unless the numbers are shown to match. A Stripe
+        // hiccup is not that.
+        const f = fixture();
+        f.sqlite.exec(pending + `INSERT INTO users (id, nif) VALUES ('user_a','516277421');`);
+        f.setCheckout(new Error("Stripe is down"));
+
+        const r = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee");
+        expect(r.rewarded).toBe(true);
+        expect(f.updates).toHaveLength(1);
+        const row = f.sqlite.prepare("SELECT state, note FROM referrals WHERE invitee_user_id='user_b'").get() as any;
+        expect(row.state).toBe("rewarded");
+        expect(row.note).toBe("fiscal_id_lookup_failed: Stripe is down");
+    });
+
+    it("gives an admin retry aimed at a different date its own idempotency key", async () => {
+        // Stripe refuses a reused key with different parameters for 24 hours: a
+        // key of the invitee alone made this retry an error instead of a reward.
+        const f = fixture();
+        f.sqlite.exec(pending);
+        f.failNextUpdate(new Error("Stripe is down"));
+        const first = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee");
+        expect(first.rewarded).toBe(false);
+
+        // The period renewed while it was parked; the admin retry resets the row
+        // the way /api/admin/referrals does.
+        f.setSubscription({ current_period_end: unix("2026-11-01T00:00:00.000Z") });
+        f.sqlite.exec("UPDATE referrals SET state = 'pending', note = NULL WHERE invitee_user_id = 'user_b'");
+        const retry = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee");
+        expect(retry.rewarded).toBe(true);
+
+        expect(f.updates.map((u) => u.options.idempotencyKey)).toEqual([
+            `rioko-reward-user_b-${unix("2026-12-01T00:00:00.000Z")}`,
+            `rioko-reward-user_b-${unix("2027-01-01T00:00:00.000Z")}`,
+        ]);
+    });
+
     it("parks, rather than voids, when the inviter has no live subscription", async () => {
         const f = fixture();
         // Claimed while they were paying; cancelled before the friend subscribed.
@@ -192,6 +261,22 @@ describe("rewardInviter", () => {
         expect(row.state).toBe("subscribed");
         expect(row.note).toBe("inviter_no_live_subscription");
         expect(row.void_reason).toBeNull();
+    });
+
+    it("keeps the failed-lookup note when the reward then parks", async () => {
+        // Parking wrote its own reason over the note, and the row lost the only
+        // record that the same-NIF check ran without the Checkout's NIF.
+        const f = fixture();
+        f.sqlite.exec(`INSERT INTO referrals (invitee_user_id, inviter_user_id, inviter_client_code, state)
+                       VALUES ('user_b','user_a','RIO-1A2B3C','pending');
+                       INSERT INTO users (id, nif) VALUES ('user_a','516277421');`);
+        f.setCheckout(new Error("Stripe is down"));
+
+        const r = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee");
+        expect(r.reason).toBe("inviter_no_live_subscription");
+        const row = f.sqlite.prepare("SELECT state, note FROM referrals WHERE invitee_user_id='user_b'").get() as any;
+        expect(row.state).toBe("subscribed");
+        expect(row.note).toBe("inviter_no_live_subscription; fiscal_id_lookup_failed: Stripe is down");
     });
 
     it("claims once, so a re-delivered webhook pays nothing twice", async () => {

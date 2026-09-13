@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Users, UserPlus, Loader2, Trash2, ShieldCheck, Eye, Mail, Crown, AlertCircle, Lock, UserRound } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { cn } from "@/lib/utils";
 
@@ -32,16 +32,20 @@ interface MembersResponse {
     unlock_block_reason: string | null;
 }
 
-function formatMoney(cents: number, currency: string) {
-    return new Intl.NumberFormat("pt-PT", { style: "currency", currency: (currency || "eur").toUpperCase() }).format(cents / 100);
+/** en-GB, not en-US, so the day still comes first. */
+const intlLocaleFor = (locale: string) => (locale === "en" ? "en-GB" : "pt-PT");
+
+function formatMoney(cents: number, currency: string, intlLocale: string) {
+    return new Intl.NumberFormat(intlLocale, { style: "currency", currency: (currency || "eur").toUpperCase() }).format(cents / 100);
 }
 
-function formatDate(iso: string) {
-    return new Date(iso.includes("T") ? iso : iso.replace(" ", "T") + "Z").toLocaleDateString("pt-PT");
+function formatDate(iso: string, intlLocale: string) {
+    return new Date(iso.includes("T") ? iso : iso.replace(" ", "T") + "Z").toLocaleDateString(intlLocale);
 }
 
 export default function UsersPage() {
     const t = useTranslations("users");
+    const intlLocale = intlLocaleFor(useLocale());
     const [data, setData] = useState<MembersResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [acting, setActing] = useState<string | null>(null);
@@ -119,7 +123,7 @@ export default function UsersPage() {
     };
 
     const priceLabel = data?.seat_price
-        ? formatMoney(data.seat_price.amount_cents, data.seat_price.currency)
+        ? formatMoney(data.seat_price.amount_cents, data.seat_price.currency, intlLocale)
         : "1,50 €";
 
     const handleUnlock = async () => {
@@ -332,7 +336,7 @@ export default function UsersPage() {
                             </div>
                             <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium truncate">{m.email}</p>
-                                <p className="text-[11px] text-fg-40 font-mono">{t("invitedOn", { date: formatDate(m.created_at) })}</p>
+                                <p className="text-[11px] text-fg-40 font-mono">{t("invitedOn", { date: formatDate(m.created_at, intlLocale) })}</p>
                             </div>
 
                             <span className={cn(

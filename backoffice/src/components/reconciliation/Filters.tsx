@@ -1,17 +1,20 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 export type FilterKey = "all" | "exact" | "approved" | "heuristic" | "none" | "not_needed" | "pending" | "refunded" | "credit_missing";
 
-const LABELS: Record<FilterKey, string> = {
-    all: "Todos",
-    exact: "Match exato",
-    approved: "Aprovados",
-    heuristic: "Heurístico",
-    none: "Sem fatura",
-    not_needed: "Não necessárias",
-    pending: "Aguarda pagamento",
-    refunded: "Reembolsos/cancel.",
-    credit_missing: "NC em falta",
+/** Message key (under the `conciliacao` namespace) for each filter chip. */
+export const FILTER_KEYS: Record<FilterKey, string> = {
+    all: "filterAll",
+    exact: "filterExact",
+    approved: "filterApproved",
+    heuristic: "filterHeuristic",
+    none: "filterNone",
+    not_needed: "filterNotNeeded",
+    pending: "filterPending",
+    refunded: "filterRefunded",
+    credit_missing: "filterCreditMissing",
 };
 
 const COLORS: Record<FilterKey, string> = {
@@ -31,12 +34,13 @@ export function Filters({ current, setCurrent, counts }: {
     setCurrent: (k: FilterKey) => void;
     counts: Record<FilterKey, number>;
 }) {
+    const t = useTranslations("conciliacao");
     return (
         <div className="flex flex-wrap gap-2">
-            {(Object.keys(LABELS) as FilterKey[]).map(k => (
+            {(Object.keys(FILTER_KEYS) as FilterKey[]).map(k => (
                 <button key={k} onClick={() => setCurrent(k)}
                     className={`px-4 py-2 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] border transition-all ${current === k ? COLORS[k] : "bg-surface-2/40 text-fg-40 border-hairline hover:text-fg"}`}>
-                    {LABELS[k]} <span className="opacity-60 ml-1">({counts[k] ?? 0})</span>
+                    {t(FILTER_KEYS[k])} <span className="opacity-60 ml-1">({counts[k] ?? 0})</span>
                 </button>
             ))}
         </div>

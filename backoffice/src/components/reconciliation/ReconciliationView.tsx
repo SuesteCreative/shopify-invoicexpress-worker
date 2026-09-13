@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Loader2, RefreshCcw, Search, ScrollText, FileDown, PauseCircle, Play } from "lucide-react";
 import { ReconciliationRow, type Row } from "./ReconciliationRow";
 import { DateRangePicker } from "./DateRangePicker";
 import { Filters, type FilterKey } from "./Filters";
 import { exportReconciliationToExcel } from "./exportToExcel";
-import { sourceLabel, destLabel, recordNoun } from "./platform";
+import { sourceLabel, destLabel, recordNounKey } from "./platform";
 
 type Response = {
     from: string;
@@ -27,9 +28,12 @@ export function ReconciliationView({ identifier, label, source, destination }: {
     // Show who the account IS, not the Clerk id it happens to have. `identifier`
     // stays the technical key (shop domain / user id) used by the export file.
     const accountName = label?.trim() || identifier;
+    const t = useTranslations("conciliacao");
+    const locale = useLocale();
     const srcLabel = sourceLabel(source);
     const dstLabel = destLabel(destination);
-    const noun = recordNoun(source);
+    const nounKey = recordNounKey(source);
+    const noun = { singular: t(`noun${nounKey}Singular`), plural: t(`noun${nounKey}Plural`) };
     const [from, setFrom] = useState(daysAgoISO(30));
     const [to, setTo] = useState(todayISO());
     const [loading, setLoading] = useState(false);
@@ -59,9 +63,9 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                 body: JSON.stringify({ paused: false }),
             });
             if (res.ok) setIsPaused(false);
-            else alert("Falha ao retomar integração. Tenta novamente.");
+            else alert(t("resumeError"));
         } catch (e: any) {
-            alert(`Erro de rede: ${e.message}`);
+            alert(t("networkError", { message: e.message }));
         } finally {
             setResuming(false);
         }
@@ -80,7 +84,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                 + (opts.refresh ? "&refresh=1" : ""),
             );
             const j: any = await res.json();
-            if (!res.ok) { setError(j.error ?? "Erro"); setData(null); }
+            if (!res.ok) { setError(j.error ?? t("genericError")); setData(null); }
             else setData(j);
         } catch (e: any) { setError(String(e)); }
         finally { setLoading(false); }
@@ -122,7 +126,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                         <ScrollText className="w-6 h-6 text-accent-hot" />
                     </div>
                     <div>
-                        <h1 className="text-3xl md:text-4xl font-medium tracking-tight">Conciliação {srcLabel} ↔ {dstLabel}</h1>
+                        <h1 className="text-3xl md:text-4xl font-medium tracking-tight">{t("heading", { source: srcLabel, destination: dstLabel })}</h1>
                         <p className="text-fg-60 text-sm">{accountName}</p>
                     </div>
                 </div>
@@ -134,11 +138,16 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                         <PauseCircle className="w-6 h-6 text-soon shrink-0 mt-0.5" />
                         <div className="space-y-1">
                             <p className="text-sm font-semibold text-soon">
-                                Integração pausada — nenhuma fatura está a ser emitida automaticamente
+                                {t("pausedTitle")}
                             </p>
                             <p className="text-xs text-fg-60">
-                                A tua integração {srcLabel} ↔ {dstLabel} está em pausa. As {noun.plural} continuam a chegar,
-                                mas nenhuma vai gerar fatura até retomares. {noun.plural.charAt(0).toUpperCase() + noun.plural.slice(1)} paradas aparecem em <strong>Sem fatura</strong> abaixo.
+                                {t.rich("pausedBody", {
+                                    source: srcLabel,
+                                    destination: dstLabel,
+                                    plural: noun.plural,
+                                    pluralCap: noun.plural.charAt(0).toUpperCase() + noun.plural.slice(1),
+                                    b: (chunks) => <strong>{chunks}</strong>,
+                                })}
                             </p>
                         </div>
                     </div>
@@ -148,7 +157,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                         className="bg-soon hover:bg-soon/85 text-surface px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
                     >
                         {resuming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                        Retomar agora
+                        {t("resumeNow")}
                     </button>
                 </div>
             )}
@@ -158,13 +167,13 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                 <button onClick={() => load()} disabled={loading}
                     className="bg-fg text-surface px-6 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-accent-hot transition-all disabled:opacity-50">
                     {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
-                    Atualizar
+                    {t("refresh")}
                 </button>
                 <button
                     onClick={async () => {
                         if (!data) return;
                         setExporting(true);
-                        try { await exportReconciliationToExcel(filtered, accountName, from, to, source, destination); }
+                        try { await exportReconciliationToExcel(filtered, accountName, from, to, source, destination, t, locale); }
                         catch (e: any) { setError(String(e)); }
                         finally { setExporting(false); }
                     }}
@@ -175,7 +184,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                 </button>
                 <div className="relative flex-1">
                     <Search className="w-4 h-4 text-fg-40 absolute left-4 top-1/2 -translate-y-1/2" />
-                    <input placeholder={`Pesquisar ${noun.singular}, cliente, email, ref. fatura...`}
+                    <input placeholder={t("searchPlaceholder", { singular: noun.singular })}
                         value={search} onChange={e => setSearch(e.target.value)}
                         className="w-full bg-surface-2 border border-hairline rounded-xl py-2.5 pl-11 pr-4 text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-accent/20" />
                 </div>
@@ -205,15 +214,16 @@ export function ReconciliationView({ identifier, label, source, destination }: {
                 and chasing the 85 that are actually missing. */}
             {data && data.summary.recovery_complete === 0 && (
                 <div className="rounded-2xl border border-soon/30 bg-soon/5 p-4 text-sm">
-                    <strong>Verificação incompleta.</strong>{" "}
-                    {(data.summary.recovery_unknown ?? 0) + (data.summary.recovery_remaining ?? 0)}{" "}
-                    encomenda(s) não chegaram a ser confirmadas no destino, por isso o número
-                    de <em>sem fatura</em> acima é um máximo, não uma contagem.
+                    <strong>{t("recoveryIncomplete")}</strong>{" "}
+                    {t.rich("recoveryIncompleteBody", {
+                        count: (data.summary.recovery_unknown ?? 0) + (data.summary.recovery_remaining ?? 0),
+                        i: (chunks) => <em>{chunks}</em>,
+                    })}
                     <button
                         onClick={() => load({ refresh: true })}
                         className="ml-2 underline underline-offset-2 hover:text-accent-ink"
                     >
-                        Verificar outra vez
+                        {t("checkAgain")}
                     </button>
                 </div>
             )}
@@ -229,7 +239,7 @@ export function ReconciliationView({ identifier, label, source, destination }: {
             )}
 
             {data && filtered.length === 0 && (
-                <p className="text-center text-fg-40 italic py-20">Sem resultados neste filtro.</p>
+                <p className="text-center text-fg-40 italic py-20">{t("noResults")}</p>
             )}
 
             <div className="space-y-3">

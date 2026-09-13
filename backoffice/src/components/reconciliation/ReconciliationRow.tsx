@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import {
     ExternalLink, CheckCircle2, AlertCircle, Loader2,
     RotateCcw, FilePlus2, MinusCircle, Clock
@@ -80,53 +81,59 @@ export type Row = {
     pre_cutoff?: boolean;
 };
 
-const BADGE: Record<Row["match"]["type"], { label: string; cls: string }> = {
-    exact: { label: "Match exato", cls: "bg-accent-hot/10 text-accent-hot border-accent-hot/30" },
-    approved: { label: "Aprovado", cls: "bg-accent-hot/10 text-accent-hot border-accent-hot/30" },
-    heuristic: { label: "Heurístico", cls: "bg-accent/10 text-accent-ink border-accent/30" },
-    not_needed: { label: "Não necessária", cls: "bg-soon/10 text-soon border-soon/30" },
-    none: { label: "Sem fatura", cls: "bg-destructive/10 text-destructive border-destructive/30" },
-    pending: { label: "Aguarda pagamento", cls: "bg-veil-strong text-fg-60 border-hairline-strong" },
+export const BADGE: Record<Row["match"]["type"], { key: string; cls: string }> = {
+    exact: { key: "badgeExact", cls: "bg-accent-hot/10 text-accent-hot border-accent-hot/30" },
+    approved: { key: "badgeApproved", cls: "bg-accent-hot/10 text-accent-hot border-accent-hot/30" },
+    heuristic: { key: "badgeHeuristic", cls: "bg-accent/10 text-accent-ink border-accent/30" },
+    not_needed: { key: "badgeNotNeeded", cls: "bg-soon/10 text-soon border-soon/30" },
+    none: { key: "badgeNone", cls: "bg-destructive/10 text-destructive border-destructive/30" },
+    pending: { key: "badgePending", cls: "bg-veil-strong text-fg-60 border-hairline-strong" },
 };
 
 // Source-side chip for refunded / cancelled orders. Full refund + cancellation
 // read as destructive (red); a partial refund is a softer amber.
-const REFUND_CHIP: Record<NonNullable<Row["order"]["refund_state"]>, { label: string; cls: string }> = {
-    full: { label: "Reembolsado", cls: "bg-destructive/10 text-destructive border-destructive/30" },
-    partial: { label: "Reembolso parcial", cls: "bg-soon/10 text-soon border-soon/30" },
-    cancelled: { label: "Cancelado", cls: "bg-destructive/10 text-destructive border-destructive/30" },
+export const REFUND_CHIP: Record<NonNullable<Row["order"]["refund_state"]>, { key: string; cls: string }> = {
+    full: { key: "refundFull", cls: "bg-destructive/10 text-destructive border-destructive/30" },
+    partial: { key: "refundPartial", cls: "bg-soon/10 text-soon border-soon/30" },
+    cancelled: { key: "refundCancelled", cls: "bg-destructive/10 text-destructive border-destructive/30" },
 };
 
 // Source-side chip for a declined Lodgify booking (enquiry the host declined).
 // Neutral grey — it's not an error, just a booking that will never be invoiced.
-const DECLINED_CHIP = { label: "Recusada", cls: "bg-veil-strong text-fg-60 border-hairline-strong" };
+const DECLINED_CHIP = { key: "declined", cls: "bg-veil-strong text-fg-60 border-hairline-strong" };
 
-// Lodgify `source` codes → friendly channel labels shown as a chip on the row.
+// Lodgify `source` codes → channel chips. Brand names stay as they are; the
+// three generic ones are translated.
 const CHANNEL_LABELS: Record<string, string> = {
     bookingcom: "Booking.com", booking: "Booking.com",
     airbnb: "Airbnb", airbnbintegration: "Airbnb",
     expedia: "Expedia", vrbo: "Vrbo", homeaway: "HomeAway",
-    manual: "Manual", direct: "Direto", website: "Website",
 };
-const channelLabel = (c: string | null | undefined): string | null => {
-    if (!c) return null;
-    return CHANNEL_LABELS[c.toLowerCase()] ?? c;
-};
-
-const fmt = (n: number) => n.toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
-const fmtDate = (s: string | null | undefined) => {
-    if (!s) return "—";
-    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
-    const d = m ? new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00Z`) : new Date(s);
-    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-PT");
+const CHANNEL_KEYS: Record<string, string> = {
+    manual: "channelManual", direct: "channelDirect", website: "channelWebsite",
 };
 
 // A sale that predates the integration and has no invoice is NOT our miss — the
 // merchant's previous process owned it. Amber, not red, and worded so nobody
 // reads it as a Rioko failure.
-const PRE_CUTOFF_BADGE = { label: "Anterior à integração", cls: "bg-soon/10 text-soon border-soon/30" };
+const PRE_CUTOFF_BADGE = { key: "badgePreCutoff", cls: "bg-soon/10 text-soon border-soon/30" };
 
 export function ReconciliationRow({ row, onChanged, source, destination }: { row: Row; onChanged: () => void; source: string; destination: string }) {
+    const t = useTranslations("conciliacao");
+    const locale = useLocale();
+    const intlLocale = locale === "en" ? "en-GB" : "pt-PT";
+    const fmt = (n: number) => n.toLocaleString(intlLocale, { style: "currency", currency: "EUR" });
+    const fmtDate = (s: string | null | undefined) => {
+        if (!s) return "—";
+        const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+        const d = m ? new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00Z`) : new Date(s);
+        return isNaN(d.getTime()) ? "—" : d.toLocaleDateString(intlLocale);
+    };
+    const channelLabel = (c: string | null | undefined): string | null => {
+        if (!c) return null;
+        const k = c.toLowerCase();
+        return CHANNEL_LABELS[k] ?? (CHANNEL_KEYS[k] ? t(CHANNEL_KEYS[k]) : c);
+    };
     const [acting, setActing] = useState(false);
     const preCutoffUnbilled = !!row.pre_cutoff && !row.invoice;
     const badge = preCutoffUnbilled && row.match.type === "none" ? PRE_CUTOFF_BADGE : BADGE[row.match.type];
@@ -156,7 +163,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
     };
 
     const markNotNeeded = async () => {
-        const reason = prompt("Motivo (opcional):") ?? undefined;
+        const reason = prompt(t("reasonPrompt")) ?? undefined;
         setActing(true);
         try {
             await fetch("/api/conciliacao/decision", {
@@ -179,7 +186,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
     };
 
     const issueInvoice = async () => {
-        if (!confirm(`Emitir fatura para encomenda ${row.order.name}?`)) return;
+        if (!confirm(t("confirmIssue", { name: row.order.name }))) return;
         setActing(true);
         try {
             const res = await fetch("/api/conciliacao/issue-invoice", {
@@ -192,11 +199,11 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
             const innerStatus = j?.status ?? j?.result?.status;
             const innerMessage = j?.message ?? j?.result?.message ?? j?.error;
             if (!res.ok) {
-                alert(`Erro ao emitir fatura: ${innerMessage ?? `HTTP ${res.status}`}`);
+                alert(t("issueError", { message: innerMessage ?? `HTTP ${res.status}` }));
             } else if (innerStatus === "error") {
-                alert(`Não foi possível emitir a fatura.\n\n${innerMessage ?? "Erro desconhecido."}`);
+                alert(`${t("issueFailed")}\n\n${innerMessage ?? t("issueUnknownError")}`);
             } else if (innerStatus === "skipped") {
-                alert(`Sem fatura a emitir.\n\n${innerMessage ?? ""}`);
+                alert(`${t("issueSkipped")}\n\n${innerMessage ?? ""}`);
             } else if (innerStatus === "created") {
                 // success — no alert needed, UI will refresh
             }
@@ -220,18 +227,18 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                     {row.order.declined ? (
                         <span className="text-xs font-bold text-fg-60">{fmt(row.order.total)}</span>
                     ) : row.order.financial_status === "paid" ? (
-                        <span className="text-xs font-bold text-accent-hot">Pago · {fmt(row.order.total)}</span>
+                        <span className="text-xs font-bold text-accent-hot">{t("paid")} · {fmt(row.order.total)}</span>
                     ) : (
-                        <span className="text-xs font-bold text-soon">Pendente · {fmt(row.order.total)}</span>
+                        <span className="text-xs font-bold text-soon">{t("unpaid")} · {fmt(row.order.total)}</span>
                     )}
                     {row.order.refund_state && (
                         <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${REFUND_CHIP[row.order.refund_state].cls}`}>
-                            {REFUND_CHIP[row.order.refund_state].label}
+                            {t(REFUND_CHIP[row.order.refund_state].key)}
                         </span>
                     )}
                     {row.order.declined && (
                         <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${DECLINED_CHIP.cls}`}>
-                            {DECLINED_CHIP.label}
+                            {t(DECLINED_CHIP.key)}
                         </span>
                     )}
                 </div>
@@ -251,7 +258,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
             {/* Middle: match badge */}
             <div className="flex md:flex-col items-center justify-center gap-2 px-2 md:px-4">
                 <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${badge.cls}`}>
-                    {badge.label}
+                    {t(badge.key)}
                     {row.match.type === "heuristic" && ` ${row.match.confidence}%`}
                 </span>
                 {row.match.reason && (
@@ -270,23 +277,23 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                                 <DestIcon className="w-3 h-3" /> {dstLabel}
                             </span>
                             <span className="text-[10px] font-bold text-accent-hot">
-                                {row.invoices.length} faturas · Σ {fmt(row.invoices.reduce((s, iv) => s + (iv.total ?? 0), 0))}
+                                {t("invoiceCount", { count: row.invoices.length })} · Σ {fmt(row.invoices.reduce((s, iv) => s + (iv.total ?? 0), 0))}
                             </span>
                         </div>
                         {row.invoices.map((iv, i) => (
                             <div key={iv.id} className="flex flex-wrap items-baseline gap-2 border-l-2 border-hairline pl-2 py-0.5">
-                                <span className="text-[9px] font-black text-fg-40">parcela {i + 1}</span>
+                                <span className="text-[9px] font-black text-fg-40">{t("instalment", { n: i + 1 })}</span>
                                 {iv.status && (
                                     <span className={`text-[10px] font-bold ${iv.status === "draft" ? "text-soon" : "text-accent-hot"}`}>{iv.status}</span>
                                 )}
                                 {iv.permalink ? (
                                     <a href={iv.permalink} target="_blank" rel="noopener noreferrer"
                                         className="text-sm font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
-                                        {iv.number ?? iv.reference ?? `Fatura ${iv.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
+                                        {iv.number ?? iv.reference ?? t("invoiceN", { id: iv.id })} <ExternalLink className="w-3 h-3 opacity-50" />
                                     </a>
                                 ) : (
-                                    <span className="text-sm font-black text-fg" title={iv.status === "draft" ? "Rascunho — o link abre quando a fatura for finalizada no Moloni" : undefined}>
-                                        {iv.number ?? iv.reference ?? `Fatura ${iv.id}`}
+                                    <span className="text-sm font-black text-fg" title={iv.status === "draft" ? t("draftInvoiceTooltip") : undefined}>
+                                        {iv.number ?? iv.reference ?? t("invoiceN", { id: iv.id })}
                                     </span>
                                 )}
                                 {iv.total != null && (
@@ -317,11 +324,11 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             {row.invoice.permalink ? (
                                 <a href={row.invoice.permalink} target="_blank" rel="noopener noreferrer"
                                     className="text-base font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
-                                    {row.invoice.number ?? row.invoice.reference ?? `Fatura ${row.invoice.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
+                                    {row.invoice.number ?? row.invoice.reference ?? t("invoiceN", { id: row.invoice.id })} <ExternalLink className="w-3 h-3 opacity-50" />
                                 </a>
                             ) : (
-                                <span className="text-base font-black text-fg" title={row.invoice.status === "draft" ? "Rascunho — o link abre quando a fatura for finalizada no Moloni" : undefined}>
-                                    {row.invoice.number ?? row.invoice.reference ?? `Fatura ${row.invoice.id}`}
+                                <span className="text-base font-black text-fg" title={row.invoice.status === "draft" ? t("draftInvoiceTooltip") : undefined}>
+                                    {row.invoice.number ?? row.invoice.reference ?? t("invoiceN", { id: row.invoice.id })}
                                 </span>
                             )}
                             {row.invoice.total != null && (
@@ -334,7 +341,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                         {row.invoice.meta_unavailable && (
                             <p className="text-[10px] font-medium text-soon flex items-center gap-1 mt-0.5">
                                 <AlertCircle className="w-3 h-3 shrink-0" />
-                                Fatura emitida (id {row.invoice.id}) — detalhe do {dstLabel} indisponível de momento. Atualiza daqui a pouco.
+                                {t("metaUnavailable", { id: row.invoice.id, destination: dstLabel })}
                             </p>
                         )}
                         <div className="flex flex-wrap gap-2 mt-1">
@@ -347,28 +354,27 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             {row.match.type === "approved" && (
                                 <button onClick={revertApprove} disabled={acting}
                                     className="text-[10px] font-black uppercase tracking-widest text-soon hover:text-soon/85 px-2.5 py-1 rounded-lg border border-soon/20 hover:border-soon/40 inline-flex items-center gap-1 disabled:opacity-50">
-                                    {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Reverter aprovação
+                                    {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} {t("revertApproval")}
                                 </button>
                             )}
                         </div>
                     </>
                 ) : row.match.type === "not_needed" ? (
                     <>
-                        <p className="text-sm font-bold text-fg-60">Fatura não necessária</p>
+                        <p className="text-sm font-bold text-fg-60">{t("invoiceNotNeeded")}</p>
                         {row.match.reason && <p className="text-xs text-fg-40">{row.match.reason}</p>}
                         <button onClick={clearDecision} disabled={acting}
                             className="text-[10px] font-black uppercase tracking-widest text-fg-60 hover:text-fg px-2.5 py-1 rounded-lg border border-hairline hover:border-rule inline-flex items-center gap-1 mt-2 w-fit disabled:opacity-50">
-                            {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Reverter
+                            {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} {t("revert")}
                         </button>
                     </>
                 ) : row.match.type === "pending" ? (
                     <>
                         <p className="text-sm font-bold text-soon flex items-center gap-2">
-                            <Clock className="w-4 h-4" /> Faturação em espera
+                            <Clock className="w-4 h-4" /> {t("invoicingOnHold")}
                         </p>
                         <p className="text-xs text-fg-40">
-                            {row.match.reason
-                                ?? `A fatura é emitida automaticamente quando o pagamento for confirmado no ${srcLabel}. Até lá fica em espera.`}
+                            {row.match.reason ?? t("invoicingOnHoldBody", { source: srcLabel })}
                         </p>
                     </>
                 ) : (
@@ -376,31 +382,29 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                         {preCutoffUnbilled ? (
                             <>
                                 <p className="text-sm font-bold text-soon flex items-center gap-2">
-                                    <AlertCircle className="w-4 h-4" /> Sem fatura — anterior à integração
+                                    <AlertCircle className="w-4 h-4" /> {t("noInvoicePreCutoff")}
                                 </p>
                                 <p className="text-xs text-fg-40">
-                                    Este pagamento é anterior à ligação do Rioko, por isso não foi faturado por nós
-                                    (fazê-lo automaticamente duplicaria o que já tenha sido emitido). Verifique no seu
-                                    software se a fatura existe; se não existir, emita-a ou peça-nos para a emitir.
+                                    {t("noInvoicePreCutoffBody")}
                                 </p>
                             </>
                         ) : (
                             <p className="text-sm font-bold text-destructive flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4" /> Sem fatura emitida
+                                <AlertCircle className="w-4 h-4" /> {t("noInvoiceIssued")}
                             </p>
                         )}
                         {row.candidates.length > 0 && (
                             <div className="space-y-2 mt-1">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-fg-40">Candidatos heurísticos:</p>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-fg-40">{t("heuristicCandidates")}</p>
                                 {row.candidates.map(c => (
                                     <div key={c.id} className="flex items-center justify-between gap-2 bg-surface border border-hairline rounded-lg p-2">
                                         <div className="min-w-0">
-                                            <p className="text-xs font-bold text-fg truncate">{c.reference ?? `Fatura ${c.id}`} <span className="text-[10px] text-soon">· {c.confidence}%</span></p>
+                                            <p className="text-xs font-bold text-fg truncate">{c.reference ?? t("invoiceN", { id: c.id })} <span className="text-[10px] text-soon">· {c.confidence}%</span></p>
                                             <p className="text-[10px] text-fg-40 truncate">{c.client_name} · {fmt(c.total)} · {fmtDate(c.date)}</p>
                                         </div>
                                         <button onClick={() => approve(c.id)} disabled={acting}
                                             className="text-[10px] font-black uppercase tracking-widest bg-accent-hot/18 text-accent-hot border border-accent-hot/30 px-2.5 py-1 rounded-lg hover:bg-accent-hot/25 inline-flex items-center gap-1 disabled:opacity-50">
-                                            {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} Aprovar
+                                            {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} {t("approve")}
                                         </button>
                                     </div>
                                 ))}
@@ -410,12 +414,12 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             {isShopify && (
                                 <button onClick={issueInvoice} disabled={acting}
                                     className="text-[10px] font-black uppercase tracking-widest bg-fg text-surface px-3 py-1.5 rounded-lg hover:bg-accent-hot inline-flex items-center gap-1 disabled:opacity-50">
-                                    {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FilePlus2 className="w-3 h-3" />} Emitir fatura
+                                    {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FilePlus2 className="w-3 h-3" />} {t("issueInvoice")}
                                 </button>
                             )}
                             <button onClick={markNotNeeded} disabled={acting}
                                 className="text-[10px] font-black uppercase tracking-widest text-fg-60 hover:text-fg px-3 py-1.5 rounded-lg border border-hairline hover:border-rule inline-flex items-center gap-1 disabled:opacity-50">
-                                {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <MinusCircle className="w-3 h-3" />} Marcar não necessária
+                                {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <MinusCircle className="w-3 h-3" />} {t("markNotNeeded")}
                             </button>
                         </div>
                     </>
@@ -431,16 +435,16 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                             row.credit_notes.map(cn => (
                                 <div key={cn.id} className="flex flex-wrap items-baseline gap-2">
                                     <span className="text-[9px] font-black uppercase tracking-widest text-destructive px-2 py-0.5 rounded bg-destructive/10 border border-destructive/30 inline-flex items-center gap-1">
-                                        <RotateCcw className="w-3 h-3" /> Nota de crédito
+                                        <RotateCcw className="w-3 h-3" /> {t("creditNote")}
                                     </span>
                                     {cn.permalink ? (
                                         <a href={cn.permalink} target="_blank" rel="noopener noreferrer"
                                             className="text-sm font-black text-fg hover:text-accent-hot transition-colors inline-flex items-center gap-1">
-                                            {cn.number ?? cn.reference ?? `NC ${cn.id}`} <ExternalLink className="w-3 h-3 opacity-50" />
+                                            {cn.number ?? cn.reference ?? t("creditNoteN", { id: cn.id })} <ExternalLink className="w-3 h-3 opacity-50" />
                                         </a>
                                     ) : (
-                                        <span className="text-sm font-black text-fg" title={cn.status === "draft" ? "Rascunho — o link abre quando a nota de crédito for finalizada" : undefined}>
-                                            {cn.number ?? cn.reference ?? `NC ${cn.id}`}
+                                        <span className="text-sm font-black text-fg" title={cn.status === "draft" ? t("draftCreditNoteTooltip") : undefined}>
+                                            {cn.number ?? cn.reference ?? t("creditNoteN", { id: cn.id })}
                                         </span>
                                     )}
                                     {cn.total != null && (
@@ -449,7 +453,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                                     {cn.date && <span className="text-[10px] font-bold text-fg-40">{fmtDate(cn.date)}</span>}
                                     {row.invoice && (
                                         <span className="text-[10px] font-medium text-fg-40">
-                                            assoc. {row.invoice.number ?? row.invoice.reference ?? `fatura ${row.invoice.id}`}
+                                            {t("creditNoteLinked", { reference: row.invoice.number ?? row.invoice.reference ?? t("invoiceLower", { id: row.invoice.id }) })}
                                         </span>
                                     )}
                                 </div>
@@ -457,7 +461,7 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                         ) : !row.invoice?.meta_unavailable ? (
                             <p className="text-[11px] font-bold text-soon flex items-center gap-1.5">
                                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                {row.order.refund_state === "cancelled" ? "Cancelado" : "Reembolsado"} — nota de crédito não emitida
+                                {t("creditNoteMissing", { state: t(row.order.refund_state === "cancelled" ? "refundCancelled" : "refundFull") })}
                             </p>
                         ) : null}
                     </div>

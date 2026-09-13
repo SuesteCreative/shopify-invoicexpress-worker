@@ -20,6 +20,90 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+        "version": "8.7.0",
+        "emoji": "✨",
+        "title": "A customer number that outlives the account it named",
+        "date": "September 13, 2026",
+        "commit": "ccf985b",
+        "highlight": false,
+        "body": [
+            {
+                "t": "h",
+                "text": "Para o comerciante"
+            },
+            {
+                "t": "li",
+                "text": "Convida quem quiser e ganha 2 meses por cada pessoa que ligar uma integração. O teu link está em Convidar, no menu."
+            },
+            {
+                "t": "li",
+                "text": "Nada. Correcção de ferramentas internas."
+            },
+            {
+                "t": "li",
+                "text": "Tem uma página Conta nova, com o seu código de cliente e os seus dados. Pode corrigir nome, telefone, website e morada; o NIF e o nome fiscal ficam em leitura, com um botão para nos pedir a alteração — são o que sai impresso nas faturas que já lhe emitimos."
+            },
+            {
+                "t": "h",
+                "text": "Novo"
+            },
+            {
+                "t": "li",
+                "text": "**clientes** — a customer number that outlives the account it named"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — one page that is the whole customer"
+            },
+            {
+                "t": "li",
+                "text": "**conta** — the merchant reads their own record, and asks for the rest"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — the name and the number open the record, and the operator can act on it"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — grant a fiscal change request in one click"
+            },
+            {
+                "t": "h",
+                "text": "Corrigido"
+            },
+            {
+                "t": "li",
+                "text": "**release** — stop a release going out silent to the people it is for"
+            },
+            {
+                "t": "h",
+                "text": "Documentação"
+            },
+            {
+                "t": "li",
+                "text": "**changelog** — v8.6.0 — Convide um amigo, ganhe 2 meses"
+            },
+            {
+                "t": "li",
+                "text": "**ficha** — say where the work landed and what is still owed"
+            }
+        ],
+        "publicBody": [
+            {
+                "t": "li",
+                "text": "Convida quem quiser e ganha 2 meses por cada pessoa que ligar uma integração. O teu link está em Convidar, no menu."
+            },
+            {
+                "t": "li",
+                "text": "Nada. Correcção de ferramentas internas."
+            },
+            {
+                "t": "li",
+                "text": "Tem uma página Conta nova, com o seu código de cliente e os seus dados. Pode corrigir nome, telefone, website e morada; o NIF e o nome fiscal ficam em leitura, com um botão para nos pedir a alteração — são o que sai impresso nas faturas que já lhe emitimos."
+            }
+        ]
+    },
+    {
         "version": "8.6.0",
         "emoji": "✨",
         "title": "Convide um amigo, ganhe 2 meses",

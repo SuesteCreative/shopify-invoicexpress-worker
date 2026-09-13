@@ -5,6 +5,33 @@ que gera `src/lib/version.ts` e `src/lib/changelog.generated.ts` — o rodapé d
 `/changelog` saem daqui. O comentário `<!-- release: sha -->` marca o último commit incluído na
 versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
+## ✨ Version 8.7.0 — A customer number that outlives the account it named — September 13, 2026
+
+<!-- release: ccf985b -->
+
+### Para o comerciante
+
+- Convida quem quiser e ganha 2 meses por cada pessoa que ligar uma integração. O teu link está em Convidar, no menu.
+- Nada. Correcção de ferramentas internas.
+- Tem uma página Conta nova, com o seu código de cliente e os seus dados. Pode corrigir nome, telefone, website e morada; o NIF e o nome fiscal ficam em leitura, com um botão para nos pedir a alteração — são o que sai impresso nas faturas que já lhe emitimos.
+
+### Novo
+
+- **clientes** — a customer number that outlives the account it named
+- **admin** — one page that is the whole customer
+- **conta** — the merchant reads their own record, and asks for the rest
+- **admin** — the name and the number open the record, and the operator can act on it
+- **admin** — grant a fiscal change request in one click
+
+### Corrigido
+
+- **release** — stop a release going out silent to the people it is for
+
+### Documentação
+
+- **changelog** — v8.6.0 — Convide um amigo, ganhe 2 meses
+- **ficha** — say where the work landed and what is still owed
+
 ## ✨ Version 8.6.0 — Convide um amigo, ganhe 2 meses — September 13, 2026
 
 <!-- release: 9cd2d1e -->

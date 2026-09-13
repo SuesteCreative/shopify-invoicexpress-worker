@@ -224,15 +224,22 @@ export function NewsletterPanel() {
                 </p>
             </header>
 
-            {error && (
-                <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-destructive/5 border border-destructive/20 text-destructive text-xs font-medium">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
-                    <span>{error}</span>
-                </div>
-            )}
-            {note && (
-                <div className="px-4 py-3 rounded-xl bg-accent/10 border border-accent/25 text-accent-ink text-xs font-medium">
-                    {note}
+            {/* Sticky: every button that produces these sits far down the page, so a
+                result printed only up here landed off-screen and read as "nothing
+                happened". bg-surface keeps the tinted plates legible over the scroll. */}
+            {(error || note) && (
+                <div className="sticky top-0 z-20 space-y-2 rounded-xl bg-surface">
+                    {error && (
+                        <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-destructive/5 border border-destructive/20 text-destructive text-xs font-medium">
+                            <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
+                            <span>{error}</span>
+                        </div>
+                    )}
+                    {note && (
+                        <div className="px-4 py-3 rounded-xl bg-accent/10 border border-accent/25 text-accent-ink text-xs font-medium">
+                            {note}
+                        </div>
+                    )}
                 </div>
             )}
 

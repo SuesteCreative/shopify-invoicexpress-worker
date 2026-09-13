@@ -8,11 +8,12 @@
  *
  *   config_audit     — `scope` already carries the pair.
  *   document_events  — `source_kind` + `destination_kind` are on the row.
- *   incidents        — `connection_id` exists in the schema since 0009 and is
- *                      written by nothing: every reportIncident call site leaves
- *                      it null. There is no function for it here because there
- *                      is no answer, and guessing one from `kind` would be a
- *                      guess presented as a fact.
+ *   incidents        — `connection_id` exists in the schema since 0009 and only
+ *                      the connection-health check writes it; every other
+ *                      reportIncident call site leaves it null. There is no
+ *                      function for it here because for most rows there is no
+ *                      answer, and guessing one from `kind` would be a guess
+ *                      presented as a fact.
  *
  * Both functions return null for "not attributable", and the caller labels that
  * bucket for what it means in its own table: account-wide for a configuration
@@ -64,6 +65,26 @@ export function connectionKeyForDocumentEvent(row: DocumentEventLike): string | 
     if (source && destination) return `${source}:${destination}`;
     if ((row.shopify_domain ?? "").trim()) return LEGACY_CONNECTION_KEY;
     return null;
+}
+
+/**
+ * The same, for the account at hand — including a row that names only its source.
+ *
+ * The dead-letter queue wrote `create_failed` with a source and no destination,
+ * and "stripe" even for a Stripe Connect sale. For two accounts those were their
+ * only document events, filed under "no connection" while the connection's own
+ * filter stayed empty. When exactly ONE of the account's connections takes sales
+ * from that source, the row can only be about that one; with two, or none, it
+ * stays unattributed rather than guessed.
+ */
+export function attributeDocumentEvent(row: DocumentEventLike, connectionKeys: readonly string[]): string | null {
+    const exact = connectionKeyForDocumentEvent(row);
+    if (exact) return exact;
+    const source = (row.source_kind ?? "").trim();
+    if (!source) return null;
+    const family = (kind: string) => (kind === "stripe_connect" ? "stripe" : kind);
+    const candidates = [...new Set(connectionKeys)].filter((k) => family(k.split(":")[0]) === family(source));
+    return candidates.length === 1 ? candidates[0] : null;
 }
 
 /** The three scopes `config_audit` carries for a fiscal identity change. */

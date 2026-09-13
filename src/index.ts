@@ -3363,7 +3363,12 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
         dedupKey: `create_failed:dlq:${externalId}`,
         userId,
         shopifyDomain: shopDomain,
-        sourceKind: sourceQueue === "stripeeventsqueue" ? "stripe" : "shopify",
+        // The message carries the real pair (a Stripe Connect sale is
+        // "stripe_connect", not "stripe"). Without a destination the row was
+        // filed under no connection, and for two accounts those were the only
+        // events they had.
+        sourceKind: body?.sourceKind ?? (sourceQueue === "stripeeventsqueue" ? "stripe" : "shopify"),
+        destinationKind: body?.destinationKind ?? null,
         actor: "dlq",
         summary: `As tentativas de processar ${topic} para ${orderLabel} esgotaram-se sem que o destino chegasse a aceitar o documento. Nenhum erro do destino ficou registado — a falha foi de transporte (rede, timeout ou indisponibilidade), não uma recusa.`,
         detail: { sourceQueue, topic, eventId },

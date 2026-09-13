@@ -12,7 +12,7 @@ import {
 import { Section } from "@/components/admin/Section";
 import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
 import { connectionLabel } from "@/lib/connection-kinds";
-import { connectionKeyForScope, connectionKeyForDocumentEvent, groupByConnection } from "@/lib/client-record-sql";
+import { connectionKeyForScope, attributeDocumentEvent, groupByConnection } from "@/lib/client-record-sql";
 
 /**
  * One customer, whole.
@@ -39,11 +39,14 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
     { id: "registos", label: "Registos", icon: ScrollText },
 ];
 
+/** Keyed by what subscriptionUIState returns — a key it never returns is a badge drawn in the wrong colour. */
 const SUB_STATE_STYLE: Record<string, string> = {
     active: "bg-accent/12 text-accent-ink border-accent/28",
-    trial: "bg-soon/12 text-soon border-soon/28",
+    trialing: "bg-accent/12 text-accent-ink border-accent/28",
+    trialing_earlybird: "bg-soon/12 text-soon border-soon/28",
     exempt: "bg-fg/8 text-fg-40 border-hairline",
     blocked: "bg-destructive/12 text-destructive border-destructive/28",
+    none: "bg-destructive/12 text-destructive border-destructive/28",
 };
 
 function money(cents: number | null | undefined, currency: string | null | undefined) {
@@ -682,9 +685,15 @@ function SubscriptionsTab({ data, base }: { data: any; base: string }) {
                                     {s.sub_state}
                                 </span>
                             </div>
+                            {/* Only a row with a Stripe subscription pays for anything. The
+                                rest are placeholders written under the column default at
+                                sign-up, and "paga" on them sent the operator hunting a charge
+                                that does not exist. */}
                             {!s.connection_exists && (
                                 <p className="text-[11px] font-bold text-soon">
-                                    Paga uma ligação que a conta não tem — verificar antes de cobrar outra.
+                                    {s.stripe_subscription_id
+                                        ? "Paga uma ligação que a conta não tem — verificar antes de cobrar outra."
+                                        : "Linha sem ligação correspondente (sem cobrança)."}
                                 </p>
                             )}
                             <div className="grid grid-cols-2 gap-4">
@@ -732,7 +741,22 @@ function ConnectionsTab({ data }: { data: any }) {
                                     <span className="font-black text-sm">{connectionLabel(conn.source_kind, conn.destination_kind)}</span>
                                     <Pill tone={conn.status === "active" ? "good" : conn.status === "paused" ? "warn" : "neutral"}>{conn.status}</Pill>
                                     {conn.legacy && <Pill>legado</Pill>}
-                                    {conn.subscribed === false && <Pill tone="warn">sem subscrição — o worker recusa faturar</Pill>}
+                                    {/* The gate's verdict, not the row's existence: an early-bird
+                                        trial that ran out is a row the worker refuses on. */}
+                                    {conn.subscribed === false && (
+                                        <Pill tone="bad">
+                                            {conn.subscription_status == null
+                                                ? "sem subscrição"
+                                                // A blocked trial is one with no paid Stripe subscription
+                                                // behind it: it ran out, or it never had an end.
+                                                : conn.subscription_status === "trialing"
+                                                    ? (conn.subscription_trial_end
+                                                        ? `trial terminou a ${day(conn.subscription_trial_end)}`
+                                                        : "trial sem subscrição paga")
+                                                    : `subscrição ${conn.subscription_status}`}
+                                            {" — o worker recusa faturar"}
+                                        </Pill>
+                                    )}
                                     {conn.admin_label && <span className="text-xs text-fg-40 font-bold">{conn.admin_label}</span>}
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -740,10 +764,11 @@ function ConnectionsTab({ data }: { data: any }) {
                                     <Field label="Fatura desde" value={day(conn.invoice_cutoff ?? conn.created_at)} />
                                     <Field label="Criada" value={day(conn.created_at)} />
                                 </div>
-                                {conn.credentials_present && (
+                                {/* Only what this pair needs, so every ✗ is a real gap. */}
+                                {conn.credentials_present && Object.keys(conn.credentials_present).length > 0 && (
                                     <div className="flex flex-wrap gap-2 pt-1">
                                         {Object.entries(conn.credentials_present).map(([k, present]) => (
-                                            <Pill key={k} tone={present ? "good" : "neutral"}>{present ? "✓" : "✗"} {k}</Pill>
+                                            <Pill key={k} tone={present ? "good" : "bad"}>{present ? "✓" : "✗"} {k}</Pill>
                                         ))}
                                     </div>
                                 )}
@@ -753,7 +778,11 @@ function ConnectionsTab({ data }: { data: any }) {
                 )}
             </Section>
 
-            {legacy && (
+            {/* Only for an account that has a shop. A row without one only ever held
+                the InvoiceXpress credentials — each connection's checklist above now
+                says whether it can use them — and drawing it as "the Shopify pair",
+                with a stale "IX autorizado: sim" beside "chave: não", read as a pipe. */}
+            {legacy?.shopify_domain && (
                 <Section icon={<Zap className="w-5 h-5 text-fg-40" />} title="Linha legada (integrations)"
                     desc="A configuração do par Shopify→InvoiceXpress, que não tem linha em connections. Credenciais mostradas só como presença.">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -796,8 +825,8 @@ function FiscalTab({ data }: { data: any }) {
             }>
             {conns.length === 0 ? (
                 <p className="text-sm text-fg-40 font-medium">
-                    Nenhuma ligação com configuração fiscal própria. O par legado tem a sua nas colunas da
-                    linha <span className="font-mono">integrations</span>, no separador Integrações.
+                    Nenhuma configuração fiscal registada nesta conta — nem nas ligações nem na linha
+                    legada <span className="font-mono">integrations</span>.
                 </p>
             ) : (
                 <div className="space-y-5">
@@ -827,7 +856,7 @@ function StripeTab({ data, base }: { data: any; base: string }) {
             <div className="space-y-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Clientes Stripe</span>
                 {customerIds.length === 0 ? (
-                    <p className="text-sm text-fg-40 font-medium">Ainda não há nenhum — a conta nunca passou pelo checkout.</p>
+                    <p className="text-sm text-fg-40 font-medium">Nenhum cliente Stripe registado, nem nas subscrições nem nos pagamentos.</p>
                 ) : (
                     <div className="flex flex-col gap-1">
                         {customerIds.map(id => <StripeLink key={id} base={base} kind="customers" id={id} />)}
@@ -848,28 +877,62 @@ function StripeTab({ data, base }: { data: any; base: string }) {
                         {events.length === 0 && (
                             <tr><td colSpan={7} className="py-6 text-sm text-fg-40 font-medium">Sem pagamentos registados.</td></tr>
                         )}
-                        {events.map((e) => (
-                            <tr key={e.id} className="border-b border-hairline/60 align-top">
-                                <td className="py-3 pr-4 text-xs font-bold text-fg whitespace-nowrap">{day(e.created_at)}</td>
-                                <td className="py-3 pr-4 text-xs text-fg-40 font-medium">{e.type}</td>
-                                <td className="py-3 pr-4 text-xs font-bold text-fg whitespace-nowrap">{money(e.amount_cents, e.currency)}</td>
-                                <td className="py-3 pr-4"><Pill tone={e.status === "paid" ? "good" : e.status === "failed" ? "bad" : "neutral"}>{e.status}</Pill></td>
-                                <td className="py-3 pr-4">
-                                    <StripeLink base={base} id={e.stripe_object_id} />
-                                    {e.stripe_invoice_number && <div className="text-[10px] text-fg-40 font-mono">{e.stripe_invoice_number}</div>}
-                                </td>
-                                <td className="py-3 pr-4"><StripeLink base={base} kind="payments" id={e.payment_intent_id} /></td>
-                                <td className="py-3 pr-4">
-                                    {e.ix_invoice_permalink ? (
-                                        <a href={e.ix_invoice_permalink} target="_blank" rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 text-[11px] text-accent-ink hover:underline">
-                                            ver <ExternalLink className="w-3 h-3" />
-                                        </a>
-                                    ) : <span className="text-fg-40 text-xs">por emparelhar</span>}
-                                    {e.ix_match_method && <div className="text-[10px] text-fg-40">{e.ix_match_method}</div>}
-                                </td>
-                            </tr>
-                        ))}
+                        {events.map((e) => {
+                            // The webhook stores Stripe's invoice status, which is "open"
+                            // on a failed attempt — so the type says it, not the status.
+                            const failed = e.type === "invoice.payment_failed";
+                            // What the matcher will ever pair: paid rows with an amount.
+                            // "Por emparelhar" on a failed attempt or a €0 invoice is a
+                            // task nobody can finish.
+                            const pairable = (e.type === "invoice.paid" || e.type === "charge.refunded") && Number(e.amount_cents) > 0;
+                            return (
+                                <tr key={e.id} className="border-b border-hairline/60 align-top">
+                                    <td className="py-3 pr-4 text-xs font-bold text-fg whitespace-nowrap">{day(e.created_at)}</td>
+                                    <td className="py-3 pr-4 text-xs text-fg-40 font-medium">{e.type}</td>
+                                    <td className="py-3 pr-4 text-xs font-bold text-fg whitespace-nowrap">{money(e.amount_cents, e.currency)}</td>
+                                    <td className="py-3 pr-4">
+                                        <Pill tone={failed ? "bad" : e.status === "paid" ? "good" : "neutral"}>{failed ? "falhou" : e.status}</Pill>
+                                    </td>
+                                    <td className="py-3 pr-4">
+                                        <StripeLink base={base} id={e.stripe_object_id} />
+                                        {e.stripe_invoice_number && <div className="text-[10px] text-fg-40 font-mono">{e.stripe_invoice_number}</div>}
+                                    </td>
+                                    <td className="py-3 pr-4"><StripeLink base={base} kind="payments" id={e.payment_intent_id} /></td>
+                                    <td className="py-3 pr-4">
+                                        {e.ix_invoice_permalink ? (
+                                            <a href={e.ix_invoice_permalink} target="_blank" rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 text-[11px] text-accent-ink hover:underline">
+                                                ver <ExternalLink className="w-3 h-3" />
+                                            </a>
+                                        ) : pairable
+                                            ? <span className="text-fg-40 text-xs">por emparelhar</span>
+                                            : <span className="text-fg-40 text-xs">—</span>}
+                                        {e.ix_match_method && <div className="text-[10px] text-fg-40">{e.ix_match_method}</div>}
+                                        {/* One payment, recorded by the webhook AND by a manual link. */}
+                                        {e.ix_conflict ? (
+                                            <div className="text-[10px] font-bold text-destructive space-y-1">
+                                                <div>registado {e.duplicate_rows}× com documentos diferentes — confirmar qual é o certo</div>
+                                                {(e.ix_alternatives ?? []).map((alt: any) => alt.ix_invoice_permalink ? (
+                                                    <a key={String(alt.ix_invoice_id)} href={alt.ix_invoice_permalink} target="_blank" rel="noopener noreferrer"
+                                                        className="flex items-center gap-1 font-medium text-accent-ink hover:underline">
+                                                        outro documento: {String(alt.ix_invoice_id)} <ExternalLink className="w-3 h-3" />
+                                                    </a>
+                                                ) : (
+                                                    <div key={String(alt.ix_invoice_id)} className="font-mono font-medium text-fg-40">
+                                                        outro documento: {String(alt.ix_invoice_id)}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : e.duplicate_rows > 1 ? (
+                                            <div className="text-[10px] text-fg-40">registado {e.duplicate_rows}×</div>
+                                        ) : null}
+                                        {e.ix_shared && (
+                                            <div className="text-[10px] font-bold text-soon">documento também ligado a outro pagamento</div>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -880,10 +943,11 @@ function StripeTab({ data, base }: { data: any; base: string }) {
 /**
  * Three logs, filed under the connection each row belongs to.
  *
- * Two of the three can be filed exactly. Incidents cannot: `connection_id` has
- * been in the schema since migration 0009 and no reportIncident call site writes
- * it, so they are listed whole with that said out loud. Guessing the connection
- * from the incident kind would be a guess printed as a fact.
+ * Two of the three can be filed exactly. Incidents mostly cannot: only the
+ * connection-health check writes `connection_id`, every other reportIncident call
+ * site leaves it null, so they are listed for the whole account with that said
+ * out loud. Guessing the connection from the incident kind would be a guess
+ * printed as a fact.
  */
 function LogsTab({ userId, connections }: { userId: string; connections: any[] }) {
     const [audit, setAudit] = useState<any[]>([]);
@@ -910,7 +974,9 @@ function LogsTab({ userId, connections }: { userId: string; connections: any[] }
 
     const keys = (connections ?? []).map((c: any) => c.key);
     const auditByConn = groupByConnection(audit, (r: any) => connectionKeyForScope(r.scope));
-    const eventsByConn = groupByConnection(events, (r: any) => connectionKeyForDocumentEvent(r));
+    // Also files a source-only row — the dead-letter queue's — under the one
+    // connection that takes that source, instead of under "no connection".
+    const eventsByConn = groupByConnection(events, (r: any) => attributeDocumentEvent(r, keys));
 
     // "Sem ligação" is the null bucket; comparing the sentinel to a null key
     // never matched, so the button always showed an empty page.
@@ -959,7 +1025,9 @@ function LogsTab({ userId, connections }: { userId: string; connections: any[] }
                                 <span className="text-fg-40">
                                     {r.scope === "profile_change_rejected"
                                         ? ` · pedido recusado${r.new_value ? ` · motivo: ${r.new_value}` : " · sem motivo"}`
-                                        : `${r.scope === "profile_change_request" ? " · pedido" : r.scope === "profile" ? " · aplicado" : ""} · ${r.old_value ?? "—"} → ${r.new_value ?? "—"}`}
+                                        // `||`, not `??`: the writers store an empty field as "",
+                                        // which drew a blank before the arrow.
+                                        : `${r.scope === "profile_change_request" ? " · pedido" : r.scope === "profile" ? " · aplicado" : ""} · ${r.old_value || "—"} → ${r.new_value || "—"}`}
                                 </span>
                                 <span className="text-fg-40"> · {moment(r.created_at)}</span>
                                 {r.actor && <span className="text-fg-40"> · {r.actor}</span>}
@@ -990,10 +1058,10 @@ function LogsTab({ userId, connections }: { userId: string; connections: any[] }
             </Section>
 
             <Section icon={<AlertTriangle className="w-5 h-5 text-accent-ink" />} title="Incidentes"
-                desc="Da conta inteira: incidents.connection_id existe desde a 0009 e nenhum sítio o escreve, por isso não há como dividi-los honestamente por subscrição.">
+                desc={`Da conta inteira${incidents.length ? ` — os ${incidents.length} mais recentes` : ""}. Só a verificação de ligações regista a que ligação um incidente pertence, por isso não há como dividi-los honestamente por subscrição.`}>
                 {incidents.length === 0 ? (
                     <p className="text-sm text-fg-40 font-medium">Nenhum incidente.</p>
-                ) : incidents.slice(0, 60).map((i) => (
+                ) : incidents.map((i) => (
                     <div key={i.id} className="text-xs border-b border-hairline/60 py-2 flex flex-wrap items-center gap-2">
                         <Pill tone={i.status === "open" ? "bad" : i.status === "acknowledged" ? "warn" : "neutral"}>{i.status}</Pill>
                         <span className="font-mono text-fg-40">{i.kind}</span>

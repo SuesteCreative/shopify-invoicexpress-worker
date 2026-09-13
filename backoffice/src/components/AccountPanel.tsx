@@ -156,7 +156,15 @@ export default function AccountPanel() {
             {pending && (
                 <div className="glass rounded-2xl border border-soon/30 bg-soon/5 p-4 flex items-start gap-3">
                     <AlertCircle className="w-4 h-4 text-soon shrink-0 mt-0.5" />
-                    <p className="text-xs font-medium text-fg-40">{t("registrationPending")}</p>
+                    {/* The NIF is written by the onboarding form, not here — so the
+                        banner points there instead of promising a field this page
+                        does not have. */}
+                    <div className="space-y-2">
+                        <p className="text-xs font-medium text-fg-40">{t("registrationPending")}</p>
+                        <Link href="/onboarding" className="inline-block text-[10px] font-black uppercase tracking-widest text-accent-ink hover:underline">
+                            {t("registrationPendingLink")}
+                        </Link>
+                    </div>
                 </div>
             )}
 

@@ -8,8 +8,10 @@ import { accountLabel } from "@/lib/labels";
 import { auditConfigChange } from "@/lib/config-audit";
 import { identityRequestStates } from "@/lib/client-record-sql";
 import { loadBillingIdentity } from "@/lib/billing-identity";
-import { CONNECTION_PUBLIC_SELECT, redactConfigJson, stripIntegrationSecrets } from "@/lib/redact";
-import { listSubscriptions, stripeDashboardBase, subscriptionUIState } from "@/lib/stripe";
+import { CONNECTION_PUBLIC_SELECT, INTEGRATION_FISCAL_COLUMNS, redactConfigJson, stripIntegrationSecrets } from "@/lib/redact";
+import { listSubscriptions, stripeDashboardBase, subscriptionUIState, isSubscriptionBlocked } from "@/lib/stripe";
+import { ixCredentialsPresent } from "@/lib/destination-credentials";
+import { isMoloniOAuth } from "@/lib/moloni-token";
 import { resolveTier, sunsetAt } from "@/lib/billing-legacy";
 import { priceBook } from "@/lib/price-book";
 import { getSeatPool } from "@/lib/account";
@@ -119,7 +121,11 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             db.prepare(`
                 SELECT id, type, stripe_object_id, payment_intent_id, amount_cents, currency, status,
                        ix_invoice_id, ix_invoice_permalink, ix_match_method, ix_match_score, created_at,
-                       json_extract(raw_json, '$.number') AS stripe_invoice_number
+                       json_extract(raw_json, '$.number') AS stripe_invoice_number,
+                       -- The customer the payment was charged to. A subscription row
+                       -- that never received its Stripe ids left the tab saying
+                       -- there was no customer, above two failed charges to one.
+                       json_extract(raw_json, '$.customer') AS stripe_customer_id
                   FROM billing_events
                  WHERE user_id = ?
                    AND type IN ('invoice.paid', 'invoice.payment_failed', 'charge.refunded')
@@ -137,7 +143,14 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             getSeatPool(accountId).catch(() => null),
 
             db.prepare(`
-                SELECT (SELECT COUNT(*) FROM processed_orders WHERE user_id = ?1) AS documents,
+                SELECT (SELECT COUNT(*) FROM processed_orders
+                         WHERE user_id = ?1
+                            -- Legacy Shopify handlers write the shop and not the
+                            -- user: 33 of one shop's 42 documents, 8,026 across the
+                            -- fleet. Attributed through the account's legacy row.
+                            OR (user_id IS NULL AND shopify_domain IN (
+                                  SELECT shopify_domain FROM integrations
+                                   WHERE user_id = ?1 AND shopify_domain IS NOT NULL))) AS documents,
                        (SELECT COUNT(*) FROM incidents WHERE user_id = ?1 AND status IN ('open','acknowledged')) AS incidents_open
             `).bind(accountId).first().catch(() => ({ documents: 0, incidents_open: 0 })),
 
@@ -184,12 +197,63 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
         // connection's credentials deleted.
         const hasLegacyPipe = !!legacyRow?.shopify_domain;
 
-        // The worker's gate with SUBSCRIPTION_PER_CONNECTION=1: a connection with
-        // no subscription row of its own is refused every document. Admin
-        // accounts are exempt, exactly as checkSubscriptionGate exempts them.
+        // The worker's gate with SUBSCRIPTION_PER_CONNECTION=1: a connection is
+        // refused unless a subscription row of its OWN lets it through. The row
+        // existing is not enough — an early-bird trial that ran out, or a
+        // cancelled subscription, is a row the gate refuses on — and reading it
+        // that way showed five live shops as healthy while the nightly sweep was
+        // skipping every order. isSubscriptionBlocked is the gate's twin in this
+        // app. Admin accounts are exempt, exactly as checkSubscriptionGate exempts them.
         const exempt = targetRole === "superadmin" || targetRole === "hiperadmin";
-        const subscribedKeys = new Set((subscriptions as any[]).map((s) => s.connection_key));
-        const isSubscribed = (key: string) => exempt || subscribedKeys.has(key);
+        const gateFor = (key: string) => {
+            const row = (subscriptions as any[]).find((s) => s.connection_key === key);
+            return {
+                subscribed: exempt || (!!row && !isSubscriptionBlocked(row)),
+                // Why not, when not: no row at all, or the status of the one that
+                // no longer lets it through — and its trial end, because a blocked
+                // "trialing" row is refused for the day its trial ran out.
+                subscription_status: row ? String(row.status ?? "") : null,
+                subscription_trial_end: row ? (row.trial_end ?? null) : null,
+            };
+        };
+
+        /**
+         * The credentials this connection's two kinds actually need — and only those.
+         *
+         * A global list rendered every Moloni and Vendus key as ✗ on an
+         * InvoiceXpress connection, and never listed the InvoiceXpress key at
+         * all: two active, paying IX connections had none and the card showed
+         * nothing wrong. The IX rule is the worker's: the connection's own pair,
+         * else the account's legacy row (missingDestinationCredentials). Booleans
+         * only leave this function.
+         */
+        const legacyHasIx = ixCredentialsPresent(legacyRow);
+        const credentialChecklist = (row: any): Record<string, boolean> => {
+            const parse = (json: unknown) => { try { return json ? JSON.parse(String(json)) : {}; } catch { return {}; } };
+            const src = parse(row.source_config_json);
+            const dst = parse(row.destination_config_json);
+            const has = (cfg: any, k: string) => String(cfg?.[k] ?? "").trim() !== "";
+            // Source credentials have lived in either blob over time.
+            const either = (k: string) => has(src, k) || has(dst, k);
+
+            const out: Record<string, boolean> = {};
+            if (row.source_kind === "stripe") {
+                out.restricted_key = either("restricted_key");
+                out.webhook_secret = either("webhook_secret");
+            }
+            // Polled: the API key is all it needs. Stripe Connect needs nothing of
+            // its own — the platform key and an environment secret.
+            if (row.source_kind === "lodgify") out.api_key = either("api_key");
+            if (row.destination_kind === "invoicexpress") {
+                out["ix_account_name + ix_api_key"] = ixCredentialsPresent(dst) || legacyHasIx;
+            }
+            if (row.destination_kind === "moloni") {
+                out["moloni (oauth ou client_id + username)"] =
+                    isMoloniOAuth(dst) || (has(dst, "moloni_client_id") && has(dst, "moloni_username"));
+            }
+            if (row.destination_kind === "vendus") out.vendus_api_key = has(dst, "vendus_api_key");
+            return out;
+        };
 
         const connections: any[] = [];
         if (hasLegacyPipe) {
@@ -205,23 +269,21 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 created_at: legacyRow.created_at ?? null,
                 identifier: legacyRow.shopify_domain ?? null,
                 identifier_kind: legacyRow.shopify_domain ? "domain" : null,
-                // The legacy row's fiscal settings are columns, not a blob; for a
-                // hiperadmin `legacy` carries them with the credentials stripped.
-                fiscal: null,
+                // The legacy pair keeps its fiscal settings as columns, not a blob.
+                // Projected through the console's own list, so the fiscal tab shows
+                // what /admin/client-rules shows — it showed nothing for every
+                // account whose only pipe is this one. Hiperadmin only, like the blobs.
+                fiscal: fiscalVisible && legacyStripped
+                    ? Object.fromEntries(INTEGRATION_FISCAL_COLUMNS
+                        .filter((k) => k !== "is_paused")
+                        .map((k) => [k, legacyStripped[k] ?? null]))
+                    : null,
                 credentials_present: null,
-                subscribed: isSubscribed(LEGACY_CONNECTION_KEY),
+                ...gateFor(LEGACY_CONNECTION_KEY),
             });
         }
         for (const row of ((connRows as any).results ?? []) as any[]) {
-            const { fiscal, present } = redactConfigJson(row.destination_config_json);
-            // Credentials live in BOTH blobs — a Stripe source keeps its restricted
-            // key and webhook secret in source_config_json — while the destination
-            // redaction floors every credential it does not hold to false, which
-            // printed "✗ restricted_key" beside a working Stripe connection. A key
-            // on the checklist is present if either blob has it. Only booleans leave.
-            const { present: sourcePresent } = redactConfigJson(row.source_config_json);
-            for (const k of Object.keys(present)) if (sourcePresent[k]) present[k] = true;
-
+            const { fiscal } = redactConfigJson(row.destination_config_json);
             const key = `${row.source_kind}:${row.destination_kind}`;
             connections.push({
                 key,
@@ -236,8 +298,8 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 identifier: row.stripe_account_id ?? row.shop_domain ?? null,
                 identifier_kind: row.stripe_account_id ? "stripe_account" : (row.shop_domain ? "domain" : null),
                 fiscal: fiscalVisible ? fiscal : null,
-                credentials_present: present,
-                subscribed: isSubscribed(key),
+                credentials_present: credentialChecklist(row),
+                ...gateFor(key),
             });
         }
 
@@ -272,6 +334,58 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
 
         const clientCode = userRow.client_code ?? await ensureClientCode(db, accountId);
 
+        // One payment can hold two invoice.paid rows: the webhook keys its row on
+        // the EVENT id, a manual link on the INVOICE id (admin-stats-sql collapses
+        // the same pair for revenue). Shown once — the row with the Stripe number,
+        // carrying whichever copy has the Kapta document — and saying so when the
+        // copies point at different documents. A document on two different
+        // payments is flagged too, within this window, which is what the tab shows.
+        const docOf = (e: any) => (e?.ix_invoice_id ? String(e.ix_invoice_id).replace(/\.0$/, "") : null);
+        const rawEvents = ((events as any).results ?? []) as any[];
+        const groups = new Map<string, any[]>();
+        for (const e of rawEvents) {
+            const k = e.type === "invoice.paid" && e.stripe_object_id ? `paid:${e.stripe_object_id}` : `row:${e.id}`;
+            const list = groups.get(k);
+            if (list) list.push(e); else groups.set(k, [e]);
+        }
+        const paymentsByDoc = new Map<string, Set<string>>();
+        for (const e of rawEvents) {
+            const d = docOf(e);
+            if (!d || e.type !== "invoice.paid") continue;
+            const set = paymentsByDoc.get(d) ?? new Set<string>();
+            set.add(String(e.stripe_object_id ?? e.id));
+            paymentsByDoc.set(d, set);
+        }
+        const stripeEvents = [...groups.values()].map((rows) => {
+            const base = rows.find((r) => r.stripe_invoice_number) ?? rows[0];
+            const linked = docOf(base) ? base : (rows.find((r) => docOf(r)) ?? base);
+            const doc = docOf(linked);
+            return {
+                ...base,
+                ix_invoice_id: linked.ix_invoice_id,
+                ix_invoice_permalink: linked.ix_invoice_permalink,
+                ix_match_method: linked.ix_match_method,
+                ix_match_score: linked.ix_match_score,
+                duplicate_rows: rows.length,
+                ix_conflict: new Set(rows.map(docOf).filter(Boolean)).size > 1,
+                ix_shared: base.type === "invoice.paid" && !!doc && (paymentsByDoc.get(doc)?.size ?? 0) > 1,
+                // The documents the other copies point at, so the operator asked to
+                // choose can open both instead of only the one shown.
+                ix_alternatives: rows
+                    .filter((r) => docOf(r) && docOf(r) !== doc)
+                    .map((r) => ({
+                        ix_invoice_id: r.ix_invoice_id,
+                        ix_invoice_permalink: r.ix_invoice_permalink,
+                        ix_match_method: r.ix_match_method,
+                        ix_match_score: r.ix_match_score,
+                    })),
+            };
+        });
+        const customerIds = [...new Set(
+            [...subs.map((s: any) => s.stripe_customer_id), ...rawEvents.map((e) => e.stripe_customer_id)]
+                .filter((id): id is string => typeof id === "string" && id.startsWith("cus_")),
+        )];
+
         return NextResponse.json({
             customer: {
                 ...userRow,
@@ -288,8 +402,8 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             subscriptions: subs,
             stripe: {
                 dashboard_base: stripeDashboardBase(),
-                customer_ids: [...new Set(subs.map((s: any) => s.stripe_customer_id).filter(Boolean))],
-                events: ((events as any).results ?? []),
+                customer_ids: customerIds,
+                events: stripeEvents,
             },
             members: ((memberRows as any).results ?? []),
             seats,

@@ -29,6 +29,7 @@ function harness(opts: { withColumn?: boolean } = {}) {
     sqlite.exec(`
         CREATE TABLE users (
             id TEXT PRIMARY KEY, email TEXT, name TEXT,
+            registration_completed INTEGER DEFAULT 0,
             last_login TEXT${withColumn ? ", client_code TEXT" : ""}
         );
         CREATE TABLE account_members (
@@ -89,6 +90,13 @@ describe("normalizeClientCode", () => {
         expect(normalizeClientCode("RIO_1A2B3C")).toBe("RIO-1A2B3C");
     });
 
+    it("accepts it the way it is heard: the letter for the digit, and autocorrect's dash", () => {
+        expect(normalizeClientCode("rio–8boo7o")).toBe("RIO-8B0070");
+        expect(normalizeClientCode("RIO-IFE25F")).toBe("RIO-1FE25F");
+        expect(normalizeClientCode("RIO-lFE25F")).toBe("RIO-1FE25F");
+        expect(normalizeClientCode("RIO—B01843")).toBe("RIO-B01843");
+    });
+
     it("refuses anything that is not a code", () => {
         expect(normalizeClientCode("RIO-1A2B3G")).toBeNull();   // G is not hex
         expect(normalizeClientCode("RIO-12345")).toBeNull();    // five characters
@@ -117,6 +125,18 @@ describe("upsertUserRow", () => {
         expect(after.client_code).toBe(first);
         expect(after.email).toBe("novo@x.pt");
         expect(after.name).toBe("A Unipessoal Lda");
+    });
+
+    it("never reverts a registered account's name to the Clerk profile", async () => {
+        // For a person with no company, the name typed at registration is the
+        // one the invoices print. A login used to put "Maria" back.
+        const h = harness();
+        await upsertUserRow(h.db, { id: "user_a", email: "a@x.pt", name: "Maria" });
+        h.sqlite.exec("UPDATE users SET registration_completed = 1, name = 'Maria Joana Silva Santos' WHERE id = 'user_a'");
+
+        await upsertUserRow(h.db, { id: "user_a", email: "a@x.pt", name: "Maria" });
+
+        expect(h.row("user_a").name).toBe("Maria Joana Silva Santos");
     });
 
     it("heals a row that arrived without one", async () => {

@@ -311,6 +311,46 @@ export async function readDocumentTimeline(
   }));
 }
 
+/**
+ * One merchant's whole document history, newest first.
+ *
+ * `readDocumentTimeline` answers for one sale and `readRecentDrifts` for what
+ * went wrong; neither answers "what has happened to this client", which is the
+ * question the customer record asks. Same mapper as both, so the three reads
+ * cannot drift into three shapes of the same row.
+ *
+ * The pair (`source_kind`, `destination_kind`) comes back because the record
+ * files each row under the connection its subscription pays for.
+ */
+export async function readMerchantTimeline(
+  env: Env,
+  opts: { userId: string; limit?: number },
+): Promise<(DocumentEventRow & { source_kind: string | null; destination_kind: string | null; shopify_domain: string | null })[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
+  const rows = await env.DB.prepare(
+    `SELECT id, external_id, invoice_id, event, severity, summary, detail_json, actor, created_at,
+            source_kind, destination_kind, shopify_domain
+       FROM document_events WHERE user_id = ?
+      ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+  ).bind(opts.userId, limit).all();
+
+  return ((rows.results ?? []) as any[]).map((r) => ({
+    id: String(r.id),
+    external_id: String(r.external_id),
+    invoice_id: r.invoice_id != null ? String(r.invoice_id) : null,
+    event: r.event as DocumentEventKind,
+    label: EVENT_LABELS[r.event as DocumentEventKind] ?? r.event,
+    severity: String(r.severity),
+    summary: String(r.summary),
+    detail: r.detail_json ? safeParse(r.detail_json) : null,
+    actor: r.actor != null ? String(r.actor) : null,
+    created_at: String(r.created_at),
+    source_kind: r.source_kind != null ? String(r.source_kind) : null,
+    destination_kind: r.destination_kind != null ? String(r.destination_kind) : null,
+    shopify_domain: r.shopify_domain != null ? String(r.shopify_domain) : null,
+  }));
+}
+
 /** Recent drifts across a merchant (or the whole fleet when userId is omitted). */
 export async function readRecentDrifts(
   env: Env,

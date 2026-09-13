@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
     Loader2, AlertTriangle, Search, Trash2, RotateCcw, Pause, Play,
-    Wrench, X, CheckCircle2, CircleDashed, Ban, UserCog, CircleDollarSign,
+    Wrench, X, CheckCircle2, CircleDashed, Ban, UserCog, CircleDollarSign, IdCard,
 } from "lucide-react";
 import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
 import { kindLabel } from "@/lib/connection-kinds";
@@ -446,9 +446,22 @@ export function IntegrationsPanel() {
                                                 </button>
                                             )}
 
+                                            {/* The record itself. Addressed by the
+                                                account id, which the page resolves
+                                                to the customer number and redirects
+                                                to — so this link needs nothing from
+                                                this payload. */}
+                                            <Link
+                                                href={`/admin/clientes/${r.user_id}`}
+                                                title="Abrir a ficha do cliente"
+                                                className="p-2 rounded-lg text-fg-40 hover:text-fg hover:bg-fg/5 transition-colors"
+                                            >
+                                                <IdCard className="w-4 h-4" />
+                                            </Link>
+
                                             <Link
                                                 href={`/admin/users/${r.user_id}/dev-mode`}
-                                                title="Abrir a ficha do cliente"
+                                                title="Ferramentas de recuperação (dev mode)"
                                                 className="p-2 rounded-lg text-fg-40 hover:text-fg hover:bg-fg/5 transition-colors"
                                             >
                                                 <Wrench className="w-4 h-4" />

@@ -49,6 +49,25 @@ export function getStripeEnvOptional(name: string): string | undefined {
     return readEnv(name);
 }
 
+/**
+ * Where a Stripe object opens in the dashboard, for this account's keys.
+ *
+ * The customer record links straight at `cus_…`, `sub_…`, `in_…` and `pi_…`
+ * rather than making an operator search for them, and a live link that lands on
+ * the test dashboard (or the reverse) shows "not found" for an object that is
+ * perfectly fine — which reads as data loss.
+ *
+ * Resolved from the secret key SERVER-SIDE and only the base string is ever
+ * sent to the browser; the key itself never leaves. Defaults to live: a key that
+ * cannot be read is far more likely to be a missing binding than a test key.
+ */
+export function stripeDashboardBase(): string {
+    const key = readEnv("STRIPE_SECRET_KEY") ?? "";
+    return key.startsWith("sk_test_") || key.startsWith("rk_test_")
+        ? "https://dashboard.stripe.com/test"
+        : "https://dashboard.stripe.com";
+}
+
 export function subscriptionPerConnectionEnforced(): boolean {
     return readEnv("SUBSCRIPTION_PER_CONNECTION") === "1"
         || process.env.NEXT_PUBLIC_SUBSCRIPTION_PER_CONNECTION === "1";

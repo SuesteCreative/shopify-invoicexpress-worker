@@ -258,6 +258,7 @@
         "privacyAccept": "I agree to the privacy policy and data processing.",
         "saving": "Saving...",
         "submit": "Complete registration and unlock",
+        "fiscalLocked": "Registered. To change the VAT number or legal name, request it from the Account page.",
         "saveError": "We couldn't save your details. Please try again or contact support."
     },
     "integrationSetupModal": {
@@ -1356,6 +1357,7 @@
         "statePending": "Awaiting an answer",
         "stateApplied": "Applied",
         "stateRejected": "Declined",
+        "noticeCleared": "Your {field} was removed.",
         "linkBilling": "Billing and payments",
         "linkIntegrations": "Integrations"
     },

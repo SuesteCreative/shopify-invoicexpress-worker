@@ -258,6 +258,7 @@
         "privacyAccept": "Concordo com a política de privacidade e tratamento de dados.",
         "saving": "A guardar...",
         "submit": "Concluir Registo e Desbloquear",
+        "fiscalLocked": "Registado. Para alterar o NIF ou o nome fiscal, peça-o na página Conta.",
         "saveError": "Não foi possível guardar os seus dados. Tente novamente ou contacte o suporte."
     },
     "integrationSetupModal": {
@@ -1356,6 +1357,7 @@
         "statePending": "Por responder",
         "stateApplied": "Aplicado",
         "stateRejected": "Recusado",
+        "noticeCleared": "O seu {field} foi removido.",
         "linkBilling": "Faturação e pagamentos",
         "linkIntegrations": "Integrações"
     },

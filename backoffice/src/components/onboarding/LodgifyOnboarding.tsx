@@ -160,6 +160,10 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
     // Server-side truth for every step: the Moloni step leaves the site, and a
     // flow resumed from local state would resume in the wrong place.
     const [profileDone, setProfileDone] = useState(false);
+    // The two fields the profile route stops accepting once they are registered
+    // and non-empty. Shown read-only rather than left editable and silently
+    // discarded on save — the change is requested from the Conta page instead.
+    const [fiscalLocked, setFiscalLocked] = useState({ nif: false, company: false });
     const [lodgifySaved, setLodgifySaved] = useState(false);
     const [webhookUrl, setWebhookUrl] = useState("");
     const [needsManualWebhook, setNeedsManualWebhook] = useState(false);
@@ -223,6 +227,10 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
 
         if (profile) {
             setProfileDone(profile.registration_completed === 1);
+            setFiscalLocked({
+                nif: profile.registration_completed === 1 && !!profile.nif,
+                company: profile.registration_completed === 1 && !!profile.company_name,
+            });
             setForm(f => ({
                 ...f,
                 nif: profile.nif ?? f.nif,
@@ -622,11 +630,15 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
                             <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-40" aria-hidden />
                             <input
                                 required inputMode="numeric" maxLength={9} placeholder={tReg("nifPlaceholder")}
-                                className={cn(INPUT_CLASS, "pl-14 font-mono")}
+                                className={cn(INPUT_CLASS, "pl-14 font-mono", fiscalLocked.nif && "opacity-70 cursor-not-allowed")}
                                 value={form.nif}
+                                readOnly={fiscalLocked.nif}
                                 onChange={e => setForm({ ...form, nif: e.target.value.replace(/\D/g, "") })}
                             />
                         </div>
+                        {fiscalLocked.nif && (
+                            <p className="mt-2 text-[11px] text-fg-40">{tReg("fiscalLocked")}</p>
+                        )}
                     </Field>
                 </div>
 
@@ -640,8 +652,9 @@ export default function LodgifyOnboarding({ destination, invite }: { destination
                                 required
                                 autoComplete={isCompany ? "organization" : "name"}
                                 placeholder={isCompany ? tReg("companyNamePlaceholder") : tReg("personNamePlaceholder")}
-                                className={cn(INPUT_CLASS, "pl-14")}
+                                className={cn(INPUT_CLASS, "pl-14", isCompany && fiscalLocked.company && "opacity-70 cursor-not-allowed")}
                                 value={isCompany ? form.company_name : form.name}
+                                readOnly={isCompany && fiscalLocked.company}
                                 onChange={e => setForm(isCompany
                                     ? { ...form, company_name: e.target.value }
                                     : { ...form, name: e.target.value })}

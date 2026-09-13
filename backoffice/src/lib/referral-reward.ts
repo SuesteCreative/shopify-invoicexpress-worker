@@ -1,4 +1,4 @@
-import { MAX_REWARDS, REWARD_MONTHS } from "./referral";
+import { CAMPAIGN_END, MAX_REWARDS, REWARD_MONTHS } from "./referral";
 
 /**
  * Paying both sides of a referral.
@@ -107,13 +107,13 @@ export async function rewardInviter(
 
     const claimed = await db.prepare(
         `UPDATE referrals
-            SET state = 'subscribed', invitee_subscription_id = ?, invitee_subscribed_at = ?
+            SET state = 'subscribed', invitee_subscription_id = ?, invitee_subscribed_at = COALESCE(invitee_subscribed_at, ?)
           WHERE invitee_user_id = ? AND state = 'pending'`
     ).bind(inviteeSubscriptionId, now.toISOString(), inviteeUserId).run();
     if (((claimed as any)?.meta?.changes ?? 0) === 0) return { rewarded: false, reason: "not_pending" };
 
     const row: any = await db.prepare(
-        "SELECT inviter_user_id, inviter_client_code FROM referrals WHERE invitee_user_id = ?"
+        "SELECT inviter_user_id, inviter_client_code, invitee_subscribed_at FROM referrals WHERE invitee_user_id = ?"
     ).bind(inviteeUserId).first();
     const inviter = row?.inviter_user_id as string | undefined;
     if (!inviter) return { rewarded: false, reason: "no_inviter" };
@@ -126,6 +126,13 @@ export async function rewardInviter(
         ).bind(reason, inviteeUserId).run();
         return { rewarded: false, reason, inviter_user_id: inviter };
     };
+
+    // Clause 2: the invitee's subscription has to be created inside the
+    // campaign. Read off the row, not off `now`, so an admin retry in November of
+    // a subscription created in October still counts, and a subscription created
+    // in March does not.
+    const subscribedOn = String(row?.invitee_subscribed_at ?? now.toISOString()).slice(0, 10);
+    if (subscribedOn > CAMPAIGN_END) return park("after_campaign", true);
 
     // The ceiling the copy promises: three rewards, six months, and the fourth
     // referral is recorded but not paid.
@@ -149,6 +156,12 @@ export async function rewardInviter(
         }
         const base = periodEndOf(sub);
         if (!base) return park("no_period_end", false);
+
+        // Stripe ends a subscription at cancel_at whatever trial_end says. On one
+        // already scheduled to stop — a legacy sunset, a client leaving — a pushed
+        // trial_end is two months recorded, shown on their card, and never
+        // delivered. Parked for a human rather than promised.
+        if (sub?.cancel_at || sub?.cancel_at_period_end) return park("inviter_subscription_ending", false);
 
         const rewardUntil = addMonths(new Date(base * 1000).toISOString(), REWARD_MONTHS);
 

@@ -77,7 +77,8 @@ export type ReferralRefusal =
     | "closed"           // the campaign is over
     | "not_new"          // this account has been here too long to be a referral
     | "already"          // already referred by somebody
-    | "inviter_inactive"; // whoever invited has no live subscription to add months to
+    | "inviter_inactive"  // whoever invited has no live subscription to add months to
+    | "already_subscribed"; // the invitee already pays us: clause 4 is new customers only
 
 export interface ClaimContext {
     token: string;
@@ -87,6 +88,8 @@ export interface ClaimContext {
     /** users.created_at for the invitee, in either timestamp format. */
     inviteeCreatedAt: string | null;
     alreadyReferred: boolean;
+    /** The invitee already holds a Stripe subscription. Optional: absent means no. */
+    inviteeHasSubscription?: boolean;
     now: Date;
 }
 
@@ -102,6 +105,7 @@ export function claimRefusal(ctx: ClaimContext): ReferralRefusal | null {
     if (!ctx.inviterUserId) return "unknown";
     if (ctx.inviterUserId === ctx.inviteeUserId) return "self";
     if (ctx.alreadyReferred) return "already";
+    if (ctx.inviteeHasSubscription) return "already_subscribed";
 
     const today = ctx.now.toISOString().slice(0, 10);
     if (today > CAMPAIGN_END) return "closed";
@@ -133,4 +137,5 @@ export const REFUSAL_PT: Record<ReferralRefusal, string> = {
     not_new: "Os convites são para contas novas, e esta já não é.",
     already: "Esta conta já foi convidada por alguém.",
     inviter_inactive: "Quem te convidou não tem uma subscrição activa neste momento.",
+    already_subscribed: "Os convites são para contas novas, e esta já tem uma subscrição.",
 };

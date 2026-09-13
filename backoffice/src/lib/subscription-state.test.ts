@@ -130,29 +130,19 @@ describe("the subscription gate", () => {
     });
 });
 
-describe("a referral reward is not a trial", () => {
+describe("a referral reward is still a trial, as far as the state goes", () => {
     /**
-     * Two months added to a paying subscription arrive as a Stripe trial, so the
-     * row says `trialing` and looks exactly like a new account's first weeks.
-     * Telling a client of a year that they are "em período de teste", with a
-     * countdown, reads as a demotion and contradicts the campaign terms.
+     * It was a state of its own for one release, "reward", and that broke every
+     * consumer that switches on the state: a render crash in SubscriptionCard,
+     * "Sem subscrição" on the billing page, and a subscribe button offered to a
+     * paying client on four integration pages. The label is the only thing that
+     * differs, and rewardRunning() answers that separately
+     * (subscription-reward.test.ts).
      */
-    it("names the reward instead of the trial that carries it", () => {
+    it("stays trialing, so every page keeps treating it as a paying trial", () => {
         const r = row({ status: "trialing", stripe_subscription_id: "sub_1", reward_until: future });
-        expect(subscriptionUIState(r)).toBe("reward");
-        expect(isSubscriptionBlocked(r)).toBe(false);
-    });
-
-    it("goes back to being a plain trial once the reward has run out", () => {
-        const r = row({ status: "trialing", stripe_subscription_id: "sub_1", reward_until: past });
         expect(subscriptionUIState(r)).toBe("trialing");
-    });
-
-    it("does not turn a blocked row into a reward", () => {
-        // The column says why a trial is happening; it never grants access.
-        const r = row({ status: "canceled", reward_until: future });
-        expect(subscriptionUIState(r)).toBe("blocked");
-        expect(isSubscriptionBlocked(r)).toBe(true);
+        expect(isSubscriptionBlocked(r)).toBe(false);
     });
 
     it("counts as converted for an early bird who later earned one", () => {

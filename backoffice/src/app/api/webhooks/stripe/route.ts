@@ -484,7 +484,12 @@ export async function POST(req: NextRequest) {
                 // exists — which is this event, and only on creation. Two months
                 // are pushed onto whoever invited them. A no-op for everybody
                 // else, which is almost every subscription there is.
-                if (event.type === "customer.subscription.created") {
+                // Only a subscription the checkout actually opened as a referral
+                // trial pays the inviter. The trial is decided when the Checkout
+                // Session is created and the reward when the subscription lands;
+                // a referral claimed in between used to pay the inviter two months
+                // for an invitee who was charged full price.
+                if (event.type === "customer.subscription.created" && (sub as any)?.metadata?.referral_role === "invitee") {
                     try {
                         const reward = await rewardInviter(db, stripe, userId, sub.id);
                         if (reward.rewarded) {

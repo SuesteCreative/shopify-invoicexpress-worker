@@ -86,6 +86,12 @@ describe("claimRefusal", () => {
         expect(campaignOpen(dayAfter)).toBe(false);
     });
 
+    it("refuses an account that already pays us, however new", () => {
+        // Clause 4: new customers only. Age alone let an account that subscribed
+        // yesterday claim a link today and put a trial on its next connection.
+        expect(claimRefusal({ ...ok, inviteeHasSubscription: true })).toBe("already_subscribed");
+    });
+
     it("refuses an account that has been here too long to be a referral", () => {
         expect(claimRefusal({ ...ok, inviteeCreatedAt: "2026-08-01T10:00:00.000Z" })).toBe("not_new");
         // Both timestamp formats live in users.created_at.

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { CreditCard, Check, AlertTriangle, Clock, Sparkles, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
+import { rewardRunning } from "@/lib/subscription-state";
 
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,7 @@ export default function SubscriptionCard(
     { onSuccess, source, connectionKey }: { onSuccess?: boolean; source?: string; connectionKey?: string },
 ) {
     const t = useTranslations("subscriptionCard");
+    const tr = useTranslations("referral");
     const dateLocale = t("dateLocale");
     const formatDate = (iso?: string | null): string => {
         if (!iso) return "";
@@ -212,7 +214,10 @@ export default function SubscriptionCard(
         },
     }[state as Exclude<UIState, "exempt">];
 
-    const Icon = config.icon;
+    // A referral reward rides on a Stripe trial, so the row is "trialing" and the
+    // trial's config is right for everything except the words.
+    const reward = rewardRunning(sub as any);
+    const Icon = reward ? Sparkles : config.icon;
     const daysLeft = daysUntil(sub?.trial_end);
     const showCheckout = state !== "active";
 
@@ -237,7 +242,7 @@ export default function SubscriptionCard(
                     <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-3 flex-wrap">
                             <span className={cn("px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border", config.badge)}>
-                                {config.badgeText}
+                                {reward ? tr("rewardBadge") : config.badgeText}
                             </span>
                             {sub?.plan && (
                                 <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
@@ -258,13 +263,14 @@ export default function SubscriptionCard(
                                 </span>
                             )}
                         </div>
-                        <h3 className="text-2xl font-medium tracking-tight text-fg">{config.title}</h3>
+                        <h3 className="text-2xl font-medium tracking-tight text-fg">{reward ? tr("rewardTitle") : config.title}</h3>
                         <p className="text-sm text-fg-60 font-medium leading-relaxed max-w-2xl">
                             {state === "active" && sub?.current_period_end && t("bodyActive", { date: formatDate(sub.current_period_end) })}
                             {state === "trialing_earlybird" && (sub?.trial_end
                                 ? t("bodyEarlyBird", { date: formatDate(sub.trial_end), days: daysLeft ?? 0 })
                                 : t("bodyEarlyBirdNoDate"))}
-                            {state === "trialing" && sub?.trial_end && t("bodyTrial", { date: formatDate(sub.trial_end), days: daysLeft ?? 0 })}
+                            {state === "trialing" && !reward && sub?.trial_end && t("bodyTrial", { date: formatDate(sub.trial_end), days: daysLeft ?? 0 })}
+                            {reward && tr("rewardBody", { date: formatDate((sub as any).reward_until) })}
                             {state === "blocked" && t("bodyBlocked")}
                             {state === "none" && t("bodyNone")}
                         </p>

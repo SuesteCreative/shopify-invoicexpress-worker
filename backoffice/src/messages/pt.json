@@ -181,6 +181,9 @@
     },
     "referral": {
         "loading": "A carregar...",
+        "rewardBadge": "Meses grátis",
+        "rewardTitle": "Meses grátis da campanha",
+        "rewardBody": "Não pagas nada até {date}. A cobrança seguinte é nessa data, ao preço normal.",
         "cardTitle": "Convida 1 amigo, recebem os dois 2 meses grátis",
         "cardSubtitle": "Quem entrar pelo teu link fica com 2 meses sem pagar. A ti, os 2 meses entram na subscrição que já tens: a próxima cobrança passa para dois meses mais tarde.",
         "needSubscription": "Para convidar precisas de uma subscrição activa. Os meses grátis são acrescentados a uma subscrição a correr, por isso tem de haver uma.",
@@ -1361,6 +1364,7 @@
     },
     "faturacao": {
         "referralHeading": "Convites",
+        "statusReward": "Meses grátis",
         "title": "Faturação",
         "subtitle": "Subscrição Rioko 2.0 · Histórico de cobranças e faturas InvoiceXpress",
         "statusActive": "Ativa",

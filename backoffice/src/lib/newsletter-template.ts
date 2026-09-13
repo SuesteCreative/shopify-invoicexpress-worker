@@ -33,8 +33,13 @@ export const SENDER = {
 
 /** Where a merchant finds their own referral link. Deliberately the same URL
  *  for every recipient: a personal link pasted into the body gets forwarded,
- *  and a forwarded personal link credits the wrong account. */
-export const INVITE_PAGE = "https://rioko.online/pt/convidar";
+ *  and a forwarded personal link credits the wrong account.
+ *
+ *  The billing page, because /convidar no longer exists — the campaign card was
+ *  moved there, beside what a merchant pays. A constant pointing at a deleted
+ *  route is a 404 in the middle of a campaign email, and nothing would have said
+ *  so until somebody clicked it. */
+export const INVITE_PAGE = "https://rioko.online/pt/faturacao";
 
 /** Images must be hosted, not inlined: Gmail strips SVG data URIs and drops
  *  base64 over ~10KB on the web client. */

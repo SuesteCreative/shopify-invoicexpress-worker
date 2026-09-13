@@ -7,7 +7,7 @@ import { RIOKO_CONFIG } from "@/lib/config";
 import { resolveReturnPath } from "@/lib/oauth-return";
 import { priceLookupFor, resolvePrice, resolveBillingSource } from "@/lib/billing-prices";
 import { addMonths } from "@/lib/referral-reward";
-import { REWARD_MONTHS } from "@/lib/referral";
+import { REWARD_MONTHS, campaignOpen } from "@/lib/referral";
 
 export const runtime = "edge";
 
@@ -118,7 +118,10 @@ export async function POST(req: NextRequest) {
         const referred: any = await db.prepare(
             "SELECT 1 AS ok FROM referrals WHERE invitee_user_id = ? AND state = 'pending'"
         ).bind(targetUserId).first().catch(() => null);
-        const referralTrialEnd = referred?.ok
+        // After 31 October a pending referral grants nothing. The terms say the
+        // subscription must be created inside the campaign, and a row claimed on
+        // the 30th must not keep handing out trials in March.
+        const referralTrialEnd = referred?.ok && campaignOpen()
             ? Math.floor(new Date(addMonths(new Date().toISOString(), REWARD_MONTHS)).getTime() / 1000)
             : null;
 

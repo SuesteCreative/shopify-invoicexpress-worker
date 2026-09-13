@@ -9,6 +9,7 @@ import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, 
 import { useTranslations } from "next-intl";
 import SuspendedBanner from "@/components/SuspendedBanner";
 import { ReferralCard } from "@/components/ReferralCard";
+import { rewardRunning } from "@/lib/subscription-state";
 
 import { cn } from "@/lib/utils";
 
@@ -197,6 +198,9 @@ export default function FaturacaoPage() {
     const s = sub?.subscription;
     const uiState = sub?.ui_state;
     const hasSubscription = !!s?.stripe_subscription_id;
+    // Two campaign months ride on a Stripe trial. The state stays "trialing", so
+    // the page keeps behaving as for any paying trial; only the words change.
+    const reward = rewardRunning(s);
     // Show the payment cards while blocked/none AND during the early-bird grace,
     // so a Shopify pilot can subscribe any time before their grace ends (per-client
     // date). "trialing" (a paying Stripe trial) keeps a sub, so it's excluded.
@@ -236,7 +240,7 @@ export default function FaturacaoPage() {
                                     uiState === "blocked" ? "bg-destructive/10 text-destructive border-destructive/20" :
                                     "bg-surface-2 text-fg-40 border-hairline"
                                 )}>
-                                    {uiState === "active" ? t("statusActive") : uiState === "trialing_earlybird" ? t("statusEarlyBird") : uiState === "trialing" ? t("statusTrial") : uiState === "blocked" ? t("statusInactive") : t("statusNone")}
+                                    {uiState === "active" ? t("statusActive") : uiState === "trialing_earlybird" ? t("statusEarlyBird") : uiState === "trialing" ? (reward ? t("statusReward") : t("statusTrial")) : uiState === "blocked" ? t("statusInactive") : t("statusNone")}
                                 </span>
                                 {s?.plan && (
                                     <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">

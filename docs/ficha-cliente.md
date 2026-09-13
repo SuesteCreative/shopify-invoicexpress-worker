@@ -1,11 +1,10 @@
 # Ficha de cliente — ponto de situação
 
-Em `main` desde 13/09/2026 (PR #140, três commits).
+Em `main` e em produção desde 13/09/2026 (PRs #140 a #143).
 Plano completo (contexto, decisões e porquês): `C:\Users\pedro\.claude\plans\deviamos-de-implementar-um-eager-goblet.md`.
 
-Estado: **as três fases estão escritas e mergidas.** Falta **aplicar a migração
-em produção** e **abrir as páginas contra dados reais** — nada disto foi aberto
-num browser.
+Estado: **entregue.** As migrações estão aplicadas e as páginas estão no ar. O
+que falta é conferência contra dados reais, listada abaixo.
 
 Verificação no merge: `npm test` → 123 ficheiros / 1172 testes verdes;
 `tsc --noEmit` limpo no worker e no backoffice; `npm run build` no backoffice
@@ -35,30 +34,21 @@ debaixo dele. É por isso que `client_codes` **não** entra na limpeza do
 
 ## ⚠️ O que falta, por ordem
 
-### 1. Aplicar a migração em produção
+### 1. Migrações — FEITAS
 
-Está aplicada e verificada **só em local**.
+`0058_client_code.sql` e `0059_identity_notice_seen.sql` estão aplicadas em
+produção (13/09/2026). As 42 contas têm código, nenhum se repete, e todos estão
+na ledger `client_codes`.
 
-```
-npx wrangler d1 execute rioko-db --remote --file migrations/0058_client_code.sql
-```
+Duas notas de quem as correu, para a próxima:
 
-Depois, contra produção:
-
-```sql
-SELECT COUNT(*) FROM users WHERE client_code IS NULL;              -- 0
-SELECT COUNT(*) - COUNT(DISTINCT client_code) FROM users;          -- 0
-SELECT COUNT(*) FROM client_codes;                                 -- = nº de contas
-```
-
-Nunca `d1 migrations apply` nesta base: o ledger está parado no 0017.
-Se o `CREATE UNIQUE INDEX` falhar, é colisão no backfill (≈2 em 100 000 para 26
-contas): correr outra vez o `UPDATE` para os duplicados e repetir. Falha alta de
-propósito — é por isso que o backfill vem antes do índice.
-
-O código tolera a migração por aplicar (`try/catch → SQL pré-0058` nos upserts,
-`ensureClientCode` devolve null, `SELECT` com fallback nas três rotas), por isso
-um deploy que chegue primeiro não parte inscrições. Mesmo assim: aplicar antes.
+- A árvore em `C:\dev\shopifyix` está numa branch antiga, por isso um ficheiro
+  acabado de mergir **não está lá**. Correr a migração a partir de um worktree
+  em `main`, ou copiar o ficheiro primeiro.
+- `--file` sobe o SQL por um endpoint de import que devolveu
+  `Authentication error [code: 10000]` com o token OAuth válido e permissões de
+  super admin. Para uma migração de uma instrução, `--command` passa. Para uma
+  maior, `npx wrangler login` e repetir.
 
 ### 2. Abrir contra dados reais
 

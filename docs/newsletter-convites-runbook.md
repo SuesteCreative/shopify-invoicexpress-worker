@@ -32,11 +32,16 @@ No dashboard da Resend, criar um topic:
 | visibility | `public` |
 
 `visibility` não existe no SDK instalado, por isso o topic tem mesmo de ser
-criado no dashboard. Copiar o id para `wrangler.jsonc` → `vars.RESEND_TOPIC_NEWS`
-e fazer merge; o CI deploya.
+criado no dashboard (Audience → separador Topics). Copiar o id para
+`wrangler.jsonc` → `vars.RESEND_TOPIC_NEWS` e fazer merge; o CI deploya.
 
-Enquanto estiver vazio os broadcasts saem na mesma, mas sem topic: quem quiser
-sair só tem a opção grossa de cancelar tudo, em vez de cancelar a newsletter.
+**Feito a 13/09/2026**: id `22e21222-c176-40b1-9e3d-23cc684ba99b`. A página de
+cancelamento da Resend (Audience → Topics → Page) usa a pele Day: fundo
+`#F6F3EE`, texto `#111111`, destaque `#C75C4A`, logo `rioko2-logo-light2.png`.
+
+Se alguma vez voltar a ficar vazio, os broadcasts saem na mesma, mas sem topic:
+quem quiser sair só tem a opção grossa de cancelar tudo, em vez de cancelar a
+newsletter.
 
 **O que isto não afecta**: emails de incidente, de dunning, de renovação e de
 quota. Esses saem por `sendEmail()` → `POST /emails`, que não consulta o flag

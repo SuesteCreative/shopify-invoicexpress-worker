@@ -1,0 +1,28 @@
+-- When the client last dismissed the "your request was answered" notice.
+--
+-- A merchant can ask us to correct the two fields they cannot edit themselves,
+-- their VAT number and their legal name (see /api/user/identity-request). Until
+-- now the answer travelled one way: the operator granted or refused it on the
+-- customer record and the client found out by noticing the value had changed,
+-- or never.
+--
+-- The notice that closes that loop has to survive the browser it was shown in.
+-- Local storage would forget it on the next device and re-announce a change from
+-- three weeks ago; a notifications table would be a second store to keep in step
+-- with `config_audit`, which already holds every decision with its timestamp.
+-- So the whole of the state is one date: the notice shows while a decision is
+-- NEWER than the moment the client last dismissed one.
+--
+-- Deliberately per ACCOUNT, not per person. An invited member (0039) works
+-- inside the owner's account and there is one fiscal identity between them; two
+-- people dismissing the same change twice is noise, not bookkeeping.
+--
+-- Null means "never dismissed", which is also what a client who has never had a
+-- request looks like. That is correct: with no decision on record there is
+-- nothing newer than nothing, and the notice stays away.
+--
+-- Apply by hand:
+--   npx wrangler d1 execute rioko-db --remote --file migrations/0059_identity_notice_seen.sql
+-- NEVER `d1 migrations apply` on this database: its ledger is stuck at 0017 and
+-- it would replay 0018+ onto columns that already exist.
+ALTER TABLE users ADD COLUMN identity_notice_seen_at TEXT;

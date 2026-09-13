@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 // deliberately not locale-prefixed.
 import Link from "next/link";
 import {
-    IdCard, Copy, Check, Loader2, AlertTriangle, ExternalLink, Wrench, UserCog,
+    IdCard, Copy, Check, X, Loader2, AlertTriangle, ExternalLink, Wrench, UserCog,
     Building2, CreditCard, Zap, Scale, Receipt, ScrollText, Moon, Users,
 } from "lucide-react";
 
@@ -337,47 +337,77 @@ function FiscalField({ code, field, label, value, mono, onSaved }: {
 }
 
 /**
- * Grant the request, with the value the client actually asked for.
+ * Answer the request: grant it with the value the client asked for, or refuse it.
  *
- * Without it the operator reads the value here and retypes it into the field
- * below — the one step in this loop where a wrong digit can be introduced, on
- * the number that prints on every future invoice. There is nothing to type.
+ * Granting sends that value rather than making the operator retype it — the one
+ * step in this loop where a wrong digit could be introduced, on the number that
+ * prints on every invoice the client is ever issued.
+ *
+ * Refusing writes a row of its own, because a refusal changes no value and the
+ * state is read off the trail. The reason is optional and travels to the client
+ * as typed; leaving it empty says nothing rather than inventing something.
  */
-function ApplyRequest({ code, field, value, onApplied }: {
-    code: string; field: string; value: string; onApplied: () => void;
+function AnswerRequest({ code, field, value, onAnswered }: {
+    code: string; field: string; value: string; onAnswered: () => void;
 }) {
-    const [busy, setBusy] = useState(false);
+    const [busy, setBusy] = useState<"apply" | "reject" | null>(null);
+    const [rejecting, setRejecting] = useState(false);
+    const [reason, setReason] = useState("");
     const [error, setError] = useState<string | null>(null);
+
+    const send = async (payload: Record<string, unknown>, kind: "apply" | "reject") => {
+        setBusy(kind); setError(null);
+        try {
+            const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ field, ...payload }),
+            });
+            const body: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(body?.error === "nif_must_be_nine_digits" ? "O NIF pedido não tem nove dígitos." : (body?.error || `HTTP ${res.status}`));
+                return;
+            }
+            onAnswered();
+        } catch (e: any) {
+            setError(String(e));
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    if (rejecting) {
+        return (
+            <div className="w-full flex flex-wrap items-center gap-2 pt-2">
+                <input
+                    autoFocus value={reason} onChange={(e) => setReason(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") send({ reject: true, reason }, "reject"); if (e.key === "Escape") setRejecting(false); }}
+                    placeholder="Motivo (opcional) — vai tal como o escrever"
+                    className="flex-1 min-w-[220px] bg-surface-2 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg focus:outline-none focus:border-accent/40"
+                />
+                <button type="button" disabled={busy !== null} onClick={() => send({ reject: true, reason }, "reject")}
+                    className="bg-destructive/15 text-destructive border border-destructive/30 px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-30">
+                    {busy === "reject" ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />} Recusar
+                </button>
+                <button type="button" onClick={() => setRejecting(false)}
+                    className="text-[10px] font-black uppercase tracking-widest text-fg-40 hover:text-fg">cancelar</button>
+                {error && <span className="w-full text-[10px] font-black uppercase tracking-widest text-destructive">{error}</span>}
+            </div>
+        );
+    }
 
     return (
         <>
-            <button
-                type="button"
-                disabled={busy}
-                onClick={async () => {
-                    setBusy(true); setError(null);
-                    try {
-                        const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}`, {
-                            method: "PATCH",
-                            headers: { "content-type": "application/json" },
-                            body: JSON.stringify({ field, value }),
-                        });
-                        const body: any = await res.json().catch(() => ({}));
-                        if (!res.ok) {
-                            setError(body?.error === "nif_must_be_nine_digits" ? "O NIF pedido não tem nove dígitos." : (body?.error || `HTTP ${res.status}`));
-                            return;
-                        }
-                        onApplied();
-                    } catch (e: any) {
-                        setError(String(e));
-                    } finally {
-                        setBusy(false);
-                    }
-                }}
-                className="ml-auto bg-fg text-surface px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:opacity-90 transition-all disabled:opacity-30"
-            >
-                {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Aplicar
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+                <button type="button" disabled={busy !== null} onClick={() => setRejecting(true)}
+                    className="px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-fg-40 hover:text-destructive transition-colors disabled:opacity-30">
+                    Recusar
+                </button>
+                <button type="button" disabled={busy !== null} onClick={() => send({ value }, "apply")}
+                    className="bg-fg text-surface px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:opacity-90 transition-all disabled:opacity-30">
+                    {busy === "apply" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Aplicar
+                </button>
+            </div>
             {error && <span className="w-full text-[10px] font-black uppercase tracking-widest text-destructive">{error}</span>}
         </>
     );
@@ -387,24 +417,45 @@ function IdentityTab({ data, code, onSaved }: { data: any; code: string; onSaved
     const c = data.customer;
     const identity = c.identity ?? {};
     const requests: any[] = data.identity_requests ?? [];
+    const pending = requests.filter((r) => r.outcome === "pending");
+    const answered = requests.filter((r) => r.outcome !== "pending");
     const fieldLabel = (f: string) => (f === "nif" ? "NIF" : "nome fiscal");
 
     return (
         <div className="space-y-6">
-            {requests.length > 0 && (
+            {pending.length > 0 && (
                 <Section icon={<AlertTriangle className="w-5 h-5 text-soon" />} title="Pedidos por responder"
-                    desc="O cliente pediu isto a partir da página Conta. Fica em aberto enquanto o valor pedido diferir do que está guardado — aplicá-lo é fechá-lo.">
+                    desc="O cliente pediu isto a partir da página Conta. Aplicar grava o valor que ele pediu; recusar fica registado, com o motivo que escrever. Em qualquer dos casos ele é avisado no painel.">
                     <div className="space-y-2">
-                        {requests.map((r) => (
-                            <div key={r.id} className="text-sm flex flex-wrap items-center gap-2 border-b border-hairline/60 pb-2">
+                        {pending.map((r) => (
+                            <div key={r.field} className="text-sm flex flex-wrap items-center gap-2 border-b border-hairline/60 pb-2">
                                 <Pill tone="warn">{fieldLabel(r.field)}</Pill>
-                                <span className="font-mono text-xs text-fg-40">{r.old_value || "—"}</span>
+                                <span className="font-mono text-xs text-fg-40">{(r.field === "nif" ? c.nif : c.company_name) || "—"}</span>
                                 <span className="text-fg-40">→</span>
-                                <span className="font-mono text-xs font-bold text-fg">{r.new_value}</span>
-                                <span className="text-[10px] text-fg-40 uppercase tracking-widest">{moment(r.created_at)}</span>
+                                <span className="font-mono text-xs font-bold text-fg">{r.requested}</span>
+                                <span className="text-[10px] text-fg-40 uppercase tracking-widest">{moment(r.requested_at)}</span>
                                 {data.fiscal_visible && (
-                                    <ApplyRequest code={code} field={r.field} value={r.new_value} onApplied={onSaved} />
+                                    <AnswerRequest code={code} field={r.field} value={r.requested} onAnswered={onSaved} />
                                 )}
+                            </div>
+                        ))}
+                    </div>
+                </Section>
+            )}
+
+            {answered.length > 0 && (
+                <Section icon={<ScrollText className="w-5 h-5 text-fg-40" />} title="Pedidos já respondidos"
+                    desc="O que o cliente pediu antes e o que lhe foi dado. Se voltar a pedir o mesmo campo, o pedido novo é mais recente do que esta decisão e volta a contar.">
+                    <div className="space-y-2">
+                        {answered.map((r) => (
+                            <div key={r.field} className="text-sm flex flex-wrap items-center gap-2 border-b border-hairline/60 pb-2">
+                                <Pill tone={r.outcome === "applied" ? "good" : "bad"}>
+                                    {r.outcome === "applied" ? "aplicado" : "recusado"}
+                                </Pill>
+                                <span className="text-fg-40">{fieldLabel(r.field)}</span>
+                                <span className="font-mono text-xs font-bold text-fg">{r.decided_value ?? r.requested}</span>
+                                <span className="text-[10px] text-fg-40 uppercase tracking-widest">{moment(r.decided_at ?? r.requested_at)}</span>
+                                {r.reason && <span className="w-full text-xs text-fg-40 italic">“{r.reason}”</span>}
                             </div>
                         ))}
                     </div>

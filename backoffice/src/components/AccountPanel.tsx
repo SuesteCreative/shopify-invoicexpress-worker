@@ -194,8 +194,11 @@ export default function AccountPanel() {
             </section>
 
             {asking && (
-                <ChangeRequest field={asking} current={profile[asking] ?? ""} onClose={() => setAsking(null)} />
+                <ChangeRequest field={asking} current={profile[asking] ?? ""} onClose={() => { setAsking(null); load(); }} />
             )}
+
+            <RequestHistory />
+
 
             {/* What they can change */}
             <section className="glass rounded-[2rem] p-6 sm:p-8 border-hairline space-y-6">
@@ -243,6 +246,59 @@ export default function AccountPanel() {
                 </Link>
             </section>
         </div>
+    );
+}
+
+/**
+ * What the client asked for, and what came of it.
+ *
+ * The dashboard notice announces an answer once and is dismissed; this is where
+ * it can be looked up afterwards, which is what its "see it in my account" link
+ * promises. Nothing here is stored as a status — the state is read off the same
+ * trail the operator answers on.
+ */
+function RequestHistory() {
+    const t = useTranslations("conta");
+    const [states, setStates] = useState<any[]>([]);
+
+    useEffect(() => {
+        fetch("/api/user/identity-request")
+            .then(r => (r.ok ? r.json() : null))
+            .then((d: any) => setStates(d?.states ?? []))
+            .catch(() => { /* the page is useful without it */ });
+    }, []);
+
+    if (states.length === 0) return null;
+
+    const label = (f: string) => (f === "nif" ? t("nif") : t("companyName"));
+    const tone = (o: string) => (o === "applied" ? "text-accent-ink" : o === "rejected" ? "text-destructive" : "text-soon");
+    const word = (o: string) => (o === "applied" ? t("stateApplied") : o === "rejected" ? t("stateRejected") : t("statePending"));
+    const day = (iso: string | null) => {
+        if (!iso) return "";
+        const d = new Date(iso.includes("T") ? iso : iso.replace(" ", "T") + "Z");
+        return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit", year: "numeric" });
+    };
+
+    return (
+        <section className="glass rounded-[2rem] p-6 sm:p-8 border-hairline space-y-4">
+            <div>
+                <h2 className="text-lg font-black tracking-tight">{t("historyTitle")}</h2>
+                <p className="text-fg-40 text-xs font-medium mt-1">{t("historyHelp")}</p>
+            </div>
+            <div className="space-y-3">
+                {states.map((s) => (
+                    <div key={s.field} className="flex flex-wrap items-center gap-2 text-sm border-b border-hairline/60 pb-3">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{label(s.field)}</span>
+                        <span className="font-bold text-fg">{s.decided_value ?? s.requested}</span>
+                        <span className={`text-[10px] font-black uppercase tracking-widest ${tone(s.outcome)}`}>{word(s.outcome)}</span>
+                        <span className="text-[10px] text-fg-40 uppercase tracking-widest">
+                            {day(s.decided_at ?? s.requested_at)}
+                        </span>
+                        {s.reason && <span className="w-full text-xs text-fg-40 italic">“{s.reason}”</span>}
+                    </div>
+                ))}
+            </div>
+        </section>
     );
 }
 

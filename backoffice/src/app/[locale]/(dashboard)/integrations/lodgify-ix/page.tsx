@@ -385,7 +385,11 @@ export default function LodgifyIxIntegration() {
                         />
                         <p className="text-[10px] text-fg-40 ml-1">{hasSavedApiKey ? t("apiKeyStoredHint") : t("apiKeyHint")}</p>
                     </div>
-                    {webhookUrl && (
+                    {/* The URL only once Rioko has registered it. Lodgify has no screen to
+                        paste one into, and a subscription made by hand never gives us its
+                        secret, so its deliveries are refused: offering the URL to copy
+                        after a failed registration invites exactly that. */}
+                    {webhookUrl && !webhookManual && (
                         <div className="md:col-span-2 space-y-2 pt-2">
                             <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] ml-1">{t("webhookSection")}</label>
                             <p className="text-[10px] text-fg-60 ml-1">{t("webhookBody")}</p>
@@ -395,10 +399,10 @@ export default function LodgifyIxIntegration() {
                                     {copied ? <Check className="w-4 h-4 text-accent-hot" /> : <Copy className="w-4 h-4 text-fg-60" />}
                                 </button>
                             </div>
-                            {webhookManual && (
-                                <p className="text-[10px] text-soon ml-1 mt-1">{t("webhookManualNote")}</p>
-                            )}
                         </div>
+                    )}
+                    {webhookManual && (
+                        <p className="md:col-span-2 text-[10px] text-soon ml-1 pt-2">{t("webhookManualNote")}</p>
                     )}
                     <div className="md:col-span-2 pt-4">
                         <button

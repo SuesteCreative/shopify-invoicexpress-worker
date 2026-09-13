@@ -194,7 +194,7 @@
     ]
   },
   "triggers": {
-    // */30 * * * * → Lodgify booking poll (verified webhooks run the same pass per account)
+    // */30 * * * * → Lodgify booking poll (the only place Lodgify bookings are billed)
     // 0 4 * * *    → self-healing invoice reconciliation sweep (RECON_SWEEP_ENABLED)
     // 0 8 * * *    → daily ops sweep (IX match retry, VIES retry, TTL purge)
     // 0 16 * * 5   → Friday weekly per-merchant "unprocessed invoices" digest

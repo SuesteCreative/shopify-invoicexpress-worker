@@ -31,17 +31,16 @@ import { settleLodgifyReceipts } from "../handlers/lodgify-settlement";
 import { delay } from "../utils";
 import { claimRunLock, releaseRunLock } from "./run-lock";
 
-// ── Lodgify booking poller (cron + verified webhooks) ────────────────────────
-// The one place Lodgify bookings are billed. The 30-minute cron runs it for every
-// active connection; a verified Lodgify webhook runs it for that one account
-// (/webhooks/lodgify/:userId). Either way the same list, mirror, cutoff,
-// instalment, settlement and dedup rules apply, deduped on the shared
+// ── Lodgify booking poller (cron) ─────────────────────────────────────────────
+// The one place Lodgify bookings are billed: the 30-minute cron for every active
+// connection, and /admin/lodgify/poll for one. The same list, mirror, cutoff,
+// instalment, settlement and dedup rules apply to both, deduped on the shared
 // `lodgify/created` webhook-info key, and a per-account run lock keeps two passes
 // off the same account at once.
 //
-// Webhook registration works with the account's own API key — it was long
-// believed to need partner OAuth, which is why this poll came first — but a
-// delivery is only ever a signal to run this pass, never a second billing path.
+// Webhooks register with the account's own API key (it was long believed to need
+// partner OAuth, which is why this poll came first), but a verified delivery is
+// only acknowledged — see /webhooks/lodgify/:userId.
 
 // First non-empty trimmed string among vals, or null. Used to pull the guest
 // comment (where the NIF is typed) out of whichever field Lodgify carries it in.
@@ -345,6 +344,12 @@ interface LodgifyPollResult {
    * reimplementing a single settlement rule on its side.
    */
   wouldInvoice?: Array<{ booking_id: string; path: "standard" | "partial"; seq?: number; amount: number }>;
+  /**
+   * Accounts skipped because another pass held their run lock. A caller that
+   * asked for one account has to be told it did not run, or it reads the zeros
+   * as "nothing to bill" and the bookings it supplied as handled.
+   */
+  busy?: string[];
 }
 
 /**
@@ -769,9 +774,8 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
   // next pass (≤30 min); add a "rerun requested" flag if that latency matters.
   const LODGIFY_RUN_STALE_MS = 15 * 60 * 1000;
   for (const conn of rows) {
-    result.connections++;
     // A dry run issues nothing, so it needs no lock.
-    if (dryRun) { await pollConnection(conn); continue; }
+    if (dryRun) { result.connections++; await pollConnection(conn); continue; }
 
     const lockKey = `lodgify-run:${conn.user_id}`;
     let token: string | null = null;
@@ -781,9 +785,15 @@ export async function pollLodgifyBookings(env: Env, opts: LodgifyPollOptions = {
       console.warn(`[LodgifyPoll] user ${conn.user_id}: run lock unavailable (${e?.message ?? e}) — skipping this pass`);
     }
     if (!token) {
+      // Reported apart from `connections`, which counts accounts that actually
+      // ran: zeros from a skipped account must not read as "nothing to bill" —
+      // least of all to /admin/lodgify/poll, which would otherwise answer that
+      // the bookings the caller supplied were handled.
       console.log(`[LodgifyPoll] user ${conn.user_id}: another pass is running — skipping`);
+      (result.busy ??= []).push(String(conn.user_id));
       continue;
     }
+    result.connections++;
     try {
       await pollConnection(conn);
     } finally {

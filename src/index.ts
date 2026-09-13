@@ -631,12 +631,14 @@ app.post("/webhooks/eupago/:userId", async (c) => {
 });
 
 // ── Lodgify webhooks ──────────────────────────────────────────────────────────
-//   POST /webhooks/lodgify/<user_id>
-//   Headers: ms-signature: sha256=<hex_hmac_sha256> (fallback: x-lodgify-signature)
-//   Body: { "event": "booking_new_booked", "data": { "bookingId": 12345 } }
+//   POST /webhooks/lodgify/<user_id>[?e=change|?e=declined]
+//   Headers: ms-signature: sha256=<HMAC-SHA256 of the raw body, uppercase hex>
+//            (fallback: x-lodgify-signature)
+//   One subscription per event, each with its own secret, registered by
+//   /admin/lodgify/reregister-webhooks with the account's own API key.
 //
-//   Thin envelope — the actual booking is fetched inside LodgifySource.toNormalized()
-//   via GET /v2/reservations/{bookingId} using the stored api_key.
+//   Verified and acknowledged, nothing more: bookings are billed by the
+//   30-minute pass in services/lodgify-poll.ts. See the note at the end.
 // ────────────────────────────────────────────────────────────────────────────
 app.post("/webhooks/lodgify/:userId", async (c) => {
   const userId = c.req.param("userId");
@@ -691,23 +693,18 @@ app.post("/webhooks/lodgify/:userId", async (c) => {
     return c.text("Invalid signature", 401);
   }
 
-  // A verified delivery is a signal, not an order. It runs the same per-account
-  // pass the 30-minute cron runs — list, mirror, subscription gate, cutoff,
-  // instalments, settlement rule, dedup, cancellations — instead of a second
-  // billing path fed by the payload. That second path skipped invoice_cutoff (a
-  // booking_change on a stay booked before onboarding would have been billed:
-  // 14 already-paid ones on Overbuilding) and the instalment ledger (a whole-stay
-  // document on top of the instalments already issued). The per-account lock
-  // inside the poll keeps a burst of deliveries — a new paid booking fires
-  // booking_new_status_booked and booking_change together — from running two
-  // passes over the same booking.
-  try {
-    const r = await pollLodgifyBookings(c.env, { userId });
-    return c.json({ ok: true, invoiced: r.invoiced, skipped: r.skipped, reversed: r.reversed, failed: r.failed });
-  } catch (e: any) {
-    console.error(`[Lodgify] webhook-triggered pass failed for ${userId}:`, e);
-    return errorResponse(c, e, "Lodgify pass failed");
-  }
+  // A verified delivery is acknowledged, and that is all it does. Lodgify bookings
+  // are billed in one place — the 30-minute pass in services/lodgify-poll.ts —
+  // which applies invoice_cutoff, the instalment ledger, the settlement rule,
+  // dedup and cancellations, and honours LODGIFY_POLL_ENABLED and the relay probe.
+  // This route used to run its own pipeline on the payload and skipped the first
+  // two (14 already-paid pre-cutoff bookings and 23 instalment stays on
+  // Overbuilding would have been billed again). Running the whole pass here
+  // instead would hold Lodgify's delivery open for up to two minutes, and a
+  // disconnect can cancel a request halfway through a document.
+  // ponytail: a booking reaches its invoice within 30 minutes, not seconds. For
+  // real time, send { userId } to a queue whose consumer runs pollLodgifyBookings.
+  return c.text("OK", 200);
 });
 
 // ── Admin: what is actually deployed ─────────────────────────────────────────
@@ -1013,9 +1010,12 @@ app.post("/admin/lodgify/reregister-webhooks", async (c) => {
   const results: Record<string, any> = {};
 
   // Drop every webhook already pointing at our Worker, then re-subscribe below.
-  const { deleted, liveList } = await unsubscribeOurLodgifyWebhooks(
+  const { deleted, liveList, listed } = await unsubscribeOurLodgifyWebhooks(
     apiKey, gateway, new URL(workerBase).hostname,
   );
+  // Said out loud: when the list call fails nothing was deleted, so every URL
+  // still registered answers 409 below and keeps its old secret.
+  results["_listed"] = listed;
   results["_deleted"] = deleted;
   results["_live_list"] = liveList.map((w: any) => ({ id: w.id, event: w.event ?? w.type, url: w.target_url ?? w.url }));
 
@@ -1197,11 +1197,11 @@ app.post("/admin/run-reconciliation-sweep", async (c) => {
 
 // Admin: run the Lodgify booking poll on demand.
 //
-// Lodgify is the only source with no webhook and no healer — the */30 cron is
-// the sole path by which a booking ever becomes an invoice. That left no way to
-// recover a backlog without waiting for the next tick, or to tell "the cron
-// isn't firing" apart from "the poll runs but emits nothing". Same function the
-// cron calls, so behaviour is identical.
+// Lodgify has no healer, and its webhooks are only acknowledged — the */30 cron
+// is the path by which a booking becomes an invoice. That left no way to recover
+// a backlog without waiting for the next tick, or to tell "the cron isn't firing"
+// apart from "the poll runs but emits nothing". Same function the cron calls, so
+// behaviour is identical.
 app.post("/admin/lodgify/poll", async (c) => {
   const unauth = await requireAdmin(c);
   if (unauth) return unauth;
@@ -1218,6 +1218,11 @@ app.post("/admin/lodgify/poll", async (c) => {
   }
   try {
     const result = await pollLodgifyBookings(c.env, { userId: body.user_id, bookings: body.bookings, dryRun: body.dry_run });
+    // An account whose run lock was held ran nothing. Answering 200 with zeros
+    // would tell a recovery caller that the bookings it supplied were handled.
+    if (body.user_id && result.busy?.includes(body.user_id)) {
+      return c.json({ ranAt: new Date().toISOString(), error: "busy", ...result }, 409);
+    }
     return c.json({ ranAt: new Date().toISOString(), ...result });
   } catch (e) {
     return errorResponse(c, e, "Lodgify poll failed");
@@ -3387,8 +3392,8 @@ export default {
   },
   async scheduled(event: ScheduledController, env: Env & { CRON_SECRET?: string; BACKOFFICE_URL?: string }, _ctx: ExecutionContext) {
     configureIxBaseUrl(env);
-    // Every 30 min — Lodgify booking poll. Lodgify user-level API keys cannot
-    // register webhooks (partner OAuth only), so bookings are polled and
+    // Every 30 min — Lodgify booking poll. Webhooks are registered with the
+    // account's own key but only acknowledged, so bookings are polled and
     // invoiced here. Runs on its own cron so it never rides the ops sweep.
     if (event.cron === "*/30 * * * *") {
       if (env.LODGIFY_POLL_ENABLED === "0") {

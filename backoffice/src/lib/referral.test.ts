@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
     splitReferralToken, referralToken, referralLink, newReferralSuffix,
     claimRefusal, existingClaim, campaignOpen, CAMPAIGN_END, MAX_REWARDS, REWARD_MONTHS,
+    countsTowardClaimLimit, CLAIM_ATTEMPT_LIMIT,
 } from "./referral";
 
 /**
@@ -140,5 +141,32 @@ describe("the promises the copy makes", () => {
         expect(REWARD_MONTHS).toBe(2);
         expect(MAX_REWARDS).toBe(3);
         expect(REWARD_MONTHS * MAX_REWARDS).toBe(6);
+    });
+});
+
+describe("what counts against the typing limit", () => {
+    /**
+     * The code can be typed by hand now, because a link only ever reached the
+     * browser that opened it. The cap is there so an authenticated loop cannot
+     * have the lookups for free — not because a 48-bit code can be guessed.
+     */
+    it("counts only a code that resolves to nobody", () => {
+        expect(countsTowardClaimLimit("invalid")).toBe(true);
+        expect(countsTowardClaimLimit("unknown")).toBe(true);
+    });
+
+    it("never counts a true answer about a code that exists", () => {
+        // Somebody reading their own invite twice, or a friend who took too long
+        // to sign up, must not be locked out of the one code that was theirs.
+        for (const refusal of ["self", "closed", "not_new", "already", "inviter_inactive", "already_subscribed"] as const) {
+            expect(countsTowardClaimLimit(refusal), refusal).toBe(false);
+        }
+        expect(countsTowardClaimLimit(null)).toBe(false);
+        // And the cap's own refusal cannot feed itself.
+        expect(countsTowardClaimLimit("too_many")).toBe(false);
+    });
+
+    it("leaves room to fumble the code a few times", () => {
+        expect(CLAIM_ATTEMPT_LIMIT).toBeGreaterThanOrEqual(3);
     });
 });

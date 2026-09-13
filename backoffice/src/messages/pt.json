@@ -223,7 +223,8 @@
             "not_new": "Os convites são para contas novas, e esta já não é.",
             "already": "Esta conta já foi convidada por alguém.",
             "inviter_inactive": "Quem te convidou não tem uma subscrição activa neste momento.",
-            "already_subscribed": "Os convites são para contas novas, e esta já tem uma subscrição."
+            "already_subscribed": "Os convites são para contas novas, e esta já tem uma subscrição.",
+            "too_many": "Demasiadas tentativas. Espera uma hora e tenta outra vez."
         },
         "landingClaimRetry": "Não conseguimos confirmar o convite agora. Fica guardado e voltamos a tentar quando abrires o dashboard."
     },
@@ -3618,7 +3619,13 @@
         "referralPlateToday": "Hoje {amount}",
         "referralPlateAfter": "Este preço começa depois {months, plural, one {do mês grátis} other {dos # meses grátis}}",
         "alreadySubscribedTitle": "Esta ligação já tem uma subscrição",
-        "alreadySubscribedBody": "Não é preciso abrir outra, e nada foi cobrado agora. Pagamentos e cartão ficam em Faturação."
+        "alreadySubscribedBody": "Não é preciso abrir outra, e nada foi cobrado agora. Pagamentos e cartão ficam em Faturação.",
+        "inviteCodeToggle": "Tenho um código de convite",
+        "inviteCodeLabel": "Código de convite de um amigo",
+        "inviteCodePlaceholder": "RIO-1A2B3C-9F2B41",
+        "inviteCodeApply": "Aplicar",
+        "inviteCodeHint": "Ganham os dois {months} meses grátis. Só para contas novas, e o código tem de ser aplicado antes de pagar.",
+        "inviteCodeFailed": "Não foi possível aplicar o código. Tenta outra vez."
     },
     "taxRegistrations": {
         "title": "Registos fiscais",

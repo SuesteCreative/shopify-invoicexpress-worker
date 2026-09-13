@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { isAdmin, isHiperadmin } from "@/lib/admin";
 import { callWorkerJson } from "@/lib/worker";
-import { resolveAudience, FILTER_KEYS } from "@/lib/newsletter-audience";
-import { fill, requiredLegalOk, unknownVars } from "@/lib/newsletter-template";
+import { resolveAudience, firstNameOf, FILTER_KEYS } from "@/lib/newsletter-audience";
+import { fill, fillContactForTest, requiredLegalOk, unknownVars } from "@/lib/newsletter-template";
 
 export const runtime = "edge";
 
@@ -118,20 +118,25 @@ export async function POST(request: NextRequest) {
 
         if (action === "test") {
             // Transactional, so it costs no broadcast and reaches the sender even
-            // if they have unsubscribed. The Resend tags render literally here,
-            // which is correct: seeing them proves they survived to the payload.
+            // if they have unsubscribed. Resend fills {{{contact.*}}} only in a
+            // Broadcast, so the greeting is filled here with the sender's first
+            // name, from the same users.name the audience greets by. The
+            // unsubscribe tag still renders literally: seeing it proves it
+            // survived to the payload.
             // The primary address, not the first on the list: Clerk keeps them in
             // creation order, so [0] can be an old mailbox the admin no longer reads.
             const me = await currentUser();
             const to = me?.primaryEmailAddress?.emailAddress ?? me?.emailAddresses?.[0]?.emailAddress;
             if (!to) return NextResponse.json({ error: "Sem endereço para o teste" }, { status: 400 });
+            const own = await db().prepare("SELECT name FROM users WHERE id = ?").bind(userId).first<{ name: string | null }>();
+            const firstName = firstNameOf(own?.name || me?.firstName || "", "");
 
             const { ok, status, data } = await callWorkerJson("/admin/notify", {
                 method: "POST",
                 body: JSON.stringify({
                     recipients: [to],
-                    subject: `[teste] ${subject}`,
-                    html,
+                    subject: `[teste] ${fillContactForTest(subject, firstName)}`,
+                    html: fillContactForTest(html, firstName),
                     from_name: "Rioko",
                 }),
             });

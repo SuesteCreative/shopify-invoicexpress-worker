@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fill, requiredLegalOk, unknownVars, standardVars, SENDER } from "./newsletter-template";
+import { fill, fillContactForTest, requiredLegalOk, unknownVars, standardVars, SENDER } from "./newsletter-template";
 
 /**
  * The failure this file exists to prevent: a substitution that eats Resend's
@@ -32,6 +32,19 @@ describe("fill", () => {
         // "Olá{{GREETING_NAME}}," must be able to become "Olá," and never "Olá ,".
         // The fallback in the Resend tag is empty, and our value carries the space.
         expect(standardVars().GREETING_NAME).toBe(" {{{contact.first_name|}}}");
+    });
+});
+
+describe("fillContactForTest", () => {
+    it("greets the sender by name and keeps the unsubscribe tag for the payload", () => {
+        const html = fill(`<p>Olá{{GREETING_NAME}},</p><a href="{{{RESEND_UNSUBSCRIBE_URL}}}">sair</a>`);
+        const out = fillContactForTest(html, "Pedro");
+        expect(out).toContain("<p>Olá Pedro,</p>");
+        expect(out).toContain("{{{RESEND_UNSUBSCRIBE_URL}}}");
+    });
+
+    it("uses the tag's own fallback when the sender has no name", () => {
+        expect(fillContactForTest("Olá {{{contact.first_name|amigo}}}", " ")).toBe("Olá amigo");
     });
 });
 

@@ -65,6 +65,13 @@ export async function POST(request: NextRequest) {
 
         const me: any = await db.prepare("SELECT created_at FROM users WHERE id = ?").bind(invitee).first();
 
+        // Clause 4 of the terms: never had a subscription. Account age alone let
+        // an account that registered on Monday and subscribed on Tuesday claim a
+        // friend's link on Thursday, and put a trial on its next connection.
+        const subscribed: any = await db.prepare(
+            "SELECT 1 AS ok FROM subscriptions WHERE user_id = ? AND stripe_subscription_id IS NOT NULL LIMIT 1"
+        ).bind(invitee).first();
+
         const refusal = claimRefusal({
             token,
             inviterUserId,
@@ -72,6 +79,7 @@ export async function POST(request: NextRequest) {
             inviteeUserId: invitee,
             inviteeCreatedAt: me?.created_at ?? null,
             alreadyReferred: false,
+            inviteeHasSubscription: Boolean(subscribed?.ok),
             now: new Date(),
         });
         if (refusal) {

@@ -181,6 +181,9 @@
     },
     "referral": {
         "loading": "Loading...",
+        "rewardBadge": "Free months",
+        "rewardTitle": "Campaign free months",
+        "rewardBody": "Nothing to pay until {date}. The next charge is on that date, at the normal price.",
         "cardTitle": "Invite a friend, you both get 2 free months",
         "cardSubtitle": "Whoever joins through your link gets 2 months without paying. Your 2 months go onto the subscription you already have: the next charge moves two months later.",
         "needSubscription": "You need an active subscription to invite. The free months are added to a running subscription, so there has to be one.",
@@ -1361,6 +1364,7 @@
     },
     "faturacao": {
         "referralHeading": "Referrals",
+        "statusReward": "Free months",
         "title": "Billing",
         "subtitle": "Rioko 2.0 subscription · Charge history and InvoiceXpress invoices",
         "statusActive": "Active",

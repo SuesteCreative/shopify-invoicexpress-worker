@@ -210,6 +210,44 @@ describe("rewardInviter", () => {
         expect(r).toEqual({ rewarded: false, reason: "not_pending" });
     });
 
+    it("pays nothing for a subscription created after the campaign ended", async () => {
+        // Clause 2. Claimed inside the campaign, subscribed after it: recorded,
+        // not paid.
+        const f = fixture();
+        f.sqlite.exec(pending);
+        const r = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee", new Date("2026-11-02T10:00:00.000Z"));
+        expect(r.rewarded).toBe(false);
+        expect(r.reason).toBe("after_campaign");
+        expect(f.updates).toHaveLength(0);
+        const row = f.sqlite.prepare("SELECT state FROM referrals WHERE invitee_user_id='user_b'").get() as any;
+        expect(row.state).toBe("void");
+    });
+
+    it("keeps the original subscription date when an admin retries later", async () => {
+        // Subscribed in October, parked, retried by an admin in November. The
+        // retry must not look like a late subscription.
+        const f = fixture();
+        f.sqlite.exec(`
+            INSERT INTO referrals (invitee_user_id, inviter_user_id, inviter_client_code, state, invitee_subscribed_at)
+            VALUES ('user_b', 'user_a', 'RIO-1A2B3C', 'pending', '2026-10-20T10:00:00.000Z');
+            INSERT INTO subscriptions (user_id, connection_key, status, stripe_subscription_id, created_at)
+            VALUES ('user_a', 'shopify:invoicexpress', 'active', 'sub_inviter', '2026-01-01');
+        `);
+        const r = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee", new Date("2026-11-05T10:00:00.000Z"));
+        expect(r.rewarded).toBe(true);
+    });
+
+    it("parks, rather than promises, on a subscription already scheduled to end", async () => {
+        // Stripe cancels at cancel_at regardless of trial_end: the months would be
+        // recorded and shown and never happen.
+        const f = fixture();
+        f.sqlite.exec(pending);
+        f.setSubscription({ cancel_at: unix("2026-12-31T00:00:00.000Z") });
+        const r = await rewardInviter(f.db, f.stripe, "user_b", "sub_invitee");
+        expect(r.reason).toBe("inviter_subscription_ending");
+        expect(f.updates).toHaveLength(0);
+    });
+
     it("parks when Stripe cannot say when the period ends", async () => {
         const f = fixture();
         f.sqlite.exec(pending);

@@ -88,6 +88,8 @@ export interface SubscriptionRow {
     price_id: string | null;
     current_period_end: string | null;
     trial_end: string | null;
+    /** While a referral reward runs, why this row is `trialing` (0057). */
+    reward_until: string | null;
     cancel_at_period_end: number;
     early_bird: number;
     nif: string | null;

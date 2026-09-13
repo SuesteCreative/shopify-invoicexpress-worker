@@ -29,6 +29,8 @@ import { ACCOUNT_LABEL_SQL } from "./labels";
 
 export interface Recipient {
     user_id: string;
+    /** The customer number (0058). What a campaign is filed under afterwards. */
+    client_code: string | null;
     email: string;
     label: string;
     first_name: string;
@@ -192,6 +194,7 @@ export function audienceQuery(keys: string[]): { sql: string; binds: unknown[] }
 
     const sql = `
       SELECT u.id AS user_id,
+             u.client_code AS client_code,
              u.email AS email,
              ${ACCOUNT_LABEL_SQL("u")} AS label,
              u.name AS name
@@ -223,7 +226,11 @@ export async function resolveAudience(db: any, keys: string[]): Promise<Recipien
         if (!email || seen.has(email)) continue;
         seen.add(email);
         const label = String(r.label ?? email);
-        out.push({ user_id: String(r.user_id), email, label, first_name: firstNameOf(r.name, label) });
+        out.push({
+            user_id: String(r.user_id),
+            client_code: r.client_code ? String(r.client_code) : null,
+            email, label, first_name: firstNameOf(r.name, label),
+        });
     }
     return out;
 }

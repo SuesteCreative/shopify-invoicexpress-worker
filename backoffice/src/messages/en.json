@@ -112,32 +112,100 @@
         "tooltipNeedRegister": "Complete dashboard registration first",
         "ops": "Ops"
     },
+    "campanhaConvites": {
+        "title": "\"Invite a friend\" Campaign — Terms and Conditions",
+        "back": "Back",
+        "lastUpdate": "Last updated: 13 September 2026",
+        "ended": "This campaign ended on 31 October 2026. These terms remain available to those who took part while it ran.",
+        "metaTitle": "Referral campaign terms — Rioko",
+        "metaDescription": "Terms of Rioko's referral campaign: 2 free months for the inviter and the invitee, until 31 October 2026.",
+        "s1": {
+            "title": "1. Scope",
+            "body": "These terms govern Rioko's referral campaign (the <b>Campaign</b>), operated by <b>Kapta</b>, a brand of <b>ABSOLUTEPIXEL UNIPESSOAL, LDA</b>, NIPC 516277421, registered office at Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal.<p>The Campaign supplements Rioko's Terms of Service and Privacy Policy, which remain fully applicable. In case of conflict, and only as regards the Campaign, these terms prevail.</p><p>The Campaign is aimed at professionals and businesses acting in the course of their trade. Where a user is in fact a consumer, the mandatory statutory guarantees and the dispute-resolution provisions of the Terms of Service apply in addition.</p>"
+        },
+        "s2": {
+            "title": "2. Duration",
+            "body": "The Campaign runs until <b>23:59:59 (Lisbon time) on 31 October 2026</b>. The referral must be <b>completed</b> by then: it counts only if the invitee finished onboarding, supplied a valid payment method and the subscription was created within the period. Invitations sent in time but completed afterwards do not count.<p>Kapta may amend, suspend or end the Campaign at any time with future effect, by publishing the change on this page. Rewards already granted and validated are honoured, without prejudice to clause 9.</p>"
+        },
+        "s3": {
+            "title": "3. Who may invite",
+            "body": "You may invite if, both at the time of the invitation <b>and</b> when the reward is granted, you have:<ul><li>an active Rioko account, not in breach of these terms or of the Terms of Service;</li><li>an active subscription in good standing, not in arrears, suspended or cancelled.</li></ul><p>The right to invite belongs to the <b>account</b>, not to each user: an account with several users has one link and one reward cap.</p>"
+        },
+        "s4": {
+            "title": "4. Who may be invited",
+            "body": "The invitee must meet all of the following:<ul><li>be a <b>new customer</b>: never have held a Rioko account, subscription, trial or free-access period;</li><li>reach Rioko <b>through the referral link</b> and be recorded as such at sign-up. A referral cannot be attached after sign-up;</li><li>complete onboarding in full, providing valid billing details including a tax number where applicable, and a <b>valid payment method</b>;</li><li>not already be registered with Rioko under another tax number, email or trading name.</li></ul>"
+        },
+        "s5": {
+            "title": "5. The reward",
+            "body": "For each valid referral:<ul><li><b>the invitee</b> receives a subscription with 2 free months. Payment is taken automatically at the end of the second month, at the price of the chosen plan, unless cancelled before that date;</li><li><b>the inviter</b> receives 2 free months added to the running subscription. The next billing date is pushed out by 2 months.</li></ul><p>On the annual plan, renewal occurs 2 months later than it otherwise would, and <b>that new date becomes the renewal date for the years that follow</b>. The same applies to the billing day on the monthly plan.</p><p>During the free months the service runs unchanged and no invoice is issued for the Rioko service.</p>"
+        },
+        "s6": {
+            "title": "6. Cap",
+            "body": "You may invite as many people as you like, but each account accrues a maximum of <b>3 rewards</b>, i.e. <b>6 free months</b>, over the whole Campaign. The cap is per account and counts every reward granted, regardless of how many connections, subscriptions or users that account has.<p>Where an account holds more than one subscription, the reward is applied to the account's oldest subscription.</p>"
+        },
+        "s7": {
+            "title": "7. When the reward is granted",
+            "body": "Both rewards are applied when the <b>invitee's subscription is created</b>, that is, when they complete onboarding and provide a valid payment method.<p>The inviter's reward is applied to the subscription running at that moment. If the inviter has no active subscription then, the reward is held and granted once that condition is met, subject to the period in clause 2.</p><p>Granting immediately is done in the expectation that the invitee remains a customer. If they do not, clause 9 applies.</p>"
+        },
+        "s8": {
+            "title": "8. How the invitation may be shared",
+            "body": "The referral link is for contacts you know. You may not:<ul><li>send it in bulk, by email, SMS or unsolicited message, or by automated means;</li><li>buy advertising on the terms \"Rioko\", \"Kapta\" or confusingly similar terms, on any search engine or network;</li><li>post it on coupon, discount, cashback, deal-forum or marketplace sites;</li><li>use domains, pages, profiles or communications suggesting that you represent Rioko or Kapta, or that the invitation is an official communication;</li><li>resell, auction or transfer the link.</li></ul><p>You are solely responsible for the communications you send, including compliance with the rules on unsolicited commercial communications (Decreto-Lei 7/2004) and with any data-protection obligations falling on you as sender.</p>"
+        },
+        "s9": {
+            "title": "9. Abuse, exclusions and reversal",
+            "body": "Referrals are not valid where, among others:<ul><li>you refer yourself, directly or indirectly;</li><li>both accounts belong to the same person or company, or to entities under common control, even under different tax numbers;</li><li>both accounts share the same payment method, card, billing address, or data indicating the same interested party;</li><li>the invitee is a user, employee or additional seat of the inviter's account;</li><li>duplicate accounts were created, or false, third-party or unauthorised data was used.</li></ul><p>The inviter's reward is <b>reversed</b> where the invitee cancels during the 2 free months, or where their first payment definitively fails, is refunded, voided or charged back within the following 60 days. Reversal restores the normal billing date.</p><p>Where there are reasonable grounds to suspect abuse, circumvention of these terms or breach of clause 8, Kapta may also refuse the reward, suspend or void the link, invoice the period meanwhile enjoyed, exclude the account from future participation and, in serious cases, suspend or terminate the account under the Terms of Service.</p><p>If you cancel your subscription, stop paying, or your account is suspended, the free months end with the subscription, with no residual value, no refund and no transfer to another account. A suspension of service during the free months does not extend them.</p>"
+        },
+        "s10": {
+            "title": "10. Nature of the reward and tax treatment",
+            "body": "The reward is a <b>commercial discount</b> on the Rioko service. It has no cash value, is not convertible into money or credit, is not transferable, and is not combinable with other promotions, promotion codes or special terms agreed in writing. Customers who benefited from Early Bird conditions already converted into a paid subscription may take part normally.<p>The reward is <b>not remuneration, an introduction commission, or consideration for any service provided to Kapta</b>. Accordingly, you must not issue any invoice to Kapta on that basis.</p><p>Under Article 16(6)(b) of the Portuguese VAT Code, discounts granted are excluded from the taxable amount: during the free months no invoice is issued for the service and no VAT is charged. The accounting treatment of the discount on your side is your responsibility.</p>"
+        },
+        "s11": {
+            "title": "11. Personal data",
+            "body": "The referral link <b>contains no personal data</b>. The invitee's data is collected directly from them at sign-up and processed under the Privacy Policy.<p>The inviter is shown only what is needed to verify the reward: the <b>date</b> of the invitation, its <b>status</b> and the <b>name</b> given by the invitee. Their email, tax number, contacts, volumes, connected platforms and any other data are not disclosed.</p><p>The invitee is informed of this sharing at sign-up and may at any time ask for the name to be hidden, leaving only the date and status visible. Requests to <mail>pedro@kapta.pt</mail>.</p>"
+        },
+        "s12": {
+            "title": "12. Deciding whether a referral counted",
+            "body": "Each referral is verified by Kapta on the basis of its own records and those of the payment processor, which prevail for all purposes. If you disagree, you may request a review by email to <mail>pedro@kapta.pt</mail> within 30 days of the date the decision was communicated to you or the reward should have been granted. Kapta replies within 15 business days.<p>These terms are governed by Portuguese law. The forum and, where the user is a consumer, the alternative dispute resolution routes and the electronic Complaints Book are those set out in the Terms of Service.</p>"
+        },
+        "s13": {
+            "title": "13. Contact",
+            "body": "Rioko, a Kapta service (ABSOLUTEPIXEL UNIPESSOAL, LDA)<br></br>NIPC 516277421<br></br>Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal<br></br>Email: <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+        }
+    },
+    "campaignAnnounce": {
+        "title": "Two months for you. Two for whoever you invite.",
+        "cta": "Invite now",
+        "terms": "Campaign terms",
+        "dismiss": "Not now",
+        "dontShowAgain": "Don't show again"
+    },
     "referral": {
         "loading": "Loading...",
+        "cardTitle": "Invite a friend, you both get 2 free months",
+        "cardSubtitle": "Whoever joins through your link gets 2 months without paying. Your 2 months go onto the subscription you already have: the next charge moves two months later.",
+        "needSubscription": "You need an active subscription to invite. The free months are added to a running subscription, so there has to be one.",
+        "copy": "Copy link",
+        "copied": "Copied",
+        "statInvited": "Invited",
+        "statRewarded": "Rewards",
+        "statMonths": "Months earned",
+        "cardTerms": "Invite as many people as you like, up to {max} rewards, {months} months at most. Referrals completed by {end} count.",
+        "termsLink": "Read the campaign terms",
+        "listTitle": "Your invitations",
+        "statePending": "signed up",
+        "stateSubscribed": "subscribed",
+        "stateRewarded": "credited",
+        "stateVoid": "not eligible",
         "landingBadge": "Invitation",
-        "landingTitle": "Your first month is on us",
-        "landingSubtitle": "Someone already using Rioko thought this would help. Create an account through this link and spend 30 days invoicing automatically, at no cost.",
-        "landingBenefit1": "30 days free, no card and no commitment",
+        "landingTitle": "Your first 2 months are on us",
+        "landingSubtitle": "Someone already using Rioko thought this would help. Create an account through this link and spend 2 months invoicing automatically, at no cost.",
+        "landingBenefit1": "2 free months. We ask for a card to create the subscription, and only charge at the end of the second month.",
         "landingBenefit2": "Your sales turn into invoices on their own, from Shopify, Stripe, Lodgify or EuPago",
         "landingBenefit3": "Connects to the InvoiceXpress or Moloni you already use, so your accountant stays put",
         "landingCta": "Create account",
         "landingAlreadyIn": "You are already signed in, so the invitation was recorded on this account.",
         "landingGoToDashboard": "Go to the dashboard",
-        "landingTerms": "Valid for new accounts, once per company. The campaign ends on 31 October 2026.",
-        "pageTitle": "Invite",
-        "pageSubtitle": "Send your link to anyone still copying tax numbers at the end of the month.",
-        "cardTitle": "2 free months for every person who connects",
-        "cardSubtitle": "Whoever joins through your link gets their first month free. Once they pay their first invoice, your 2 months land as credit on your next renewal, with nothing for you to ask for.",
-        "copy": "Copy link",
-        "copied": "Copied",
-        "statInvited": "Invited",
-        "statPaid": "Have paid",
-        "statEarned": "Credit earned",
-        "cardTerms": "No cap on invitations: they stack. The credit is applied to your next invoice and is not convertible into cash. Invitations count up to {end}.",
-        "listTitle": "Your invitations",
-        "statePending": "signed up",
-        "statePaid": "paid, credit on the way",
-        "stateCredited": "credited"
+        "landingTerms": "Valid for new accounts, once per company, until 31 October 2026."
     },
     "dashboardHome": {
         "welcome": "Welcome",
@@ -1292,6 +1360,7 @@
         "linkIntegrations": "Integrations"
     },
     "faturacao": {
+        "referralHeading": "Referrals",
         "title": "Billing",
         "subtitle": "Rioko 2.0 subscription · Charge history and InvoiceXpress invoices",
         "statusActive": "Active",

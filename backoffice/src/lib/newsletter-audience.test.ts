@@ -22,7 +22,7 @@ function db() {
 
     sqlite.exec(`
         CREATE TABLE users (
-            id TEXT PRIMARY KEY, email TEXT, name TEXT, company_name TEXT,
+            id TEXT PRIMARY KEY, email TEXT, name TEXT, company_name TEXT, client_code TEXT,
             admin_label TEXT, role TEXT DEFAULT 'user', created_at TEXT,
             registration_completed INTEGER DEFAULT 0, is_inactive INTEGER DEFAULT 0
         );

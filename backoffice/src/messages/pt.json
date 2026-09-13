@@ -112,32 +112,100 @@
         "tooltipNeedRegister": "Faça o registo no dashboard primeiro",
         "ops": "Operação"
     },
+    "campanhaConvites": {
+        "title": "Campanha \"Convida 1 amigo\" — Termos e Condições",
+        "back": "Voltar",
+        "lastUpdate": "Última atualização: 13 de setembro de 2026",
+        "ended": "Esta campanha terminou a 31 de outubro de 2026. Estes termos continuam disponíveis para quem aderiu enquanto ela decorreu.",
+        "metaTitle": "Termos da campanha de convites — Rioko",
+        "metaDescription": "Condições da campanha de convites da Rioko: 2 meses grátis para quem convida e para quem é convidado, até 31 de outubro de 2026.",
+        "s1": {
+            "title": "1. Âmbito",
+            "body": "Estes termos regulam a campanha de convites da Rioko (a <b>Campanha</b>), operada pela <b>Kapta</b>, marca explorada pela <b>ABSOLUTEPIXEL UNIPESSOAL, LDA</b>, NIPC 516277421, com sede em Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal.<p>A Campanha é um complemento dos Termos de Serviço e da Política de Privacidade da Rioko, que se mantêm integralmente aplicáveis. Em caso de contradição, e apenas quanto à Campanha, prevalecem estes termos.</p><p>A Campanha destina-se a profissionais e empresas no exercício da sua atividade. Se, em concreto, o utilizador for consumidor, aplicam-se-lhe adicionalmente as garantias legais imperativas e o previsto nos Termos de Serviço quanto a resolução de litígios.</p>"
+        },
+        "s2": {
+            "title": "2. Duração",
+            "body": "A Campanha decorre até às <b>23:59:59 (hora de Lisboa) de 31 de outubro de 2026</b>. O convite tem de estar <b>concluído</b> até essa data: contam os convites em que o convidado terminou a adesão, forneceu um meio de pagamento válido e a subscrição foi criada dentro do prazo. Convites enviados dentro do prazo mas concluídos depois não contam.<p>A Kapta pode alterar, suspender ou terminar a Campanha a qualquer momento, com efeitos para o futuro, publicando a alteração nesta página. Prémios já atribuídos e validados mantêm-se, sem prejuízo do previsto na cláusula 9.</p>"
+        },
+        "s3": {
+            "title": "3. Quem pode convidar",
+            "body": "Podes convidar se, no momento do convite <b>e</b> no momento em que o prémio é atribuído, tiveres cumulativamente:<ul><li>conta Rioko ativa e sem violação destes termos ou dos Termos de Serviço;</li><li>subscrição ativa e regularizada, não estando em mora, suspensa ou cancelada.</li></ul><p>O direito de convidar é da <b>conta</b>, não de cada utilizador: uma conta com vários utilizadores tem um único link e um único limite de prémios.</p>"
+        },
+        "s4": {
+            "title": "4. Quem pode ser convidado",
+            "body": "O convidado tem de cumprir, cumulativamente:<ul><li>ser <b>cliente novo</b>: nunca ter tido conta Rioko, subscrição, período experimental ou período de acesso gratuito;</li><li>chegar à Rioko <b>através do link de convite</b> e ser registado como tal no momento do registo. Um convite não pode ser associado depois do registo;</li><li>concluir a adesão até ao fim, indicando dados de faturação válidos, incluindo NIF quando aplicável, e fornecendo um <b>meio de pagamento válido</b>;</li><li>não estar já registado na Rioko sob outro NIF, outro email ou outra denominação.</li></ul>"
+        },
+        "s5": {
+            "title": "5. O prémio",
+            "body": "Cumpridos os requisitos, cada convite válido dá:<ul><li><b>ao convidado</b>: subscrição criada com 2 meses gratuitos. A cobrança é automática no fim do segundo mês, ao preço do plano escolhido, salvo cancelamento antes dessa data;</li><li><b>a quem convida</b>: 2 meses gratuitos acrescentados à subscrição em curso. A data da próxima cobrança é adiada em 2 meses.</li></ul><p>No plano anual, a renovação passa a ocorrer 2 meses mais tarde do que ocorreria, e <b>essa nova data passa a ser a data de renovação dos anos seguintes</b>. O mesmo se aplica ao dia de cobrança no plano mensal.</p><p>Durante os meses gratuitos o serviço funciona sem alterações e não é emitida fatura pelo serviço Rioko.</p>"
+        },
+        "s6": {
+            "title": "6. Limite",
+            "body": "Podes convidar quantas pessoas quiseres, mas cada conta acumula no máximo <b>3 prémios</b>, ou seja, <b>6 meses gratuitos</b>, durante toda a Campanha. O limite é por conta e conta todos os prémios atribuídos, independentemente do número de ligações, subscrições ou utilizadores dessa conta.<p>Quando a conta tem mais do que uma subscrição, o prémio é aplicado à subscrição mais antiga da conta.</p>"
+        },
+        "s7": {
+            "title": "7. Quando o prémio é atribuído",
+            "body": "Ambos os prémios são aplicados no momento em que a <b>subscrição do convidado é criada</b>, isto é, quando este conclui a adesão e fornece um meio de pagamento válido.<p>O prémio de quem convida é aplicado à subscrição em curso nesse momento. Se, nessa altura, quem convidou não tiver subscrição ativa, o prémio fica suspenso e é atribuído quando essa condição se verificar, sem prejuízo do prazo da cláusula 2.</p><p>A atribuição imediata é feita na expectativa de que o convidado se mantenha cliente. Não se mantendo, aplica-se a cláusula 9.</p>"
+        },
+        "s8": {
+            "title": "8. Divulgação do convite",
+            "body": "O link de convite destina-se a contactos que conheces. Não podes:<ul><li>enviá-lo em massa, por email, SMS ou mensagem não solicitada, nem por meios automatizados;</li><li>comprar publicidade sobre os termos \"Rioko\", \"Kapta\" ou variantes semelhantes, em qualquer motor de pesquisa ou rede;</li><li>publicá-lo em sites de cupões, descontos, cashback, fóruns de promoções ou marketplaces;</li><li>usar domínios, páginas, perfis ou comunicações que sugiram que representas a Rioko ou a Kapta, ou que o convite é uma comunicação oficial;</li><li>revender, leiloar ou transferir o link.</li></ul><p>És o único responsável pelas comunicações que envias, incluindo o cumprimento das regras sobre comunicações comerciais não solicitadas (Decreto-Lei n.º 7/2004) e das obrigações de proteção de dados que te caibam enquanto remetente.</p>"
+        },
+        "s9": {
+            "title": "9. Abuso, exclusões e reversão",
+            "body": "Não são válidos, nomeadamente, convites em que:<ul><li>convidas a ti próprio, direta ou indiretamente;</li><li>as duas contas pertencem à mesma pessoa ou empresa, ou a entidades sob controlo comum, ainda que com NIF diferente;</li><li>as duas contas partilham o mesmo meio de pagamento, o mesmo cartão, a mesma morada de faturação ou dados que indiquem tratar-se do mesmo interessado;</li><li>o convidado é utilizador, colaborador ou lugar adicional da conta de quem convida;</li><li>foram criadas contas duplicadas, ou usados dados falsos, de terceiros ou não autorizados.</li></ul><p>O prémio de quem convida é <b>revertido</b> quando o convidado cancela durante os 2 meses gratuitos, ou quando o seu primeiro pagamento falha definitivamente, é reembolsado, anulado ou objeto de estorno nos 60 dias seguintes. A reversão repõe a data de cobrança normal.</p><p>Havendo fundada suspeita de abuso, de contorno destes termos ou de violação da cláusula 8, a Kapta pode ainda recusar o prémio, suspender ou anular o link, faturar o período entretanto usufruído, excluir a conta de participações futuras e, nos casos graves, suspender ou cancelar a conta nos termos dos Termos de Serviço.</p><p>Se cancelares a tua subscrição, deixares de pagar ou a tua conta for suspensa, os meses gratuitos terminam com a subscrição, sem valor residual, sem reembolso e sem transferência para outra conta. Uma suspensão do serviço durante os meses gratuitos não os prolonga.</p>"
+        },
+        "s10": {
+            "title": "10. Natureza do prémio e enquadramento fiscal",
+            "body": "O prémio é um <b>desconto comercial</b> sobre o serviço Rioko. Não tem valor monetário, não é convertível em dinheiro nem em crédito, não é transmissível e não é cumulável com outras promoções, códigos promocionais ou condições especiais acordadas por escrito. Clientes que beneficiaram de condições Early Bird já convertidas em subscrição paga podem participar normalmente.<p>O prémio <b>não constitui remuneração, comissão de angariação nem contraprestação de qualquer serviço prestado à Kapta</b>. Não há, por isso, lugar à emissão de qualquer fatura por ti à Kapta a esse título.</p><p>Nos termos da alínea b) do n.º 6 do artigo 16.º do Código do IVA, os descontos concedidos estão excluídos do valor tributável: durante os meses gratuitos não é emitida fatura pelo serviço e não há IVA a liquidar. O tratamento contabilístico do desconto na tua esfera é da tua responsabilidade.</p>"
+        },
+        "s11": {
+            "title": "11. Dados pessoais",
+            "body": "O link de convite <b>não contém dados pessoais</b>. Os dados do convidado são recolhidos diretamente do próprio, no momento do registo, e tratados nos termos da Política de Privacidade.<p>A quem convida é mostrado apenas o necessário para verificar o prémio: a <b>data do convite</b>, o seu <b>estado</b> e o <b>nome</b> indicado pelo convidado. Não é revelado o email, o NIF, os contactos, os volumes, as plataformas ligadas nem qualquer outro dado.</p><p>O convidado é informado desta partilha no momento do registo e pode, a qualquer momento, pedir que o nome seja ocultado, passando a ver-se apenas a data e o estado. Pedidos para <mail>pedro@kapta.pt</mail>.</p>"
+        },
+        "s12": {
+            "title": "12. Decisão sobre um convite",
+            "body": "A verificação de cada convite é feita pela Kapta, com base nos seus próprios registos e nos registos do processador de pagamentos, que prevalecem para todos os efeitos. Discordando da decisão, podes pedir a sua revisão por email para <mail>pedro@kapta.pt</mail>, no prazo de 30 dias a contar da data em que a decisão te foi comunicada ou o prémio deveria ter sido atribuído. A Kapta responde no prazo de 15 dias úteis.<p>Estes termos regem-se pela lei portuguesa. O foro e, sendo o utilizador consumidor, as vias de resolução alternativa de litígios e o Livro de Reclamações eletrónico são os indicados nos Termos de Serviço.</p>"
+        },
+        "s13": {
+            "title": "13. Contacto",
+            "body": "Rioko, um serviço da Kapta (ABSOLUTEPIXEL UNIPESSOAL, LDA)<br></br>NIPC 516277421<br></br>Urbanização O Monte Lt1, Loja 11, 8200-428 Galé, Albufeira, Portugal<br></br>Email: <mail>pedro@kapta.pt</mail><br></br>Site: <site>kapta.pt</site>"
+        }
+    },
+    "campaignAnnounce": {
+        "title": "Dois meses para si. Dois para quem convidar.",
+        "cta": "Convidar agora",
+        "terms": "Termos da campanha",
+        "dismiss": "Agora não",
+        "dontShowAgain": "Não mostrar novamente"
+    },
     "referral": {
         "loading": "A carregar...",
+        "cardTitle": "Convida 1 amigo, recebem os dois 2 meses grátis",
+        "cardSubtitle": "Quem entrar pelo teu link fica com 2 meses sem pagar. A ti, os 2 meses entram na subscrição que já tens: a próxima cobrança passa para dois meses mais tarde.",
+        "needSubscription": "Para convidar precisas de uma subscrição activa. Os meses grátis são acrescentados a uma subscrição a correr, por isso tem de haver uma.",
+        "copy": "Copiar link",
+        "copied": "Copiado",
+        "statInvited": "Convidados",
+        "statRewarded": "Recompensas",
+        "statMonths": "Meses ganhos",
+        "cardTerms": "Podes convidar quantas pessoas quiseres, até {max} recompensas, no máximo {months} meses. Contam os convites concluídos até {end}.",
+        "termsLink": "Ver os termos da campanha",
+        "listTitle": "Os teus convites",
+        "statePending": "inscreveu-se",
+        "stateSubscribed": "subscreveu",
+        "stateRewarded": "creditado",
+        "stateVoid": "não elegível",
         "landingBadge": "Convite",
-        "landingTitle": "O teu primeiro mês é por nossa conta",
-        "landingSubtitle": "Alguém que já usa a Rioko achou que isto te dava jeito. Cria conta por este link e passas 30 dias a facturar automático, sem pagar nada.",
-        "landingBenefit1": "30 dias grátis, sem cartão e sem compromisso",
+        "landingTitle": "Os teus primeiros 2 meses são por nossa conta",
+        "landingSubtitle": "Alguém que já usa a Rioko achou que isto te dava jeito. Cria conta por este link e passas 2 meses a facturar automático, sem pagar nada.",
+        "landingBenefit1": "2 meses grátis. Pedimos o cartão para criar a subscrição, e só cobramos no fim do segundo mês.",
         "landingBenefit2": "As tuas vendas viram facturas sozinhas, na Shopify, no Stripe, na Lodgify ou no EuPago",
         "landingBenefit3": "Ligas ao InvoiceXpress ou ao Moloni que já usas, sem mudar de contabilista",
         "landingCta": "Criar conta",
         "landingAlreadyIn": "Já tens sessão iniciada, por isso o convite ficou registado nesta conta.",
         "landingGoToDashboard": "Ir para o dashboard",
-        "landingTerms": "Válido para contas novas, uma vez por empresa. A campanha acaba a 31 de Outubro de 2026.",
-        "pageTitle": "Convidar",
-        "pageSubtitle": "Manda o teu link a quem ainda passa o fim do mês a copiar NIFs.",
-        "cardTitle": "2 meses grátis por cada pessoa que ligar",
-        "cardSubtitle": "Quem entrar pelo teu link tem o primeiro mês grátis. Assim que pagar a primeira mensalidade, os teus 2 meses entram como crédito na renovação seguinte, sem teres de pedir nada.",
-        "copy": "Copiar link",
-        "copied": "Copiado",
-        "statInvited": "Convidados",
-        "statPaid": "Já pagaram",
-        "statEarned": "Crédito ganho",
-        "cardTerms": "Sem limite de convites: acumulam. O crédito é abatido na factura seguinte e não é convertível em dinheiro. Contam os convites feitos até {end}.",
-        "listTitle": "Os teus convites",
-        "statePending": "inscreveu-se",
-        "statePaid": "pagou, crédito a caminho",
-        "stateCredited": "creditado"
+        "landingTerms": "Válido para contas novas, uma vez por empresa, até 31 de Outubro de 2026."
     },
     "dashboardHome": {
         "welcome": "Bem-vindo",
@@ -1292,6 +1360,7 @@
         "linkIntegrations": "Integrações"
     },
     "faturacao": {
+        "referralHeading": "Convites",
         "title": "Faturação",
         "subtitle": "Subscrição Rioko 2.0 · Histórico de cobranças e faturas InvoiceXpress",
         "statusActive": "Ativa",

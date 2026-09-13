@@ -282,21 +282,53 @@ describe("lookupRetiredCode", () => {
 });
 
 describe("the migration's backfill", () => {
-    it("gives 500 accounts 500 different codes, and the index proves it", () => {
+    it("leaves no account without a code, and every one the right shape", () => {
         const h = harness({ withColumn: false });
         h.sqlite.exec("ALTER TABLE users ADD COLUMN client_code TEXT;");
         for (let i = 0; i < 500; i++) h.sqlite.exec(`INSERT INTO users (id) VALUES ('user_${i}');`);
 
-        // The exact statement from migrations/0058_client_code.sql, in the same
-        // order: backfill first, index second, so a collision fails loudly here
-        // instead of aborting in silence.
+        // The exact statement from migrations/0058_client_code.sql.
         h.sqlite.exec("UPDATE users SET client_code = 'RIO-' || hex(randomblob(3)) WHERE client_code IS NULL;");
-        h.sqlite.exec("CREATE UNIQUE INDEX idx_users_client_code ON users(client_code);");
 
         const codes = h.rows().map(r => r.client_code);
         expect(codes).toHaveLength(500);
-        expect(new Set(codes).size).toBe(500);
         for (const c of codes) expect(c).toMatch(CLIENT_CODE_RE);
+    });
+
+    /**
+     * This used to assert that 500 random three-byte codes never collide, and
+     * build the unique index over them. That is a coin toss, not a test: by the
+     * birthday problem the chance of a collision among 500 draws from 16.7M is
+     * about 0.74%, so roughly one run in 135 failed — and it failed looking
+     * exactly like a real duplicate-code bug. Observed on 13/09/2026.
+     *
+     * The property the migration actually has is not "randomness never
+     * repeats". It is "backfill first, index second, so a collision fails LOUDLY
+     * here instead of aborting in silence" — which the comment already claimed
+     * and nothing checked. That is deterministic, so it is what is checked now.
+     */
+    it("builds the index over distinct codes, and refuses to build over a duplicate", () => {
+        const h = harness({ withColumn: false });
+        h.sqlite.exec("ALTER TABLE users ADD COLUMN client_code TEXT;");
+        h.sqlite.exec(`
+            INSERT INTO users (id, client_code) VALUES ('user_a', 'RIO-1A2B3C');
+            INSERT INTO users (id, client_code) VALUES ('user_b', 'RIO-4D5E6F');
+        `);
+        expect(() =>
+            h.sqlite.exec("CREATE UNIQUE INDEX idx_users_client_code ON users(client_code);"),
+        ).not.toThrow();
+
+        const dup = harness({ withColumn: false });
+        dup.sqlite.exec("ALTER TABLE users ADD COLUMN client_code TEXT;");
+        dup.sqlite.exec(`
+            INSERT INTO users (id, client_code) VALUES ('user_a', 'RIO-1A2B3C');
+            INSERT INTO users (id, client_code) VALUES ('user_b', 'RIO-1A2B3C');
+        `);
+        // The whole point of backfilling before indexing: this is where a
+        // collision is supposed to stop the migration.
+        expect(() =>
+            dup.sqlite.exec("CREATE UNIQUE INDEX idx_users_client_code ON users(client_code);"),
+        ).toThrow();
     });
 
     it("produces the same shape the runtime does", () => {

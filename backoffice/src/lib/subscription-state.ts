@@ -14,10 +14,12 @@ export interface SubscriptionStateRow {
     stripe_subscription_id?: string | null;
     trial_end?: string | null;
     early_bird?: number | null;
+    /** Set while a referral reward is running. See the "reward" state below. */
+    reward_until?: string | null;
 }
 
 export type SubscriptionUIState =
-    | "active" | "trialing_earlybird" | "trialing" | "blocked" | "none" | "exempt";
+    | "active" | "trialing_earlybird" | "trialing" | "reward" | "blocked" | "none" | "exempt";
 
 /**
  * The gate's verdict: true means the pipeline refuses to invoice for them.
@@ -52,6 +54,12 @@ export function subscriptionUIState(sub: SubscriptionStateRow | null | undefined
     if (sub.status === "exempt") return "exempt";
     if (sub.status === "active") return "active";
     if (sub.status === "trialing") {
+        // A referral reward is a Stripe trial pushed onto a subscription that was
+        // already being paid for. Calling that "trial" tells a client of a year
+        // that they have been demoted, and counts down to something they are not
+        // about to lose. The column is what separates the two, because this
+        // function only ever sees the row.
+        if (sub.reward_until && new Date(sub.reward_until) > new Date()) return "reward";
         if (sub.stripe_subscription_id) return "trialing";  // paying inside a Stripe trial
         // Only early-bird users inside their window keep trial access; everyone
         // else (non-early-bird, or expired early-bird) is suspended → blocked.
@@ -83,6 +91,6 @@ export function earlyBirdState(sub: SubscriptionStateRow | null | undefined): Ea
     if (!sub?.early_bird) return "none";
     const state = subscriptionUIState(sub);
     if (state === "trialing_earlybird") return "running";
-    if (state === "active" || state === "trialing" || state === "exempt") return "converted";
+    if (state === "active" || state === "trialing" || state === "reward" || state === "exempt") return "converted";
     return "expired";
 }

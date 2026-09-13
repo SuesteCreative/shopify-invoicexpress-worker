@@ -1,131 +1,89 @@
 import { describe, it, expect } from "vitest";
 import {
-    claimRefusal, referralLink, newReferralCode,
-    isValidReferralCode, CAMPAIGN_END, INVITEE_FREE_DAYS,
+    splitReferralToken, referralToken, referralLink, newReferralSuffix,
+    claimRefusal, campaignOpen, CAMPAIGN_END, MAX_REWARDS, REWARD_MONTHS,
 } from "./referral";
 
 /**
- * The two things that must never happen — an account referred twice, an account
- * referring itself — are enforced by migration 0057, not by code. So they are
- * tested against the real DDL: a constraint that exists only in a .sql file
- * nobody executes is a comment.
+ * The token is the customer number plus a suffix, and the customer number
+ * carries a dash of its own. That is the trap this file guards: a naive split
+ * on "-" gives three pieces, not two, and reading the wrong one turns every
+ * invite link into "this invite does not exist" with nothing in any log.
  */
 
-function db() {
-    const nodeSqlite = "node:sqlite";
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { DatabaseSync } = require(nodeSqlite);
-    const sqlite = new DatabaseSync(":memory:");
-    // Copied from migrations/0057_referrals.sql. If the two drift, these pass
-    // while production does not — so keep them the same shape by eye when the
-    // migration changes.
-    sqlite.exec(`
-        CREATE TABLE referral_codes (
-          code TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL UNIQUE,
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE referrals (
-          invitee_user_id TEXT PRIMARY KEY,
-          code TEXT NOT NULL,
-          inviter_user_id TEXT NOT NULL,
-          state TEXT NOT NULL DEFAULT 'pending',
-          claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          invitee_first_invoice_id TEXT,
-          invitee_paid_at TEXT,
-          credit_cents INTEGER,
-          credit_txn_id TEXT,
-          credited_at TEXT,
-          note TEXT,
-          CHECK (inviter_user_id <> invitee_user_id)
-        );
-        CREATE INDEX idx_referrals_inviter ON referrals(inviter_user_id, state);
-        CREATE UNIQUE INDEX idx_referrals_invoice ON referrals(invitee_first_invoice_id);
-    `);
-    return sqlite;
-}
-
-describe("the schema enforces the promises", () => {
-    it("refuses a self-referral", () => {
-        const s = db();
-        expect(() =>
-            s.exec(`INSERT INTO referrals (invitee_user_id, code, inviter_user_id)
-                    VALUES ('user_a', 'c-1', 'user_a')`),
-        ).toThrow();
+describe("the token", () => {
+    it("is the customer number plus six hex", () => {
+        expect(referralToken("RIO-1A2B3C", "9F2B41")).toBe("RIO-1A2B3C-9F2B41");
+        expect(referralLink("RIO-1A2B3C-9F2B41")).toBe("https://rioko.online/pt/convite/RIO-1A2B3C-9F2B41");
     });
 
-    it("refuses to refer the same account twice", () => {
-        const s = db();
-        s.exec(`INSERT INTO referrals (invitee_user_id, code, inviter_user_id) VALUES ('user_b','c-1','user_a')`);
-        expect(() =>
-            s.exec(`INSERT INTO referrals (invitee_user_id, code, inviter_user_id) VALUES ('user_b','c-2','user_z')`),
-        ).toThrow();
+    it("splits the three segments back into two halves", () => {
+        expect(splitReferralToken("RIO-1A2B3C-9F2B41")).toEqual({ code: "RIO-1A2B3C", suffix: "9F2B41" });
     });
 
-    it("refuses to credit the same invoice twice", () => {
-        const s = db();
-        s.exec(`
-            INSERT INTO referrals (invitee_user_id, code, inviter_user_id, invitee_first_invoice_id)
-            VALUES ('user_b','c-1','user_a','in_1');
-        `);
-        expect(() =>
-            s.exec(`INSERT INTO referrals (invitee_user_id, code, inviter_user_id, invitee_first_invoice_id)
-                    VALUES ('user_c','c-1','user_a','in_1')`),
-        ).toThrow();
+    it("takes a link typed by a human", () => {
+        // Lower case off a phone, spaces from a paste.
+        expect(splitReferralToken("rio-1a2b3c-9f2b41")).toEqual({ code: "RIO-1A2B3C", suffix: "9F2B41" });
+        expect(splitReferralToken("  RIO-1A2B3C-9F2B41  ")).toEqual({ code: "RIO-1A2B3C", suffix: "9F2B41" });
     });
 
-    it("still allows many unpaid referrals at once", () => {
-        const s = db();
-        // NULLs are distinct in a SQLite unique index, which is what makes the
-        // constraint above safe to apply to a column that is empty until payment.
-        s.exec(`
-            INSERT INTO referrals (invitee_user_id, code, inviter_user_id) VALUES ('user_b','c-1','user_a');
-            INSERT INTO referrals (invitee_user_id, code, inviter_user_id) VALUES ('user_c','c-1','user_a');
-            INSERT INTO referrals (invitee_user_id, code, inviter_user_id) VALUES ('user_d','c-1','user_a');
-        `);
-        expect((s.prepare("SELECT COUNT(*) AS n FROM referrals").get() as any).n).toBe(3);
+    it("refuses anything that is not one", () => {
+        expect(splitReferralToken("RIO-1A2B3C")).toBeNull();          // the number alone
+        expect(splitReferralToken("RIO-1A2B3C-9F2B41-EXTRA")).toBeNull();
+        expect(splitReferralToken("RIO-ZZZZZZ-9F2B41")).toBeNull();   // not hex
+        expect(splitReferralToken("RIO-1A2B3C-9F2B4")).toBeNull();    // suffix too short
+        expect(splitReferralToken("RIO-1A2B3C-9F2B4G")).toBeNull();   // suffix not hex
+        expect(splitReferralToken(null)).toBeNull();
+        expect(splitReferralToken(42)).toBeNull();
     });
 
-    it("gives an account one code, for ever", () => {
-        const s = db();
-        s.exec(`INSERT INTO referral_codes (code, user_id) VALUES ('loja-aaa','user_a')`);
-        expect(() => s.exec(`INSERT INTO referral_codes (code, user_id) VALUES ('loja-bbb','user_a')`)).toThrow();
+    it("mints a suffix of the right shape, and not the same one twice", () => {
+        const a = newReferralSuffix();
+        expect(a).toMatch(/^[0-9A-F]{6}$/);
+        const many = new Set(Array.from({ length: 200 }, () => newReferralSuffix()));
+        expect(many.size).toBeGreaterThan(190); // 16.7M space; collisions here would be a broken mint
     });
 });
 
 describe("claimRefusal", () => {
-    const open = new Date("2026-09-15T10:00:00.000Z");
+    const now = new Date("2026-09-15T10:00:00.000Z");
     const ok = {
-        code: "loja-nova-4f7a1c9b2e05",
+        token: "RIO-1A2B3C-9F2B41",
         inviterUserId: "user_a",
+        inviterHasLiveSubscription: true,
         inviteeUserId: "user_b",
         inviteeCreatedAt: "2026-09-15T09:00:00.000Z",
-        now: open,
+        alreadyReferred: false,
+        now,
     };
 
     it("lets a fresh account claim inside the campaign", () => {
         expect(claimRefusal(ok)).toBeNull();
     });
 
-    it("refuses a token that is not one", () => {
-        expect(claimRefusal({ ...ok, code: "nope!" })).toBe("invalid");
-    });
-
-    it("refuses a code nobody owns", () => {
+    it("refuses a token that is not one, a code nobody owns, and yourself", () => {
+        expect(claimRefusal({ ...ok, token: "nope" })).toBe("invalid");
         expect(claimRefusal({ ...ok, inviterUserId: null })).toBe("unknown");
-    });
-
-    it("refuses inviting yourself", () => {
         expect(claimRefusal({ ...ok, inviteeUserId: "user_a" })).toBe("self");
     });
 
+    it("refuses an account somebody else already invited", () => {
+        expect(claimRefusal({ ...ok, alreadyReferred: true })).toBe("already");
+    });
+
+    it("refuses when whoever invited has nothing to add two months to", () => {
+        // The reward is months on a running subscription. Without one there is
+        // no reward, and the invitee should be told before they set anything up.
+        expect(claimRefusal({ ...ok, inviterHasLiveSubscription: false })).toBe("inviter_inactive");
+    });
+
     it("closes the day after the campaign ends, and not before", () => {
-        // The account has to stay new as the clock moves, or "not_new" answers
-        // first and the boundary being tested is never reached.
         const lastDay = new Date(`${CAMPAIGN_END}T23:00:00.000Z`);
         const dayAfter = new Date("2026-11-01T00:01:00.000Z");
         expect(claimRefusal({ ...ok, now: lastDay, inviteeCreatedAt: lastDay.toISOString() })).toBeNull();
         expect(claimRefusal({ ...ok, now: dayAfter, inviteeCreatedAt: dayAfter.toISOString() })).toBe("closed");
+        expect(campaignOpen(lastDay)).toBe(true);
+        expect(campaignOpen(dayAfter)).toBe(false);
     });
 
     it("refuses an account that has been here too long to be a referral", () => {
@@ -135,18 +93,10 @@ describe("claimRefusal", () => {
     });
 });
 
-describe("the offer itself", () => {
-    it("gives the invitee thirty days", () => {
-        // The arithmetic itself lives in referral-grace.ts, anchored to the
-        // claim; this is the promise the copy makes.
-        expect(INVITEE_FREE_DAYS).toBe(30);
-    });
-
-    it("builds a link whose secret is not the company name", () => {
-        const code = newReferralCode("Loja Nova");
-        expect(isValidReferralCode(code)).toBe(true);
-        expect(code.startsWith("loja-nova-")).toBe(true);
-        expect(code.length).toBeGreaterThan("loja-nova-".length + 8);
-        expect(referralLink(code)).toBe(`https://rioko.online/pt/convite/${code}`);
+describe("the promises the copy makes", () => {
+    it("is two months, three times, six in total", () => {
+        expect(REWARD_MONTHS).toBe(2);
+        expect(MAX_REWARDS).toBe(3);
+        expect(REWARD_MONTHS * MAX_REWARDS).toBe(6);
     });
 });

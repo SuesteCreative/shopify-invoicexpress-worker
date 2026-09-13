@@ -10,7 +10,7 @@ import { DEFAULT_CONNECTION_KEY, keyFromRequest, shopIsOldest } from "@/lib/subs
 import { callWorkerJson } from "@/lib/worker";
 import { priceBook } from "@/lib/price-book";
 import { currentPriceCents, tierOf } from "@/lib/billing-legacy";
-import { claimInviteePayment, drainPendingReferralCredits } from "@/lib/referral-credit";
+import { rewardInviter } from "@/lib/referral-reward";
 
 export const runtime = "edge";
 
@@ -442,20 +442,14 @@ export async function POST(req: NextRequest) {
                 // First paid activation: release the connection that was paused
                 // pending payment and stamp the subscription start as the cutoff
                 // (bookings created before it are never invoiced retroactively).
-                if (sub?.status === "active") {
+                //
+                // `trialing` counts. A subscription with a Stripe trial on it is
+                // paid for in every sense the gate cares about — isSubscriptionBlocked
+                // lets it through — and leaving the connection paused would mean a
+                // merchant who handed over a card watches two months of sales go
+                // by without a single invoice, with nothing anywhere saying why.
+                if (sub?.status === "active" || sub?.status === "trialing") {
                     await activatePausedConnections(db, userId, isoFromUnix((sub as any)?.start_date), connectionKey);
-                }
-
-                // An early bird who invited people before ever paying us has no
-                // Stripe customer to credit, so their referrals sit earned and
-                // unpaid. This is the moment the customer exists.
-                try {
-                    const paid = await drainPendingReferralCredits(db, stripe, userId);
-                    if (paid.credited > 0) {
-                        console.log(`[referral] drained ${paid.credited} parked credits (${paid.cents}c) for ${userId}`);
-                    }
-                } catch (refErr: any) {
-                    console.error(`[referral] drain failed for ${event.id}: ${refErr.message}`);
                 }
 
                 // Mark event processed
@@ -479,10 +473,33 @@ export async function POST(req: NextRequest) {
                     break;
                 }
                 const filedUnder = await upsertSubscriptionFromStripeSub(db, userId, sub);
-                // Release a connection paused pending payment on the first active sub.
-                if (sub.status === "active") {
+                // Release a connection paused pending payment. `trialing` counts
+                // for the same reason it counts above: the gate honours it, so
+                // the pipeline must too.
+                if (sub.status === "active" || sub.status === "trialing") {
                     await activatePausedConnections(db, userId, isoFromUnix((sub as any).start_date), filedUnder);
                 }
+
+                // A referral is paid the moment the invitee's subscription
+                // exists — which is this event, and only on creation. Two months
+                // are pushed onto whoever invited them. A no-op for everybody
+                // else, which is almost every subscription there is.
+                if (event.type === "customer.subscription.created") {
+                    try {
+                        const reward = await rewardInviter(db, stripe, userId, sub.id);
+                        if (reward.rewarded) {
+                            console.log(`[referral] ${userId} subscribed; inviter ${reward.inviter_user_id} free until ${reward.reward_until}`);
+                        } else if (reward.reason && reward.reason !== "not_pending") {
+                            console.warn(`[referral] ${userId} subscribed but no reward: ${reward.reason}`);
+                        }
+                    } catch (refErr: any) {
+                        // Best effort. A reward that fails is a row an admin can
+                        // pay by hand; a throw here would 500 and have Stripe
+                        // redeliver a subscription we already recorded.
+                        console.error(`[referral] reward failed for ${event.id}: ${refErr.message}`);
+                    }
+                }
+
                 await db.prepare(
                     "INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, raw_json) VALUES (?, ?, ?, ?, ?)"
                 ).bind(event.id, userId, event.type, sub.id, JSON.stringify(sub)).run();
@@ -544,41 +561,6 @@ export async function POST(req: NextRequest) {
                 // attempt, and never again when Stripe re-delivers the same event
                 // (the INSERT OR IGNORE above changed no rows the second time).
                 const firstDelivery = ((insert as any)?.meta?.changes ?? 0) > 0;
-
-                // The invitee's FIRST paid invoice is what their inviter was
-                // promised two months for. claimInviteePayment is a conditional
-                // UPDATE, so a re-delivery finds nothing left to claim and this
-                // whole block costs one query on every other payment we take.
-                if (event.type === "invoice.paid" && firstDelivery) {
-                    try {
-                        const inviter = await claimInviteePayment(db, userId, invoice.id);
-                        if (inviter) {
-                            const paid = await drainPendingReferralCredits(db, stripe, inviter);
-                            console.log(
-                                `[referral] ${userId} paid ${invoice.id}; inviter ${inviter} ` +
-                                `credited ${paid.credited} (${paid.cents}c)` +
-                                (paid.parked.length ? `, parked ${paid.parked.map(p => p.reason).join(",")}` : ""),
-                            );
-                        }
-                        // And the payer's OWN parked credits. Without this the
-                        // only retry is a Checkout, which an account that already
-                        // subscribes never completes again: a credit parked for
-                        // any reason — no customer yet when it was earned, or an
-                        // invoice.paid that had not landed when checkout fired —
-                        // would sit unpaid until a human read the note. Costs one
-                        // indexed lookup that finds nothing for almost everybody.
-                        const mine = await drainPendingReferralCredits(db, stripe, userId);
-                        if (mine.credited > 0) {
-                            console.log(`[referral] drained ${mine.credited} parked credits (${mine.cents}c) for ${userId} on payment`);
-                        }
-                    } catch (refErr: any) {
-                        // Best effort, like the notice below: a referral that
-                        // fails to credit is a row we can drain later, and it must
-                        // never make us 500 and have Stripe re-deliver a payment
-                        // we already recorded.
-                        console.error(`[referral] credit failed for ${event.id}: ${refErr.message}`);
-                    }
-                }
 
                 if (event.type === "invoice.payment_failed" && firstDelivery) {
                     try {

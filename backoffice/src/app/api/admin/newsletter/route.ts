@@ -148,7 +148,8 @@ export async function POST(request: NextRequest) {
                 preview_text: previewText,
                 scheduled_at: body.scheduled_at,
                 recipients: recipients.map((r) => ({
-                    email: r.email, first_name: r.first_name, user_id: r.user_id, label: r.label,
+                    email: r.email, first_name: r.first_name, user_id: r.user_id,
+                    label: r.label, client_code: r.client_code,
                 })),
             }),
         });
@@ -172,7 +173,11 @@ export async function POST(request: NextRequest) {
             slug,
             subject,
             JSON.stringify(filters),
-            JSON.stringify(recipients.map((r) => r.email)),
+            // Code AND address. Filed under an email, a campaign can only ever
+            // be traced to a mailbox; filed under the customer number it is
+            // traceable to the account, which is the question anybody actually
+            // asks afterwards. A TEXT column, so no migration.
+            JSON.stringify(recipients.map((r) => ({ code: r.client_code, email: r.email }))),
             recipients.length,
             result?.segment_id ?? null,
             result?.broadcast_id ?? null,

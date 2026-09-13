@@ -5,9 +5,10 @@ export const runtime = "edge";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw, CheckCheck, Zap } from "lucide-react";
+import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw, CheckCheck, Zap, Gift } from "lucide-react";
 import { useTranslations } from "next-intl";
 import SuspendedBanner from "@/components/SuspendedBanner";
+import { ReferralCard } from "@/components/ReferralCard";
 
 import { cn } from "@/lib/utils";
 
@@ -370,6 +371,18 @@ export default function FaturacaoPage() {
                     </div>
                 </motion.div>
             )}
+
+            {/* The campaign. Here rather than behind a menu entry of its own:
+                two free months are a billing fact, and this is where a merchant
+                already thinks about what they pay. The card takes itself off the
+                page once the campaign is over. */}
+            <section className="space-y-4">
+                <div className="flex items-center gap-3">
+                    <Gift className="w-5 h-5 text-fg-40" />
+                    <h2 className="font-mono text-[11px] text-fg-40 uppercase tracking-[0.22em]">{t("referralHeading")}</h2>
+                </div>
+                <ReferralCard />
+            </section>
 
             {/* Events table */}
             <section className="space-y-4">

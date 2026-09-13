@@ -6,6 +6,7 @@ import { getRole } from "@/lib/admin";
 import { auth } from "@clerk/nextjs/server";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { IntegrationSetupModal } from "@/components/IntegrationSetupModal";
+import CampaignAnnounce from "@/components/CampaignAnnounce";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { Sidebar } from "@/components/Sidebar";
 import AccountSuspendedNotice from "@/components/AccountSuspendedNotice";
@@ -62,6 +63,7 @@ export default async function DashboardLayout({
             </div>
 
             <IntegrationSetupModal />
+            <CampaignAnnounce />
         </div>
     );
 }

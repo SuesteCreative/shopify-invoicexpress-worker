@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { listArticles } from "@/lib/blog";
+import { campaignOpen } from "@/lib/referral";
 
 export const runtime = "edge";
 
@@ -36,6 +37,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
         { path: "/blog", priority: 0.8, changeFrequency: "weekly" as const },
         { path: "/privacy", priority: 0.3, changeFrequency: "yearly" as const },
         { path: "/terms", priority: 0.3, changeFrequency: "yearly" as const },
+        // Listed only while the campaign runs. Afterwards the page still
+        // answers — whoever took part may reread what they agreed to — but it
+        // stops being an offer a crawler can surface, and its metadata says
+        // noindex to match.
+        ...(campaignOpen()
+            ? [{ path: "/campanha-convites", priority: 0.5, changeFrequency: "monthly" as const }]
+            : []),
     ];
 
     for (const { path, priority, changeFrequency } of staticPaths) {

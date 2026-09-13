@@ -165,7 +165,7 @@ export async function runNewsletterBroadcast(
 
   const segment = await call(() => resend.segments.create({ name: `rioko-${opts.slug}-${stamp()}` }));
   const segmentId = idOf(segment);
-  if (!segmentId) throw new Error(`Resend did not return a segment id: ${JSON.stringify(segment)}`);
+  if (!segmentId) throw new Error(`Resend: ${resendMessage(segment)}`);
   result.segment_id = segmentId;
 
   const topicId = env.RESEND_TOPIC_NEWS?.trim() || undefined;
@@ -224,7 +224,12 @@ export async function runNewsletterBroadcast(
     }
   }
 
-  if (result.synced === 0) throw new Error("No contact reached the segment; nothing was sent");
+  if (result.synced === 0) {
+    // The first candidate's reason leads: a whole list failing the same way (a
+    // plan limit, a key without contacts access) is the usual shape of this.
+    const why = result.candidates.find((c) => c.error)?.error;
+    throw new Error(`No contact reached the segment, nothing was sent${why ? `: ${why}` : ""}`);
+  }
 
   // redactSecrets is applied inside sendEmail() for every other email we send. A
   // Broadcast does not go through it, so the net has to be re-hung here rather
@@ -240,16 +245,23 @@ export async function runNewsletterBroadcast(
     ...(topicId ? { topicId } : {}),
   }));
   const broadcastId = idOf(created);
-  if (!broadcastId) throw new Error(`Resend did not return a broadcast id: ${JSON.stringify(created)}`);
+  if (!broadcastId) throw new Error(`Resend: ${resendMessage(created)}`);
   result.broadcast_id = broadcastId;
 
   const sent = await call(() => resend.broadcasts.send(
     broadcastId,
     opts.scheduledAt ? { scheduledAt: opts.scheduledAt } : undefined,
   ));
-  if (errorOf(sent)) throw new Error(`Broadcast ${broadcastId} was created but not sent: ${JSON.stringify(errorOf(sent))}`);
+  if (errorOf(sent)) throw new Error(`Resend created broadcast ${broadcastId} but did not send it: ${resendMessage(sent)}`);
 
   return result;
+}
+
+/** What Resend said, and only that. The SDK's answer also carries every HTTP
+ *  header, and stringifying it buried the one readable line in a wall of JSON. */
+function resendMessage(res: any): string {
+  const err = errorOf(res);
+  return err ? messageOf(err) : "no id in the response";
 }
 
 /** Visible in Resend's own dashboard beside each contact, which is the only

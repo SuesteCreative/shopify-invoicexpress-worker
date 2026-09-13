@@ -2290,7 +2290,11 @@ app.post("/admin/newsletter/broadcast", async (c) => {
     });
     return c.json(result);
   } catch (e) {
-    return errorResponse(c, e, "Failed to send newsletter");
+    // Admin-only, and the reason is the thing the operator acts on ("Resend: Your
+    // plan includes 3 segments"), so it goes back as it is. errorResponse would
+    // log it and answer "Failed to send newsletter", which left nothing to act on.
+    console.error("[Rioko][error] Failed to send newsletter:", e);
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 })
 

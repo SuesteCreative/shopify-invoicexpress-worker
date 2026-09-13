@@ -103,6 +103,21 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Search that finds "João" when "joao" is typed. */
 const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
+/** A response body, whatever came back. A platform error page is HTML, and
+ *  res.json() on it read "Unexpected token '<'" instead of saying what failed. */
+async function readJson(res: Response): Promise<any> {
+    const text = await res.text();
+    try {
+        return JSON.parse(text);
+    } catch {
+        return {
+            error: text.trimStart().startsWith("<")
+                ? `O servidor respondeu ${res.status} com uma página de erro, sem detalhe.`
+                : text.slice(0, 300),
+        };
+    }
+}
+
 export function NewsletterPanel() {
     const [templates, setTemplates] = useState<Template[]>([]);
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -150,7 +165,7 @@ export function NewsletterPanel() {
     const load = useCallback(async () => {
         try {
             const res = await fetch("/api/admin/newsletter");
-            const body = await res.json() as any;
+            const body = await readJson(res);
             if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
             setTemplates(body.templates ?? []);
             setCampaigns(body.campaigns ?? []);
@@ -198,7 +213,7 @@ export function NewsletterPanel() {
                     confirm_count: action === "send" ? preview?.count : undefined,
                 }),
             });
-            const body = await res.json() as any;
+            const body = await readJson(res);
             if (!res.ok) {
                 // 409: the audience moved since Simular. The preview on screen is
                 // now a count of people who are not the list, so it goes, and the
@@ -236,7 +251,7 @@ export function NewsletterPanel() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ slug, name, subject, preview_text: previewText, html }),
             });
-            const body = await res.json() as any;
+            const body = await readJson(res);
             if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
             setNote("Template gravado.");
             void load();

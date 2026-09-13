@@ -5,6 +5,66 @@ que gera `src/lib/version.ts` e `src/lib/changelog.generated.ts` — o rodapé d
 `/changelog` saem daqui. O comentário `<!-- release: sha -->` marca o último commit incluído na
 versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
+## ✨ Version 8.6.0 — Convide um amigo, ganhe 2 meses — September 13, 2026
+
+<!-- release: 9cd2d1e -->
+
+### Para o comerciante
+
+- Convida quem quiser: por cada pessoa que entrar pelo teu link e ligar uma integração, ganhas 2 meses. Quem entra tem o primeiro mês grátis, sem cartão. O teu link está em **Convidar**, no menu.
+- O cartão da subscrição passa a mostrar o preço que pagas mesmo. Quem está no plano antigo via 75 €/ano no painel e pagava 50 €.
+- Uma ligação deixa de poder ficar activa sem as credenciais do destino. Havia contas subscritas, com tudo verde, que não emitiam nada e não davam sinal.
+- Nos assistentes de integração, a explicação da opção de IVA passa a dizer o que ela faz mesmo. Prometia somar 23% em sete dos nove sítios onde nem sequer era lida.
+
+### Novo
+
+- **audit** — a check for the regime, not just the total
+- **audit** — say which rule set each rate, not just the rate
+- **audit** — check the exemption code against where the zero lines went
+- **admin** — sort integrations by date, newest first, with an order toggle
+- **shopify** — give the legacy integrations an invoice cutoff
+- **admin** — replace a wrong Kapta service invoice, by its number
+- **invoicexpress** — let a connection hold its own credentials
+- **verify** — say so when a document's exemption code contradicts its buyer
+- **billing** — one catalogue, every sellable pair, at the price it should be
+- **billing** — the catalogue tool also fixes the products it skips
+- **billing** — the seat product gets the template too
+- **newsletter** — write to the client list, and let them leave
+- **referral** — convide um amigo, ganhe 2 meses
+
+### Corrigido
+
+- **audit** — stop reporting the normal rate on shipping as a deviation
+- **onboarding** — put the finish panel under the last step, not above the first
+- **connections** — stop a connection going live without credentials, and say so when it does
+- **admin** — read the Kapta number the way the document prints it
+- **billing** — match a payment on who the account is, not on the price alone
+- **billing** — match the Kapta document on Stripe's invoice number
+- **api** — stop shipping connection credentials to the browser
+- **api** — keep the legacy integration credentials on the server
+- **billing** — never match a payment to a cancelled Kapta document
+- **wizards** — the InvoiceXpress credentials go on the connection, not on Shopify's row
+- **wizards** — stop promising that the VAT toggle adds 23%
+- **seats** — the pool is the record, and the money is checked before the seat
+- **subscriptions** — the panel and the gate stop disagreeing about the last day
+- **billing** — a lookup key beats an id in the price book
+- **billing** — serve the product image from a path nothing has 404ed
+- **billing** — move the default price before archiving the one it replaces
+- **billing** — the card says what the client pays, and a pair needs one list less
+- **referral** — put the free month where the gate will look for it
+- **marketing** — the eight defects an adversarial review confirmed
+
+### Arquitectura
+
+- **admin** — the subscription gate as one expression, not three
+
+### Documentação
+
+- **changelog** — v8.5.0 — A version ladder, and patch notes for two audiences
+- **architecture** — the credential rule, next to the two tables that hold them
+- **marketing** — the parts nobody can ship for you
+- **referral** — how to undo a credit when a refund is made by hand
+
 ## ✨ Version 8.5.0 — A version ladder, and patch notes for two audiences — September 12, 2026
 
 <!-- release: 9e047dd -->

@@ -118,12 +118,15 @@ export async function rewardInviter(
     const inviter = row?.inviter_user_id as string | undefined;
     if (!inviter) return { rewarded: false, reason: "no_inviter" };
 
+    // Set once the fiscal check has run. A parking note would otherwise overwrite
+    // the only record that the check ran without the Checkout's NIF.
+    let lookupNote: string | undefined;
     const park = async (reason: string, voidIt: boolean): Promise<RewardResult> => {
         await db.prepare(
             voidIt
                 ? "UPDATE referrals SET state = 'void', void_reason = ? WHERE invitee_user_id = ? AND rewarded_at IS NULL"
                 : "UPDATE referrals SET note = ? WHERE invitee_user_id = ? AND rewarded_at IS NULL"
-        ).bind(reason, inviteeUserId).run();
+        ).bind(!voidIt && lookupNote ? `${reason}; ${lookupNote}` : reason, inviteeUserId).run();
         return { rewarded: false, reason, inviter_user_id: inviter };
     };
 
@@ -136,6 +139,11 @@ export async function rewardInviter(
 
     // The ceiling the copy promises: three rewards, six months, and the fourth
     // referral is recorded but not paid.
+    // ponytail: count-then-update, not atomic. Two invitee subscriptions for the
+    // same inviter landing in the same second can both read 2 and both pay, so a
+    // fourth reward is possible. Upgrade path if it ever happens: fold the count
+    // into the final `SET state = 'rewarded'` as a guarded conditional UPDATE and
+    // reserve the slot before calling Stripe.
     const paid: any = await db.prepare(
         "SELECT COUNT(*) AS n FROM referrals WHERE inviter_user_id = ? AND state = 'rewarded'"
     ).bind(inviter).first();
@@ -143,7 +151,9 @@ export async function rewardInviter(
 
     // Self-dealing costs one card and buys two months. By now both sides have
     // been through a checkout, which is where a fiscal number gets collected.
-    if (await sharesFiscalId(db, inviter, inviteeUserId)) return park("same_fiscal_id", true);
+    const fiscal = await sharesFiscalId(db, stripe, inviter, inviteeUserId, inviteeSubscriptionId);
+    if (fiscal.same) return park("same_fiscal_id", true);
+    lookupNote = fiscal.note;
 
     // The reward is months added to a subscription, so there has to be one.
     const target: any = await db.prepare(INVITER_SUBSCRIPTION_SQL).bind(inviter).first();
@@ -164,22 +174,33 @@ export async function rewardInviter(
         if (sub?.cancel_at || sub?.cancel_at_period_end) return park("inviter_subscription_ending", false);
 
         const rewardUntil = addMonths(new Date(base * 1000).toISOString(), REWARD_MONTHS);
+        const trialEnd = Math.floor(new Date(rewardUntil).getTime() / 1000);
 
+        // The target date is part of the key. Stripe refuses a reused key with
+        // different parameters for 24 hours, so a key of the invitee alone turned
+        // an admin retry aimed at a new date (the period renewed while the reward
+        // was parked) into an idempotency error instead of a reward.
+        // ponytail: the key only dedups a retry aimed at the SAME date. A push
+        // that landed in Stripe but never reached D1 moves the base, so a retry
+        // would push again. Upgrade path: stamp the invitee id on the
+        // subscription metadata and skip the update when it is already there.
         await stripe.subscriptions.update(
             target.stripe_subscription_id,
             {
-                trial_end: Math.floor(new Date(rewardUntil).getTime() / 1000),
+                trial_end: trialEnd,
                 proration_behavior: "none",
                 metadata: { ...(sub?.metadata ?? {}), rioko_reward_until: rewardUntil },
             },
-            { idempotencyKey: `rioko-reward-${inviteeUserId}` },
+            { idempotencyKey: `rioko-reward-${inviteeUserId}-${trialEnd}` },
         );
 
+        // Clears a parking note from an earlier attempt, but keeps the one that
+        // says the fiscal check ran without the Checkout's NIF.
         await db.prepare(
             `UPDATE referrals
-                SET state = 'rewarded', reward_months = ?, reward_until = ?, rewarded_at = ?, note = NULL
+                SET state = 'rewarded', reward_months = ?, reward_until = ?, rewarded_at = ?, note = ?
               WHERE invitee_user_id = ? AND rewarded_at IS NULL`
-        ).bind(REWARD_MONTHS, rewardUntil, now.toISOString(), inviteeUserId).run();
+        ).bind(REWARD_MONTHS, rewardUntil, now.toISOString(), fiscal.note ?? null, inviteeUserId).run();
 
         // Why the subscription is `trialing`, for the panel that would otherwise
         // call a paying client a trial.
@@ -198,21 +219,48 @@ export async function rewardInviter(
     }
 }
 
-/** Same fiscal number on both sides of a referral is one company, twice. */
+/**
+ * Same fiscal number on both sides of a referral is one company, twice.
+ *
+ * The invitee's side is usually NOT in the database yet. This runs on
+ * `customer.subscription.created`, and the NIF typed into the Checkout is only
+ * stored by `checkout.session.completed`, which Stripe does not promise to send
+ * first. So when the invitee has no stored number, it is read off the Checkout
+ * Session that created their subscription.
+ *
+ * A failed lookup does not block the reward: the months are owed unless the
+ * numbers are shown to match. It comes back as a `note` for the row instead, so
+ * whoever reads the panel knows the check ran on stored data only.
+ */
 export async function sharesFiscalId(
-    db: D1Database, inviterUserId: string, inviteeUserId: string,
-): Promise<boolean> {
+    db: D1Database, stripe: any, inviterUserId: string, inviteeUserId: string, inviteeSubscriptionId: string,
+): Promise<{ same: boolean; note?: string }> {
+    const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "") || null;
     const nifOf = async (userId: string): Promise<string | null> => {
         const s: any = await db.prepare(
             `SELECT nif FROM subscriptions WHERE user_id = ? AND nif IS NOT NULL AND TRIM(nif) <> ''
               ORDER BY updated_at DESC LIMIT 1`
         ).bind(userId).first();
-        if (s?.nif) return String(s.nif).replace(/\D/g, "");
+        if (s?.nif) return digits(s.nif);
         const u: any = await db.prepare(
             "SELECT nif FROM users WHERE id = ? AND nif IS NOT NULL AND TRIM(nif) <> ''"
         ).bind(userId).first();
-        return u?.nif ? String(u.nif).replace(/\D/g, "") : null;
+        return digits(u?.nif);
     };
-    const [a, b] = await Promise.all([nifOf(inviterUserId), nifOf(inviteeUserId)]);
-    return Boolean(a && b && a === b);
+    const [a, stored] = await Promise.all([nifOf(inviterUserId), nifOf(inviteeUserId)]);
+    // Nothing to compare against: not worth a Stripe call.
+    if (!a) return { same: false };
+
+    let b = stored;
+    let note: string | undefined;
+    if (!b) {
+        try {
+            const sessions = await stripe.checkout.sessions.list({ subscription: inviteeSubscriptionId, limit: 1 });
+            const field = sessions?.data?.[0]?.custom_fields?.find((f: any) => f?.key === "nif");
+            b = digits(field?.numeric?.value);
+        } catch (e: any) {
+            note = `fiscal_id_lookup_failed: ${String(e?.message ?? e)}`.slice(0, 200);
+        }
+    }
+    return { same: Boolean(b && a === b), note };
 }

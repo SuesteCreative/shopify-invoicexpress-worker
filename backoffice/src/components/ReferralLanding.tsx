@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Gift, Check } from "lucide-react";
 import { useOnboardingInvite } from "@/lib/use-onboarding-invite";
-import { REFERRAL_KEY } from "@/components/ReferralClaim";
+import { REFERRAL_INVITE } from "@/components/ReferralClaim";
 import { LegalLinks } from "@/components/LegalLinks";
 
 /**
@@ -20,7 +20,7 @@ import { LegalLinks } from "@/components/LegalLinks";
 export function ReferralLanding({ code, locale }: { code: string; locale: string }) {
     const t = useTranslations("referral");
     const { isLoaded, isSignedIn } = useAuth();
-    const claim = useOnboardingInvite(code, { key: REFERRAL_KEY, endpoint: "/api/referral/claim" });
+    const claim = useOnboardingInvite(code, REFERRAL_INVITE);
     const [refusal, setRefusal] = useState<string | null>(null);
 
     useEffect(() => {
@@ -82,7 +82,10 @@ export function ReferralLanding({ code, locale }: { code: string; locale: string
                 )}
 
                 <p className="text-[11px] text-fg-40 leading-snug border-t border-hairline pt-4">
-                    {t("landingTerms")}
+                    {t("landingTerms")}{" "}
+                    <Link href="/campanha-convites" className="text-accent-ink hover:underline">
+                        {t("termsLink")}
+                    </Link>
                 </p>
 
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-fg-40">

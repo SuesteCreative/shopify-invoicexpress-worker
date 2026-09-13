@@ -45,6 +45,27 @@ export function rewardRunning(sub: SubscriptionStateRow | null | undefined, now 
 }
 
 /**
+ * Would a checkout for this connection open a SECOND subscription?
+ *
+ * True while Stripe holds a live subscription for the row: active, a paying
+ * trial (every invitee's first two months, every rewarded inviter), and also
+ * past_due and unpaid. The gate blocks those two, but Stripe is still retrying
+ * the same subscription; the way out is a new card on it, in Faturação, not a
+ * parallel one that charges the integration twice.
+ *
+ * False for everything a checkout is the right answer to: no row, an early bird
+ * (trialing with no subscription id, which converts exactly by checking out),
+ * and a subscription that is dead or never started (canceled,
+ * incomplete_expired, incomplete).
+ */
+export function alreadySubscribed(sub: SubscriptionStateRow | null | undefined): boolean {
+    return Boolean(
+        sub?.stripe_subscription_id
+        && ["active", "trialing", "past_due", "unpaid"].includes(sub.status),
+    );
+}
+
+/**
  * The gate's verdict: true means the pipeline refuses to invoice for them.
  *
  * No subscription row at all is blocked — a connection nobody pays for is the

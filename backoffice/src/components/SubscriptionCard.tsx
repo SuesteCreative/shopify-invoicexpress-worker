@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { CreditCard, Check, AlertTriangle, Clock, Sparkles, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { rewardRunning } from "@/lib/subscription-state";
+import { alreadySubscribed, rewardRunning } from "@/lib/subscription-state";
 
 import { cn } from "@/lib/utils";
 
@@ -121,7 +121,7 @@ export default function SubscriptionCard(
                     ...(connectionKey ? { connection_key: connectionKey } : {}),
                 }),
             });
-            const d = (await res.json()) as { url?: string; error?: string };
+            const d = (await res.json()) as { url?: string; error?: string; code?: string };
             if (d.url) {
                 if (checkoutTab) {
                     checkoutTab.location.href = d.url;
@@ -133,6 +133,9 @@ export default function SubscriptionCard(
             } else {
                 checkoutTab?.close();
                 alert(d.error || t("errorCheckout"));
+                // The card was stale: a subscription landed since it loaded.
+                // Read it again so the plates give way to the manage link.
+                if (d.code === "already_subscribed") refresh();
                 setActing(false);
             }
         } catch (e: any) {
@@ -219,7 +222,14 @@ export default function SubscriptionCard(
     const reward = rewardRunning(sub as any);
     const Icon = reward ? Sparkles : config.icon;
     const daysLeft = daysUntil(sub?.trial_end);
-    const showCheckout = state !== "active";
+    // Plates only where a checkout is the answer. A paying trial ("trialing": an
+    // invitee's two months, an inviter's reward) already has a subscription, and
+    // so does a past_due or unpaid row, which reads "blocked" while Stripe keeps
+    // retrying it: the way out there is a new card in Faturação. A checkout from
+    // here would open a second one, which the route refuses with this same
+    // predicate, so the plates came straight back after every 409.
+    const liveSub = alreadySubscribed(sub);
+    const showCheckout = !liveSub && (state === "none" || state === "blocked" || state === "trialing_earlybird");
 
     return (
         <motion.div
@@ -276,7 +286,7 @@ export default function SubscriptionCard(
                         </p>
                     </div>
 
-                    {state === "active" && (
+                    {(state === "active" || state === "trialing" || liveSub) && (
                         <Link
                             href="/faturacao"
                             className="px-6 py-3 rounded-2xl bg-veil border border-hairline text-fg font-mono text-xs uppercase tracking-[0.18em] hover:bg-fg/10 transition-all flex items-center gap-3 shrink-0"
@@ -366,7 +376,6 @@ export default function SubscriptionCard(
                             {!acting && state === "blocked" && t("ctaReactivate")}
                             {!acting && state === "trialing_earlybird" && t("ctaAddPayment")}
                             {!acting && state === "none" && t("ctaSubscribe")}
-                            {!acting && state === "trialing" && t("ctaUpgrade")}
                             {!acting && <ArrowRight className="w-4 h-4" />}
                         </button>
                     </div>

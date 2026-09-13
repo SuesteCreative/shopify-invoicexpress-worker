@@ -115,10 +115,12 @@ export function NewsletterPanel() {
     const [error, setError] = useState<string | null>(null);
     const [note, setNote] = useState<string | null>(null);
 
-    /** What the preview was drawn for. Anything typed afterwards invalidates it. */
+    /** What the preview was drawn for. Anything typed afterwards invalidates it,
+     *  the inbox line and the schedule included: both go out with the send, so a
+     *  simulation that never saw them has not approved them. */
     const signature = useMemo(
-        () => JSON.stringify([subject, html, [...filters].sort()]),
-        [subject, html, filters],
+        () => JSON.stringify([subject, previewText, html, [...filters].sort(), scheduledAt]),
+        [subject, previewText, html, filters, scheduledAt],
     );
     const previewIsCurrent = preview !== null && previewedFor === signature;
 
@@ -152,10 +154,19 @@ export function NewsletterPanel() {
                     action, slug, subject, html, filters,
                     preview_text: previewText || undefined,
                     scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+                    // The count this operator approved. The route resolves the
+                    // audience again and refuses the send if it no longer matches.
+                    confirm_count: action === "send" ? preview?.count : undefined,
                 }),
             });
             const body = await res.json() as any;
-            if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+            if (!res.ok) {
+                // 409: the audience moved since Simular. The preview on screen is
+                // now a count of people who are not the list, so it goes, and the
+                // send button with it, until a new simulation is drawn.
+                if (res.status === 409) { setPreview(null); setPreviewedFor(null); }
+                throw new Error(body?.error ?? `HTTP ${res.status}`);
+            }
 
             if (action === "preview") {
                 setPreview(body as Preview);
@@ -335,7 +346,7 @@ export function NewsletterPanel() {
                         <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">
                             {previewIsCurrent
                                 ? `${n(preview.count)} destinatários`
-                                : "Simulação antiga — a mensagem ou os filtros mudaram"}
+                                : "Simulação antiga — a mensagem, os filtros ou o agendamento mudaram"}
                         </p>
 
                         {preview.legal_error && (
@@ -398,7 +409,7 @@ export function NewsletterPanel() {
                             || preview.count === 0 || Boolean(preview.legal_error)
                         }
                         title={
-                            !previewIsCurrent ? "Simula primeiro, para esta mensagem e estes filtros"
+                            !previewIsCurrent ? "Simula primeiro, para esta mensagem, estes filtros e este agendamento"
                                 : preview?.legal_error ? preview.legal_error
                                 : preview?.count === 0 ? "Ninguém nestes filtros"
                                 : undefined

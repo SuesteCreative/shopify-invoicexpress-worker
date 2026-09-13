@@ -1,5 +1,6 @@
 import { listArticles } from "@/lib/blog";
 import { statusLine } from "@/lib/integration-status";
+import { campaignOpen } from "@/lib/referral";
 
 export const runtime = "edge";
 
@@ -32,6 +33,12 @@ export async function GET() {
         "- [InvoiceXpress vs Moloni vs Vendus](https://rioko.online/pt/invoicexpress-vs-moloni-vs-vendus): comparação neutra dos três programas de faturação certificados, por tipo de documento, moeda estrangeira e faturas simplificadas",
         "- [Blog](https://rioko.online/pt/blog): guias fiscais e técnicos",
         "- [Privacidade](https://rioko.online/pt/privacy) · [Termos](https://rioko.online/pt/terms)",
+        // Listed only while the campaign runs, as the sitemap does. Afterwards
+        // the page still answers for whoever took part, but an agent reading
+        // this file must not offer a campaign that has ended.
+        ...(campaignOpen()
+            ? ["- [Campanha de convites](https://rioko.online/pt/campanha-convites): termos da campanha \"Convida 1 amigo\", 2 meses grátis para quem convida e para quem é convidado, até 31 de outubro de 2026"]
+            : []),
         "",
         "## Site (EN)",
         "- [Home](https://rioko.online/en): overview, integrations, pricing and FAQ",
@@ -41,6 +48,9 @@ export async function GET() {
         "- [FAQ](https://rioko.online/en#faq): frequently asked questions about automatic invoicing",
         "- [InvoiceXpress vs Moloni vs Vendus](https://rioko.online/en/invoicexpress-vs-moloni-vs-vendus): neutral comparison of the three certified invoicing programs, by document type, foreign currency and simplified invoices",
         "- [Blog](https://rioko.online/en/blog): fiscal and technical guides",
+        ...(campaignOpen()
+            ? ["- [Referral campaign](https://rioko.online/en/campanha-convites): terms of the \"Invite a friend\" campaign, 2 free months for the inviter and the invitee, until 31 October 2026"]
+            : []),
         "",
         "## Blog",
         ...articles.map(

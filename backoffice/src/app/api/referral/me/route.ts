@@ -69,13 +69,24 @@ export async function GET(request: NextRequest) {
         const invites = (results ?? []) as any[];
         const rewarded = invites.filter((i) => i.state === "rewarded").length;
 
+        // The other side: this account came in through somebody's link and has
+        // not subscribed yet. Same predicate billing/checkout uses to put the
+        // trial on the session, so the page never promises a trial the checkout
+        // will not create.
+        const open = campaignOpen();
+        const invitedRow: any = await db.prepare(
+            "SELECT 1 AS ok FROM referrals WHERE invitee_user_id = ? AND state = 'pending' LIMIT 1"
+        ).bind(accountId).first();
+
         return NextResponse.json({
             code: code ?? null,
             token: code && suffix ? referralToken(code, suffix) : null,
             link: code && suffix ? referralLink(referralToken(code, suffix)) : null,
             campaign_end: CAMPAIGN_END,
-            campaign_open: campaignOpen(),
+            campaign_open: open,
             eligible: Boolean(live?.ok),
+            invited_pending: Boolean(invitedRow?.ok) && open,
+            trial_months: REWARD_MONTHS,
             reward_months: REWARD_MONTHS,
             max_rewards: MAX_REWARDS,
             rewarded,

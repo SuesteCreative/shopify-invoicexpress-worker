@@ -24,6 +24,7 @@ type Target = {
     role: string;
     nif: string | null;
     company_name: string | null;
+    client_code: string | null;
     shopify_domain: string | null;
     shopify_authorized: boolean;
     ix_authorized: boolean;
@@ -177,7 +178,13 @@ export function DevModePanel({ target }: { target: Target }) {
                                 {t("title")}
                             </h1>
                             <p className="text-fg-60 font-semibold mt-1">
-                                {target.name} · {target.email}
+                                {target.name}
+                                {/* The number the client quotes on the phone, so the
+                                    operator can match the call to the toolbox. */}
+                                {target.client_code && (
+                                    <span className="ml-2 font-mono text-xs tracking-[0.18em] text-fg-40">{target.client_code}</span>
+                                )}
+                                {" "}· {target.email}
                                 {target.shopify_domain && <span className="text-fg-40"> · {target.shopify_domain}</span>}
                             </p>
                         </div>

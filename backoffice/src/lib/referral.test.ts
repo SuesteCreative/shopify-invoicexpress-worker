@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
     splitReferralToken, referralToken, referralLink, newReferralSuffix,
-    claimRefusal, campaignOpen, CAMPAIGN_END, MAX_REWARDS, REWARD_MONTHS,
+    claimRefusal, existingClaim, campaignOpen, CAMPAIGN_END, MAX_REWARDS, REWARD_MONTHS,
 } from "./referral";
 
 /**
@@ -69,6 +69,26 @@ describe("claimRefusal", () => {
 
     it("refuses an account somebody else already invited", () => {
         expect(claimRefusal({ ...ok, alreadyReferred: true })).toBe("already");
+    });
+
+    it("tells a replay of the same link from a second person's link", () => {
+        // The route used to answer ok to ANY token once a row existed, so the
+        // second friend's link said "registado" and alreadyReferred was never true.
+        expect(existingClaim(null, "user_a")).toBe("none");
+        expect(existingClaim("user_a", "user_a")).toBe("same");
+        expect(existingClaim("user_a", "user_c")).toBe("other");
+        expect(claimRefusal({
+            ...ok,
+            inviterUserId: "user_c",
+            alreadyReferred: existingClaim("user_a", "user_c") === "other",
+        })).toBe("already");
+    });
+
+    it("still calls a dead link dead on an account that was already invited", () => {
+        // A wrong suffix resolves to no inviter, which is "other" than the row's,
+        // but the answer the visitor needs is that the link does not exist.
+        expect(existingClaim("user_a", null)).toBe("other");
+        expect(claimRefusal({ ...ok, inviterUserId: null, alreadyReferred: true })).toBe("unknown");
     });
 
     it("refuses when whoever invited has nothing to add two months to", () => {

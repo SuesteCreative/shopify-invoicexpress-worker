@@ -71,9 +71,13 @@ export function fill(html: string, vars: Record<string, string> = standardVars()
 /**
  * The last gate before a broadcast is created.
  *
- * Called on the FILLED html, on the worker side, because that is the copy that
- * gets sent. Returns null when the mail is lawful to send, otherwise the reason,
- * which the admin page shows instead of a send button.
+ * Called on the FILLED html, because that is the copy that gets sent, and
+ * enforced by the backoffice route (api/admin/newsletter) before it calls the
+ * worker. The worker does not run this: it only re-checks the unsubscribe tag
+ * (UNSUBSCRIBE_TAG in src/services/newsletter.ts), so the sender and privacy
+ * checks hold only for a send that goes through that route. Returns null when
+ * the mail is lawful to send, otherwise the reason, which the admin page shows
+ * instead of a send button.
  *
  * Livro de Reclamações is not required here: it belongs to the service pages and
  * to transactional mail (legalLinks()), not to a commercial email. What a

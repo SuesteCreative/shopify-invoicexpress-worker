@@ -18,11 +18,13 @@ import { useCallback, useRef } from "react";
 
 const KEY = "rioko_onboarding_invite";
 const ENDPOINT = "/api/onboarding/invite/claim";
+const DAY_MS = 86_400_000;
 
 export type InviteClaim =
     | { state: "idle" }
     | { state: "claimed" }
-    | { state: "refused"; reason: string };
+    /** `refusal` is the server's reason code, present only when the answer is final. */
+    | { state: "refused"; reason: string; refusal?: string };
 
 /**
  * The referral link needs exactly this behaviour and nothing else, so it passes
@@ -33,6 +35,42 @@ export type InviteClaim =
 export interface InviteClaimOptions {
     key?: string;
     endpoint?: string;
+    /**
+     * Keep the token in `localStorage` for this many days instead of in the tab.
+     * The referral link needs it: sign-up often finishes in another tab (an
+     * e-mail verification link opens one), sessionStorage belongs to the tab
+     * that saw the link, and the invite was dropped without a word — the friend
+     * then paid full price. Onboarding invites leave it unset and keep the
+     * tab-scoped behaviour they were built with.
+     */
+    ttlDays?: number;
+}
+
+export function stashInvite(key: string, token: string, ttlDays?: number): void {
+    try {
+        if (ttlDays) window.localStorage.setItem(key, JSON.stringify({ token, expires: Date.now() + ttlDays * DAY_MS }));
+        else window.sessionStorage.setItem(key, token);
+    } catch { /* private mode */ }
+}
+
+/** What is waiting under `key`. An expired entry is removed on the way past. */
+export function readInvite(key: string): string | undefined {
+    try {
+        const raw = window.localStorage.getItem(key);
+        if (raw) {
+            let entry: any = null;
+            try { entry = JSON.parse(raw); } catch { /* not ours to trust */ }
+            if (typeof entry?.token === "string" && Number(entry.expires) > Date.now()) return entry.token;
+            window.localStorage.removeItem(key);
+        }
+    } catch { /* storage blocked: fall back to the tab */ }
+    // A token stashed before it moved to localStorage, or by a caller that never did.
+    try { return window.sessionStorage.getItem(key) ?? undefined; } catch { return undefined; }
+}
+
+export function clearInvite(key: string): void {
+    try { window.localStorage.removeItem(key); } catch { /* ignore */ }
+    try { window.sessionStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 export function useOnboardingInvite(invite: string | undefined, opts: InviteClaimOptions = {}) {
@@ -43,15 +81,13 @@ export function useOnboardingInvite(invite: string | undefined, opts: InviteClai
     // Stash on the very first render that has one, before anything can navigate
     // away. Reading it back is what makes the invite survive the sign-up.
     if (typeof window !== "undefined" && invite && !done.current) {
-        try { window.sessionStorage.setItem(KEY_, invite); } catch { /* private mode */ }
+        stashInvite(KEY_, invite, opts.ttlDays);
     }
 
     return useCallback(async (): Promise<InviteClaim> => {
         if (done.current) return { state: "idle" };
         let token = invite;
-        if (!token && typeof window !== "undefined") {
-            try { token = window.sessionStorage.getItem(KEY_) ?? undefined; } catch { token = undefined; }
-        }
+        if (!token && typeof window !== "undefined") token = readInvite(KEY_);
         if (!token) return { state: "idle" };
         done.current = true;
 
@@ -62,8 +98,16 @@ export function useOnboardingInvite(invite: string | undefined, opts: InviteClai
                 body: JSON.stringify({ token }),
             });
             const json: any = await res.json().catch(() => ({}));
-            if (!res.ok) return { state: "refused", reason: String(json.error ?? `HTTP ${res.status}`) };
-            try { window.sessionStorage.removeItem(KEY_); } catch { /* ignore */ }
+            if (!res.ok) {
+                // A reason code is the server's final word on this token (spent,
+                // not new, already invited by someone else): replaying it on every
+                // load changes nothing, so it goes. Anything else (no session yet,
+                // a 500, a dropped connection) keeps it for the next load.
+                const refusal = typeof json.refusal === "string" ? json.refusal : undefined;
+                if (refusal) clearInvite(KEY_);
+                return { state: "refused", reason: String(json.error ?? `HTTP ${res.status}`), refusal };
+            }
+            clearInvite(KEY_);
             return { state: "claimed" };
         } catch (e: any) {
             return { state: "refused", reason: e?.message ?? "network" };

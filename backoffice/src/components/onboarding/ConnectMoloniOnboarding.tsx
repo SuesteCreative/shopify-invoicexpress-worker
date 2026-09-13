@@ -233,7 +233,9 @@ export default function ConnectMoloniOnboarding({ invite }: { invite?: string })
         if (typeof cfg.exemption_reason === "string") setExemptionReason(cfg.exemption_reason);
 
         setConnectionActive((conn?.status ?? moloni?.connection?.status) === "active");
-        setSubActive(sub?.ui_state === "active" || sub?.ui_state === "exempt");
+        // "trialing" is a paying Stripe trial (every invitee starts in one), so
+        // the step is done: the form would open a second subscription.
+        setSubActive(sub?.ui_state === "active" || sub?.ui_state === "trialing" || sub?.ui_state === "exempt");
     }, []);
 
     useEffect(() => {

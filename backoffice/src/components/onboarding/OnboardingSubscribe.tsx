@@ -5,9 +5,12 @@ import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
-import { AlertTriangle, Check, Loader2, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, CreditCard, Gift, Loader2, ShieldCheck } from "lucide-react";
 
+import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
+import { REWARD_MONTHS } from "@/lib/referral";
+import { addMonths } from "@/lib/referral-reward";
 
 /**
  * The payment step of an onboarding page: the card form on the page itself.
@@ -41,7 +44,12 @@ type SessionResponse = {
     publishable_key?: string | null;
     url?: string;
     error?: string;
+    code?: string;
 };
+
+/** The checkout's 409: Stripe already holds a subscription for this connection,
+ *  paid or not (past_due and unpaid get it too). Not a failure to retry. */
+const ALREADY_SUBSCRIBED = "already_subscribed";
 
 export default function OnboardingSubscribe({ source, connectionKey, returnSlug, onSubscribed }: Props) {
     const t = useTranslations("onboardingSubscribe");
@@ -69,6 +77,25 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
         return () => { alive = false; };
     }, [source]);
 
+    // An invited account's subscription opens with a Stripe trial, and until now
+    // only the Stripe form said so: the plates read as a full charge today. Set
+    // to the trial's length when the account is still waiting on that first
+    // subscription; anything short of an explicit yes, a failed request included,
+    // is the ordinary price.
+    const [trialMonths, setTrialMonths] = useState<number | null>(null);
+    useEffect(() => {
+        let alive = true;
+        fetch("/api/referral/me")
+            .then(r => (r.ok ? r.json() : null))
+            .then((d: any) => {
+                if (!alive || d?.invited_pending !== true) return;
+                const n = Number(d.trial_months);
+                setTrialMonths(Number.isInteger(n) && n > 0 ? n : REWARD_MONTHS);
+            })
+            .catch(() => { /* not referred, as far as this page knows */ });
+        return () => { alive = false; };
+    }, []);
+
     // Set when Stripe brings the merchant back to this page.
     const returnedSessionId = params.get("stripe") === "return" ? params.get("session_id") : null;
     const [returnState, setReturnState] = useState<"checking" | "confirming" | "done" | "failed" | null>(
@@ -88,6 +115,7 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
             }),
         });
         const json = (await res.json().catch(() => ({}))) as SessionResponse;
+        if (res.status === 409 && json.code === ALREADY_SUBSCRIBED) throw new Error(ALREADY_SUBSCRIBED);
         if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
         return json;
     }, [source, connectionKey, returnSlug, locale]);
@@ -160,7 +188,8 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                         `/api/billing/subscription?connection_key=${encodeURIComponent(connectionKey)}`,
                     ).then(r => r.json()).catch(() => ({}));
                     if (stopped) return;
-                    if (sub?.ui_state === "active" || sub?.ui_state === "exempt") {
+                    // An invitee comes back in a paying Stripe trial, so "trialing" is done too.
+                    if (sub?.ui_state === "active" || sub?.ui_state === "trialing" || sub?.ui_state === "exempt") {
                         setReturnState("done");
                         onSubscribed?.();
                         return;
@@ -225,8 +254,9 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
         );
     }
 
+    const intlLocale = locale === "en" ? "en-GB" : "pt-PT";
     const money = (m: Money | null | undefined) =>
-        m ? new Intl.NumberFormat(locale === "en" ? "en-GB" : "pt-PT", {
+        m ? new Intl.NumberFormat(intlLocale, {
             style: "currency", currency: (m.currency || "eur").toUpperCase(),
             minimumFractionDigits: m.amount_cents % 100 === 0 ? 0 : 2,
         }).format(m.amount_cents / 100) : null;
@@ -245,8 +275,27 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
         })()
         : null;
 
+    // The first charge: the trial counted in calendar months with the same
+    // month-end clamp the inviter's reward uses, so 31 December plus two is 28
+    // February on both sides of the same invitation.
+    const zeroToday = money({ amount_cents: 0, currency: prices?.annual?.currency ?? "eur" });
+    const firstCharge = trialMonths
+        ? new Intl.DateTimeFormat(intlLocale, { dateStyle: "long" })
+            .format(new Date(addMonths(new Date().toISOString(), trialMonths)))
+        : null;
+
     return (
         <div className="space-y-5">
+            {trialMonths && (
+                <div className="flex items-start gap-3.5 rounded-2xl border border-accent-hot/25 bg-accent-hot/8 px-5 py-4 text-[12px] leading-relaxed text-fg-60">
+                    <Gift className="w-4 h-4 shrink-0 mt-0.5 text-accent-hot" />
+                    <div className="min-w-0 space-y-1">
+                        <p className="font-medium text-fg">{t("referralTitle", { months: trialMonths, amount: zeroToday ?? "0 €" })}</p>
+                        <p>{t("referralBody", { months: trialMonths, date: firstCharge ?? "" })}</p>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {(["monthly", "annual"] as const).map(option => {
                     const selected = plan === option;
@@ -290,6 +339,14 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                                         : tCard("vatAnnualPlain")
                                     : tCard("vatMonthly")}
                             </div>
+                            {trialMonths && (
+                                <div className="mt-3 flex items-center gap-2 flex-wrap text-[11px] font-medium">
+                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent-hot/18 text-accent-hot uppercase tracking-[0.22em] whitespace-nowrap">
+                                        {t("referralPlateToday", { amount: zeroToday ?? "0 €" })}
+                                    </span>
+                                    <span className="text-fg-60">{t("referralPlateAfter", { months: trialMonths })}</span>
+                                </div>
+                            )}
                             {selected && (
                                 <div className={cn(
                                     "absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center",
@@ -303,7 +360,28 @@ export default function OnboardingSubscribe({ source, connectionKey, returnSlug,
                 })}
             </div>
 
-            {error && (
+            {error === ALREADY_SUBSCRIBED && (
+                // Said as what it is: there is nothing to retry and no hosted page
+                // to offer, because that one would be refused the same way. Not
+                // "all is well" either: a past_due or unpaid subscription lands
+                // here too, and that merchant does owe money, on the subscription
+                // they already have, which is paid and re-carded in Faturação.
+                <div className="flex items-start gap-3.5 rounded-2xl border border-accent/20 bg-accent/5 px-5 py-4 text-[12px] leading-relaxed text-fg-60">
+                    <CreditCard className="w-4 h-4 shrink-0 mt-0.5 text-accent-ink" />
+                    <div className="min-w-0 space-y-1">
+                        <p className="font-medium text-fg">{t("alreadySubscribedTitle")}</p>
+                        <p>{t("alreadySubscribedBody")}</p>
+                        <Link
+                            href="/faturacao"
+                            className="mt-2 inline-block rounded-xl border border-hairline px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-fg transition-colors hover:border-rule"
+                        >
+                            {tCard("manageBilling")}
+                        </Link>
+                    </div>
+                </div>
+            )}
+
+            {error && error !== ALREADY_SUBSCRIBED && (
                 <div className="rounded-2xl border border-destructive/30 bg-destructive/8 px-5 py-4 text-[12px] leading-relaxed text-destructive space-y-2">
                     <p className="font-medium">{t("errorTitle")}</p>
                     <p className="font-mono text-[11px] break-words">{error}</p>

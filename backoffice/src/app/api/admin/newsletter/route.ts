@@ -17,6 +17,12 @@ export const runtime = "edge";
  * come from different code, because there is only one call site and the browser
  * never sends a list — only the filters that produce one.
  *
+ * Same code is not the same moment, though. A send carries the count the
+ * operator was shown, and is refused when the audience resolved now is a
+ * different size: somebody registered or cancelled between Simular and Enviar,
+ * or the request did not come from a simulation at all. The panel's own gate is
+ * a disabled button, which only the browser honours.
+ *
  * Resend lives on the other side of callWorkerJson because the API key does.
  */
 
@@ -60,6 +66,8 @@ export async function POST(request: NextRequest) {
             preview_text?: string;
             filters?: string[];
             scheduled_at?: string;
+            /** send only: the recipient count shown by the simulation. */
+            confirm_count?: number;
         };
 
         const action = body.action ?? "preview";
@@ -112,8 +120,10 @@ export async function POST(request: NextRequest) {
             // Transactional, so it costs no broadcast and reaches the sender even
             // if they have unsubscribed. The Resend tags render literally here,
             // which is correct: seeing them proves they survived to the payload.
+            // The primary address, not the first on the list: Clerk keeps them in
+            // creation order, so [0] can be an old mailbox the admin no longer reads.
             const me = await currentUser();
-            const to = me?.emailAddresses?.[0]?.emailAddress;
+            const to = me?.primaryEmailAddress?.emailAddress ?? me?.emailAddresses?.[0]?.emailAddress;
             if (!to) return NextResponse.json({ error: "Sem endereço para o teste" }, { status: 400 });
 
             const { ok, status, data } = await callWorkerJson("/admin/notify", {
@@ -134,6 +144,13 @@ export async function POST(request: NextRequest) {
         }
 
         // action === "send"
+        if (body.confirm_count !== recipients.length) {
+            return NextResponse.json({
+                error: typeof body.confirm_count === "number"
+                    ? `Os destinatários mudaram desde a simulação (eram ${body.confirm_count}, agora são ${recipients.length}). Simula outra vez antes de enviar.`
+                    : "Sem contagem confirmada. Simula outra vez antes de enviar.",
+            }, { status: 409 });
+        }
         if (recipients.length === 0) {
             return NextResponse.json({ error: "Nenhum destinatário para estes filtros" }, { status: 400 });
         }

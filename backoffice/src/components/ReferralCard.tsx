@@ -86,6 +86,10 @@ export function ReferralCard() {
     // nobody can still claim.
     if (!me.campaign_open && me.rewarded === 0) return null;
 
+    // Without a live subscription, or after the end date, the server refuses the
+    // code, so neither the link nor the code is handed out.
+    const canInvite = me.eligible && me.campaign_open;
+
     const stateLabel: Record<Invite["state"], string> = {
         pending: t("statePending"),
         subscribed: t("stateSubscribed"),
@@ -101,6 +105,7 @@ export function ReferralCard() {
                         <Gift className="w-5 h-5 text-accent-ink" />
                     </span>
                     <div className="space-y-1">
+                        <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("campaignName")}</p>
                         <h3 className="text-lg font-medium tracking-tight text-fg">{t("cardTitle")}</h3>
                         <p className="text-sm text-fg-60 leading-relaxed">{t("cardSubtitle")}</p>
                     </div>
@@ -113,7 +118,17 @@ export function ReferralCard() {
                     </div>
                 )}
 
-                {me.link && me.eligible && (
+                {/* Each reference on its own and copyable: the customer number is
+                    what support asks for, the invite code is the link without its
+                    address, for when it has to be read out or typed. */}
+                {(me.code || (canInvite && me.token)) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {me.code && <CopyValue label={t("clientRefLabel")} value={me.code} />}
+                        {canInvite && me.token && <CopyValue label={t("inviteCodeLabel")} value={me.token} />}
+                    </div>
+                )}
+
+                {me.link && canInvite && (
                     <div className="flex flex-col sm:flex-row gap-2">
                         <input
                             readOnly
@@ -163,6 +178,28 @@ export function ReferralCard() {
                     </div>
                 </section>
             )}
+        </div>
+    );
+}
+
+/** Never truncated: a cut-off reference is a wrong reference once it is pasted. */
+function CopyValue({ label, value }: { label: string; value: string }) {
+    const [copied, setCopied] = useState(false);
+    return (
+        <div className="rounded-2xl bg-surface-2 border border-hairline p-3 space-y-1.5 min-w-0">
+            <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">{label}</p>
+            <button
+                type="button"
+                onClick={() => {
+                    navigator.clipboard?.writeText(value)
+                        .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+                        .catch(() => { /* no clipboard: the value is still readable */ });
+                }}
+                className="w-full flex items-center justify-between gap-2 text-left font-mono text-sm tracking-[0.12em] text-fg hover:text-accent-ink transition-colors"
+            >
+                <span className="break-all">{value}</span>
+                {copied ? <Check className="w-4 h-4 text-accent-ink shrink-0" /> : <Copy className="w-4 h-4 text-fg-40 shrink-0" />}
+            </button>
         </div>
     );
 }

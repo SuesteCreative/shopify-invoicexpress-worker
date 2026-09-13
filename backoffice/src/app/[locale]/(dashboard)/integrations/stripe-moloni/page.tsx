@@ -12,6 +12,8 @@ import { RIOKO_CONFIG } from "@/lib/config";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import TrialBanner from "@/components/TrialBanner";
 import { alreadySubscribed } from "@/lib/subscription-state";
+import { useBillingPrice } from "@/lib/use-billing-price";
+import { formatMoney, annualSavingPct, monthlyEquivalent } from "@/lib/billing-display";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
@@ -44,6 +46,13 @@ export default function StripeMoloniIntegration() {
     const t = useTranslations("stripeMoloniSetup");
     const tCommon = useTranslations("integrationsIndex");
     const tB = useTranslations("faturacao");
+    const tCard = useTranslations("subscriptionCard");
+
+    // What this page's own Subscrever button will charge. It used to be two
+    // strings in the translation file, 5 €/mês and 50 €/ano, which is the price
+    // a migrated client's existing subscription bills on and not a price we
+    // sell: every new integration is sold at the current one.
+    const prices = useBillingPrice("stripe:moloni");
     const searchParams = useSearchParams();
     const stripeResult = searchParams.get("stripe");
 
@@ -406,6 +415,10 @@ export default function StripeMoloniIntegration() {
     // invoices flow normally. Only a truly blocked account gets the red banner.
     const subBlocked = !!sub?.blocked;
 
+    const priceLocale = tCard("dateLocale");
+    const annualEquivalent = formatMoney(monthlyEquivalent(prices?.annual), priceLocale);
+    const annualSaving = annualSavingPct(prices?.monthly, prices?.annual);
+
     if (!STRIPE_ENABLED) {
         return (
             <div className="max-w-3xl mx-auto py-24 space-y-8">
@@ -765,7 +778,8 @@ export default function StripeMoloniIntegration() {
                                 <div className="rounded-2xl p-5 flex flex-col gap-4 border border-hairline bg-surface-2/30">
                                     <div>
                                         <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40 mb-1">{tB("monthlyPlan")}</p>
-                                        <p className="text-2xl font-medium tracking-tight">{t("monthlyPrice")}</p>
+                                        <p className="text-2xl font-medium tracking-tight">{formatMoney(prices?.monthly, priceLocale) ?? "—"}</p>
+                                        <p className="text-[11px] text-fg-40 font-medium mt-1">{tCard("vatMonthly")}</p>
                                     </div>
                                     <button onClick={() => handleSubscribe("monthly")} disabled={!!subscribing} className="w-full py-3 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] bg-veil border border-hairline hover:border-rule hover:bg-fg/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                                         {subscribing === "monthly" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -776,9 +790,14 @@ export default function StripeMoloniIntegration() {
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
                                             <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-40">{tB("annualPlan")}</p>
-                                            <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-accent-hot/15 text-accent-hot border border-accent-hot/25">{tB("annualSaving")}</span>
+                                            {annualSaving !== null && (
+                                                <span className="px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.18em] bg-accent-hot/15 text-accent-hot border border-accent-hot/25">{tCard("savePercent", { pct: annualSaving })}</span>
+                                            )}
                                         </div>
-                                        <p className="text-2xl font-medium tracking-tight">{t("annualPrice")}</p>
+                                        <p className="text-2xl font-medium tracking-tight">{formatMoney(prices?.annual, priceLocale) ?? "—"}</p>
+                                        <p className="text-[11px] text-fg-40 font-medium mt-1">
+                                            {annualEquivalent ? tCard("vatAnnualEquivalent", { amount: annualEquivalent }) : tCard("vatAnnualPlain")}
+                                        </p>
                                     </div>
                                     <button onClick={() => handleSubscribe("annual")} disabled={!!subscribing} className="w-full py-3 rounded-xl font-mono text-[10px] uppercase tracking-[0.18em] bg-accent text-surface font-bold hover:bg-accent-hot transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                                         {subscribing === "annual" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}

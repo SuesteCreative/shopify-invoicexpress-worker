@@ -308,8 +308,6 @@
         "titleTrial": "Trial in progress",
         "titleBlocked": "Subscription inactive",
         "titleNone": "Subscribe to Rioko 2.0",
-        "planAnnual": "Annual · €75/year",
-        "planMonthly": "Monthly · €7.50/month",
         "planDynamicAnnual": "Annual · €{amount}/year + VAT",
         "planDynamicMonthly": "Monthly · €{amount}/month + VAT",
         "cancels": "Cancels {date}",
@@ -329,7 +327,6 @@
         "perMonth": "/month",
         "perYear": "/year",
         "vatMonthly": "+ VAT · monthly billing",
-        "vatAnnual": "+ VAT · equiv. €6.25/month",
         "ctaReactivate": "Reactivate",
         "ctaAddPayment": "Add payment",
         "ctaSubscribe": "Subscribe",
@@ -1392,10 +1389,6 @@
         "statusTrial": "Trial",
         "statusInactive": "Inactive",
         "statusNone": "No subscription",
-        "planAnnual": "Annual · €75/year",
-        "planMonthly": "Monthly · €7.50/month",
-        "planAnnualStripeMoloni": "Annual · €50/year + VAT",
-        "planMonthlyStripeMoloni": "Monthly · €5/month + VAT",
         "planDynamicMonthly": "Monthly · €{amount}/month + VAT",
         "planDynamicAnnual": "Annual · €{amount}/year + VAT",
         "cancels": "Cancels {date}",
@@ -1443,10 +1436,7 @@
         "suspendedBody": "While the subscription is inactive the system is suspended and no invoices are issued. Activate a subscription below and invoice processing resumes automatically.",
         "subscribeHeading": "Activate subscription",
         "monthlyPlan": "Monthly",
-        "monthlyPrice": "€7.50/month + VAT",
         "annualPlan": "Annual",
-        "annualPrice": "€75/year + VAT",
-        "annualSaving": "Save 17%",
         "btnSubscribeMonthly": "Subscribe monthly",
         "btnSubscribeAnnual": "Subscribe annually"
     },
@@ -2448,8 +2438,6 @@
         "documentTypeDesc": "Invoice-Receipt for already-settled payments (Stripe's case); Invoice for credit invoicing.",
         "documentTypeInvoice": "Invoice",
         "documentTypeInvoiceReceipt": "Invoice-Receipt",
-        "monthlyPrice": "€5/month + VAT",
-        "annualPrice": "€50/year + VAT",
         "exemptionDesc": "Applied when the invoice has 0% VAT (exemption, reverse charge, etc).",
         "activateWarning": "Once active, Rioko starts processing Stripe webhooks and issuing Moloni invoices in real time. You can pause anytime.",
         "integrationDoneTitle": "Integration complete",
@@ -2522,8 +2510,7 @@
         "step2Desc": "The account that issues the documents, and this connection's fiscal identity",
         "ixIntroTitle": "The credentials belong to the account, the fiscal identity to this connection",
         "ixIntroBody": "The InvoiceXpress account name and API key are shared by every integration that files into it. The series, document type and exemption code belong to this connection: you can use one series here and a different one on another integration of the same account.",
-        "seqHint": "Leave empty to use whichever series the account already has set.",
-        "subscribeHint": "This connection bills on the same plan as Stripe Legacy + InvoiceXpress."
+        "seqHint": "Leave empty to use whichever series the account already has set."
     },
     "stripeIxSetup": {
         "backToIntegrations": "Back to integrations",
@@ -3442,7 +3429,6 @@
         },
         "subscribe": {
             "title": "Subscribe",
-            "desc": "7.50 € per month, or 75 € per year",
             "body": "Payment happens on Stripe's secure page. The connection is already built: the subscription is what keeps it issuing.",
             "inviteRefused": "The link you were sent has already been used, or has expired. You can subscribe here as usual, or ask us for a new one.",
             "note": "Prices exclude VAT, added at the legal rate. Cancel whenever you like from the dashboard, with no minimum term."
@@ -3512,7 +3498,6 @@
         },
         "subscribe": {
             "title": "Subscribe",
-            "desc": "7.50 € per month, or 75 € per year",
             "body": "Payment happens on Stripe's secure page. The connection is already built: the subscription is what keeps it issuing.",
             "inviteRefused": "The link you were sent has already been used, or has expired. You can subscribe here as usual, or ask us for a new one.",
             "note": "Prices exclude VAT, added at the legal rate. Cancel whenever you like from the dashboard, with no minimum term."

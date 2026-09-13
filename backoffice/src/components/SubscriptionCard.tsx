@@ -258,17 +258,17 @@ export default function SubscriptionCard(
                             <span className={cn("px-2 py-0.5 rounded-md font-mono text-[9px] uppercase tracking-[0.22em] border", config.badge)}>
                                 {reward ? tr("rewardBadge") : config.badgeText}
                             </span>
-                            {sub?.plan && (
+                            {/* What they pay, not what the plan costs today. A client on the
+                                old 5 €/50 € was told "7,50 €/mês" on their own dashboard —
+                                the same lie the amounts were taken out of the markup to fix,
+                                left behind on this one label. The billing page already reads
+                                plan_price; this now reads the same field, and prints nothing
+                                at all when Stripe cannot be read rather than falling back to
+                                a figure that is only right for the current price. */}
+                            {sub?.plan && data?.plan_price && (
                                 <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">
-                                    {/* What they pay, not what the plan costs today. A client on the
-                                        old 5 €/50 € was told "7,50 €/mês" on their own dashboard —
-                                        the same lie the amounts were taken out of the markup to fix,
-                                        left behind on this one label. The billing page already reads
-                                        plan_price; this now reads the same field. */}
-                                    {data?.plan_price
-                                        ? t(data.plan_price.interval === "year" ? "planDynamicAnnual" : "planDynamicMonthly",
-                                            { amount: (data.plan_price.amount_cents / 100).toFixed(2) })
-                                        : (sub.plan === "annual" ? t("planAnnual") : t("planMonthly"))}
+                                    {t(data.plan_price.interval === "year" ? "planDynamicAnnual" : "planDynamicMonthly",
+                                        { amount: (data.plan_price.amount_cents / 100).toFixed(2) })}
                                 </span>
                             )}
                             {sub?.cancel_at_period_end === 1 && (

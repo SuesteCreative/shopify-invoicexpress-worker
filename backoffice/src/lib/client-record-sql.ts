@@ -66,6 +66,42 @@ export function connectionKeyForDocumentEvent(row: DocumentEventLike): string | 
     return null;
 }
 
+export interface IdentityRequestRow {
+    field: string;
+    new_value: string | null;
+    [key: string]: unknown;
+}
+
+/**
+ * The fiscal identity changes a client asked for and has not been given.
+ *
+ * `config_audit` is append-only and carries no status, which is deliberate: a
+ * request with a status column would need somebody to close it, and a queue
+ * nobody closes is a queue nobody believes. The state is the comparison — a
+ * request stands while what was asked for still differs from what is stored, so
+ * applying it IS closing it, and so is the client asking for something they
+ * already have.
+ *
+ * Compared as trimmed strings because one side comes from a form and the other
+ * from a column that holds both null and "" for the same absence.
+ */
+export function outstandingIdentityRequests<T extends IdentityRequestRow>(
+    rows: T[], current: Record<string, unknown>,
+): T[] {
+    const norm = (v: unknown) => String(v ?? "").trim();
+    const seen = new Set<string>();
+    const out: T[] = [];
+    for (const row of rows) {
+        // Newest first from the query: an older ask for the same field was
+        // superseded by the one above it, not granted.
+        if (seen.has(row.field)) continue;
+        seen.add(row.field);
+        if (norm(current[row.field]) === norm(row.new_value)) continue;
+        out.push(row);
+    }
+    return out;
+}
+
 /**
  * Group rows by connection, newest bucket order left to the caller.
  *

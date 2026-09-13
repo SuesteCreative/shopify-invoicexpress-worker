@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
     LEGACY_CONNECTION_KEY, connectionKeyForScope,
-    connectionKeyForDocumentEvent, groupByConnection,
+    connectionKeyForDocumentEvent, groupByConnection, outstandingIdentityRequests,
 } from "./client-record-sql";
 
 /**
@@ -57,6 +57,43 @@ describe("connectionKeyForDocumentEvent", () => {
         expect(connectionKeyForDocumentEvent({})).toBeNull();
         expect(connectionKeyForDocumentEvent({ source_kind: "stripe" })).toBeNull();
         expect(connectionKeyForDocumentEvent({ destination_kind: "moloni" })).toBeNull();
+    });
+});
+
+describe("outstandingIdentityRequests", () => {
+    const asked = (field: string, value: string, at = "2026-09-13T10:00:00Z") =>
+        ({ field, new_value: value, created_at: at });
+
+    it("keeps a request whose value is not what is stored", () => {
+        const rows = [asked("nif", "517569493")];
+        expect(outstandingIdentityRequests(rows, { nif: "256647976" })).toHaveLength(1);
+    });
+
+    it("drops one that has been granted — applying it is closing it", () => {
+        const rows = [asked("nif", "517569493")];
+        expect(outstandingIdentityRequests(rows, { nif: "517569493" })).toEqual([]);
+    });
+
+    it("treats null and empty string as the same absence", () => {
+        expect(outstandingIdentityRequests([asked("company_name", "")], { company_name: null })).toEqual([]);
+        expect(outstandingIdentityRequests([asked("company_name", " Bikini Books ")], { company_name: "Bikini Books" })).toEqual([]);
+    });
+
+    it("shows only the latest ask per field, not every attempt", () => {
+        // Newest first, the order the query returns. An older ask for the same
+        // field was superseded, not granted — listing both reads as two requests.
+        const rows = [
+            asked("nif", "999999999", "2026-09-13T12:00:00Z"),
+            asked("nif", "517569493", "2026-09-10T09:00:00Z"),
+        ];
+        const out = outstandingIdentityRequests(rows, { nif: "256647976" });
+        expect(out).toHaveLength(1);
+        expect(out[0].new_value).toBe("999999999");
+    });
+
+    it("keeps requests for different fields apart", () => {
+        const rows = [asked("nif", "517569493"), asked("company_name", "Bikini Books Unipessoal Lda")];
+        expect(outstandingIdentityRequests(rows, { nif: "111111111", company_name: null })).toHaveLength(2);
     });
 });
 

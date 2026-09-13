@@ -66,40 +66,150 @@ export function connectionKeyForDocumentEvent(row: DocumentEventLike): string | 
     return null;
 }
 
-export interface IdentityRequestRow {
+/** The three scopes `config_audit` carries for a fiscal identity change. */
+export const SCOPE_REQUEST = "profile_change_request";
+export const SCOPE_APPLIED = "profile";
+export const SCOPE_REJECTED = "profile_change_rejected";
+
+/** The two fields a merchant may ask about and may not edit. */
+export const REQUESTABLE_FIELDS = ["nif", "company_name"] as const;
+
+export interface IdentityAuditRow {
+    scope: string;
     field: string;
-    new_value: string | null;
+    old_value?: string | null;
+    new_value?: string | null;
+    created_at: string;
+    actor?: string | null;
     [key: string]: unknown;
 }
 
 /**
- * The fiscal identity changes a client asked for and has not been given.
- *
- * `config_audit` is append-only and carries no status, which is deliberate: a
- * request with a status column would need somebody to close it, and a queue
- * nobody closes is a queue nobody believes. The state is the comparison — a
- * request stands while what was asked for still differs from what is stored, so
- * applying it IS closing it, and so is the client asking for something they
- * already have.
- *
- * Compared as trimmed strings because one side comes from a form and the other
- * from a column that holds both null and "" for the same absence.
+ * Timestamps in `config_audit` and on `users` are written by CURRENT_TIMESTAMP,
+ * which SQLite renders as "2026-09-13 08:53:00" — but a value that ever came
+ * through code arrives as ISO, and the two sort differently at position 11
+ * (`T` > space). Compared normalised rather than raw, for the same reason the
+ * document-log purge compares dates only.
  */
-export function outstandingIdentityRequests<T extends IdentityRequestRow>(
-    rows: T[], current: Record<string, unknown>,
-): T[] {
-    const norm = (v: unknown) => String(v ?? "").trim();
-    const seen = new Set<string>();
-    const out: T[] = [];
-    for (const row of rows) {
-        // Newest first from the query: an older ask for the same field was
-        // superseded by the one above it, not granted.
-        if (seen.has(row.field)) continue;
-        seen.add(row.field);
-        if (norm(current[row.field]) === norm(row.new_value)) continue;
-        out.push(row);
+function stamp(value: string | null | undefined): string {
+    return String(value ?? "").replace("T", " ").replace(/\.\d+Z?$/, "").replace(/Z$/, "").trim();
+}
+
+export type IdentityOutcome = "pending" | "applied" | "rejected";
+
+export interface IdentityRequestState {
+    field: string;
+    /** What the client asked for. */
+    requested: string | null;
+    requested_at: string;
+    outcome: IdentityOutcome;
+    /** When it was granted or refused; null while pending. */
+    decided_at: string | null;
+    /** Who decided, and why they refused — only ever what the operator wrote. */
+    decided_by: string | null;
+    reason: string | null;
+    /**
+     * What was actually written, which is NOT always what was asked: an operator
+     * correcting a typo in the number the client sent writes their own value.
+     * The client is told what their record now says, not what they once asked
+     * for. Null when the grant was derived rather than recorded.
+     */
+    decided_value: string | null;
+}
+
+/**
+ * What became of each field the client asked about.
+ *
+ * One row per requestable field, built from the append-only trail rather than
+ * from a status column. A decision is any `profile` (granted) or
+ * `profile_change_rejected` (refused) row for that field dated at or after the
+ * request — which is what lets a client ask AGAIN after a refusal and have the
+ * new ask count: it is newer than the refusal, so no decision follows it.
+ *
+ * A request whose value is already stored counts as granted even with no
+ * decision row, because the operator may have changed it from somewhere else
+ * (the fiscal console, an onboarding form filled in under impersonation) and the
+ * client should not be told their request is still waiting when it plainly is
+ * not.
+ *
+ * `rows` MUST arrive newest-first, and recency is the ORDER OF THE ARRAY, never
+ * a comparison of the timestamps in it. `config_audit.created_at` is
+ * CURRENT_TIMESTAMP — one-second resolution — so a refusal and a fresh ask in
+ * the same second compare equal, and whichever way that tie broke would be a
+ * coin flip deciding whether a client's brand new request reads as already
+ * refused. The queries order by `created_at DESC, rowid DESC`; insertion order
+ * settles it, and this function just trusts what it was handed.
+ */
+export function identityRequestStates(
+    rows: IdentityAuditRow[], current: Record<string, unknown>,
+): IdentityRequestState[] {
+    const out: IdentityRequestState[] = [];
+
+    for (const field of REQUESTABLE_FIELDS) {
+        const mine = rows.filter((r) => r.field === field);
+        const at = mine.findIndex((r) => r.scope === SCOPE_REQUEST);
+        if (at < 0) continue;
+        const latest = mine[at];
+
+        // Anything BEFORE it in the array is newer than it, and the first
+        // decision among those is the answer.
+        const decision = mine.slice(0, at)
+            .find((r) => r.scope === SCOPE_APPLIED || r.scope === SCOPE_REJECTED);
+
+        const granted = String(current[field] ?? "").trim() === String(latest.new_value ?? "").trim();
+        const refused = decision?.scope === SCOPE_REJECTED;
+
+        out.push({
+            field,
+            requested: latest.new_value ?? null,
+            requested_at: String(latest.created_at),
+            outcome: decision ? (refused ? "rejected" : "applied") : (granted ? "applied" : "pending"),
+            decided_at: decision ? String(decision.created_at) : null,
+            decided_by: decision?.actor ? String(decision.actor) : null,
+            // Only the operator's own words. A refusal with no reason says so
+            // rather than inventing one.
+            reason: refused ? (decision!.new_value ? String(decision!.new_value) : null) : null,
+            decided_value: decision && !refused ? (decision.new_value ?? null) : null,
+        });
     }
+
     return out;
+}
+
+/**
+ * How far back an unseen answer is still worth announcing.
+ *
+ * The column arrives null for every account that existed before migration 0059,
+ * so without a bound the notice would greet them with a decision from months
+ * ago as if it had just happened. An answer nobody has looked at in a month is
+ * history, and history lives on the Conta page, which needs no dismissing.
+ */
+export const IDENTITY_NOTICE_WINDOW_DAYS = 30;
+
+/**
+ * The answers the client has not been shown yet.
+ *
+ * `seenAt` is when they last dismissed the notice (users.identity_notice_seen_at,
+ * migration 0059). Null means never — every decision inside the window counts as
+ * unread, which is right for a client who has an answer waiting and has never
+ * been told.
+ *
+ * A grant with no decision row is deliberately never announced: it has no date,
+ * and a change nobody recorded is a change nobody can honestly say happened
+ * today. `now` is passed in rather than read, so the rule is testable.
+ */
+export function unreadIdentityOutcomes(
+    states: IdentityRequestState[], seenAt: string | null | undefined, now: Date = new Date(),
+): IdentityRequestState[] {
+    const since = stamp(seenAt);
+    const cutoff = stamp(new Date(now.getTime() - IDENTITY_NOTICE_WINDOW_DAYS * 864e5).toISOString());
+
+    return states.filter((s) => {
+        if (s.outcome === "pending" || !s.decided_at) return false;
+        const at = stamp(s.decided_at);
+        if (at <= cutoff) return false;
+        return !since || at > since;
+    });
 }
 
 /**

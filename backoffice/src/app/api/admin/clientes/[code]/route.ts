@@ -6,7 +6,7 @@ import { isAdmin, isHiperadmin, getRole, getImpersonationId } from "@/lib/admin"
 import { resolveClientCode, lookupRetiredCode, ensureClientCode } from "@/lib/client-code";
 import { accountLabel } from "@/lib/labels";
 import { auditConfigChange } from "@/lib/config-audit";
-import { outstandingIdentityRequests } from "@/lib/client-record-sql";
+import { identityRequestStates } from "@/lib/client-record-sql";
 import { loadBillingIdentity } from "@/lib/billing-identity";
 import { CONNECTION_PUBLIC_SELECT, redactConfigJson, stripIntegrationSecrets } from "@/lib/redact";
 import { listSubscriptions, stripeDashboardBase, subscriptionUIState } from "@/lib/stripe";
@@ -133,15 +133,16 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                        (SELECT COUNT(*) FROM incidents WHERE user_id = ?1 AND status IN ('open','acknowledged')) AS incidents_open
             `).bind(accountId).first().catch(() => ({ documents: 0, incidents_open: 0 })),
 
-            // What the client asked us to change about their fiscal identity.
-            // There is no status column on purpose: a request stands while what
-            // was asked for still differs from what is stored, so applying it IS
-            // closing it. See /api/user/identity-request.
+            // The whole story of the fiscal identity: what the client asked, what
+            // was granted, what was refused. There is no status column on
+            // purpose — the state is read off the trail, so nothing has to be
+            // closed by hand. See identityRequestStates.
             db.prepare(`
-                SELECT id, field, old_value, new_value, created_at
+                SELECT id, scope, field, old_value, new_value, actor, created_at
                   FROM config_audit
-                 WHERE user_id = ? AND scope = 'profile_change_request'
-                 ORDER BY created_at DESC LIMIT 10
+                 WHERE user_id = ?
+                   AND scope IN ('profile_change_request', 'profile', 'profile_change_rejected')
+                 ORDER BY created_at DESC, rowid DESC LIMIT 40
             `).bind(accountId).all().catch(() => ({ results: [] })),
         ]);
 
@@ -236,9 +237,10 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             members: ((memberRows as any).results ?? []),
             seats,
             counts,
-            // Only the ones still outstanding — see outstandingIdentityRequests
-            // for why there is no status column to read instead.
-            identity_requests: outstandingIdentityRequests(((requestRows as any).results ?? []) as any[], userRow),
+            // One row per field the client has ever asked about, with what became
+            // of it. The page shows the pending ones as work and the decided ones
+            // as history.
+            identity_requests: identityRequestStates(((requestRows as any).results ?? []) as any[], userRow),
             fiscal_visible: fiscalVisible,
             viewer_role: viewerRole,
         });
@@ -271,10 +273,38 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const body = await request.json() as { field?: string; value?: string };
+        const body = await request.json() as { field?: string; value?: string; reject?: boolean; reason?: string };
         const field = String(body.field ?? "");
         if (!OPERATOR_EDITABLE.has(field)) {
             return NextResponse.json({ error: "field_not_editable" }, { status: 400 });
+        }
+
+        const { env: rejectEnv } = getRequestContext();
+        const rejectDb = (rejectEnv as any).DB;
+
+        // ── Refusing ───────────────────────────────────────────────────────────
+        //
+        // A refusal changes no value, so there is nothing for the derivation to
+        // notice — which is why it has to be written down. It goes in the same
+        // append-only trail as the request and the grant, so the three read as
+        // one story, and the reason is only ever what the operator typed: a
+        // refusal with none says so rather than inventing one.
+        if (body.reject === true) {
+            if (!rejectDb) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+            const { code: rejectCode } = await ctx.params;
+            const target = await resolveClientCode(rejectDb, rejectCode);
+            if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+            const reason = String(body.reason ?? "").trim().slice(0, 300) || null;
+            await auditConfigChange(rejectDb, {
+                userId: target.accountId,
+                actor: userId,
+                scope: "profile_change_rejected",
+                field,
+                oldValue: null,
+                newValue: reason,
+            });
+            return NextResponse.json({ success: true, rejected: true });
         }
 
         // An empty string is "unset", not the empty string — same rule the fiscal

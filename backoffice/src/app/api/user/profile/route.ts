@@ -117,22 +117,30 @@ export async function POST(req: NextRequest) {
         data.fiscal_address,
         data.phone,
         data.website,
+        data.nif,
         accepted,
         ...extra,
         targetUserId,
     ).run();
 
-    // The CASE reads the row as it was BEFORE this statement, which is what makes
-    // the first registration work: `registration_completed` is still 0 there, so
-    // the NIF lands. Every later save by a non-admin keeps what is stored.
+    // Every CASE reads the row as it was BEFORE this statement, which is what
+    // makes the first registration work: `registration_completed` is still 0
+    // there, so the NIF lands. Every later save by a non-admin keeps what is
+    // stored — except a stored value that is EMPTY, which is not an identity
+    // anybody invoiced against and so has nothing to protect.
+    //
+    // `registration_completed` only turns 1 on a save that carries a NIF. It
+    // used to turn 1 on any save, and the Conta page — which sends the profile
+    // as it is, an empty NIF included — closed an unfinished registration with
+    // no NIF at all, after which the guard above locked it empty for good.
     const COLUMNS = `
-        SET nif = CASE WHEN registration_completed = 1 AND ? = 0 THEN nif ELSE ? END,
+        SET nif = CASE WHEN registration_completed = 1 AND ? = 0 AND COALESCE(nif, '') <> '' THEN nif ELSE ? END,
             name = COALESCE(NULLIF(?, ''), name),
-            company_name = CASE WHEN registration_completed = 1 AND ? = 0 THEN company_name ELSE ? END,
+            company_name = CASE WHEN registration_completed = 1 AND ? = 0 AND COALESCE(company_name, '') <> '' THEN company_name ELSE ? END,
             fiscal_address = ?,
             phone = ?,
             website = ?,
-            registration_completed = 1,
+            registration_completed = CASE WHEN TRIM(COALESCE(?, '')) = '' THEN registration_completed ELSE 1 END,
             privacy_policy_accepted = ?`;
 
     const result = await bind(`

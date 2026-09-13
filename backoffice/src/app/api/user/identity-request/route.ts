@@ -2,10 +2,10 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 
-import { resolveAccountUser, isReadOnlyMember } from "@/lib/account";
+import { resolveAccountUser } from "@/lib/account";
 import { isAdmin, getImpersonationId } from "@/lib/admin";
 import { auditConfigChange } from "@/lib/config-audit";
-import { identityRequestStates, unreadIdentityOutcomes } from "@/lib/client-record-sql";
+import { identityRequestStates, unreadIdentityOutcomes, type IdentityRequestState } from "@/lib/client-record-sql";
 import { accountLabel } from "@/lib/labels";
 import { callWorkerJson } from "@/lib/worker";
 import { SUPPORT_EMAIL } from "@/lib/config";
@@ -44,6 +44,23 @@ const TRAIL_SQL = `
      ORDER BY created_at DESC, rowid DESC LIMIT 40`;
 
 /**
+ * What a merchant may read of a decision: everything except WHO made it.
+ * `decided_by` is the operator's internal Clerk id — nothing a client can use,
+ * and not theirs to hold.
+ */
+function forClient(s: IdentityRequestState) {
+    return {
+        field: s.field,
+        requested: s.requested,
+        requested_at: s.requested_at,
+        outcome: s.outcome,
+        decided_at: s.decided_at,
+        decided_value: s.decided_value,
+        reason: s.reason,
+    };
+}
+
+/**
  * What became of what they asked, and what they have not been shown yet.
  *
  * The client's half of the loop. Their requests used to travel one way: the
@@ -75,15 +92,15 @@ export async function GET(request: NextRequest) {
         const rows = await db.prepare(TRAIL_SQL).bind(accountId).all().catch(() => ({ results: [] }));
         const states = identityRequestStates((rows.results ?? []) as any[], account);
 
-        // A read-only member cannot write the dismissal, so the notice would
-        // never go away for them. The page is told, and hides it for the session
-        // instead of pretending the button works.
-        const readOnly = await isReadOnlyMember(userId);
-
         return NextResponse.json({
-            states,
-            unread: unreadIdentityOutcomes(states, account.identity_notice_seen_at ?? null),
-            can_dismiss: !readOnly,
+            states: states.map(forClient),
+            unread: unreadIdentityOutcomes(states, account.identity_notice_seen_at ?? null).map(forClient),
+            // Only the account's owner, signed in as themselves, marks an answer
+            // seen. The mark is one date on the ACCOUNT, so an invited member —
+            // or an operator impersonating — closing it would close it for the
+            // owner, who is the person it is for. For them the notice hides for
+            // the session instead.
+            can_dismiss: accountId === userId,
         });
     } catch (error: any) {
         if (error?.name === "ReadOnlyMemberError") return NextResponse.json({ states: [], unread: [] });
@@ -105,11 +122,8 @@ export async function POST(request: NextRequest) {
         //
         // Stamped on the ACCOUNT, so a decision older than this moment stops
         // being announced — on this browser and on every other one, which is the
-        // reason it is a column and not local storage.
-        //
-        // Refused under impersonation on purpose: an operator clicking through a
-        // client's dashboard must not be able to mark, on that client's behalf,
-        // that they have seen an answer they have never seen.
+        // reason it is a column and not local storage. Only the owner may stamp
+        // it; see can_dismiss above.
         if (body.dismiss === true) {
             const { env: dismissEnv } = getRequestContext();
             const dismissDb = (dismissEnv as any).DB;
@@ -119,6 +133,8 @@ export async function POST(request: NextRequest) {
             if (impersonating) return NextResponse.json({ success: false, reason: "impersonating" });
 
             const account = await resolveAccountUser(request, userId);
+            if (account !== userId) return NextResponse.json({ success: false, reason: "not_owner" });
+
             const done = await dismissDb
                 .prepare("UPDATE users SET identity_notice_seen_at = CURRENT_TIMESTAMP WHERE id = ?")
                 .bind(account).run()
@@ -161,7 +177,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "already_that_value" }, { status: 400 });
         }
 
-        await auditConfigChange(db, {
+        const recorded = await auditConfigChange(db, {
             userId: accountId,
             actor: userId,
             scope: "profile_change_request",
@@ -169,6 +185,11 @@ export async function POST(request: NextRequest) {
             oldValue: current,
             newValue: requested,
         });
+        // The row IS the request: it is what the record lists and what the answer
+        // is derived from. If it did not land, nothing was asked — and answering
+        // "sent" would leave the client waiting on a request no operator can see.
+        // Checked before the email, so the operator is never told about one.
+        if (!recorded) return NextResponse.json({ error: "request_failed" }, { status: 500 });
 
         const label = accountLabel(account, account.email);
         const code = account.client_code ?? accountId;

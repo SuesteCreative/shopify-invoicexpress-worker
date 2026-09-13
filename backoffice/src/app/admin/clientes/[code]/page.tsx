@@ -17,9 +17,18 @@ import { CustomerRecordPanel } from "@/components/admin/CustomerRecordPanel";
  * link that already points at /admin/users/<id>/dev-mode converts by changing
  * the path alone — and so an operator holding a raw id from a log line can open
  * the record with it.
+ *
+ * A MEMBER's number is redirected too, to the account they work inside, and the
+ * number that was asked for travels in `?membro=`. Without it the record could
+ * never say why the URL changed under the operator: the redirected request
+ * resolves the owner's number, which belongs to nobody's membership.
  */
-export default async function AdminClientRecordPage({ params }: { params: Promise<{ code: string }> }) {
+export default async function AdminClientRecordPage({ params, searchParams }: {
+    params: Promise<{ code: string }>;
+    searchParams: Promise<{ membro?: string }>;
+}) {
     const { code } = await params;
+    const { membro } = await searchParams;
 
     const db = (() => {
         try { return (getRequestContext().env as any)?.DB ?? null; } catch { return null; }
@@ -27,7 +36,7 @@ export default async function AdminClientRecordPage({ params }: { params: Promis
 
     // No binding (a local `next dev` without D1): let the panel render and report
     // the failure itself rather than 404-ing a page that is fine.
-    if (!db) return <CustomerRecordPanel code={code} />;
+    if (!db) return <CustomerRecordPanel code={code} askedForMember={membro ?? null} />;
 
     const resolved = await resolveClientCode(db, code);
     if (!resolved) {
@@ -39,8 +48,11 @@ export default async function AdminClientRecordPage({ params }: { params: Promis
 
     const canonical = await ensureClientCode(db, resolved.accountId);
     if (canonical && normalizeClientCode(code) !== canonical) {
-        redirect(`/admin/clientes/${canonical}`);
+        const asked = resolved.memberOf
+            ? `?membro=${encodeURIComponent(normalizeClientCode(code) ?? code)}`
+            : "";
+        redirect(`/admin/clientes/${canonical}${asked}`);
     }
 
-    return <CustomerRecordPanel code={canonical ?? code} />;
+    return <CustomerRecordPanel code={canonical ?? code} askedForMember={membro ?? null} />;
 }

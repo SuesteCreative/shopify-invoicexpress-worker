@@ -59,7 +59,16 @@ export interface AuditEntry {
     newValue: unknown;
 }
 
-export async function auditConfigChange(db: any, entry: AuditEntry): Promise<void> {
+/**
+ * Write one row. Resolves true when it landed, false when it did not.
+ *
+ * It still never throws: the trail must not be the reason a legitimate change
+ * fails to save. But a caller whose ONLY effect is the row — refusing a request,
+ * making one — has to be able to tell, or it answers "done" for something that
+ * was never recorded and the client waits on a request nobody can see. Every
+ * older caller ignores the result and behaves exactly as before.
+ */
+export async function auditConfigChange(db: any, entry: AuditEntry): Promise<boolean> {
     try {
         await db.prepare(
             `INSERT INTO config_audit (id, user_id, actor, scope, field, old_value, new_value)
@@ -68,9 +77,10 @@ export async function auditConfigChange(db: any, entry: AuditEntry): Promise<voi
             crypto.randomUUID(), entry.userId, entry.actor, entry.scope, entry.field,
             auditValue(entry.field, entry.oldValue), auditValue(entry.field, entry.newValue),
         ).run();
+        return true;
     } catch (e) {
-        // The trail must never be the reason a legitimate change fails to save.
         console.warn("[config-audit] write failed:", e);
+        return false;
     }
 }
 

@@ -100,6 +100,22 @@ async function claimClientCode(db: any, code: string, userId: string): Promise<v
 }
 
 /**
+ * The number this identity was first issued, if it ever was one.
+ *
+ * The ledger outlives the `users` row, so an identity that comes back finds its
+ * number here. Null for a table that is not there yet (pre-0058): the caller then
+ * mints, which handles that case already.
+ */
+async function priorClientCode(db: any, userId: string): Promise<string | null> {
+    const row: any = await db
+        .prepare("SELECT code FROM client_codes WHERE user_id = ? ORDER BY created_at ASC, rowid ASC LIMIT 1")
+        .bind(userId)
+        .first()
+        .catch(() => null);
+    return row?.code ? String(row.code) : null;
+}
+
+/**
  * Create or refresh the `users` row for a Clerk identity.
  *
  * A code is minted only for an account that has none — a login must never mint,
@@ -127,6 +143,24 @@ export async function upsertUserRow(
     }
 
     if (existing) { await touch(); return; }
+
+    // An account that comes BACK keeps its number. The admin delete removes the
+    // D1 row and deliberately leaves the Clerk identity, so the same person
+    // signing in again arrives here with the same id and no row — and minting
+    // would give a live customer a second number while the first, still on their
+    // tickets and campaigns, reported the account as deleted. It also settles the
+    // sign-up race: when the webhook and /api/auth/sync both get here, the one
+    // that loses adopts the winner's number instead of burning a second one.
+    const prior = await priorClientCode(db, user.id);
+    if (prior) {
+        try {
+            await db.prepare(UPSERT_SQL).bind(user.id, user.email, user.name, prior).run();
+            return;
+        } catch (e: any) {
+            if (MISSING_COLUMN.test(String(e?.message ?? e))) { await touch(); return; }
+            throw e;
+        }
+    }
 
     for (let attempt = 0; attempt < 3; attempt++) {
         const code = newClientCode();
@@ -156,6 +190,18 @@ export async function ensureClientCode(db: any, userId: string): Promise<string 
         const row: any = await db.prepare("SELECT client_code FROM users WHERE id = ?").bind(userId).first();
         if (!row) return null;
         if (row.client_code) return String(row.client_code);
+
+        // Same rule as upsertUserRow: an identity that was issued a number keeps it.
+        const prior = await priorClientCode(db, userId);
+        if (prior) {
+            const res: any = await db
+                .prepare("UPDATE users SET client_code = ? WHERE id = ? AND client_code IS NULL")
+                .bind(prior, userId)
+                .run();
+            if ((res?.meta?.changes ?? 0) > 0) return prior;
+            const again: any = await db.prepare("SELECT client_code FROM users WHERE id = ?").bind(userId).first();
+            return again?.client_code ? String(again.client_code) : null;
+        }
 
         for (let attempt = 0; attempt < 3; attempt++) {
             const code = newClientCode();

@@ -178,6 +178,10 @@ export default function GeneralOnboarding() {
     // Server-side truth, never where the merchant thinks they are: this page is
     // also the way back after a sign-up on another tab.
     const [profileDone, setProfileDone] = useState(false);
+    // The two fields the profile route stops accepting once they are registered
+    // and non-empty. Shown read-only rather than left editable and silently
+    // discarded on save — the change is requested from the Conta page instead.
+    const [fiscalLocked, setFiscalLocked] = useState({ nif: false, company: false });
     const [acceptedAt, setAcceptedAt] = useState<string | null>(null);
 
     const [form, setForm] = useState({
@@ -204,6 +208,10 @@ export default function GeneralOnboarding() {
         if (!profile) return;
 
         setProfileDone(profile.registration_completed === 1);
+        setFiscalLocked({
+            nif: profile.registration_completed === 1 && !!profile.nif,
+            company: profile.registration_completed === 1 && !!profile.company_name,
+        });
         setAcceptedAt(profile.privacy_policy_accepted_at ?? null);
         setForm(f => ({
             ...f,
@@ -373,11 +381,15 @@ export default function GeneralOnboarding() {
                             <input
                                 id="ob-nif" required inputMode="numeric" maxLength={9}
                                 autoComplete="off" placeholder={tReg("nifPlaceholder")}
-                                className={cn(INPUT_CLASS, "pl-14 font-mono")}
+                                className={cn(INPUT_CLASS, "pl-14 font-mono", fiscalLocked.nif && "opacity-70 cursor-not-allowed")}
                                 value={form.nif}
+                                readOnly={fiscalLocked.nif}
                                 onChange={e => setForm({ ...form, nif: e.target.value.replace(/\D/g, "") })}
                             />
                         </div>
+                        {fiscalLocked.nif && (
+                            <p className="mt-2 text-[11px] text-fg-40">{tReg("fiscalLocked")}</p>
+                        )}
                     </Field>
                 </div>
 
@@ -391,8 +403,9 @@ export default function GeneralOnboarding() {
                                 id="ob-name" required
                                 autoComplete={isCompany ? "organization" : "name"}
                                 placeholder={isCompany ? tReg("companyNamePlaceholder") : tReg("personNamePlaceholder")}
-                                className={cn(INPUT_CLASS, "pl-14")}
+                                className={cn(INPUT_CLASS, "pl-14", isCompany && fiscalLocked.company && "opacity-70 cursor-not-allowed")}
                                 value={isCompany ? form.company_name : form.name}
+                                readOnly={isCompany && fiscalLocked.company}
                                 onChange={e => setForm(isCompany
                                     ? { ...form, company_name: e.target.value }
                                     : { ...form, name: e.target.value })}

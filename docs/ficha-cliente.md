@@ -126,15 +126,55 @@ Duas decisões que a exploração mudou:
 | `backoffice/src/lib/config.ts` | `SUPPORT_EMAIL` |
 | `NavLinks.tsx`, `messages/{pt,en}.json` | entrada "Conta" + namespace `conta` (38 chaves em cada idioma) |
 
-A guarda é `CASE WHEN registration_completed = 1 AND ? = 0 THEN nif ELSE ? END`,
+A guarda é `CASE WHEN registration_completed = 1 AND ? = 0 AND COALESCE(nif, '') <> '' THEN nif ELSE ? END`,
 com a bandeira a valer `isAdmin(userId) ? 1 : 0`. Está no UPDATE e não no HTML
-porque um campo desactivado é uma sugestão a quem consiga fazer POST. A aridade
-dos binds passou a 13/13 (e 10/10 no fallback pré-0049).
+porque um campo desactivado é uma sugestão a quem consiga fazer POST. Só tranca
+um campo **com valor**, e `registration_completed` só passa a 1 num save que
+traz NIF — antes, um save da Conta sem NIF completava o registo e trancava o
+NIF vazio para sempre.
 
 O pedido de alteração **não** vive em `incidents`: `autoResolveStaleIncidents`
 fecha aos 24 h qualquer incidente fora de `INVOICE_FAILURE_KINDS`
-(`src/services/incidents.ts:600-607`) e o pedido desaparecia sozinho. O estado
-deriva-se: está pendente enquanto o valor pedido diferir do que está em `users`.
+(`src/services/incidents.ts:600-607`) e o pedido desaparecia sozinho.
+
+O ciclo do pedido é todo `config_audit`, só de acrescentar:
+`profile_change_request` → `profile` (aplicado) ou `profile_change_rejected`
+(motivo em `new_value`). O estado deriva-se em `identityRequestStates`
+(`lib/client-record-sql.ts`), por ordem de linha e não de relógio — o
+`CURRENT_TIMESTAMP` tem resolução de um segundo. O cliente sabe do desfecho por
+um aviso no painel até o dispensar (`users.identity_notice_seen_at`, 0059,
+janela de 30 dias). **Sem email de desfecho, por decisão**; só o operador
+recebe email quando o pedido chega.
+
+---
+
+## Auditoria de 13/09/2026
+
+Revisão do que foi entregue em #140–#143, corrigida na branch
+`fix/customer-record-audit` (sem migrações). Achados confirmados e corrigidos:
+
+- **Conta:** NIF vazio trancado (acima); os quatro wizards de onboarding deixavam
+  editar NIF/empresa que o servidor deitava fora em silêncio — agora em leitura.
+- **Ficha:** cartão Shopify→IX fantasma só com `ix_authorized` (agora exige
+  loja); a linha legada saía inteira (colunas fiscais) a superadmins — agora só
+  identidade; a checklist de credenciais ignorava `source_config_json` (Stripe);
+  ligação sem subscrição própria aparecia activa enquanto o worker a recusa —
+  agora avisa; links Stripe mandavam `pi_`/`ch_` para `/invoices/`; o portão lia
+  o papel da conta impersonada; `document-log?user_id` não verificava papel; o
+  aviso de membro não sobrevivia ao redirect; o filtro "Sem ligação" estava
+  sempre vazio; uma recusa lia-se no registo como o NIF a mudar para o motivo.
+- **Pedido fiscal:** pedido e recusa respondiam sucesso com a escrita em
+  `config_audit` falhada; um membro dispensava o aviso do dono; `decided_by`
+  chegava ao comerciante; aviso e histórico mostravam o valor pedido em vez do
+  gravado e a data do pedido como data da decisão.
+- **Código:** uma conta apagada e recriada com o mesmo id Clerk recebia um
+  segundo número — agora recupera o primeiro da `client_codes`.
+- **Referral:** a auditoria apanhou o `SubscriptionCard` a rebentar com
+  `ui_state = "reward"`. Não é corrigido aqui: o PR #145 da sessão da campanha
+  tira `"reward"` de `SubscriptionUIState` (fica `trialing`), que resolve na raiz.
+
+Refutados: 0058 meio aplicada; janela `LIMIT 40`; `users.nif` não ser o NIF do
+emparelhador.
 
 ---
 

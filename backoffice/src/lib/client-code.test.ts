@@ -148,6 +148,22 @@ describe("upsertUserRow", () => {
         expect(h.ledger()).toHaveLength(1);
     });
 
+    it("gives an account that comes back the number it was first issued", async () => {
+        const h = harness();
+        await upsertUserRow(h.db, { id: "user_back", email: "b@x.pt", name: "Back Lda" });
+        const first = h.row("user_back").client_code;
+
+        // The admin delete: the D1 row goes and the Clerk identity stays, so the
+        // same person signs in again with the SAME id. Minting here gave a live
+        // customer a second number, and the first one — on their tickets and
+        // campaigns — then reported the account as deleted.
+        h.sqlite.exec("DELETE FROM users WHERE id = 'user_back';");
+        await upsertUserRow(h.db, { id: "user_back", email: "b@x.pt", name: "Back Lda" });
+
+        expect(h.row("user_back").client_code).toBe(first);
+        expect(h.ledger()).toHaveLength(1);
+    });
+
     it("never hands a deleted account's number to anybody else", async () => {
         const h = harness();
 
@@ -211,6 +227,14 @@ describe("ensureClientCode", () => {
         const code = await ensureClientCode(h.db, "user_a");
         expect(code).toMatch(CLIENT_CODE_RE);
         expect(h.row("user_a").client_code).toBe(code);
+    });
+
+    it("heals a row from the ledger rather than minting it a second number", async () => {
+        const h = harness();
+        h.sqlite.exec("INSERT INTO client_codes (code, user_id) VALUES ('RIO-0A0B0C', 'user_x');");
+        h.sqlite.exec("INSERT INTO users (id) VALUES ('user_x');");
+        expect(await ensureClientCode(h.db, "user_x")).toBe("RIO-0A0B0C");
+        expect(h.ledger()).toHaveLength(1);
     });
 
     it("returns the code a row already has, unchanged", async () => {

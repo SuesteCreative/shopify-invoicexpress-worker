@@ -36,11 +36,33 @@ export interface IxRefHeaders extends Record<string, string> {
   "x-env": "prod" | "dev";
 }
 
+/**
+ * A deleted document is not a document.
+ *
+ * InvoiceXpress keeps a deleted draft in the text search, reference and all, so
+ * an exact-reference match happily returns one. The caller reads any hit as
+ * "already invoiced", writes the id into `processed_orders` and skips the
+ * create — leaving the order pointing at a corpse: no sequence number, no fiscal
+ * existence, nothing issued, and a DB row saying otherwise.
+ *
+ * Seen on 2026-09-13 correcting five Janis in Rio drafts. Delete then re-emit,
+ * the obvious two-step, silently re-linked the deleted document on two of the
+ * five instead of creating the replacement. `force` masks it (it skips this
+ * check entirely) which is why nothing had noticed.
+ *
+ * Only `deleted` is filtered. A `canceled` document was finalized first and IS a
+ * fiscal record, so re-linking one is a different judgement and is left alone.
+ */
+function isDeleted(doc: any): boolean {
+  const state = String(doc?.status ?? doc?.state ?? "").trim().toLowerCase();
+  return state === "deleted";
+}
+
 /** The exact-match filter, separated so it can be tested without the network. */
 export function pickExactReference(documents: any[], reference: string): string | null {
   const want = reference.trim();
   for (const doc of documents ?? []) {
-    if (String(doc?.reference ?? "").trim() === want) {
+    if (String(doc?.reference ?? "").trim() === want && !isDeleted(doc)) {
       const id = doc?.id;
       if (id != null) return String(id);
     }
@@ -98,7 +120,12 @@ async function findViaProxy(headers: IxRefHeaders, reference: string, attempts: 
       if (res.status === 404) return null;             // answered: no such document
       if (res.ok) {
         const body: any = await res.json().catch(() => null);
-        const id = body?.data?.data?.id ?? body?.data?.id ?? null;
+        const hit = body?.data?.data ?? body?.data ?? null;
+        // Same rule as pickExactReference: the proxy matches on reference alone
+        // and hands back the document's `state`, so a deleted draft answers 200
+        // here too. Treat it as the miss it is.
+        if (isDeleted(hit)) return null;
+        const id = hit?.id ?? null;
         return id ? String(id) : null;
       }
       lastErr = new Error(`proxy HTTP ${res.status}`); // 5xx and friends: worth one more try

@@ -160,9 +160,23 @@ function findings(r) {
   const nonZero = (m) => [...m.keys()].filter((k) => parseFloat(k) > 0);
   const nonZeroProd = nonZero(r.prodRates), nonZeroShip = nonZero(r.shipRates);
 
+  // A rate the merchant TYPED is a decision; a rate that arrived on its own is
+  // the contradiction. Same rule builder.ts already applies to per-SKU overrides
+  // ("a merchant setting a rate by hand is a decision, not a resolution
+  // failure"), and this check was the one place that did not honour it: Janis in
+  // Rio is art. 53 with shipping deliberately at 23%, decided by the client and
+  // matching every invoice she issued before Rioko, and it read as a fault.
+  // The dangerous case survives untouched: a positive rate under a zero-only
+  // code that NOBODY configured, which is tax the buyer never agreed to pay.
+  const typed = (v, rates) => typeof v === "number" && v > 0
+    && rates.every((k) => parseFloat(k) === v);
   if (ZERO_ONLY_CODES.has(String(cfg.ix_exemption_reason))) {
-    if (nonZeroProd.length) out.push(`REGIME: ${cfg.ix_exemption_reason} nao liquida IVA, mas artigos saem a ${nonZeroProd.join(", ")}`);
-    if (nonZeroShip.length) out.push(`REGIME: ${cfg.ix_exemption_reason} nao liquida IVA, mas portes saem a ${nonZeroShip.join(", ")}`);
+    if (nonZeroProd.length && !typed(cfg.force_tax_rate, nonZeroProd)) {
+      out.push(`REGIME: ${cfg.ix_exemption_reason} nao liquida IVA, mas artigos saem a ${nonZeroProd.join(", ")}`);
+    }
+    if (nonZeroShip.length && !typed(cfg.force_shipping_tax_rate, nonZeroShip)) {
+      out.push(`REGIME: ${cfg.ix_exemption_reason} nao liquida IVA, mas portes saem a ${nonZeroShip.join(", ")}`);
+    }
   }
   // Portes a 23% sobre artigos a 6% ou isentos NAO e um achado: a taxa normal e
   // o defeito do transporte, e so se impoe outra quando o comerciante o declara.
@@ -222,6 +236,17 @@ for (const s of shops) {
   const fmt = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}x${v}`).join("  ") || "-";
   console.log(`   ${r.n} encomendas | artigos: ${fmt(r.prodRates)} | portes: ${fmt(r.shipRates)}${r.threw ? ` | ${r.threw} recusadas pela guarda` : ""}`);
   if (r.zeroDest.size) console.log(`   linhas a 0% por destino: ${fmt(r.zeroDest)}`);
+  // Named, not hidden. A rate typed into an exempt regime stops being a finding
+  // but stays on the page: it is a fiscal decision someone made, and the next
+  // person to read this should see it stated rather than infer it from silence.
+  if (ZERO_ONLY_CODES.has(String(c.ix_exemption_reason))) {
+    if (typeof c.force_tax_rate === "number" && c.force_tax_rate > 0) {
+      console.log(`   nota: artigos a ${c.force_tax_rate}% dentro de ${c.ix_exemption_reason}, por configuracao explicita (decisao, nao avaria)`);
+    }
+    if (typeof c.force_shipping_tax_rate === "number" && c.force_shipping_tax_rate > 0) {
+      console.log(`   nota: portes a ${c.force_shipping_tax_rate}% dentro de ${c.ix_exemption_reason}, por configuracao explicita (decisao, nao avaria)`);
+    }
+  }
   const f = findings(r);
   if (f.length) flagged.push(r.dom);
   for (const line of f) console.log(`   ! ${line}`);

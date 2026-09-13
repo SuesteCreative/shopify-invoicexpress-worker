@@ -49,6 +49,7 @@ function loadConfig(dom) {
     "force_tax_rate", "force_shipping_tax_rate", "vat_included", "oss_enabled",
     "b2b_reverse_charge", "auto_finalize", "pos_mode",
     "ix_retention_enabled", "ix_retention", "is_paused",
+    "invoice_cutoff", "created_at",
   ];
   const r = wq(`SELECT ${cols.join(", ")} FROM integrations WHERE shopify_domain='${dom}'`)[0];
   for (const k of ["force_tax_rate", "force_shipping_tax_rate", "vat_included", "oss_enabled", "b2b_reverse_charge", "auto_finalize", "pos_mode", "ix_retention_enabled", "ix_retention", "is_paused"]) {
@@ -124,6 +125,64 @@ function loadWebhookFails() {
     );
   } catch { return []; }
 }
+// When this shop started invoicing. A paid order older than this was NEVER in
+// scope — whatever billed it did so before Rioko existed for this merchant, and
+// re-emitting would mint a duplicate. Same rule the worker applies
+// (reconciliation-sweep.ts: invoice_cutoff ?? created_at). Without it the audit
+// reported deliberate scope as failure: WHM showed 5 "unbilled" orders that are
+// all older than its cutoff, Janis 9, a paused shop 362.
+function cutoffMsOf(cfg) {
+  const raw = cfg.invoice_cutoff ?? cfg.created_at;
+  if (!raw) return 0;
+  const s = String(raw).replace(" ", "T");
+  const ms = Date.parse(/[Z+]|[+-]\d\d:\d\d$/.test(s) ? s : s + "Z");
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+// Why Rioko is deliberately NOT invoicing a merchant, when it isn't. Mirrors
+// rowAllows() in src/services/subscription-gate.ts. The gate runs on the LIVE
+// path and on the sweep, so a blocked merchant goes silent on both at once —
+// and the only trace is one incident per order, which nobody sums.
+// ponytail: assumes SUBSCRIPTION_PER_CONNECTION=1 (what prod runs) and reads the
+// shopify:invoicexpress row, falling back to the account as a whole when that
+// row is absent. Read the flag off the worker if the two ever diverge.
+function loadGateBlocks() {
+  const now = Date.now();
+  const allows = (s) => {
+    if (!s) return false;
+    if (["canceled", "unpaid", "incomplete_expired", "incomplete", "past_due"].includes(s.status)) return false;
+    if (s.status === "trialing" && !Number(s.has_sub)) {
+      return !!(Number(s.early_bird) && s.trial_end && Date.parse(s.trial_end) > now);
+    }
+    return true;
+  };
+  const byUser = new Map();
+  let rows = [];
+  try {
+    rows = wq(
+      "SELECT s.user_id, s.connection_key, s.status, s.trial_end, s.early_bird, " +
+      "CASE WHEN s.stripe_subscription_id IS NULL THEN 0 ELSE 1 END has_sub, COALESCE(u.role,'') role " +
+      "FROM subscriptions s LEFT JOIN users u ON u.id = s.user_id"
+    );
+  } catch { return byUser; }
+  const perUser = new Map();
+  for (const r of rows) {
+    if (!perUser.has(r.user_id)) perUser.set(r.user_id, []);
+    perUser.get(r.user_id).push(r);
+  }
+  for (const [user, subs] of perUser) {
+    if (subs.some((s) => s.role === "superadmin" || s.role === "hiperadmin")) continue;
+    const own = subs.find((s) => s.connection_key === "shopify:invoicexpress");
+    const judged = own ?? null;
+    if (judged ? allows(judged) : subs.some(allows)) continue;
+    const s = judged ?? subs[0];
+    byUser.set(user, s
+      ? `subscrição ${s.status}${s.trial_end ? `, trial terminou ${String(s.trial_end).slice(0, 10)}` : ""}`
+      : "sem subscrição");
+  }
+  return byUser;
+}
+
 // Processed order ids for a shop (bounded query text). 7d buffer so orders
 // invoiced just before the window edge still count as processed.
 function loadProcessed(dom) {
@@ -140,10 +199,12 @@ function loadProcessed(dom) {
 
 const r2 = (n) => Math.round(n * 100) / 100;
 
-async function checkShop(shop, incByUser, whByShop) {
+async function checkShop(shop, incByUser, whByShop, gateBlocks) {
   const dom = shop.shopify_domain;
   const cfg = loadConfig(dom);
   const builder = new IxBuilder(cfg);
+  const cutMs = cutoffMsOf(cfg);
+  const blockedReason = gateBlocks.get(shop.user_id) ?? null;
 
   const tok = await checkToken(cfg);
   let orders = [], httpErr = null;
@@ -168,9 +229,20 @@ async function checkShop(shop, incByUser, whByShop) {
     if (nLines > 1) multiline++;
 
     // Unprocessed = paid, non-zero order with no invoice_id recorded in D1.
+    // Three very different things wear that shape, and conflating them is what
+    // made this report cry wolf:
+    //   pre-cutoff — never in scope, not a fault, nothing to do
+    //   suppressed — in scope, deliberately refused (expired trial, no sub);
+    //                the merchant is selling and Rioko is silent about it
+    //   unbilled   — in scope, allowed, and still missing. The real failure.
     if (!proc.withInvoice.has(String(o.id))) {
       const ageH = (Date.now() - new Date(o.created_at).getTime()) / 36e5;
-      unprocessed.push({ n: o.order_number, total: total.toFixed(2), ageH, inflight: ageH < INFLIGHT_H });
+      const preCutoff = cutMs > 0 && new Date(o.created_at).getTime() < cutMs;
+      unprocessed.push({
+        n: o.order_number, total: total.toFixed(2), amount: total, ageH,
+        inflight: ageH < INFLIGHT_H, preCutoff,
+        suppressed: !preCutoff && !!blockedReason,
+      });
     }
 
     // Drift: run the REAL builder path exactly as healthcheck does.
@@ -195,13 +267,24 @@ async function checkShop(shop, incByUser, whByShop) {
 
   const inc = incByUser.get(shop.user_id) ?? [];
   const wh = whByShop.get(dom) ?? (whByShop.get("@" + shop.user_id) ?? []);
-  const staleUnprocessed = unprocessed.filter(u => !u.inflight);
-  const critIncidents = inc.filter(i => i.severity === "error" || i.severity === "critical");
+  const settled = unprocessed.filter(u => !u.inflight);
+  const preCutoff = settled.filter(u => u.preCutoff);
+  const suppressed = settled.filter(u => u.suppressed);
+  // What is left is the only thing that means something broke.
+  const staleUnprocessed = settled.filter(u => !u.preCutoff && !u.suppressed);
+  // `subscription_inactive` is raised once per refused order, so a gated merchant
+  // arrives here with critical incidents that say exactly what the SUPRIMIDO line
+  // already says. Counting it as a failure too would bury the gate verdict under
+  // a FAIL and hide the one number that matters — how much is piling up.
+  const critIncidents = inc.filter(i =>
+    (i.severity === "error" || i.severity === "critical") && i.kind !== "subscription_inactive");
+  const sum = (rows) => rows.reduce((a, u) => a + u.amount, 0);
 
   return {
     dom, cfg, shop, tok, httpErr, n: orders.length, zero, foreign, withNif, discounted, multiline,
     drift: driftRows.length, threw, driftRows,
-    unprocessed, staleUnprocessed, inflightUnprocessed: unprocessed.length - staleUnprocessed.length,
+    unprocessed, staleUnprocessed, inflightUnprocessed: unprocessed.length - settled.length,
+    preCutoff, suppressed, blockedReason, suppressedValue: sum(suppressed), cutoffMs: cutMs,
     proc, newestOrderAt, inc, critIncidents, wh,
   };
 }
@@ -213,7 +296,13 @@ function verdict(r) {
   if (r.drift > 0) return "FAIL";
   if (!paused && r.staleUnprocessed.length > 0) return "FAIL";
   if (r.critIncidents.length > 0) return "FAIL";
-  if (r.inflightUnprocessed > 0 || r.inc.length > 0 || r.wh.length > 0 || (paused && r.unprocessed.length > 0)) return "WARN";
+  // Deliberate, but not harmless: the merchant is selling into a gate. It gets
+  // its own word so it can never be read as either a failure or as fine.
+  if (r.suppressed.length > 0) return "SUSPENSO";
+  if (r.inflightUnprocessed > 0 || r.inc.length > 0 || r.wh.length > 0) return "WARN";
+  // A paused shop that is still taking orders is deliberate too, but someone
+  // has to remember to unpause it.
+  if (paused && r.staleUnprocessed.length > 0) return "WARN";
   return "OK";
 }
 
@@ -227,6 +316,7 @@ console.log(`Enumerated ${shops.length} live Shopify→IX integrations from D1.\
 // group global reads
 const incByUser = new Map();
 for (const row of loadIncidents()) { const k = row.user_id; if (!incByUser.has(k)) incByUser.set(k, []); incByUser.get(k).push(row); }
+const gateBlocks = loadGateBlocks();
 const whByShop = new Map();
 for (const row of loadWebhookFails()) {
   const kd = row.dom, ku = "@" + row.user_id;
@@ -238,7 +328,7 @@ const results = [];
 for (const shop of shops) {
   process.stdout.write(`Checking ${shop.shopify_domain} ... `);
   try {
-    const r = await checkShop(shop, incByUser, whByShop);
+    const r = await checkShop(shop, incByUser, whByShop, gateBlocks);
     results.push(r);
     console.log(`${r.tok.ok ? r.n + " paid orders" : "TOKEN " + (r.tok.status || r.tok.err)}`);
     const paused = r.cfg.is_paused === 1 ? "  [PAUSED]" : "";
@@ -252,6 +342,14 @@ for (const shop of shops) {
       console.log(`  unbilled: ${r.staleUnprocessed.length} paid>${INFLIGHT_H}h with no invoice${r.inflightUnprocessed ? ` (+${r.inflightUnprocessed} in-flight <${INFLIGHT_H}h)` : ""}`);
       for (const u of r.staleUnprocessed.slice(0, 15)) console.log(`      #${u.n} paid=${u.total} age=${Math.round(u.ageH)}h  NO INVOICE`);
       if (r.staleUnprocessed.length > 15) console.log(`      ... +${r.staleUnprocessed.length - 15} more`);
+      if (r.suppressed.length) {
+        console.log(`  SUPRIMIDO: ${r.suppressed.length} encomenda(s) · ${r2(r.suppressedValue).toFixed(2)} € — ${r.blockedReason}`);
+        for (const u of r.suppressed.slice(0, 5)) console.log(`      #${u.n} paid=${u.total} age=${Math.round(u.ageH)}h  BLOQUEADO`);
+        if (r.suppressed.length > 5) console.log(`      ... +${r.suppressed.length - 5} more`);
+      }
+      if (r.preCutoff.length) {
+        console.log(`  pre-cutoff: ${r.preCutoff.length} paid order(s) older than ${new Date(r.cutoffMs).toISOString().slice(0, 10)} — out of scope, not a fault`);
+      }
       console.log(`  fresh:   last processed=${r.proc.lastAt ?? "never"}  newest paid order=${r.newestOrderAt ?? "-"}  (processed rows in window+7d: ${r.proc.total})`);
     }
     if (r.inc.length) {
@@ -273,26 +371,34 @@ for (const shop of shops) {
 // ------------------------------------------------------------------ summary ---
 console.log("================ SUMMARY ================");
 let dead = 0, drift = 0, unbilled = 0, critInc = 0, fails = 0, warns = 0;
+let suppressed = 0, suppressedValue = 0, preCutoff = 0, blockedShops = 0;
 for (const r of results) {
   const v = r.error ? "ERROR" : verdict(r);
   if (v === "FAIL" || v === "ERROR") fails++;
   if (v === "WARN") warns++;
+  if (v === "SUSPENSO") blockedShops++;
   if (r.tok && !r.tok.ok) dead++;
   drift += r.drift ?? 0;
   unbilled += (r.staleUnprocessed?.length ?? 0);
+  suppressed += (r.suppressed?.length ?? 0);
+  suppressedValue += (r.suppressedValue ?? 0);
+  preCutoff += (r.preCutoff?.length ?? 0);
   critInc += (r.critIncidents?.length ?? 0);
   const paused = r.cfg?.is_paused === 1 ? " [paused]" : "";
   const bits = [];
   if (r.tok && !r.tok.ok) bits.push(`token=${r.tok.status || "dead"}`);
   if (r.drift) bits.push(`drift=${r.drift}`);
   if (r.staleUnprocessed?.length) bits.push(`unbilled=${r.staleUnprocessed.length}`);
+  if (r.suppressed?.length) bits.push(`suprimido=${r.suppressed.length} (${r2(r.suppressedValue).toFixed(2)} €)`);
+  if (r.preCutoff?.length) bits.push(`pre-cutoff=${r.preCutoff.length}`);
   if (r.inflightUnprocessed) bits.push(`inflight=${r.inflightUnprocessed}`);
   if (r.critIncidents?.length) bits.push(`incidents=${r.critIncidents.length}`);
   if (r.wh?.length) bits.push(`whfail=${r.wh.reduce((a, w) => a + w.c, 0)}`);
   if (r.error) bits.push(`err`);
-  console.log(`  ${v.padEnd(6)} ${r.dom.padEnd(34)}${paused} ${bits.join(" ")}`);
+  console.log(`  ${v.padEnd(8)} ${r.dom.padEnd(34)}${paused} ${bits.join(" ")}`);
 }
 console.log("-----------------------------------------");
-console.log(`  shops=${results.length}  OK=${results.length - fails - warns}  WARN=${warns}  FAIL=${fails}`);
+console.log(`  shops=${results.length}  OK=${results.length - fails - warns - blockedShops}  WARN=${warns}  SUSPENSO=${blockedShops}  FAIL=${fails}`);
 console.log(`  dead-tokens=${dead}  drift-orders=${drift}  unbilled(>${INFLIGHT_H}h)=${unbilled}  open-error/critical-incident-buckets=${critInc}`);
+console.log(`  suprimido-por-gate=${suppressed} encomenda(s) · ${r2(suppressedValue).toFixed(2)} €  ·  fora-de-âmbito(pre-cutoff)=${preCutoff}`);
 console.log(`\nAudit complete. Read-only: no writes, no IX calls.`);

@@ -53,6 +53,7 @@ import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
 import { settleLodgifyReceipts } from "./handlers/lodgify-settlement";
 import { pollLodgifyBookings, reportLodgifyRelayDown, reportStaleLodgifyIngest } from "./services/lodgify-poll";
+import { runSuppressionDigest } from "./services/suppression-digest";
 import { processBuildEventBatch } from "./handlers/build-events";
 import {
   connectionCapabilities, backfillConnection, reemitConnection,
@@ -3580,6 +3581,18 @@ export default {
       if (autoResolved > 0) console.log(`[Cron] Incidents auto-resolved: ${autoResolved}`);
     } catch (e: any) {
       console.error(`[Cron] Incident auto-resolve failed: ${e.message}`);
+    }
+
+    // Who are we deliberately not invoicing? The subscription gate is silent by
+    // construction — it refuses an order, writes one incident, and nothing ever
+    // sums them. Unflagged on purpose: it says nothing on a clean day.
+    try {
+      const s = await runSuppressionDigest(env);
+      if (s.merchants.length > 0) {
+        console.log(`[Cron] Suppression digest: ${s.merchants.length} merchant(s) gated, ${s.totalRefusals} refusal(s) in 24h, emailed=${s.emailed}`);
+      }
+    } catch (e: any) {
+      console.error(`[Cron] Suppression digest failed: ${e.message}`);
     }
 
     // Phase 4a.1 — daily incident digest. Sends one summary email per merchant

@@ -48,4 +48,28 @@ describe("pickExactReference", () => {
     expect(pickExactReference([{ id: 268953515, reference: "Order #1" }], "Order #1")).toBe("268953515");
     expect(pickExactReference([{ id: "268953515", reference: "Order #1" }], "Order #1")).toBe("268953515");
   });
+
+  // A deleted draft keeps its reference in the text search. Returning it makes
+  // the caller record an invoice that does not exist and skip the real create.
+  it("does not match a deleted document", () => {
+    expect(pickExactReference([{ id: 269901477, reference: "Order #1269", status: "deleted" }], "Order #1269")).toBeNull();
+    expect(pickExactReference([{ id: 269901477, reference: "Order #1269", state: "deleted" }], "Order #1269")).toBeNull();
+    expect(pickExactReference([{ id: 269901477, reference: "Order #1269", status: "DELETED" }], "Order #1269")).toBeNull();
+  });
+
+  it("still matches the live document when a deleted one shares the reference", () => {
+    expect(pickExactReference(
+      [
+        { id: 269901477, reference: "Order #1269", status: "deleted" },
+        { id: 270226619, reference: "Order #1269", status: "draft" },
+      ],
+      "Order #1269",
+    )).toBe("270226619");
+  });
+
+  it("matches every state that is not deleted", () => {
+    for (const status of ["draft", "sent", "settled", "canceled", "second_copy", "", undefined]) {
+      expect(pickExactReference([{ id: 5, reference: "Order #1", status }], "Order #1")).toBe("5");
+    }
+  });
 });

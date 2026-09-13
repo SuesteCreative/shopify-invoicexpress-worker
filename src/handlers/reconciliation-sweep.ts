@@ -53,8 +53,15 @@ interface ShopSweepRow {
   skipped: number;
   errors: number;
   wouldCreate: number;
-  /** Left for the next run by the per-shop cap or the budget. 0 = fully drained. */
+  /** CREATE work left by the per-shop cap or the budget. 0 = fully drained.
+   *  This is the only deferral that can mean a sale is still unbilled. */
   deferred: number;
+  /** FINALIZE candidates the cap did not re-examine. Never money left on the
+   *  table — every one of them already HAS a document; the pass only re-checks
+   *  whether it is still a draft. On a busy shop this is non-zero by
+   *  construction (the 7-day finalize window holds hundreds of orders and the
+   *  cap is 25), so it must not be read as an incomplete pass. */
+  deferredFinalize: number;
   /** 1 when the shop was skipped for having no active subscription. */
   skippedNoSubscription?: number;
   errorSamples: Array<{ order_number: number; order_id?: string; message: string }>;
@@ -159,7 +166,7 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
     result.shopsScanned++;
 
     const displayName = (config.user_id && nameByUser.get(config.user_id)) || shopify_domain;
-    const row: ShopSweepRow = { shop: shopify_domain, displayName, created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0, deferred: 0, errorSamples: [] };
+    const row: ShopSweepRow = { shop: shopify_domain, displayName, created: 0, finalized: 0, skipped: 0, errors: 0, wouldCreate: 0, deferred: 0, deferredFinalize: 0, errorSamples: [] };
 
     // The paywall has to be applied HERE too, or it is not a paywall.
     //
@@ -231,7 +238,7 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
           budget_ms: remainingBudgetMs(),
           order_deadline_ms: orderDeadlineMs,
         });
-        row.deferred += finalized.deferred ?? 0;
+        row.deferredFinalize += finalized.deferred ?? 0;
         row.finalized += finalized.success ?? 0;
         row.skipped += finalized.skipped ?? 0;
         row.errors += finalized.errors ?? 0;
@@ -287,7 +294,8 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
       // would reset last_completed_at, so a shop that is 25%-drained every night
       // for weeks would read as healthy and never trip reportStarvedShops.
       await markSweep(env, shopify_domain, sweepStatusFor(row), {
-        created: row.created, finalized: row.finalized, errors: row.errors, deferred: row.deferred,
+        created: row.created, finalized: row.finalized, errors: row.errors,
+        deferred: row.deferred, deferred_finalize: row.deferredFinalize,
       });
     }
   }
@@ -337,6 +345,18 @@ export type SweepStatus = "ok" | "error" | "skipped_budget" | "skipped_no_subscr
  * healthy: `ok` stamps `last_completed_at`, which is the clock the starvation
  * alert watches. Errors outrank a partial drain — an error needs a human either
  * way, and the deferred remainder will come back tomorrow on its own.
+ */
+/**
+ * Only CREATE deferral makes a pass incomplete.
+ *
+ * This used to count finalize deferral too, and on the two busiest shops that
+ * is permanently non-zero: the 7-day finalize window holds ~300 orders and the
+ * per-shop cap is 25, so every night reported `partial` with deferred≈300,
+ * `last_completed_at` froze (Salted Books and Zoo de Lagos were stuck on
+ * 2026-09-02 for eleven days) and the starvation detector went blind on exactly
+ * the two shops that most need watching. Those orders all HAVE documents — the
+ * finalize pass only re-checks whether they are still drafts — so nothing was
+ * ever unbilled. The counter is kept, separately, and no longer lies about it.
  */
 export function sweepStatusFor(row: { errors: number; deferred: number }): SweepStatus {
   if (row.errors > 0) return "error";

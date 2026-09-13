@@ -124,8 +124,7 @@ function page(
   body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; box-sizing:border-box;
          background:#F6F3EE; color:#111111; font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; }
   main { width:100%; max-width:440px; background:#FFFFFF; border-radius:18px; padding:32px; box-sizing:border-box; }
-  .mark { margin:0 0 24px; font-weight:800; letter-spacing:-0.4px; }
-  .mark span { margin-left:6px; background:#A8402E; color:#FFFFFF; border-radius:4px; padding:2px 6px; font-size:10px; font-family:ui-monospace,Menlo,Consolas,monospace; vertical-align:middle; }
+  .mark { display:block; margin:0 0 24px; width:108px; height:auto; border:0; }
   h1 { margin:0 0 12px; font-size:22px; letter-spacing:-0.3px; }
   p { margin:0 0 20px; color:#4B4B4B; line-height:1.5; }
   button { border:0; border-radius:999px; background:#111111; color:#FFFFFF; padding:13px 24px; font-size:15px; font-weight:600; cursor:pointer; }
@@ -134,7 +133,10 @@ function page(
 </head>
 <body>
 <main>
-  <p class="mark">RIOKO<span>2.0</span></p>
+  <!-- The official wordmark, the file the site itself serves. This page used to
+       draw it: the letters in Arial and a terracotta chip beside them, which is
+       a lookalike and not the logo. Same origin, so it needs no absolute URL. -->
+  <img class="mark" src="/images/rioko2-logo-light2.png" width="108" height="22" border="0" alt="Rioko 2.0" />
   <h1>${title}</h1>
   <p>${message}</p>
   ${button ? `<form method="post"><button type="submit">${copy.button}</button></form>` : ""}

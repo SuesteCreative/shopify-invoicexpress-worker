@@ -1,6 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse, type NextRequest } from "next/server";
 import createIntlMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
+import { readAccountLanguage } from "./lib/user-language";
 
 const intlMiddleware = createIntlMiddleware(routing);
 
@@ -94,6 +96,43 @@ async function isReadOnlyWrite(req: Request, userId: string | null | undefined):
     }
 }
 
+const LOCALE_PREFIX = /^\/(pt|en)(\/|$)/;
+
+/**
+ * Put a signed-in client on the language their record says they speak.
+ *
+ * The URL is still what next-intl renders from — this only decides which URL a
+ * merchant lands on, once, before the page is built. Applied to the signed-in
+ * surface alone: the marketing pages stay readable in either language by
+ * whoever asks for them, which is what their own toggle is for.
+ *
+ * Not applied while impersonating: an operator reading a client's screen keeps
+ * their own choice, and the sidebar toggle writes nothing to the client's row.
+ *
+ * Fails open, like every other D1 read from this runtime. A dashboard that
+ * opens in Portuguese is a wrong language; one that does not open is an outage.
+ */
+async function languageRedirect(req: NextRequest, userId: string | null | undefined): Promise<URL | null> {
+    if (!userId) return null;
+    const match = LOCALE_PREFIX.exec(req.nextUrl.pathname);
+    if (!match) return null;
+    if (req.headers.get("cookie")?.includes("rioko_impersonate_id=")) return null;
+
+    try {
+        const { getRequestContext } = await import("@cloudflare/next-on-pages");
+        const db = (getRequestContext().env as any)?.DB;
+        if (!db) return null;
+        const language = await readAccountLanguage(db, userId);
+        if (language === match[1]) return null;
+
+        const url = req.nextUrl.clone();
+        url.pathname = `/${language}${req.nextUrl.pathname.slice(match[1].length + 1)}`;
+        return url;
+    } catch {
+        return null;
+    }
+}
+
 export default clerkMiddleware(async (auth, req) => {
     const { pathname } = req.nextUrl;
 
@@ -123,7 +162,12 @@ export default clerkMiddleware(async (auth, req) => {
         return;
     }
 
-    if (!isPublicRoute(req)) await auth.protect();
+    if (!isPublicRoute(req)) {
+        await auth.protect();
+        const { userId } = await auth();
+        const preferred = await languageRedirect(req, userId);
+        if (preferred) return NextResponse.redirect(preferred);
+    }
     return intlMiddleware(req);
 });
 

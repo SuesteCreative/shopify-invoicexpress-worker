@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { verifyUnsubscribeToken } from "@/lib/newsletter-unsubscribe";
+import { asLang, type Lang } from "@/lib/user-language";
 
 export const runtime = "edge";
 
@@ -14,6 +15,10 @@ export const runtime = "edge";
  * (Outlook Safe Links, company mail gateways) fetch every URL in a message, and
  * a GET that unsubscribed would opt people out without them ever clicking. POST
  * is also what Gmail and Outlook send for the one-click List-Unsubscribe header.
+ *
+ * Written in the language of whoever holds the address, resolved off the address
+ * itself: there is no session here, and an English client must not be sent to a
+ * Portuguese page by the last email they will ever get from us.
  */
 
 function env(): any {
@@ -29,21 +34,62 @@ async function addressOf(req: NextRequest): Promise<string | null> {
     return verifyUnsubscribeToken(secret, req.nextUrl.searchParams.get("t") ?? "");
 }
 
-const INVALID = "Este link de cancelamento não é válido. Para deixar de receber as novidades da Rioko, responda a qualquer email nosso a pedir.";
+/** The account that holds this address, if any. A typed-in recipient with no
+ *  account reads Portuguese, which is what the campaign was written in. */
+async function languageOf(email: string | null): Promise<Lang> {
+    if (!email) return "pt";
+    try {
+        const row: any = await env().DB
+            .prepare("SELECT language FROM users WHERE lower(email) = lower(?) LIMIT 1")
+            .bind(email).first();
+        return asLang(row?.language);
+    } catch {
+        return "pt";
+    }
+}
+
+const COPY = {
+    pt: {
+        invalidTitle: "Link inválido",
+        invalid: "Este link de cancelamento não é válido. Para deixar de receber as novidades da Rioko, responda a qualquer email nosso a pedir.",
+        doneTitle: "Subscrição cancelada",
+        already: (e: string) => `${e} já não recebe as novidades da Rioko.`,
+        askTitle: "Cancelar subscrição",
+        ask: (e: string) => `Deixar de receber as novidades da Rioko em ${e}?`,
+        done: (e: string) => `${e} deixa de receber as novidades da Rioko.`,
+        button: "Cancelar subscrição",
+        note: "Os avisos de faturação e de serviço continuam a chegar, com ou sem esta subscrição.",
+        htmlLang: "pt-PT",
+    },
+    en: {
+        invalidTitle: "Invalid link",
+        invalid: "This unsubscribe link is not valid. To stop receiving Rioko news, reply to any email of ours and say so.",
+        doneTitle: "Unsubscribed",
+        already: (e: string) => `${e} no longer receives Rioko news.`,
+        askTitle: "Unsubscribe",
+        ask: (e: string) => `Stop sending Rioko news to ${e}?`,
+        done: (e: string) => `${e} will no longer receive Rioko news.`,
+        button: "Unsubscribe",
+        note: "Billing and service notices keep arriving, with or without this subscription.",
+        htmlLang: "en",
+    },
+} as const;
 
 export async function GET(req: NextRequest) {
     const email = await addressOf(req);
-    if (!email) return page(400, "Link inválido", INVALID);
+    const c = COPY[await languageOf(email)];
+    if (!email) return page(400, c.invalidTitle, c.invalid, c);
 
     const already = await env().DB.prepare("SELECT 1 FROM newsletter_optouts WHERE email = ?").bind(email).first();
-    if (already) return page(200, "Subscrição cancelada", `${esc(email)} já não recebe as novidades da Rioko.`);
+    if (already) return page(200, c.doneTitle, c.already(esc(email)), c);
 
-    return page(200, "Cancelar subscrição", `Deixar de receber as novidades da Rioko em ${esc(email)}?`, true);
+    return page(200, c.askTitle, c.ask(esc(email)), c, true);
 }
 
 export async function POST(req: NextRequest) {
     const email = await addressOf(req);
-    if (!email) return page(400, "Link inválido", INVALID);
+    const c = COPY[await languageOf(email)];
+    if (!email) return page(400, c.invalidTitle, c.invalid, c);
 
     const oneClick = (await req.text().catch(() => "")).includes("List-Unsubscribe=One-Click");
     await env().DB
@@ -52,7 +98,7 @@ export async function POST(req: NextRequest) {
         .run();
     console.warn(`[newsletter/unsubscribe] ${email} (${oneClick ? "one-click" : "link"})`);
 
-    return page(200, "Subscrição cancelada", `${esc(email)} deixa de receber as novidades da Rioko.`);
+    return page(200, c.doneTitle, c.done(esc(email)), c);
 }
 
 function esc(s: string): string {
@@ -60,9 +106,15 @@ function esc(s: string): string {
 }
 
 /** The Day skin the emails wear: cream, ink, one terracotta mark. */
-function page(status: number, title: string, message: string, button = false): Response {
+function page(
+    status: number,
+    title: string,
+    message: string,
+    copy: (typeof COPY)[Lang],
+    button = false,
+): Response {
     const html = `<!doctype html>
-<html lang="pt-PT">
+<html lang="${copy.htmlLang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -85,8 +137,8 @@ function page(status: number, title: string, message: string, button = false): R
   <p class="mark">RIOKO<span>2.0</span></p>
   <h1>${title}</h1>
   <p>${message}</p>
-  ${button ? `<form method="post"><button type="submit">Cancelar subscrição</button></form>` : ""}
-  <small>Os avisos de faturação e de serviço continuam a chegar, com ou sem esta subscrição.</small>
+  ${button ? `<form method="post"><button type="submit">${copy.button}</button></form>` : ""}
+  <small>${copy.note}</small>
 </main>
 </body>
 </html>`;

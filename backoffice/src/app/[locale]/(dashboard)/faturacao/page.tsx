@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Receipt, ExternalLink, Loader2, CreditCard, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw, CheckCheck, Zap, Gift } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import SuspendedBanner from "@/components/SuspendedBanner";
 import { ReferralCard } from "@/components/ReferralCard";
 import { rewardRunning } from "@/lib/subscription-state";
@@ -31,12 +31,16 @@ interface BillingEvent {
 
 type Money = { amount_cents: number; currency: string };
 
-function formatAmount(cents: number, currency: string): string {
-    return new Intl.NumberFormat("pt-PT", { style: "currency", currency: (currency || "eur").toUpperCase() }).format(cents / 100);
+/** Intl locale for the locale the merchant is reading the dashboard in.
+ *  en-GB, not en-US, so the day still comes first. */
+const intlLocaleFor = (locale: string) => (locale === "en" ? "en-GB" : "pt-PT");
+
+function formatAmount(cents: number, currency: string, intlLocale: string): string {
+    return new Intl.NumberFormat(intlLocale, { style: "currency", currency: (currency || "eur").toUpperCase() }).format(cents / 100);
 }
 
-function formatDate(iso: string): string {
-    return new Date(iso).toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+function formatDate(iso: string, intlLocale: string): string {
+    return new Date(iso).toLocaleString(intlLocale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function formatRef(pi: string | null, invId: string): string {
@@ -75,6 +79,7 @@ function StatusBadge({ status, type, t }: { status: string; type: string; t: (k:
 export default function FaturacaoPage() {
     const t = useTranslations("faturacao");
     const tCard = useTranslations("subscriptionCard");
+    const intlLocale = intlLocaleFor(useLocale());
     const searchParams = useSearchParams();
     const stripeResult = searchParams.get("stripe");
     const [sub, setSub] = useState<any>(null);
@@ -229,7 +234,7 @@ export default function FaturacaoPage() {
 
     // Formatted as SubscriptionCard formats the same answer, with its words.
     const money = (m: Money | null | undefined) =>
-        m ? new Intl.NumberFormat(tCard("dateLocale") || "pt-PT", {
+        m ? new Intl.NumberFormat(intlLocale, {
             style: "currency", currency: (m.currency || "eur").toUpperCase(),
             minimumFractionDigits: m.amount_cents % 100 === 0 ? 0 : 2,
         }).format(m.amount_cents / 100) : null;
@@ -289,7 +294,7 @@ export default function FaturacaoPage() {
                                 )}
                                 {s?.cancel_at_period_end === 1 && (
                                     <span className="px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.22em] border bg-destructive/10 text-destructive border-destructive/20">
-                                        {t("cancels", { date: s.current_period_end ? new Date(s.current_period_end).toLocaleDateString("pt-PT") : "" })}
+                                        {t("cancels", { date: s.current_period_end ? new Date(s.current_period_end).toLocaleDateString(intlLocale) : "" })}
                                     </span>
                                 )}
                             </div>
@@ -298,7 +303,7 @@ export default function FaturacaoPage() {
                             {hasSubscription && (
                                 <div className="flex flex-wrap gap-x-6 gap-y-1 pt-1 text-[11px] text-fg-40 font-mono">
                                     {s?.current_period_end && (
-                                        <span>{t("nextCharge")}: <span className="text-fg-60">{new Date(s.current_period_end).toLocaleDateString("pt-PT")}</span></span>
+                                        <span>{t("nextCharge")}: <span className="text-fg-60">{new Date(s.current_period_end).toLocaleDateString(intlLocale)}</span></span>
                                     )}
                                     {s?.stripe_subscription_id && (
                                         <span>{t("subLabel")}: <span className="text-fg-60 break-all">{s.stripe_subscription_id}</span></span>
@@ -370,7 +375,7 @@ export default function FaturacaoPage() {
                             <div className="min-w-0">
                                 <p className="text-sm font-black text-soon uppercase tracking-[0.14em]">{t("earlyBirdGraceTitle")}</p>
                                 <p className="text-[12px] text-fg-60 mt-1.5 leading-relaxed">
-                                    {t("earlyBirdGraceBody", { date: s?.trial_end ? new Date(s.trial_end).toLocaleDateString("pt-PT") : "" })}
+                                    {t("earlyBirdGraceBody", { date: s?.trial_end ? new Date(s.trial_end).toLocaleDateString(intlLocale) : "" })}
                                 </p>
                             </div>
                         </div>
@@ -465,10 +470,10 @@ export default function FaturacaoPage() {
                                     const isRefund = e.type === "charge.refunded";
                                     return (
                                         <tr key={e.id} className={cn("border-b border-hairline hover:bg-fg/[0.02] transition-colors", isRefund && "bg-destructive/5")}>
-                                            <td className="px-6 py-4 text-sm text-fg font-medium">{formatDate(e.created_at)}</td>
+                                            <td className="px-6 py-4 text-sm text-fg font-medium">{formatDate(e.created_at, intlLocale)}</td>
                                             <td className="px-6 py-4 text-xs text-fg-60 font-mono">{formatRef(e.payment_intent_id, e.stripe_object_id)}</td>
                                             <td className={cn("px-6 py-4 text-sm font-medium text-right tabular-nums", isRefund ? "text-destructive" : "text-fg")}>
-                                                {isRefund ? "-" : ""}{formatAmount(e.amount_cents, e.currency)}
+                                                {isRefund ? "-" : ""}{formatAmount(e.amount_cents, e.currency, intlLocale)}
                                             </td>
                                             <td className="px-6 py-4"><StatusBadge status={e.status} type={e.type} t={t} /></td>
                                             <td className="px-6 py-4">

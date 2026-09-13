@@ -1,14 +1,11 @@
 import type { Row } from "./ReconciliationRow";
-import { sourceLabel, destLabel, recordNoun } from "./platform";
+import { BADGE, REFUND_CHIP } from "./ReconciliationRow";
+import { FILTER_KEYS } from "./Filters";
+import { sourceLabel, destLabel, recordNounKey } from "./platform";
 
-const MATCH_LABEL: Record<Row["match"]["type"], string> = {
-    exact: "Match exato",
-    approved: "Aprovado",
-    heuristic: "Heurístico",
-    not_needed: "Não necessária",
-    none: "Sem fatura",
-    pending: "Aguarda pagamento",
-};
+/** The `conciliacao` translator, handed down from the view — this module is not
+ *  a component, so it cannot call useTranslations itself. */
+type T = (key: string, values?: Record<string, string | number>) => string;
 
 const MATCH_COLOR: Record<Row["match"]["type"], string> = {
     exact: "FF10B981",       // emerald
@@ -19,12 +16,6 @@ const MATCH_COLOR: Record<Row["match"]["type"], string> = {
     pending: "FF64748B",     // slate-500 (held, awaiting payment)
 };
 
-const REFUND_LABEL: Record<NonNullable<Row["order"]["refund_state"]>, string> = {
-    full: "Reembolsado",
-    partial: "Reembolso parcial",
-    cancelled: "Cancelado",
-};
-
 export async function exportReconciliationToExcel(
     rows: Row[],
     identifier: string,
@@ -32,29 +23,42 @@ export async function exportReconciliationToExcel(
     to: string,
     source: string = "shopify",
     destination: string = "invoicexpress",
+    t: T,
+    locale: string = "pt",
 ) {
+    const intlLocale = locale === "en" ? "en-GB" : "pt-PT";
+    const fmtDate = (s: string): string => {
+        if (!s) return "";
+        try { return new Date(s).toLocaleDateString(intlLocale); } catch { return s; }
+    };
     const srcLabel = sourceLabel(source);
     const dstLabel = destLabel(destination);
-    const noun = recordNoun(source);
+    const nounKey = recordNounKey(source);
+    const noun = { singular: t(`noun${nounKey}Singular`), plural: t(`noun${nounKey}Plural`) };
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
     wb.creator = "Rioko 2.0";
     wb.created = new Date();
 
-    const ws = wb.addWorksheet("Conciliação", {
+    const ws = wb.addWorksheet(t("excelSheet"), {
         views: [{ state: "frozen", ySplit: 4 }],
     });
 
     // Title block
     ws.mergeCells("A1:Q1");
-    ws.getCell("A1").value = `Conciliação ${srcLabel} ↔ ${dstLabel} — ${identifier}`;
+    ws.getCell("A1").value = t("excelTitle", { source: srcLabel, destination: dstLabel, identifier });
     ws.getCell("A1").font = { size: 16, bold: true, color: { argb: "FFFFFFFF" } };
     ws.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
     ws.getCell("A1").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(1).height = 28;
 
     ws.mergeCells("A2:Q2");
-    ws.getCell("A2").value = `Período: ${formatRange(from, to)}  ·  Total: ${rows.length} ${noun.plural}  ·  Gerado em ${new Date().toLocaleString("pt-PT")}`;
+    ws.getCell("A2").value = t("excelSubtitle", {
+        range: `${fmtDate(from)} → ${fmtDate(to)}`,
+        count: rows.length,
+        plural: noun.plural,
+        generated: new Date().toLocaleString(intlLocale),
+    });
     ws.getCell("A2").font = { size: 10, italic: true, color: { argb: "FF64748B" } };
     ws.getCell("A2").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(2).height = 18;
@@ -62,7 +66,9 @@ export async function exportReconciliationToExcel(
     // Summary line
     const counts = summarize(rows);
     ws.mergeCells("A3:Q3");
-    ws.getCell("A3").value = `Match exato: ${counts.exact} · Aprovados: ${counts.approved} · Heurístico: ${counts.heuristic} · Sem fatura: ${counts.none} · Não necessárias: ${counts.not_needed} · Aguarda pagamento: ${counts.pending} · Reembolsos/cancel.: ${counts.refunded} · NC em falta: ${counts.credit_missing}`;
+    ws.getCell("A3").value = (
+        ["exact", "approved", "heuristic", "none", "not_needed", "pending", "refunded", "credit_missing"] as const
+    ).map(k => `${t(FILTER_KEYS[k])}: ${counts[k]}`).join(" · ");
     ws.getCell("A3").font = { size: 10, bold: true, color: { argb: "FF334155" } };
     ws.getCell("A3").alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     ws.getRow(3).height = 18;
@@ -70,10 +76,11 @@ export async function exportReconciliationToExcel(
     // Header row
     const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
     const headers = [
-        cap(noun.singular), "Data Pagamento", "Cliente", "Email", `Total ${srcLabel}`,
-        "Status Match", "Confiança", "Razão",
-        `Fatura ${dstLabel}`, `Estado ${dstLabel}`, `Total ${dstLabel}`, `Data ${dstLabel}`, `Cliente ${dstLabel}`, `Link ${dstLabel}`,
-        "Estado reembolso", "Nota de crédito", "Link NC",
+        cap(noun.singular), t("excelHeaderPaidAt"), t("excelHeaderCustomer"), t("excelHeaderEmail"), t("excelHeaderTotal", { label: srcLabel }),
+        t("excelHeaderMatch"), t("excelHeaderConfidence"), t("excelHeaderReason"),
+        t("excelHeaderInvoice", { label: dstLabel }), t("excelHeaderStatus", { label: dstLabel }), t("excelHeaderTotal", { label: dstLabel }),
+        t("excelHeaderDate", { label: dstLabel }), t("excelHeaderClient", { label: dstLabel }), t("excelHeaderLink", { label: dstLabel }),
+        t("excelHeaderRefundState"), t("excelHeaderCreditNote"), t("excelHeaderCreditNoteLink"),
     ];
     const headerRow = ws.addRow(headers); // row 4
     headerRow.eachCell(cell => {
@@ -92,12 +99,12 @@ export async function exportReconciliationToExcel(
     // Data rows
     rows.forEach(r => {
         const cns = r.credit_notes ?? [];
-        const refundLabel = r.order.refund_state ? REFUND_LABEL[r.order.refund_state] : "";
+        const refundLabel = r.order.refund_state ? t(REFUND_CHIP[r.order.refund_state].key) : "";
         // Refunded/cancelled + has invoice + no NC found ⇒ flag the gap.
         const ncMissing = !!r.order.refund_state && !!r.invoice && cns.length === 0;
         const ncText = cns.length > 0
-            ? cns.map(c => c.number ?? c.reference ?? `NC ${c.id}`).join(", ")
-            : ncMissing ? "EM FALTA" : "";
+            ? cns.map(c => c.number ?? c.reference ?? t("creditNoteN", { id: c.id })).join(", ")
+            : ncMissing ? t("excelCreditNoteMissing") : "";
         const ncLink = cns.find(c => c.permalink)?.permalink ?? "";
 
         const row = ws.addRow([
@@ -106,7 +113,7 @@ export async function exportReconciliationToExcel(
             r.order.customer_name ?? "",
             r.order.email ?? "",
             r.order.total,
-            MATCH_LABEL[r.match.type],
+            t(BADGE[r.match.type].key),
             r.match.type === "heuristic" ? `${r.match.confidence}%` : "",
             r.match.reason ?? "",
             r.invoice?.reference ?? "",
@@ -133,7 +140,7 @@ export async function exportReconciliationToExcel(
         // Link cell
         if (r.invoice?.permalink) {
             const linkCell = row.getCell(14);
-            linkCell.value = { text: "Abrir fatura", hyperlink: r.invoice.permalink };
+            linkCell.value = { text: t("excelOpenInvoice"), hyperlink: r.invoice.permalink };
             linkCell.font = { color: { argb: "FF2563EB" }, underline: true, size: 10 };
         }
 
@@ -150,7 +157,7 @@ export async function exportReconciliationToExcel(
         // Credit-note link (col 17)
         if (ncLink) {
             const ncCell = row.getCell(17);
-            ncCell.value = { text: "Abrir NC", hyperlink: ncLink };
+            ncCell.value = { text: t("excelOpenCreditNote"), hyperlink: ncLink };
             ncCell.font = { color: { argb: "FF2563EB" }, underline: true, size: 10 };
         }
 
@@ -189,15 +196,6 @@ export async function exportReconciliationToExcel(
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-}
-
-function fmtDate(s: string): string {
-    if (!s) return "";
-    try { return new Date(s).toLocaleDateString("pt-PT"); } catch { return s; }
-}
-
-function formatRange(from: string, to: string): string {
-    return `${fmtDate(from)} → ${fmtDate(to)}`;
 }
 
 function summarize(rows: Row[]) {

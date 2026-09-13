@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { CreditCard, Loader2, Check, CheckCheck, AlertTriangle, ChevronRight, Settings2, Zap, Info, ShieldCheck, Copy, Building2, Link2, Unlink } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
 import { moloniCallbackUri } from "@/lib/moloni-oauth";
 import { VAT_EXEMPTION_OPTIONS } from "@/lib/vat-exemptions";
@@ -40,6 +40,7 @@ type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
 export default function StripeConnectMoloniIntegration() {
     const t = useTranslations("stripeConnectMoloniSetup");
+    const locale = useLocale();
     const tShared = useTranslations("stripeMoloniSetup");
     const tB = useTranslations("faturacao");
     const tCard = useTranslations("subscriptionCard");
@@ -487,7 +488,7 @@ export default function StripeConnectMoloniIntegration() {
                                 <p className="text-sm font-bold text-accent-hot">{t("moloniAuthorized")}</p>
                                 {moloniExpiresAt && (
                                     <p className="text-[10px] text-fg-40 mt-0.5">
-                                        {t("moloniRenewal", { date: new Date(moloniExpiresAt).toLocaleDateString("pt-PT") })}
+                                        {t("moloniRenewal", { date: new Date(moloniExpiresAt).toLocaleDateString(locale === "en" ? "en-GB" : "pt-PT") })}
                                     </p>
                                 )}
                             </div>

@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { accountLabel } from "./labels";
+import { asLang, type Lang } from "./user-language";
 import { callWorkerJson } from "./worker";
 
 /**
@@ -33,9 +34,17 @@ function uniqueEmails(...candidates: Array<string | null | undefined>): string[]
     return out;
 }
 
-function moneyLabel(amountCents: number, currency: string | null | undefined): string {
+// The amount and the date are what this email is about, so they are written the
+// way the client writes them: 7,50 € and 30/09/2026 in Portuguese, €7.50 and
+// 30/09/2026 in English (en-GB — the day still comes first, which is what the
+// rest of the invoice says).
+function localeFor(language: Lang): string {
+    return language === "en" ? "en-GB" : "pt-PT";
+}
+
+function moneyLabel(amountCents: number, currency: string | null | undefined, language: Lang): string {
     try {
-        return new Intl.NumberFormat("pt-PT", {
+        return new Intl.NumberFormat(localeFor(language), {
             style: "currency",
             currency: (currency || "eur").toUpperCase(),
         }).format(amountCents / 100);
@@ -44,10 +53,10 @@ function moneyLabel(amountCents: number, currency: string | null | undefined): s
     }
 }
 
-function dateLabel(unix: number | null | undefined): string | undefined {
+function dateLabel(unix: number | null | undefined, language: Lang): string | undefined {
     if (!unix) return undefined;
     try {
-        return new Intl.DateTimeFormat("pt-PT", {
+        return new Intl.DateTimeFormat(localeFor(language), {
             day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Lisbon",
         }).format(new Date(unix * 1000));
     } catch {
@@ -119,6 +128,11 @@ export async function notifySubscriptionPaymentFailed(opts: {
     const userRow: any = await db.prepare(
         "SELECT id, email, name, company_name, admin_label FROM users WHERE id = ?"
     ).bind(userId).first();
+    // Read apart from the row above so a database where 0061 has not landed yet
+    // still sends the email, in Portuguese, instead of throwing.
+    const langRow: any = await db.prepare("SELECT language FROM users WHERE id = ?")
+        .bind(userId).first().catch(() => null);
+    const language = asLang(langRow?.language);
 
     // Every address we hold for this client. They are the same company; the
     // billing contact and the login are routinely different people, and the one
@@ -138,13 +152,17 @@ export async function notifySubscriptionPaymentFailed(opts: {
         method: "POST",
         body: JSON.stringify({
             to,
-            account: accountLabel(userRow, "a sua conta"),
+            account: accountLabel(userRow, language === "en" ? "your account" : "a sua conta"),
             update_url: updateUrl,
             invoice_url: invoice.hosted_invoice_url ?? undefined,
-            amount_label: moneyLabel(amountDue, invoice.currency),
-            next_attempt_label: dateLabel(invoice.next_payment_attempt),
+            amount_label: moneyLabel(amountDue, invoice.currency, language),
+            next_attempt_label: dateLabel(invoice.next_payment_attempt, language),
             final_attempt: !invoice.next_payment_attempt,
             dashboard_url: origin,
+            // Without these the worker renders in Portuguese and in the default
+            // skin: the account is known here, so it may as well be said.
+            user_id: userId,
+            language,
         }),
     });
 

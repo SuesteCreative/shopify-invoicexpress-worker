@@ -2,6 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe, getStripeEnv, getDB } from "@/lib/stripe";
 import { resolveAccountUser } from "@/lib/account";
+import { stripePageLocale } from "@/lib/stripe-locale";
+import { asLang } from "@/lib/user-language";
 
 export const runtime = "edge";
 
@@ -32,9 +34,15 @@ export async function POST(req: NextRequest) {
         const stripe = getStripe();
         const appOrigin = new URL(getStripeEnv("SUCCESS_REDIRECT_URL")).origin;
 
+        // Stripe renders the portal itself, so the language has to travel with
+        // the session — the client's own, not the browser's guess.
+        const langRow: any = await db.prepare("SELECT language FROM users WHERE id = ?")
+            .bind(targetUserId).first().catch(() => null);
+
         const portal = await stripe.billingPortal.sessions.create({
             customer: customerId,
             return_url: `${appOrigin}/faturacao`,
+            locale: stripePageLocale(asLang(langRow?.language)),
         });
 
         return NextResponse.json({ url: portal.url });

@@ -52,6 +52,16 @@ const GROUPS: { title: string; hint?: string; keys: [string, string][] }[] = [
         ],
     },
     {
+        // A campaign is one HTML in one language. This is what keeps a
+        // Portuguese campaign out of an English client's inbox — there is no
+        // automatic pairing between a template and a language, by decision.
+        title: "Língua", hint: "a língua da ficha de cada cliente",
+        keys: [
+            ["lang:pt", "Português"],
+            ["lang:en", "English"],
+        ],
+    },
+    {
         title: "Subscrição", keys: [
             ["sub:active", "Activa"],
             ["sub:trialing", "Em período livre"],

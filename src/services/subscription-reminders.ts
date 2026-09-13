@@ -1,7 +1,8 @@
 import type { Env } from "../env";
 import { sendEmail } from "./email";
 import { loadInactiveUserIds } from "./inactive-accounts";
-import { legalLinks } from "./email-templates";
+import { legalLinks, renderInLang, T, lang } from "./email-templates";
+import { getUserLanguage } from "./user-language";
 
 // Internal address always copied on renewal reminders so Kapta can follow up.
 const OPS_EMAIL = "pedro@kapta.pt";
@@ -29,32 +30,35 @@ function ptDate(iso: string): string {
 }
 
 function renewalEmail(name: string | null, plan: string | null, endPt: string): { subject: string; html: string } {
-  const who = name && name.trim() ? name.trim() : "Olá";
-  const planLabel = plan === "annual" ? "anual" : plan === "monthly" ? "mensal" : "";
-  const subject = `A tua subscrição Rioko termina a ${endPt}`;
+  const who = name && name.trim() ? name.trim() : T("Olá", "Hello");
+  const planLabel = plan === "annual" ? T("anual", "annual") : plan === "monthly" ? T("mensal", "monthly") : "";
+  const planSuffix = planLabel ? ` (${planLabel})` : "";
+  const subject = T(`A tua subscrição Rioko termina a ${endPt}`, `Your Rioko subscription ends on ${endPt}`);
   const html = `<!-- renewal reminder -->
 <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#0f172a;">
   <div style="padding:28px 32px;border:1px solid #e2e8f0;border-radius:16px;">
     <p style="font-size:13px;letter-spacing:0.18em;text-transform:uppercase;color:#64748b;margin:0 0 18px;">Rioko</p>
     <h1 style="font-size:20px;font-weight:600;margin:0 0 16px;">${who},</h1>
     <p style="font-size:15px;line-height:1.6;margin:0 0 14px;">
-      A tua subscrição Rioko${planLabel ? ` (${planLabel})` : ""} termina a <strong>${endPt}</strong>.
+      ${T(`A tua subscrição Rioko${planSuffix} termina a <strong>${endPt}</strong>.`, `Your Rioko subscription${planSuffix} ends on <strong>${endPt}</strong>.`)}
     </p>
     <p style="font-size:15px;line-height:1.6;margin:0 0 14px;">
-      Para continuares a emitir as tuas faturas automaticamente sem interrupção,
-      renova a subscrição antes dessa data.
+      ${T(`Para continuares a emitir as tuas faturas automaticamente sem interrupção,
+      renova a subscrição antes dessa data.`, `To keep issuing your invoices automatically without interruption,
+      renew your subscription before that date.`)}
     </p>
     <p style="font-size:15px;line-height:1.6;margin:0 0 22px;">
-      Qualquer dúvida, responde a este email ou contacta <a href="mailto:${OPS_EMAIL}" style="color:#028dc4;">${OPS_EMAIL}</a>.
+      ${T("Qualquer dúvida, responde a este email ou contacta", "Any questions, reply to this email or contact")} <a href="mailto:${OPS_EMAIL}" style="color:#028dc4;">${OPS_EMAIL}</a>.
     </p>
-    <p style="font-size:13px;color:#64748b;margin:0;">Obrigado,<br/>Equipa Rioko · Kapta</p>
+    <p style="font-size:13px;color:#64748b;margin:0;">${T("Obrigado,<br/>Equipa Rioko · Kapta", "Thank you,<br/>Rioko Team · Kapta")}</p>
   </div>
 </div>`;
   return { subject, html };
 }
 
-/** Where the monthly/annual plan cards live on the marketing site. */
-const PRICING_URL = "https://rioko.online/pt#preco";
+/** Where the monthly/annual plan cards live on the marketing site. A function,
+ *  not a constant: the locale segment follows the language being rendered. */
+const pricingUrl = () => `https://rioko.online/${lang()}#preco`;
 
 /**
  * The three touches of the early-bird wind-down sequence, most distant first.
@@ -69,32 +73,34 @@ export const EARLY_BIRD_STAGES = [
 ] as const;
 type StageKey = (typeof EARLY_BIRD_STAGES)[number]["key"];
 
-const STAGE_COPY: Record<StageKey, { eyebrow: string; subject: (d: string) => string; lead: (d: string) => string }> = {
+// `eyebrow` is a thunk like the other two: `T` reads the ambient language, so
+// nothing here may be evaluated when the module loads, only inside the render.
+const STAGE_COPY: Record<StageKey, { eyebrow: () => string; subject: (d: string) => string; lead: (d: string) => string }> = {
   d17: {
-    eyebrow: "Early Bird",
-    subject: (d) => `O teu acesso Early Bird termina a ${d}`,
-    lead: (d) => `O teu acesso <strong>Early Bird</strong> — faturação automática sem custos — termina a <strong>${d}</strong>.`,
+    eyebrow: () => "Early Bird",
+    subject: (d) => T(`O teu acesso Early Bird termina a ${d}`, `Your Early Bird access ends on ${d}`),
+    lead: (d) => T(`O teu acesso <strong>Early Bird</strong> — faturação automática sem custos — termina a <strong>${d}</strong>.`, `Your <strong>Early Bird</strong> access — automatic invoicing at no cost — ends on <strong>${d}</strong>.`),
   },
   d7: {
-    eyebrow: "Faltam 7 dias",
-    subject: (d) => `Faltam 7 dias — o teu Early Bird termina a ${d}`,
-    lead: (d) => `Falta pouco: o teu acesso <strong>Early Bird</strong> termina a <strong>${d}</strong>.`,
+    eyebrow: () => T("Faltam 7 dias", "7 days left"),
+    subject: (d) => T(`Faltam 7 dias — o teu Early Bird termina a ${d}`, `7 days left — your Early Bird ends on ${d}`),
+    lead: (d) => T(`Falta pouco: o teu acesso <strong>Early Bird</strong> termina a <strong>${d}</strong>.`, `Not long now: your <strong>Early Bird</strong> access ends on <strong>${d}</strong>.`),
   },
   d1: {
-    eyebrow: "Último dia",
-    subject: (d) => `Amanhã termina o teu acesso Early Bird`,
-    lead: (d) => `Amanhã, <strong>${d}</strong>, termina o teu acesso <strong>Early Bird</strong>.`,
+    eyebrow: () => T("Último dia", "Last day"),
+    subject: (d) => T(`Amanhã termina o teu acesso Early Bird`, `Your Early Bird access ends tomorrow`),
+    lead: (d) => T(`Amanhã, <strong>${d}</strong>, termina o teu acesso <strong>Early Bird</strong>.`, `Tomorrow, <strong>${d}</strong>, your <strong>Early Bird</strong> access ends.`),
   },
 };
 
 function earlyBirdEndingEmail(name: string | null, endPt: string, stage: StageKey): { subject: string; html: string } {
-  const who = name && name.trim() ? name.trim().split(/\s+/)[0] : "Olá";
+  const who = name && name.trim() ? name.trim().split(/\s+/)[0] : T("Olá", "Hello");
   const copy = STAGE_COPY[stage];
   const subject = copy.subject(endPt);
 
   // Table-based, fully inline: Gmail/Outlook strip <style> blocks and flexbox.
   const html = `<!-- early-bird wind-down · stage ${stage} -->
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Ativa um plano para manteres a faturação automática a partir de ${endPt}.</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${T(`Ativa um plano para manteres a faturação automática a partir de ${endPt}.`, `Activate a plan to keep your invoicing automatic from ${endPt}.`)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f8fa;margin:0;padding:32px 12px;">
   <tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid #e3e8ee;border-radius:18px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -104,7 +110,7 @@ function earlyBirdEndingEmail(name: string | null, endPt: string, stage: StageKe
       <tr><td style="padding:32px 36px 0;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
           <td style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:#0b1524;padding-right:10px;">Rioko</td>
-          <td style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#028dc4;background:#e8f6fc;border-radius:999px;padding:4px 10px;">${copy.eyebrow}</td>
+          <td style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#028dc4;background:#e8f6fc;border-radius:999px;padding:4px 10px;">${copy.eyebrow()}</td>
         </tr></table>
       </td></tr>
 
@@ -112,36 +118,38 @@ function earlyBirdEndingEmail(name: string | null, endPt: string, stage: StageKe
         <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:650;letter-spacing:-0.02em;color:#0b1524;">${who},</h1>
         <p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3c4a5c;">${copy.lead(endPt)}</p>
         <p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3c4a5c;">
-          Para continuar tudo como está — cada encomenda paga a gerar a fatura sozinha,
-          sem tocares em nada — basta escolheres um plano antes dessa data.
+          ${T(`Para continuar tudo como está — cada encomenda paga a gerar a fatura sozinha,
+          sem tocares em nada — basta escolheres um plano antes dessa data.`, `To keep everything exactly as it is — every paid order producing its invoice on its own,
+          without you touching anything — just pick a plan before that date.`)}
         </p>
       </td></tr>
 
       <tr><td style="padding:10px 36px 0;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
           <td style="background:#028dc4;border-radius:10px;">
-            <a href="${PRICING_URL}" style="display:inline-block;padding:13px 26px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:-0.01em;">Ver planos &nbsp;&rarr;</a>
+            <a href="${pricingUrl()}" style="display:inline-block;padding:13px 26px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:-0.01em;">${T("Ver planos", "See plans")} &nbsp;&rarr;</a>
           </td>
         </tr></table>
-        <p style="margin:12px 0 0;font-size:13px;line-height:1.6;color:#7a8899;">Mensal ou anual. Escolhes na página, ativas em menos de um minuto.</p>
+        <p style="margin:12px 0 0;font-size:13px;line-height:1.6;color:#7a8899;">${T("Mensal ou anual. Escolhes na página, ativas em menos de um minuto.", "Monthly or annual. You pick on the page and activate in under a minute.")}</p>
       </td></tr>
 
       <tr><td style="padding:24px 36px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fafbfc;border:1px solid #eceff3;border-radius:12px;">
           <tr><td style="padding:14px 16px;font-size:13.5px;line-height:1.6;color:#5b6879;">
-            A partir de ${endPt}, sem plano ativo as encomendas continuam a entrar normalmente
-            na tua loja — apenas deixam de ser faturadas automaticamente até ativares a subscrição.
+            ${T(`A partir de ${endPt}, sem plano ativo as encomendas continuam a entrar normalmente
+            na tua loja — apenas deixam de ser faturadas automaticamente até ativares a subscrição.`, `From ${endPt}, with no active plan your orders keep coming into your shop
+            as usual — they simply stop being invoiced automatically until you activate the subscription.`)}
           </td></tr>
         </table>
       </td></tr>
 
       <tr><td style="padding:24px 36px 32px;">
         <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#5b6879;">
-          Dúvidas sobre qual plano faz sentido? Responde a este email ou escreve para
+          ${T(`Dúvidas sobre qual plano faz sentido? Responde a este email ou escreve para`, `Not sure which plan makes sense? Reply to this email or write to`)}
           <a href="mailto:${OPS_EMAIL}" style="color:#028dc4;text-decoration:none;font-weight:500;">${OPS_EMAIL}</a>.
         </p>
         <div style="border-top:1px solid #eceff3;padding-top:16px;">
-          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">Equipa Rioko · Kapta<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>${legalLinks("#8a97a6")}
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#8a97a6;">${T("Equipa Rioko · Kapta", "Rioko Team · Kapta")}<br/><a href="https://rioko.online" style="color:#8a97a6;text-decoration:none;">rioko.online</a></p>${legalLinks("#8a97a6")}
         </div>
       </td></tr>
 
@@ -233,7 +241,11 @@ export async function runEarlyBirdEndingReminders(
     result.due.push({ user_id: s.user_id, email: s.email, period_end: s.current_period_end, would_email: [...recipients, ...(cc ?? [])] });
     if (dryRun) continue;
 
-    const { subject, html } = earlyBirdEndingEmail(s.name, ptDate(s.current_period_end), stage);
+    // The account's language, read BEFORE the render: `renderInLang` is
+    // synchronous by contract and nothing inside it may await.
+    const language = await getUserLanguage(env, s.user_id);
+    const { subject, html } = renderInLang(language, () =>
+      earlyBirdEndingEmail(s.name, ptDate(s.current_period_end), stage));
     const res = await sendEmail(env, { to: recipients, cc, subject, html });
     if (res.ok) {
       result.sent++;
@@ -293,7 +305,11 @@ export async function runRenewalReminders(
     result.due.push({ user_id: s.user_id, email: s.email, period_end: s.current_period_end, would_email: [...recipients, ...(cc ?? [])] });
     if (dryRun) continue;
 
-    const { subject, html } = renewalEmail(s.name, s.plan, ptDate(s.current_period_end));
+    // Same as the early-bird sweep: the language comes off the account behind
+    // `subscriptions.user_id`, and is read before the synchronous render.
+    const language = await getUserLanguage(env, s.user_id);
+    const { subject, html } = renderInLang(language, () =>
+      renewalEmail(s.name, s.plan, ptDate(s.current_period_end)));
     const res = await sendEmail(env, { to: recipients, cc, subject, html });
     if (res.ok) {
       result.sent++;

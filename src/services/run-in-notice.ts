@@ -1,7 +1,8 @@
 import type { Env } from "../env";
 import { sendEmail } from "./email";
 import { resolveMerchantEmails } from "./incidents";
-import { renderRunInCheckEmail } from "./email-templates";
+import { renderRunInCheckEmail, renderInLang } from "./email-templates";
+import { getUserLanguage } from "./user-language";
 import { connectionLabelOf } from "./connection-context";
 import {
   RUN_IN_SOURCE, RUN_IN_DOCUMENTS, RUN_IN_REMINDER_DAYS, RUN_IN_ESCALATE_DAYS, RUN_IN_TOKEN_TTL_MS,
@@ -104,7 +105,11 @@ export async function runRunInNotices(env: Env, opts: { dryRun?: boolean; userId
         record("remind");
         out.reminded++;
         if (!dryRun) {
-          const tpl = renderRunInCheckEmail({ answerUrl: answerUrl(env, row.runin_token), connectionLabel: label, documents, reminder: true });
+          // The connection carries the account id; the language is read before
+          // the render, which is synchronous by contract.
+          const language = await getUserLanguage(env, row.user_id);
+          const tpl = renderInLang(language, () =>
+            renderRunInCheckEmail({ answerUrl: answerUrl(env, row.runin_token), connectionLabel: label, documents, reminder: true }));
           await sendEmail(env, { to: recipients, cc: [OPS_EMAIL], subject: tpl.subject, html: tpl.html });
           await env.DB.prepare("UPDATE connections SET runin_reminded_at = ? WHERE id = ?")
             .bind(new Date().toISOString(), row.id).run();
@@ -124,7 +129,9 @@ export async function runRunInNotices(env: Env, opts: { dryRun?: boolean; userId
         "UPDATE connections SET runin_token = ?, runin_token_expires_at = ?, runin_asked_at = ?, updated_at = ? WHERE id = ?"
       ).bind(token, new Date(now.getTime() + RUN_IN_TOKEN_TTL_MS).toISOString(), now.toISOString(), now.toISOString(), row.id).run();
 
-      const tpl = renderRunInCheckEmail({ answerUrl: answerUrl(env, token), connectionLabel: label, documents });
+      const language = await getUserLanguage(env, row.user_id);
+      const tpl = renderInLang(language, () =>
+        renderRunInCheckEmail({ answerUrl: answerUrl(env, token), connectionLabel: label, documents }));
       await sendEmail(env, { to: recipients, cc: [OPS_EMAIL], subject: tpl.subject, html: tpl.html });
     }
   }

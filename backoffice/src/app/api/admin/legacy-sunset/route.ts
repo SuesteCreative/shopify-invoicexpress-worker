@@ -110,6 +110,9 @@ export async function POST(req: NextRequest) {
                 current_amount_cents: price?.unit_amount ?? null,
                 next_amount_cents: currentPriceCents(interval),
                 connection_key: body.connection_key,
+                // So the worker can dress it in this client's language and skin
+                // rather than the defaults.
+                user_id: body.user_id,
             }),
         }).catch(() => ({ ok: false }));
         emailed = !!(res as any).ok;

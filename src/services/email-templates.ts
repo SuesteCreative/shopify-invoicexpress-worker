@@ -338,6 +338,48 @@ export function renderInTheme<T>(theme: EmailTheme | undefined, render: () => T)
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Language
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Which language the client reads. Ambient, for the same reason the palette is:
+// the alternative is threading a parameter through fifty template functions and
+// every private helper they share, and the one that gets forgotten is the one
+// that sends a Portuguese sentence into an English email.
+//
+// Safe for the same reason, too. Nothing between `renderInLang` setting this and
+// the render returning can suspend, so no other request can observe it.
+//
+// Portuguese is the default everywhere: it is what every account was written to
+// before `users.language` existed, and what an unreadable column falls back to.
+let CURRENT_LANG: EmailLang = "pt";
+
+export type EmailLang = "pt" | "en";
+
+/** Render a template in a given language. Synchronous by contract, like the skin. */
+export function renderInLang<T>(lang: EmailLang | undefined, render: () => T): T {
+  const previous = CURRENT_LANG;
+  CURRENT_LANG = lang === "en" ? "en" : "pt";
+  try {
+    return render();
+  } finally {
+    CURRENT_LANG = previous;
+  }
+}
+
+/** The pair of words for the language being rendered. Both are written here, in
+ *  the same line, so a translation cannot drift away from the sentence it
+ *  translates or be left behind when one of them is edited. */
+export function T(pt: string, en: string): string {
+  return CURRENT_LANG === "en" ? en : pt;
+}
+
+/** For a whole block that differs by more than its words — a date format, a
+ *  link into the localized dashboard, a list with a different number of steps. */
+export function lang(): EmailLang {
+  return CURRENT_LANG;
+}
+
 // Wide PNG logo hosted on rioko.online (Gmail's image proxy reliably fetches
 // from there; workers.dev subdomains are unreliable, inline base64 ≥ ~10KB
 // gets stripped on Gmail web, and SVG data URIs are stripped entirely).
@@ -347,12 +389,17 @@ export function renderInTheme<T>(theme: EmailTheme | undefined, render: () => T)
 /** rioko.online/pt. The legal pages every email links to, small, in the footer.
  *  `disputes` is an anchor inside the privacy page, not a page of its own — the
  *  same shape kapta.pt uses, and it keeps the middleware allowlist out of it. */
-const LEGAL = {
-  privacy: "https://rioko.online/pt/privacy",
-  terms: "https://rioko.online/pt/terms",
-  disputes: "https://rioko.online/pt/privacy#litigios",
-  complaints: "https://www.livroreclamacoes.pt/inicio",
-};
+function legal() {
+  // The same pages, served in the language the email is written in. The
+  // Livro de Reclamações is a Portuguese public service and has one address.
+  const base = `https://rioko.online/${lang()}`;
+  return {
+    privacy: `${base}/privacy`,
+    terms: `${base}/terms`,
+    disputes: `${base}/privacy#litigios`,
+    complaints: "https://www.livroreclamacoes.pt/inicio",
+  };
+}
 
 const DEFAULT_DASHBOARD = "https://rioko.online";
 const DEFAULT_HELP_URL = "mailto:suporte@kapta.pt";
@@ -375,11 +422,11 @@ function severityColor(s: Severity | undefined): string {
     : P().info;
 }
 
-function severityLabelPT(s: Severity | undefined): string {
-  return s === "critical" ? "Crítico"
-    : s === "error" ? "Erro"
-    : s === "warning" ? "Aviso"
-    : "Informação";
+function severityLabel(s: Severity | undefined): string {
+  return s === "critical" ? T("Crítico", "Critical")
+    : s === "error" ? T("Erro", "Error")
+    : s === "warning" ? T("Aviso", "Warning")
+    : T("Informação", "Information");
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -406,12 +453,12 @@ function shell(opts: {
   const accent = severityColor(opts.severity);
   const severityChip = opts.severity ? `
     <span style="display:inline-block;background:${accent};color:#fff;font-size:11px;${P().chipType};text-transform:uppercase;padding:4px 10px;border-radius:${P().chipRadius};vertical-align:middle">
-      ${severityLabelPT(opts.severity)}
+      ${severityLabel(opts.severity)}
     </span>` : "";
 
   const occurChip = (opts.occurrences ?? 0) > 1 ? `
     <span style="display:inline-block;background:${P().occurBg};color:${P().occurText};border:1px solid ${P().occurBorder};font-size:11px;font-weight:600;padding:3px 9px;border-radius:${P().chipRadius};margin-left:6px;vertical-align:middle">
-      ${opts.occurrences}× ocorrências
+      ${opts.occurrences}× ${T("ocorrências", "occurrences")}
     </span>` : "";
 
   const connectionChip = opts.connectionLabel ? `
@@ -427,7 +474,7 @@ function shell(opts: {
     </p>` : "";
 
   return `<!doctype html>
-<html lang="pt-PT">
+<html lang="${lang() === "en" ? "en" : "pt-PT"}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -505,11 +552,11 @@ function shell(opts: {
               <hr style="border:none;border-top:1px solid ${P().border};margin:0 0 16px">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:12px;color:${P().muted}">
                 <tr>
-                  <td style="color:${P().muted}"><font color="${P().muted}">Primeira ocorrência</font></td>
+                  <td style="color:${P().muted}"><font color="${P().muted}">${T("Primeira ocorrência", "First occurrence")}</font></td>
                   <td align="right" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:${P().muted}"><font color="${P().muted}">${escapeHtml(opts.firstSeenAt)}</font></td>
                 </tr>
                 <tr>
-                  <td style="padding-top:4px;color:${P().muted}"><font color="${P().muted}">Última ocorrência</font></td>
+                  <td style="padding-top:4px;color:${P().muted}"><font color="${P().muted}">${T("Última ocorrência", "Last occurrence")}</font></td>
                   <td align="right" style="padding-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:${P().muted}"><font color="${P().muted}">${escapeHtml(opts.lastSeenAt)}</font></td>
                 </tr>
               </table>
@@ -520,13 +567,13 @@ function shell(opts: {
           <tr>
             <td class="footer-bg" bgcolor="${P().cardBgAlt}" style="background-color:${P().cardBgAlt};padding:24px 32px;border-top:1px solid ${P().border};text-align:center">
               <p class="force-muted" style="margin:0;font-size:13px;color:${P().muted};line-height:1.6">
-                <font color="${P().muted}">Precisa de ajuda?</font>
-                <a href="${escapeHtml(opts.helpUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">Contacte a equipa Rioko 2.0</font></a>
+                <font color="${P().muted}">${T("Precisa de ajuda?", "Need a hand?")}</font>
+                <a href="${escapeHtml(opts.helpUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">${T("Contacte a equipa Rioko 2.0", "Contact the Rioko 2.0 team")}</font></a>
                 <font color="${P().muted}">·</font>
-                <a href="${escapeHtml(opts.dashboardUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">Abrir painel</font></a>
+                <a href="${escapeHtml(opts.dashboardUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">${T("Abrir painel", "Open the dashboard")}</font></a>
               </p>
               <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}">
-                <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · ${escapeHtml(opts.footerNote ?? "Notificação automática · Não responda a este email")}</font>
+                <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · ${escapeHtml(opts.footerNote ?? T("Notificação automática · Não responda a este email", "Automatic notification · Please do not reply to this email"))}</font>
               </p>
               ${legalLinks()}
             </td>
@@ -547,12 +594,13 @@ function shell(opts: {
  *  leaves it out and picks the colour up from the active palette. */
 export function legalLinks(color?: string): string {
   const c = color ?? P().muted;
+  const LEGAL = legal();
   const link = (href: string, label: string) =>
     `<a href="${href}" style="color:${c};text-decoration:underline"><font color="${c}">${label}</font></a>`;
   const dot = `<font color="${c}"> · </font>`;
   return `
               <p class="force-muted" style="margin:10px 0 0;font-size:11px;line-height:1.7;color:${c}">
-                ${link(LEGAL.privacy, "Política de privacidade")}${dot}${link(LEGAL.terms, "Termos e condições")}${dot}${link(LEGAL.disputes, "Resolução de litígios")}${dot}${link(LEGAL.complaints, "Livro de Reclamações")}
+                ${link(LEGAL.privacy, T("Política de privacidade", "Privacy policy"))}${dot}${link(LEGAL.terms, T("Termos e condições", "Terms and conditions"))}${dot}${link(LEGAL.disputes, T("Resolução de litígios", "Dispute resolution"))}${dot}${link(LEGAL.complaints, T("Livro de Reclamações", "Complaints book"))}
               </p>`;
 }
 
@@ -587,14 +635,14 @@ function aiDiagnosisBlock(diagnosis?: string, fix?: string): string {
   if (!diagnosis) return "";
   const body =
     `${escapeHtml(diagnosis)}` +
-    (fix ? `<div style="margin-top:8px"><strong>Correção sugerida:</strong> ${escapeHtml(fix)}</div>` : "") +
-    `<div style="margin-top:10px;font-size:11px;color:${P().muted}">Indicativo · não substitui verificação humana</div>`;
-  return calloutBox("Diagnóstico", body, P().purple);
+    (fix ? `<div style="margin-top:8px"><strong>${T("Correção sugerida:", "Suggested fix:")}</strong> ${escapeHtml(fix)}</div>` : "") +
+    `<div style="margin-top:10px;font-size:11px;color:${P().muted}">${T("Indicativo · não substitui verificação humana", "Indicative · not a substitute for checking it yourself")}</div>`;
+  return calloutBox(T("Diagnóstico", "Diagnosis"), body, P().purple);
 }
 
 function stepsList(steps: string[]): string {
   return `
-  ${sectionTitle("O que tentar primeiro")}
+  ${sectionTitle(T("O que tentar primeiro", "What to try first"))}
   <ol style="margin:0 0 24px;padding-left:20px;font-size:14px;color:${P().text};line-height:1.7">
     ${steps.map(s => `<li style="margin-bottom:6px">${escapeHtml(s)}</li>`).join("")}
   </ol>`;
@@ -611,23 +659,23 @@ function orderClientBlock(orderRef?: string, clientName?: string): string {
       <td style="padding:4px 0;font-size:13px;color:${P().muted};width:90px;vertical-align:top"><font color="${P().muted}">${escapeHtml(label)}</font></td>
       <td style="padding:4px 0;font-size:14px;color:${P().text};font-weight:500"><font color="${P().text}">${escapeHtml(value)}</font></td>
     </tr>`;
-  if (orderRef) rows.push(row("Encomenda", orderRef));
-  if (clientName) rows.push(row("Cliente", clientName));
+  if (orderRef) rows.push(row(T("Encomenda", "Order"), orderRef));
+  if (clientName) rows.push(row(T("Cliente", "Customer"), clientName));
   if (rows.length === 0) return "";
   return `
-  ${sectionTitle("Encomenda")}
+  ${sectionTitle(T("Encomenda", "Order"))}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px">${rows.join("")}</table>`;
 }
 
 function affectedIdsBlock(ids?: string[]): string {
   if (!ids || ids.length === 0) return "";
   const shown = ids.slice(0, 10);
-  const more = ids.length > 10 ? `<div style="font-size:12px;color:${P().muted};margin-top:8px">… e mais ${ids.length - 10}</div>` : "";
+  const more = ids.length > 10 ? `<div style="font-size:12px;color:${P().muted};margin-top:8px">${T(`… e mais ${ids.length - 10}`, `… and ${ids.length - 10} more`)}</div>` : "";
   const chips = shown.map(id =>
     `<span style="display:inline-block;background:${P().calloutBg};border:1px solid ${P().idChipBorder};color:${P().text};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;${P().idChip.split("|")[0]};${P().idChip.split("|")[1]}">${escapeHtml(id)}</span>`
   ).join("");
   return `
-  ${sectionTitle("Encomendas / pagamentos afetados")}
+  ${sectionTitle(T("Encomendas / pagamentos afetados", "Affected orders / payments"))}
   <div style="margin-bottom:24px">${chips}${more}</div>`;
 }
 
@@ -635,7 +683,7 @@ function detailBlock(detail: any): string {
   if (detail == null) return "";
   const json = JSON.stringify(detail, null, 2);
   return `
-  ${sectionTitle("Detalhe técnico")}
+  ${sectionTitle(T("Detalhe técnico", "Technical detail"))}
   <pre style="margin:0 0 24px;padding:14px;background:${P().codeBg};color:${P().codeText};border:1px solid ${P().border};border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.55;overflow-x:auto;white-space:pre-wrap;word-break:break-word">${escapeHtml(json)}</pre>`;
 }
 
@@ -669,21 +717,21 @@ function baseInput(input: IncidentTemplateInput) {
 
 export function tplAuthFailureDestination(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("O Rioko 2.0 não conseguiu autenticar-se com o sistema de faturação. <strong>Nenhuma factura nova será emitida</strong> enquanto isto não for resolvido.", { strong: true })}
-    ${calloutBox("Causa provável", "A chave de API expirou, foi rodada ou o utilizador foi removido.", P().error)}
+    ${paragraph(T("O Rioko 2.0 não conseguiu autenticar-se com o sistema de faturação. <strong>Nenhuma factura nova será emitida</strong> enquanto isto não for resolvido.", "Rioko 2.0 could not authenticate with your invoicing system. <strong>No new invoice will be issued</strong> until this is resolved."), { strong: true })}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("A chave de API expirou, foi rodada ou o utilizador foi removido.", "The API key has expired, was rotated, or the user was removed."), P().error)}
     ${stepsList([
-      "Abra as definições da conta de faturação e verifique se a chave API está ativa.",
-      "No Rioko 2.0, em Integrações → reconectar, cole a nova chave.",
-      "Reexecute manualmente as encomendas afetadas em Dev Mode.",
+      T("Abra as definições da conta de faturação e verifique se a chave API está ativa.", "Open the settings of your invoicing account and check that the API key is active."),
+      T("No Rioko 2.0, em Integrações → reconectar, cole a nova chave.", "In Rioko 2.0, under Integrations → reconnect, paste the new key."),
+      T("Reexecute manualmente as encomendas afetadas em Dev Mode.", "Re-run the affected orders manually in Dev Mode."),
     ])}
     ${affectedIdsBlock(input.affectedIds)}
-    ${ctaButton("Abrir Integrações", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations`)}
+    ${ctaButton(T("Abrir Integrações", "Open Integrations"), `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations`)}
   `;
   return {
-    subject: "[Rioko 2.0] Falha de autenticação no sistema de faturação",
+    subject: T("[Rioko 2.0] Falha de autenticação no sistema de faturação", "[Rioko 2.0] Authentication failed with your invoicing system"),
     html: shell({
-      title: "Falha de autenticação no sistema de faturação",
-      preheader: "Nenhuma factura nova será emitida até resolver.",
+      title: T("Falha de autenticação no sistema de faturação", "Authentication failed with your invoicing system"),
+      preheader: T("Nenhuma factura nova será emitida até resolver.", "No new invoice will be issued until this is resolved."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -692,21 +740,21 @@ export function tplAuthFailureDestination(input: IncidentTemplateInput): Rendere
 
 export function tplAuthFailureSource(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("O Rioko 2.0 não conseguiu autenticar-se com Shopify/Stripe ao processar webhooks.")}
-    ${calloutBox("Causa provável", "Token revogado, sessão expirada ou conta suspensa.", P().error)}
+    ${paragraph(T("O Rioko 2.0 não conseguiu autenticar-se com Shopify/Stripe ao processar webhooks.", "Rioko 2.0 could not authenticate with Shopify/Stripe while processing webhooks."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("Token revogado, sessão expirada ou conta suspensa.", "Token revoked, session expired or account suspended."), P().error)}
     ${stepsList([
-      "Verifique se a app Rioko 2.0 continua autorizada na sua loja.",
-      "Reconecte a fonte através do Rioko 2.0 (Integrações → reconectar).",
-      "Após reconectar, reexecute as encomendas em falta em Dev Mode.",
+      T("Verifique se a app Rioko 2.0 continua autorizada na sua loja.", "Check that the Rioko 2.0 app is still authorised on your store."),
+      T("Reconecte a fonte através do Rioko 2.0 (Integrações → reconectar).", "Reconnect the source through Rioko 2.0 (Integrations → reconnect)."),
+      T("Após reconectar, reexecute as encomendas em falta em Dev Mode.", "Once reconnected, re-run the missing orders in Dev Mode."),
     ])}
     ${affectedIdsBlock(input.affectedIds)}
-    ${ctaButton("Abrir Integrações", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations`)}
+    ${ctaButton(T("Abrir Integrações", "Open Integrations"), `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations`)}
   `;
   return {
-    subject: "[Rioko 2.0] Falha de autenticação na fonte de vendas",
+    subject: T("[Rioko 2.0] Falha de autenticação na fonte de vendas", "[Rioko 2.0] Authentication failed with your sales source"),
     html: shell({
-      title: "Falha de autenticação na fonte de vendas",
-      preheader: "Webhooks rejeitados — necessário reconectar.",
+      title: T("Falha de autenticação na fonte de vendas", "Authentication failed with your sales source"),
+      preheader: T("Webhooks rejeitados — necessário reconectar.", "Webhooks rejected — you need to reconnect."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -716,23 +764,23 @@ export function tplAuthFailureSource(input: IncidentTemplateInput): RenderedTemp
 export function tplDestinationReject(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph(escapeHtml(input.summary))}
-    ${calloutBox("Causa provável", "Dados inválidos: NIF incorreto, código de imposto inexistente, sequência sem permissões, ou cliente em estado inconsistente.", P().error)}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("Dados inválidos: NIF incorreto, código de imposto inexistente, sequência sem permissões, ou cliente em estado inconsistente.", "Invalid data: wrong tax number, a tax code that does not exist, a sequence without permissions, or a customer in an inconsistent state."), P().error)}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-      "Abra o documento no sistema de faturação e veja a mensagem de erro detalhada.",
-      "Corrija os dados do cliente ou do produto, conforme aplicável.",
-      "Reexecute a encomenda em Dev Mode após a correcção.",
+      T("Abra o documento no sistema de faturação e veja a mensagem de erro detalhada.", "Open the document in your invoicing system and read the detailed error message."),
+      T("Corrija os dados do cliente ou do produto, conforme aplicável.", "Correct the customer or the product data, whichever applies."),
+      T("Reexecute a encomenda em Dev Mode após a correcção.", "Re-run the order in Dev Mode once you have corrected it."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
-    ${ctaButton("Abrir Dev Mode", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/superadmin`)}
+    ${ctaButton(T("Abrir Dev Mode", "Open Dev Mode"), `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/superadmin`)}
   `;
   return {
-    subject: "[Rioko 2.0] Documento rejeitado pelo sistema de faturação",
+    subject: T("[Rioko 2.0] Documento rejeitado pelo sistema de faturação", "[Rioko 2.0] Document rejected by your invoicing system"),
     html: shell({
-      title: "Documento rejeitado pelo sistema de faturação",
-      preheader: "Dados inválidos impediram a emissão da factura.",
+      title: T("Documento rejeitado pelo sistema de faturação", "Document rejected by your invoicing system"),
+      preheader: T("Dados inválidos impediram a emissão da factura.", "Invalid data stopped the invoice from being issued."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -742,18 +790,18 @@ export function tplDestinationReject(input: IncidentTemplateInput): RenderedTemp
 export function tplNormalizeFail(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph(escapeHtml(input.summary))}
-    ${calloutBox("Causa provável", "O serviço de normalização devolveu um erro transitório ou a encomenda tem um formato inesperado.", P().warning)}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("O serviço de normalização devolveu um erro transitório ou a encomenda tem um formato inesperado.", "The normalisation service returned a transient error, or the order has an unexpected format."), P().warning)}
     ${stepsList([
-      "Aguarde alguns minutos e reexecute em Dev Mode.",
-      "Se persistir, contacte o suporte com o ID da encomenda.",
+      T("Aguarde alguns minutos e reexecute em Dev Mode.", "Wait a few minutes and re-run it in Dev Mode."),
+      T("Se persistir, contacte o suporte com o ID da encomenda.", "If it persists, contact support with the order ID."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] Falha a ler dados da venda",
+    subject: T("[Rioko 2.0] Falha a ler dados da venda", "[Rioko 2.0] Could not read the sale data"),
     html: shell({
-      title: "Falha a ler dados da venda",
+      title: T("Falha a ler dados da venda", "Could not read the sale data"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -763,18 +811,18 @@ export function tplNormalizeFail(input: IncidentTemplateInput): RenderedTemplate
 export function tplViesUnconfirmed(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph(escapeHtml(input.summary))}
-    ${calloutBox("Acção necessária", "Validar o NIF/VAT do cliente manualmente em <a href=\"https://viesvalidation.com/pt/\" target=\"_blank\" style=\"color:${P().blue}\">viesvalidation.com/pt</a> e aprovar ou rejeitar no dashboard.", P().warning)}
+    ${calloutBox(T("Acção necessária", "Action needed"), T(`Validar o NIF/VAT do cliente manualmente em <a href="https://viesvalidation.com/pt/" target="_blank" style="color:${P().blue}">viesvalidation.com/pt</a> e aprovar ou rejeitar no dashboard.`, `Check the customer's VAT number manually at <a href="https://viesvalidation.com/pt/" target="_blank" style="color:${P().blue}">viesvalidation.com/pt</a> and approve or reject it in the dashboard.`), P().warning)}
     ${stepsList([
-      "Abrir o link do VIES (viesvalidation.com/pt) num separador novo.",
-      "Confirmar se o NIF/VAT do comprador é válido nesse estado-membro.",
-      "Aprovar para aplicar reverse charge (IVA 0%) ou rejeitar para emitir como B2C com IVA normal.",
+      T("Abrir o link do VIES (viesvalidation.com/pt) num separador novo.", "Open the VIES link (viesvalidation.com/pt) in a new tab."),
+      T("Confirmar se o NIF/VAT do comprador é válido nesse estado-membro.", "Confirm that the buyer's VAT number is valid in that member state."),
+      T("Aprovar para aplicar reverse charge (IVA 0%) ou rejeitar para emitir como B2C com IVA normal.", "Approve to apply reverse charge (0% VAT), or reject to issue it as B2C with the normal VAT rate."),
     ])}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] Validação VIES manual necessária",
+    subject: T("[Rioko 2.0] Validação VIES manual necessária", "[Rioko 2.0] Manual VIES check needed"),
     html: shell({
-      title: "Validação VIES manual necessária",
+      title: T("Validação VIES manual necessária", "Manual VIES check needed"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -784,20 +832,20 @@ export function tplViesUnconfirmed(input: IncidentTemplateInput): RenderedTempla
 export function tplNifInvalid(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
     ${paragraph(escapeHtml(input.summary))}
-    ${calloutBox("Causa provável", "O NIF não passou na validação algorítmica portuguesa ou não existe no registo da AT.", P().warning)}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("O NIF não passou na validação algorítmica portuguesa ou não existe no registo da AT.", "The NIF did not pass the Portuguese checksum validation, or it does not exist in the tax authority's register."), P().warning)}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-      "Confirme o NIF junto do cliente.",
-      "Se o cliente for estrangeiro, considere desactivar a retenção/IVA para essa encomenda em Dev Mode.",
-      "Reemita a factura após corrigir os dados do cliente.",
+      T("Confirme o NIF junto do cliente.", "Confirm the tax number with the customer."),
+      T("Se o cliente for estrangeiro, considere desactivar a retenção/IVA para essa encomenda em Dev Mode.", "If the customer is not Portuguese, consider turning off withholding/VAT for that order in Dev Mode."),
+      T("Reemita a factura após corrigir os dados do cliente.", "Re-issue the invoice once the customer data is corrected."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] NIF inválido em factura",
+    subject: T("[Rioko 2.0] NIF inválido em factura", "[Rioko 2.0] Invalid tax number on an invoice"),
     html: shell({
-      title: "NIF inválido em factura",
+      title: T("NIF inválido em factura", "Invalid tax number on an invoice"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -806,31 +854,33 @@ export function tplNifInvalid(input: IncidentTemplateInput): RenderedTemplate {
 
 export function tplNifInvalidDraft(input: IncidentTemplateInput): RenderedTemplate {
   const d = (input.detail ?? {}) as Record<string, any>;
-  const found = d.raw ? `<strong>${escapeHtml(String(d.raw))}</strong>` : "um valor";
+  const found = d.raw ? `<strong>${escapeHtml(String(d.raw))}</strong>` : T("um valor", "a value");
   const where = d.field ? ` (${escapeHtml(String(d.field))})` : "";
   const body = `
     ${paragraph(escapeHtml(input.summary))}
     ${calloutBox(
-    "Porquê rascunho",
-    `A morada trazia ${found} na segunda linha${where}. Parece um contribuinte, mas não passa na validação portuguesa. `
-    + `A factura foi emitida <strong>sem esse número e em rascunho</strong> — nada foi comunicado à AT e nada foi enviado ao cliente.`,
+    T("Porquê rascunho", "Why it is a draft"),
+    T(`A morada trazia ${found} na segunda linha${where}. Parece um contribuinte, mas não passa na validação portuguesa. `
+      + `A factura foi emitida <strong>sem esse número e em rascunho</strong> — nada foi comunicado à AT e nada foi enviado ao cliente.`,
+      `The address carried ${found} on its second line${where}. It looks like a tax number, but it does not pass the Portuguese validation. `
+      + `The invoice was issued <strong>without that number and as a draft</strong> — nothing was reported to the tax authority and nothing was sent to the customer.`),
     P().warning,
   )}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-    "Confirme o NIF junto do cliente.",
-    "Corrija a morada da encomenda no Shopify — ou apague o valor, se afinal não era um NIF.",
-    "Reemita a factura a partir do painel: o rascunho é substituído e finaliza normalmente.",
-    "Se o cliente não quer NIF, finalize o rascunho como está (Consumidor Final).",
+    T("Confirme o NIF junto do cliente.", "Confirm the tax number with the customer."),
+    T("Corrija a morada da encomenda no Shopify — ou apague o valor, se afinal não era um NIF.", "Correct the order address in Shopify — or clear the value, if it was never a tax number."),
+    T("Reemita a factura a partir do painel: o rascunho é substituído e finaliza normalmente.", "Re-issue the invoice from the dashboard: the draft is replaced and finalises normally."),
+    T("Se o cliente não quer NIF, finalize o rascunho como está (Consumidor Final).", "If the customer does not want a tax number on it, finalise the draft as it stands (final consumer)."),
   ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
-    ${d.permalink ? ctaButton("Abrir rascunho na InvoiceXpress", String(d.permalink)) : ""}
+    ${d.permalink ? ctaButton(T("Abrir rascunho na InvoiceXpress", "Open the draft in InvoiceXpress"), String(d.permalink)) : ""}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] Factura em rascunho — NIF inválido na morada",
+    subject: T("[Rioko 2.0] Factura em rascunho — NIF inválido na morada", "[Rioko 2.0] Invoice left as a draft — invalid tax number in the address"),
     html: shell({
-      title: "Factura ficou em rascunho",
+      title: T("Factura ficou em rascunho", "The invoice was left as a draft"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -842,24 +892,26 @@ export function tplCreditNoteOnDraft(input: IncidentTemplateInput): RenderedTemp
   const body = `
     ${paragraph(escapeHtml(input.summary))}
     ${calloutBox(
-    "Porque não foi emitida",
-    "Uma nota de crédito só corrige um documento já finalizado. Sobre um rascunho não há nada a corrigir — "
-    + "basta editar o rascunho para o valor certo, ou apagá-lo se a encomenda deixou de existir.",
+    T("Porque não foi emitida", "Why none was issued"),
+    T("Uma nota de crédito só corrige um documento já finalizado. Sobre um rascunho não há nada a corrigir — "
+      + "basta editar o rascunho para o valor certo, ou apagá-lo se a encomenda deixou de existir.",
+      "A credit note only corrects a document that is already finalised. There is nothing to correct on a draft — "
+      + "just edit the draft to the right amount, or delete it if the order no longer exists."),
     P().warning,
   )}
     ${stepsList([
-    "Abra o rascunho na InvoiceXpress.",
-    "Corrija-o para o valor efectivamente cobrado — ou apague-o, se o reembolso foi total.",
-    "Se o documento devia ter sido finalizado antes do reembolso, active o Auto Finalizar para as próximas encomendas.",
+    T("Abra o rascunho na InvoiceXpress.", "Open the draft in InvoiceXpress."),
+    T("Corrija-o para o valor efectivamente cobrado — ou apague-o, se o reembolso foi total.", "Correct it to the amount actually charged — or delete it, if the refund was in full."),
+    T("Se o documento devia ter sido finalizado antes do reembolso, active o Auto Finalizar para as próximas encomendas.", "If the document should have been finalised before the refund, turn on Auto Finalise for the next orders."),
   ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
-    ${d.invoiceId ? paragraph(`Documento: <strong>${escapeHtml(String(d.invoiceId))}</strong>`) : ""}
+    ${d.invoiceId ? paragraph(T(`Documento: <strong>${escapeHtml(String(d.invoiceId))}</strong>`, `Document: <strong>${escapeHtml(String(d.invoiceId))}</strong>`)) : ""}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] Reembolso sobre um rascunho — sem nota de crédito",
+    subject: T("[Rioko 2.0] Reembolso sobre um rascunho — sem nota de crédito", "[Rioko 2.0] Refund on a draft — no credit note issued"),
     html: shell({
-      title: "Reembolso sobre um rascunho",
+      title: T("Reembolso sobre um rascunho", "Refund on a draft"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -872,25 +924,28 @@ export function tplBookingCancelledAfterInvoice(input: IncidentTemplateInput): R
   const body = `
     ${paragraph(escapeHtml(input.summary))}
     ${calloutBox(
-    "Porque não foi anulado automaticamente",
-    "Um documento finalizado está fiscalmente fechado e comunicado à AT — não pode ser apagado. "
-    + "A única forma correcta de o anular é emitir uma nota de crédito, e essa decisão é sua. "
-    + "Os rascunhos da mesma reserva, esses, já foram removidos automaticamente.",
+    T("Porque não foi anulado automaticamente", "Why it was not cancelled automatically"),
+    T("Um documento finalizado está fiscalmente fechado e comunicado à AT — não pode ser apagado. "
+      + "A única forma correcta de o anular é emitir uma nota de crédito, e essa decisão é sua. "
+      + "Os rascunhos da mesma reserva, esses, já foram removidos automaticamente.",
+      "A finalised document is closed for tax purposes and already reported to the tax authority — it cannot be deleted. "
+      + "The only correct way to undo it is to issue a credit note, and that decision is yours. "
+      + "The drafts for the same booking, those we have already removed automatically."),
     P().warning,
   )}
     ${stepsList([
-    "Confirme no Lodgify que a reserva está mesmo cancelada.",
-    "Emita uma nota de crédito no destino para o(s) documento(s) abaixo.",
-    "Se o cancelamento implicou penalização cobrada ao hóspede, credite só a diferença.",
+    T("Confirme no Lodgify que a reserva está mesmo cancelada.", "Confirm in Lodgify that the booking really is cancelled."),
+    T("Emita uma nota de crédito no destino para o(s) documento(s) abaixo.", "Issue a credit note in your invoicing system for the document(s) below."),
+    T("Se o cancelamento implicou penalização cobrada ao hóspede, credite só a diferença.", "If the cancellation meant a fee charged to the guest, credit only the difference."),
   ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
-    ${finalized.length ? paragraph(`Documentos finalizados: <strong>${escapeHtml(finalized.join(", "))}</strong>`) : ""}
+    ${finalized.length ? paragraph(T(`Documentos finalizados: <strong>${escapeHtml(finalized.join(", "))}</strong>`, `Finalised documents: <strong>${escapeHtml(finalized.join(", "))}</strong>`)) : ""}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] Reserva cancelada com factura já finalizada",
+    subject: T("[Rioko 2.0] Reserva cancelada com factura já finalizada", "[Rioko 2.0] Booking cancelled after the invoice was finalised"),
     html: shell({
-      title: "Reserva cancelada depois de facturada",
+      title: T("Reserva cancelada depois de facturada", "Booking cancelled after it was invoiced"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -902,25 +957,28 @@ export function tplLodgifyPaymentNotMarked(input: IncidentTemplateInput): Render
   const body = `
     ${paragraph(escapeHtml(input.summary))}
     ${calloutBox(
-    "Porque não foram facturadas",
-    "A factura só é emitida depois de o pagamento estar registado no Lodgify — é isso que evita facturar "
-    + "reservas que ainda podem ser canceladas. Nas reservas de canais (Airbnb, Booking.com) o dinheiro nunca "
-    + "passa pelo Lodgify, por isso é preciso marcá-las como pagas à mão quando o canal transfere.",
+    T("Porque não foram facturadas", "Why they were not invoiced"),
+    T("A factura só é emitida depois de o pagamento estar registado no Lodgify — é isso que evita facturar "
+      + "reservas que ainda podem ser canceladas. Nas reservas de canais (Airbnb, Booking.com) o dinheiro nunca "
+      + "passa pelo Lodgify, por isso é preciso marcá-las como pagas à mão quando o canal transfere.",
+      "The invoice is only issued once the payment is recorded in Lodgify — that is what keeps us from invoicing "
+      + "bookings that can still be cancelled. On channel bookings (Airbnb, Booking.com) the money never "
+      + "goes through Lodgify, so you have to mark them as paid by hand when the channel pays out."),
     P().warning,
   )}
     ${stepsList([
-    "Abra o Lodgify e confirme quais destas reservas já recebeu.",
-    "Registe o pagamento nessas reservas.",
-    "Nada mais a fazer: as facturas saem sozinhas na sincronização seguinte (até 30 min).",
+    T("Abra o Lodgify e confirme quais destas reservas já recebeu.", "Open Lodgify and check which of these bookings you have already been paid for."),
+    T("Registe o pagamento nessas reservas.", "Record the payment on those bookings."),
+    T("Nada mais a fazer: as facturas saem sozinhas na sincronização seguinte (até 30 min).", "Nothing else to do: the invoices go out on their own at the next sync (within 30 min)."),
   ])}
-    ${d.oldest_departure ? paragraph(`Saída mais antiga por regularizar: <strong>${escapeHtml(String(d.oldest_departure).slice(0, 10))}</strong>`) : ""}
-    ${d.value != null ? paragraph(`Valor total envolvido: <strong>${escapeHtml(String(d.value))}</strong>`) : ""}
+    ${d.oldest_departure ? paragraph(T(`Saída mais antiga por regularizar: <strong>${escapeHtml(String(d.oldest_departure).slice(0, 10))}</strong>`, `Oldest check-out still outstanding: <strong>${escapeHtml(String(d.oldest_departure).slice(0, 10))}</strong>`)) : ""}
+    ${d.value != null ? paragraph(T(`Valor total envolvido: <strong>${escapeHtml(String(d.value))}</strong>`, `Total amount involved: <strong>${escapeHtml(String(d.value))}</strong>`)) : ""}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] Reservas terminadas sem pagamento registado no Lodgify",
+    subject: T("[Rioko 2.0] Reservas terminadas sem pagamento registado no Lodgify", "[Rioko 2.0] Stays that ended with no payment recorded in Lodgify"),
     html: shell({
-      title: "Pagamentos por registar no Lodgify",
+      title: T("Pagamentos por registar no Lodgify", "Payments still to record in Lodgify"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -929,21 +987,21 @@ export function tplLodgifyPaymentNotMarked(input: IncidentTemplateInput): Render
 
 export function tplSubscriptionInactive(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("A subscrição Kapta associada à sua conta está inactiva. <strong>O Rioko 2.0 está a pausar a emissão de facturas</strong> até a situação ser regularizada.", { strong: true })}
-    ${calloutBox("Acção necessária", "Pagamentos continuam a chegar mas não estão a ser facturados.", P().critical)}
+    ${paragraph(T("A subscrição Kapta associada à sua conta está inactiva. <strong>O Rioko 2.0 está a pausar a emissão de facturas</strong> até a situação ser regularizada.", "The Kapta subscription on your account is inactive. <strong>Rioko 2.0 is pausing invoicing</strong> until this is settled."), { strong: true })}
+    ${calloutBox(T("Acção necessária", "Action needed"), T("Pagamentos continuam a chegar mas não estão a ser facturados.", "Payments keep arriving, but they are not being invoiced."), P().critical)}
     ${stepsList([
-      "Verifique o estado da sua subscrição em Faturação no painel.",
-      "Actualize o método de pagamento se necessário.",
-      "Após regularizar, as encomendas pendentes podem ser reemitidas em Dev Mode.",
+      T("Verifique o estado da sua subscrição em Faturação no painel.", "Check the state of your subscription under Billing in the dashboard."),
+      T("Actualize o método de pagamento se necessário.", "Update the payment method if you need to."),
+      T("Após regularizar, as encomendas pendentes podem ser reemitidas em Dev Mode.", "Once it is settled, the pending orders can be re-issued in Dev Mode."),
     ])}
     ${affectedIdsBlock(input.affectedIds)}
-    ${ctaButton("Ver subscrição", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/faturacao`)}
+    ${ctaButton(T("Ver subscrição", "View subscription"), `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/faturacao`)}
   `;
   return {
-    subject: "[Rioko 2.0] Subscrição inactiva — emissão pausada",
+    subject: T("[Rioko 2.0] Subscrição inactiva — emissão pausada", "[Rioko 2.0] Subscription inactive — invoicing paused"),
     html: shell({
-      title: "Subscrição inactiva — emissão pausada",
-      preheader: "Pagamentos não estão a ser facturados. Regularize a subscrição.",
+      title: T("Subscrição inactiva — emissão pausada", "Subscription inactive — invoicing paused"),
+      preheader: T("Pagamentos não estão a ser facturados. Regularize a subscrição.", "Payments are not being invoiced. Please settle the subscription."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -952,22 +1010,22 @@ export function tplSubscriptionInactive(input: IncidentTemplateInput): RenderedT
 
 export function tplQueueRetryExhausted(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("Um webhook foi tentado várias vezes e continua a falhar. O Rioko 2.0 parou de tentar automaticamente.")}
-    ${calloutBox("Causa provável", "Erro persistente do lado do sistema de destino ou dados da encomenda inconsistentes.", P().error)}
+    ${paragraph(T("Um webhook foi tentado várias vezes e continua a falhar. O Rioko 2.0 parou de tentar automaticamente.", "A webhook has been retried several times and keeps failing. Rioko 2.0 has stopped retrying it automatically."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("Erro persistente do lado do sistema de destino ou dados da encomenda inconsistentes.", "A persistent error on the destination system's side, or inconsistent order data."), P().error)}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-      "Verifique o detalhe técnico abaixo.",
-      "Após corrigir, reexecute manualmente em Dev Mode.",
+      T("Verifique o detalhe técnico abaixo.", "Check the technical detail below."),
+      T("Após corrigir, reexecute manualmente em Dev Mode.", "Once corrected, re-run it manually in Dev Mode."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
-    ${ctaButton("Abrir Dev Mode", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/superadmin`)}
+    ${ctaButton(T("Abrir Dev Mode", "Open Dev Mode"), `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/superadmin`)}
   `;
   return {
-    subject: "[Rioko 2.0] Tentativas esgotadas em webhook",
+    subject: T("[Rioko 2.0] Tentativas esgotadas em webhook", "[Rioko 2.0] Webhook retries exhausted"),
     html: shell({
-      title: "Tentativas esgotadas em webhook",
+      title: T("Tentativas esgotadas em webhook", "Webhook retries exhausted"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -976,21 +1034,21 @@ export function tplQueueRetryExhausted(input: IncidentTemplateInput): RenderedTe
 
 export function tplWebhookInvalidSignature(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("Um webhook chegou com assinatura inválida e foi rejeitado.")}
-    ${calloutBox("Causa provável", "O segredo de assinatura no Rioko 2.0 não coincide com o configurado em Shopify/Stripe. Isto bloqueia <strong>todas</strong> as facturas até ser corrigido.", P().critical)}
+    ${paragraph(T("Um webhook chegou com assinatura inválida e foi rejeitado.", "A webhook arrived with an invalid signature and was rejected."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("O segredo de assinatura no Rioko 2.0 não coincide com o configurado em Shopify/Stripe. Isto bloqueia <strong>todas</strong> as facturas até ser corrigido.", "The signing secret in Rioko 2.0 does not match the one configured in Shopify/Stripe. This blocks <strong>every</strong> invoice until it is corrected."), P().critical)}
     ${stepsList([
-      "Copie o webhook signing secret da consola de Shopify ou Stripe.",
-      "No Rioko 2.0, cole-o em Integrações → reconectar.",
-      "Reexecute manualmente as encomendas afetadas em Dev Mode.",
+      T("Copie o webhook signing secret da consola de Shopify ou Stripe.", "Copy the webhook signing secret from the Shopify or Stripe console."),
+      T("No Rioko 2.0, cole-o em Integrações → reconectar.", "In Rioko 2.0, paste it under Integrations → reconnect."),
+      T("Reexecute manualmente as encomendas afetadas em Dev Mode.", "Re-run the affected orders manually in Dev Mode."),
     ])}
     ${affectedIdsBlock(input.affectedIds)}
-    ${ctaButton("Abrir Integrações", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations`)}
+    ${ctaButton(T("Abrir Integrações", "Open Integrations"), `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations`)}
   `;
   return {
-    subject: "[Rioko 2.0] Assinatura de webhook inválida",
+    subject: T("[Rioko 2.0] Assinatura de webhook inválida", "[Rioko 2.0] Invalid webhook signature"),
     html: shell({
-      title: "Assinatura de webhook inválida",
-      preheader: "Webhooks rejeitados — segredo desactualizado.",
+      title: T("Assinatura de webhook inválida", "Invalid webhook signature"),
+      preheader: T("Webhooks rejeitados — segredo desactualizado.", "Webhooks rejected — the secret is out of date."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -999,24 +1057,24 @@ export function tplWebhookInvalidSignature(input: IncidentTemplateInput): Render
 
 export function tplReconcileDrift(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("O total da factura que íamos emitir não coincidia com o valor pago. Abortámos a emissão antes de gerar um documento fiscal com valor errado.")}
-    ${calloutBox("Causa provável", "Configuração incorrecta de IVA (incluído vs excluído) num produto específico, ou taxa de IVA reportada pela Shopify diferente da real. Pode ser corrigido com overrides por SKU em Integrações → InvoiceXpress → Gerir overrides.", P().critical)}
+    ${paragraph(T("O total da factura que íamos emitir não coincidia com o valor pago. Abortámos a emissão antes de gerar um documento fiscal com valor errado.", "The total of the invoice we were about to issue did not match the amount paid. We stopped before creating a tax document with the wrong value."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("Configuração incorrecta de IVA (incluído vs excluído) num produto específico, ou taxa de IVA reportada pela Shopify diferente da real. Pode ser corrigido com overrides por SKU em Integrações → InvoiceXpress → Gerir overrides.", "A wrong VAT setting (included vs excluded) on a specific product, or a VAT rate reported by Shopify that differs from the real one. It can be fixed with per-SKU overrides under Integrations → InvoiceXpress → Manage overrides."), P().critical)}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-      "Verificar o detalhe abaixo para identificar o SKU.",
-      "Abrir Integrações → Gerir overrides e adicionar override para o SKU (tax_rate ou vat_inclusion).",
-      "Reemitir a encomenda em Dev Mode.",
+      T("Verificar o detalhe abaixo para identificar o SKU.", "Check the detail below to identify the SKU."),
+      T("Abrir Integrações → Gerir overrides e adicionar override para o SKU (tax_rate ou vat_inclusion).", "Open Integrations → Manage overrides and add an override for that SKU (tax_rate or vat_inclusion)."),
+      T("Reemitir a encomenda em Dev Mode.", "Re-issue the order in Dev Mode."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
-    ${ctaButton("Abrir overrides", `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations/ix-overrides`)}
+    ${ctaButton(T("Abrir overrides", "Open overrides"), `${input.dashboardUrl ?? DEFAULT_DASHBOARD}/integrations/ix-overrides`)}
   `;
   return {
-    subject: "[Rioko 2.0] Drift de total — factura não emitida",
+    subject: T("[Rioko 2.0] Drift de total — factura não emitida", "[Rioko 2.0] Total drift — invoice not issued"),
     html: shell({
-      title: "Drift de total — factura não emitida",
-      preheader: "Bloqueámos a emissão para evitar valor errado.",
+      title: T("Drift de total — factura não emitida", "Total drift — invoice not issued"),
+      preheader: T("Bloqueámos a emissão para evitar valor errado.", "We blocked the issue to avoid a wrong amount."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -1025,20 +1083,20 @@ export function tplReconcileDrift(input: IncidentTemplateInput): RenderedTemplat
 
 export function tplCurrencyNotSupported(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("Recebemos um pagamento numa moeda diferente de EUR. A factura não foi emitida porque a contabilidade portuguesa deve ser em EUR.")}
+    ${paragraph(T("Recebemos um pagamento numa moeda diferente de EUR. A factura não foi emitida porque a contabilidade portuguesa deve ser em EUR.", "We received a payment in a currency other than EUR. The invoice was not issued, because Portuguese accounting has to be in EUR."))}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-      "Verifique se o cliente pagou numa moeda inesperada.",
-      "Se quer aceitar moedas múltiplas, contacte-nos para implementarmos conversão.",
+      T("Verifique se o cliente pagou numa moeda inesperada.", "Check whether the customer paid in an unexpected currency."),
+      T("Se quer aceitar moedas múltiplas, contacte-nos para implementarmos conversão.", "If you want to accept several currencies, get in touch and we will set up conversion."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
   `;
   return {
-    subject: "[Rioko 2.0] Moeda não suportada — factura não emitida",
+    subject: T("[Rioko 2.0] Moeda não suportada — factura não emitida", "[Rioko 2.0] Currency not supported — invoice not issued"),
     html: shell({
-      title: "Moeda não suportada",
+      title: T("Moeda não suportada", "Currency not supported"),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -1047,22 +1105,22 @@ export function tplCurrencyNotSupported(input: IncidentTemplateInput): RenderedT
 
 export function tplSimplifiedInvoiceDowngraded(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("Uma regra de routing por tags pediu factura simplificada, mas esta venda não reúne as condições legais. Emitimos factura normal para não deixar a venda por facturar.")}
+    ${paragraph(T("Uma regra de routing por tags pediu factura simplificada, mas esta venda não reúne as condições legais. Emitimos factura normal para não deixar a venda por facturar.", "A tag routing rule asked for a simplified invoice, but this sale does not meet the legal conditions. We issued a full invoice so the sale would not be left uninvoiced."))}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-      "A factura simplificada está limitada a 1.000 € (art. 40.º do CIVA) e não admite dados completos de cliente.",
-      "Se o cliente indicou NIF, a factura tem de ser completa.",
-      "Se isto acontece com frequência, ajuste a regra para outro tipo de documento.",
+      T("A factura simplificada está limitada a 1.000 € (art. 40.º do CIVA) e não admite dados completos de cliente.", "A simplified invoice is capped at 1.000 € (art. 40.º of the Portuguese VAT code) and cannot carry full customer details."),
+      T("Se o cliente indicou NIF, a factura tem de ser completa.", "If the customer gave a tax number, the invoice has to be a full one."),
+      T("Se isto acontece com frequência, ajuste a regra para outro tipo de documento.", "If this happens often, point the rule at a different document type."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
   `;
   return {
-    subject: "[Rioko 2.0] Factura simplificada convertida em factura normal",
+    subject: T("[Rioko 2.0] Factura simplificada convertida em factura normal", "[Rioko 2.0] Simplified invoice issued as a full invoice"),
     html: shell({
-      title: "Factura simplificada não aplicável",
-      preheader: "A venda foi facturada — mas não como simplificada.",
+      title: T("Factura simplificada não aplicável", "Simplified invoice does not apply"),
+      preheader: T("A venda foi facturada — mas não como simplificada.", "The sale was invoiced — but not as a simplified invoice."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -1076,23 +1134,23 @@ export function tplSimplifiedInvoiceDowngraded(input: IncidentTemplateInput): Re
  */
 export function tplDocumentDrift(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("Emitimos o documento e, ao relê-lo no destino, ele não está como o enviámos. O documento existe — o que difere é o que lá ficou guardado.")}
-    ${calloutBox("Porque é que isto importa", "A referência é a chave de idempotência entre nós e o destino: guardada diferente, perguntar \\\"já emitiste isto?\\\" passa a devolver a resposta errada, e daí saem faturas em falta ou duplicadas. O código de isenção é o que segue no SAF-T para a AT. Um total diferente significa um documento fiscal que não vale o que o cliente pagou.", P().critical)}
+    ${paragraph(T("Emitimos o documento e, ao relê-lo no destino, ele não está como o enviámos. O documento existe — o que difere é o que lá ficou guardado.", "We issued the document and, on reading it back at the destination, it is not the way we sent it. The document exists — what differs is what was stored there."))}
+    ${calloutBox(T("Porque é que isto importa", "Why this matters"), T("A referência é a chave de idempotência entre nós e o destino: guardada diferente, perguntar \\\"já emitiste isto?\\\" passa a devolver a resposta errada, e daí saem faturas em falta ou duplicadas. O código de isenção é o que segue no SAF-T para a AT. Um total diferente significa um documento fiscal que não vale o que o cliente pagou.", "The reference is the idempotency key between us and the destination: stored differently, asking \\\"have you issued this already?\\\" starts returning the wrong answer, and that is how invoices go missing or get duplicated. The exemption code is what travels in the SAF-T file to the tax authority. A different total means a tax document that is not worth what the customer paid."), P().critical)}
     ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
     ${stepsList([
-      "Ver no detalhe abaixo que campo divergiu e os dois valores.",
-      "Confirmar no destino se o documento está fechado — um documento fechado só se corrige com nota de crédito e reemissão.",
-      "Se o campo for a referência, verificar se outras vendas da mesma ligação partilham o mesmo valor.",
+      T("Ver no detalhe abaixo que campo divergiu e os dois valores.", "Check in the detail below which field diverged, and both values."),
+      T("Confirmar no destino se o documento está fechado — um documento fechado só se corrige com nota de crédito e reemissão.", "Confirm at the destination whether the document is closed — a closed document is only corrected with a credit note and a re-issue."),
+      T("Se o campo for a referência, verificar se outras vendas da mesma ligação partilham o mesmo valor.", "If the field is the reference, check whether other sales on the same connection share the same value."),
     ])}
     ${orderClientBlock(input.orderRef, input.clientName)}
     ${affectedIdsBlock(input.affectedIds)}
     ${detailBlock(input.detail)}
   `;
   return {
-    subject: "[Rioko 2.0] Documento ficou diferente do que enviámos",
+    subject: T("[Rioko 2.0] Documento ficou diferente do que enviámos", "[Rioko 2.0] The document ended up different from what we sent"),
     html: shell({
-      title: "Divergência entre o enviado e o guardado",
-      preheader: "O documento existe, mas o destino guardou outra coisa.",
+      title: T("Divergência entre o enviado e o guardado", "Mismatch between what was sent and what was stored"),
+      preheader: T("O documento existe, mas o destino guardou outra coisa.", "The document exists, but the destination stored something else."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -1109,21 +1167,21 @@ export function tplDocumentDrift(input: IncidentTemplateInput): RenderedTemplate
  */
 export function tplLodgifyRelayDown(input: IncidentTemplateInput): RenderedTemplate {
   const body = `
-    ${paragraph("As chamadas à API da Lodgify saem por um relay com IP fixo (é o único endereço que a Lodgify aceita). Esse relay não respondeu, por isso nenhuma reserva está a ser sincronizada nem facturada.")}
-    ${calloutBox("Causa provável", "Máquina do relay em baixo, plataforma indisponível, ou LODGIFY_GATEWAY_URL/KEY em falta no worker.", P().error)}
+    ${paragraph(T("As chamadas à API da Lodgify saem por um relay com IP fixo (é o único endereço que a Lodgify aceita). Esse relay não respondeu, por isso nenhuma reserva está a ser sincronizada nem facturada.", "Calls to the Lodgify API go out through a fixed-IP relay (it is the only address Lodgify accepts). That relay did not answer, so no booking is being synced or invoiced."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("Máquina do relay em baixo, plataforma indisponível, ou LODGIFY_GATEWAY_URL/KEY em falta no worker.", "The relay machine is down, the platform is unavailable, or LODGIFY_GATEWAY_URL/KEY is missing on the worker."), P().error)}
     ${stepsList([
-      "fly status --app rioko-lodgify-relay — as duas máquinas devem estar started e healthy.",
-      "curl https://rioko-lodgify-relay.fly.dev/healthz — deve responder 200 sem segredo.",
-      "wrangler secret list — confirmar que LODGIFY_GATEWAY_KEY não desapareceu num deploy.",
-      "Rollback, se for preciso ganhar tempo: LODGIFY_EGRESS_MODE=\"direct\". Volta ao estado bloqueado, sem introduzir falha nova.",
+      T("fly status --app rioko-lodgify-relay — as duas máquinas devem estar started e healthy.", "fly status --app rioko-lodgify-relay — both machines should be started and healthy."),
+      T("curl https://rioko-lodgify-relay.fly.dev/healthz — deve responder 200 sem segredo.", "curl https://rioko-lodgify-relay.fly.dev/healthz — it should answer 200 with no secret."),
+      T("wrangler secret list — confirmar que LODGIFY_GATEWAY_KEY não desapareceu num deploy.", "wrangler secret list — confirm LODGIFY_GATEWAY_KEY did not vanish in a deploy."),
+      T("Rollback, se for preciso ganhar tempo: LODGIFY_EGRESS_MODE=\"direct\". Volta ao estado bloqueado, sem introduzir falha nova.", "Rollback, if you need to buy time: LODGIFY_EGRESS_MODE=\"direct\". It goes back to the blocked state, without introducing a new failure."),
     ])}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] Relay de saída da Lodgify em baixo",
+    subject: T("[Rioko 2.0] Relay de saída da Lodgify em baixo", "[Rioko 2.0] The Lodgify egress relay is down"),
     html: shell({
-      title: "Relay de saída da Lodgify em baixo",
-      preheader: "Sem sincronização de reservas enquanto durar.",
+      title: T("Relay de saída da Lodgify em baixo", "The Lodgify egress relay is down"),
+      preheader: T("Sem sincronização de reservas enquanto durar.", "No booking sync for as long as it lasts."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -1144,21 +1202,21 @@ export function tplWorkerBuildFailed(input: IncidentTemplateInput): RenderedTemp
   const d = input.detail ?? {};
   const where = [d.branch, d.commit ? String(d.commit).slice(0, 7) : null].filter(Boolean).join(" @ ");
   const body = `
-    ${paragraph("A Cloudflare não conseguiu construir o worker, por isso este commit NÃO está em produção. O worker continua a servir a versão anterior, e continuará até um build passar.")}
-    ${calloutBox("Build que falhou", where ? `${where}${d.outcome ? ` — ${d.outcome}` : ""}` : (d.outcome ?? "desconhecido"), P().error)}
+    ${paragraph(T("A Cloudflare não conseguiu construir o worker, por isso este commit NÃO está em produção. O worker continua a servir a versão anterior, e continuará até um build passar.", "Cloudflare could not build the worker, so this commit is NOT in production. The worker keeps serving the previous version, and will until a build passes."))}
+    ${calloutBox(T("Build que falhou", "The build that failed"), where ? `${where}${d.outcome ? ` — ${d.outcome}` : ""}` : (d.outcome ?? T("desconhecido", "unknown")), P().error)}
     ${stepsList([
-      "Workers & Pages → shopify-invoicexpress-worker → Deployments: abrir o build e ler a fase que falhou.",
-      "O Build command corre npm ci && tsc --noEmit && npm test. Só instala as dependências da RAIZ: um import em backoffice/src/ de um pacote que só exista em backoffice/package.json faz a suite nem carregar.",
-      "Reproduzir como o CI: correr npx vitest run com backoffice/node_modules fora do caminho, e não com ele.",
-      "Confirmar o que está mesmo em produção: GET /admin/version — o commit tem de ser o do main.",
+      T("Workers & Pages → shopify-invoicexpress-worker → Deployments: abrir o build e ler a fase que falhou.", "Workers & Pages → shopify-invoicexpress-worker → Deployments: open the build and read the stage that failed."),
+      T("O Build command corre npm ci && tsc --noEmit && npm test. Só instala as dependências da RAIZ: um import em backoffice/src/ de um pacote que só exista em backoffice/package.json faz a suite nem carregar.", "The build command runs npm ci && tsc --noEmit && npm test. It only installs the ROOT dependencies: an import in backoffice/src/ of a package that only exists in backoffice/package.json keeps the suite from even loading."),
+      T("Reproduzir como o CI: correr npx vitest run com backoffice/node_modules fora do caminho, e não com ele.", "Reproduce it the way CI does: run npx vitest run with backoffice/node_modules moved out of the way, not with it in place."),
+      T("Confirmar o que está mesmo em produção: GET /admin/version — o commit tem de ser o do main.", "Confirm what is really in production: GET /admin/version — the commit has to be the one on main."),
     ])}
     ${affectedIdsBlock(input.affectedIds)}
   `;
   return {
-    subject: "[Rioko 2.0] O worker não está a publicar — build falhou",
+    subject: T("[Rioko 2.0] O worker não está a publicar — build falhou", "[Rioko 2.0] The worker is not shipping — the build failed"),
     html: shell({
-      title: "Build do worker falhou",
-      preheader: "Produção ficou na versão anterior.",
+      title: T("Build do worker falhou", "The worker build failed"),
+      preheader: T("Produção ficou na versão anterior.", "Production stayed on the previous version."),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -1175,32 +1233,35 @@ export function tplWorkerBuildFailed(input: IncidentTemplateInput): RenderedTemp
  */
 export function tplConnectionUnconfigured(input: IncidentTemplateInput): RenderedTemplate {
   const detail = (input.detail ?? {}) as Record<string, any>;
-  const destination = typeof detail.destination === "string" ? detail.destination : "o sistema de faturação";
+  const destination = typeof detail.destination === "string" ? detail.destination : T("o sistema de faturação", "your invoicing system");
   const pending = Number(detail.pendingPayments ?? 0);
   const dashboard = input.dashboardUrl ?? DEFAULT_DASHBOARD;
 
   const body = `
-    ${paragraph(`A sua ligação a <strong>${escapeHtml(destination)}</strong> está ligada mas <strong>incompleta</strong>, por isso <strong>não está a ser emitido nenhum documento</strong>.`, { strong: true })}
+    ${paragraph(T(`A sua ligação a <strong>${escapeHtml(destination)}</strong> está ligada mas <strong>incompleta</strong>, por isso <strong>não está a ser emitido nenhum documento</strong>.`, `Your connection to <strong>${escapeHtml(destination)}</strong> is connected but <strong>incomplete</strong>, so <strong>no document is being issued</strong>.`), { strong: true })}
     ${calloutBox(
-      "O que falta",
-      escapeHtml(String(detail.missing ?? `As credenciais de ${destination} não estão guardadas na sua conta Rioko.`)),
+      T("O que falta", "What is missing"),
+      // "for X" rather than "your X credentials": the fallback name already
+      // carries its own article ("your invoicing system"), and the possessive
+      // form printed "Your your invoicing system credentials".
+      escapeHtml(String(detail.missing ?? T(`As credenciais de ${destination} não estão guardadas na sua conta Rioko.`, `The credentials for ${destination} are not stored on your Rioko account.`))),
       P().error,
     )}
     ${pending > 0
-      ? paragraph(`Há <strong>${pending}</strong> pagamento(s) à espera de serem faturados. Assim que completar o passo em falta, emitimos o que ficou para trás.`)
-      : paragraph("Qualquer pagamento que entre entretanto fica por faturar até isto estar resolvido. Nada se perde: emitimos o que ficar para trás assim que a ligação estiver completa.")}
+      ? paragraph(T(`Há <strong>${pending}</strong> pagamento(s) à espera de serem faturados. Assim que completar o passo em falta, emitimos o que ficou para trás.`, `There are <strong>${pending}</strong> payment(s) waiting to be invoiced. As soon as you complete the missing step, we issue everything that was left behind.`))
+      : paragraph(T("Qualquer pagamento que entre entretanto fica por faturar até isto estar resolvido. Nada se perde: emitimos o que ficar para trás assim que a ligação estiver completa.", "Any payment that comes in meanwhile stays uninvoiced until this is resolved. Nothing is lost: we issue whatever was left behind as soon as the connection is complete."))}
     ${stepsList([
-      "Abra Integrações no painel Rioko, no botão abaixo.",
-      `Abra a sua ligação e vá ao passo de ${escapeHtml(destination)}.`,
-      "Preencha as credenciais e grave. Validamos na hora e dizemos se ficou bem.",
+      T("Abra Integrações no painel Rioko, no botão abaixo.", "Open Integrations in the Rioko dashboard, with the button below."),
+      T(`Abra a sua ligação e vá ao passo de ${escapeHtml(destination)}.`, `Open your connection and go to the step for ${escapeHtml(destination)}.`),
+      T("Preencha as credenciais e grave. Validamos na hora e dizemos se ficou bem.", "Fill in the credentials and save. We check them right away and tell you if they work."),
     ])}
-    ${ctaButton("Abrir Integrações", `${dashboard}/integrations`)}
+    ${ctaButton(T("Abrir Integrações", "Open Integrations"), `${dashboard}/integrations`)}
   `;
   return {
-    subject: `[Rioko 2.0] A sua integração está pendente — nada está a ser faturado`,
+    subject: T(`[Rioko 2.0] A sua integração está pendente — nada está a ser faturado`, `[Rioko 2.0] Your integration is pending — nothing is being invoiced`),
     html: shell({
-      title: "Integração pendente",
-      preheader: `Falta um passo em ${destination}. Nenhum documento está a ser emitido.`,
+      title: T("Integração pendente", "Integration pending"),
+      preheader: T(`Falta um passo em ${destination}. Nenhum documento está a ser emitido.`, `One step is missing in ${destination}. No document is being issued.`),
       bodyHtml: body,
       ...baseInput(input),
     }),
@@ -1257,18 +1318,18 @@ export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
   const accent = reached ? Q.red : Q.amber;
   const fAccent = reached ? "f-red" : "f-amber";
   const barClass = reached ? "bar-red" : "bar-amber";
-  const chip = reached ? "LIMITE ATINGIDO" : "AVISO";
-  const title = reached ? "Limite de faturas atingido — emissão bloqueada" : "Limite de faturas quase atingido";
+  const chip = reached ? T("LIMITE ATINGIDO", "LIMIT REACHED") : T("AVISO", "WARNING");
+  const title = reached ? T("Limite de faturas atingido — emissão bloqueada", "Invoice limit reached — issuing blocked") : T("Limite de faturas quase atingido", "Invoice limit almost reached");
   const subject = reached
-    ? `🔴 Faturação bloqueada — limite InvoiceXpress atingido (${input.merchantName})`
-    : `🟠 90% do limite de faturas InvoiceXpress (${input.merchantName})`;
+    ? T(`🔴 Faturação bloqueada — limite InvoiceXpress atingido (${input.merchantName})`, `🔴 Invoicing blocked — InvoiceXpress limit reached (${input.merchantName})`)
+    : T(`🟠 90% do limite de faturas InvoiceXpress (${input.merchantName})`, `🟠 90% of your InvoiceXpress invoice limit (${input.merchantName})`);
   const upgradeUrl = input.upgradeUrl || "https://invoicexpress.com/planos-precos/";
   const dashboardUrl = input.dashboardUrl || DEFAULT_DASHBOARD;
   const known = (input.limit ?? 0) > 0;
   const used = input.used ?? 0, limit = input.limit ?? 0;
   const pct = known ? Math.round((used / limit) * 100) : (reached ? 100 : 90);
   const remaining = known ? Math.max(0, limit - used) : 0;
-  const countLabel = known ? `${used} / ${limit}` : (reached ? "Limite atingido" : "Quase no limite");
+  const countLabel = known ? `${used} / ${limit}` : (reached ? T("Limite atingido", "Limit reached") : T("Quase no limite", "Close to the limit"));
   const f = Math.max(2, Math.min(100, pct));
 
   const style = `<style>
@@ -1298,11 +1359,15 @@ export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
   </style>`;
 
   const lead = reached
-    ? `A conta InvoiceXpress associada a <b class="f-white" style="color:${P().textStrong}">${escapeHtml(input.merchantName)}</b> atingiu o <b class="f-red" style="color:${Q.red}">limite de documentos</b> do plano para o período atual. <b class="f-white" style="color:${P().textStrong}">Novas faturas não estão a ser emitidas.</b>`
-    : `A conta InvoiceXpress associada a <b class="f-white" style="color:${P().textStrong}">${escapeHtml(input.merchantName)}</b> já usou <b class="f-amber" style="color:${Q.amber}">${pct}%</b> do limite de documentos do plano para o período atual. Quando o limite for atingido, a emissão de faturas pára automaticamente.`;
+    ? T(`A conta InvoiceXpress associada a <b class="f-white" style="color:${P().textStrong}">${escapeHtml(input.merchantName)}</b> atingiu o <b class="f-red" style="color:${Q.red}">limite de documentos</b> do plano para o período atual. <b class="f-white" style="color:${P().textStrong}">Novas faturas não estão a ser emitidas.</b>`,
+        `The InvoiceXpress account linked to <b class="f-white" style="color:${P().textStrong}">${escapeHtml(input.merchantName)}</b> has reached the plan's <b class="f-red" style="color:${Q.red}">document limit</b> for the current period. <b class="f-white" style="color:${P().textStrong}">New invoices are not being issued.</b>`)
+    : T(`A conta InvoiceXpress associada a <b class="f-white" style="color:${P().textStrong}">${escapeHtml(input.merchantName)}</b> já usou <b class="f-amber" style="color:${Q.amber}">${pct}%</b> do limite de documentos do plano para o período atual. Quando o limite for atingido, a emissão de faturas pára automaticamente.`,
+        `The InvoiceXpress account linked to <b class="f-white" style="color:${P().textStrong}">${escapeHtml(input.merchantName)}</b> has already used <b class="f-amber" style="color:${Q.amber}">${pct}%</b> of the plan's document limit for the current period. Once the limit is reached, invoicing stops automatically.`);
   const action = reached
-    ? `Para <b class="f-white" style="color:${P().textStrong}">retomar a faturação imediatamente</b>, aumente o plano InvoiceXpress. Em alternativa, o limite reinicia no início do próximo período (${escapeHtml(input.periodEnd)}) — mas até lá as vendas ficam por faturar.`
-    : `Recomendamos aumentar o plano InvoiceXpress antes de atingir o limite, para não interromper a emissão de faturas.`;
+    ? T(`Para <b class="f-white" style="color:${P().textStrong}">retomar a faturação imediatamente</b>, aumente o plano InvoiceXpress. Em alternativa, o limite reinicia no início do próximo período (${escapeHtml(input.periodEnd)}) — mas até lá as vendas ficam por faturar.`,
+        `To <b class="f-white" style="color:${P().textStrong}">resume invoicing straight away</b>, move up your InvoiceXpress plan. Otherwise the limit resets at the start of the next period (${escapeHtml(input.periodEnd)}) — but until then your sales stay uninvoiced.`)
+    : T(`Recomendamos aumentar o plano InvoiceXpress antes de atingir o limite, para não interromper a emissão de faturas.`,
+        `We recommend moving up your InvoiceXpress plan before you hit the limit, so invoicing is never interrupted.`);
 
   const usageBar = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 0"><tr>
     <td class="track-bg" bgcolor="${Q.track}" style="background-color:${Q.track};border-radius:8px;padding:4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
@@ -1313,25 +1378,25 @@ export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
   <p class="f-text" style="margin:0 0 18px;font-size:15px;line-height:1.65;color:${P().text}">${lead}</p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="box-bg" bgcolor="${Q.boxBg}" style="background-color:${Q.boxBg};border:1px solid ${P().border};border-radius:12px;margin:0 0 22px"><tr><td style="padding:18px 20px">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td class="f-muted" style="font-size:13px;color:${P().muted}"><font color="${P().muted}">Documentos usados neste período</font></td>
+      <td class="f-muted" style="font-size:13px;color:${P().muted}"><font color="${P().muted}">${T("Documentos usados neste período", "Documents used in this period")}</font></td>
       <td class="${fAccent}" align="right" style="font-size:13px;color:${accent};font-weight:700"><font color="${accent}">${countLabel}</font></td></tr></table>
     ${usageBar}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px"><tr>
-      <td class="f-muted" style="font-size:12px;color:${P().muted}"><font color="${P().muted}">Período: </font><span class="f-text" style="font-family:ui-monospace,Menlo,monospace;color:${P().text}"><font color="${P().text}">${escapeHtml(input.periodStart)} → ${escapeHtml(input.periodEnd)}</font></span></td>
-      <td align="right" style="font-size:12px">${reached ? `<span class="f-red" style="color:${Q.red};font-weight:600"><font color="${Q.red}">0 restantes</font></span>` : (known ? `<span class="f-muted" style="color:${P().muted}"><font color="${P().muted}">${remaining} restantes</font></span>` : "")}</td></tr></table>
+      <td class="f-muted" style="font-size:12px;color:${P().muted}"><font color="${P().muted}">${T("Período: ", "Period: ")}</font><span class="f-text" style="font-family:ui-monospace,Menlo,monospace;color:${P().text}"><font color="${P().text}">${escapeHtml(input.periodStart)} → ${escapeHtml(input.periodEnd)}</font></span></td>
+      <td align="right" style="font-size:12px">${reached ? `<span class="f-red" style="color:${Q.red};font-weight:600"><font color="${Q.red}">${T("0 restantes", "0 left")}</font></span>` : (known ? `<span class="f-muted" style="color:${P().muted}"><font color="${P().muted}">${T(`${remaining} restantes`, `${remaining} left`)}</font></span>` : "")}</td></tr></table>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px"><tr>
-      <td class="f-muted" style="font-size:12px;color:${P().muted}"><font color="${P().muted}">Conta InvoiceXpress: </font><span class="f-text" style="font-family:ui-monospace,Menlo,monospace;color:${P().text}"><font color="${P().text}">${escapeHtml(input.ixAccount)}</font></span></td></tr></table>
+      <td class="f-muted" style="font-size:12px;color:${P().muted}"><font color="${P().muted}">${T("Conta InvoiceXpress: ", "InvoiceXpress account: ")}</font><span class="f-text" style="font-family:ui-monospace,Menlo,monospace;color:${P().text}"><font color="${P().text}">${escapeHtml(input.ixAccount)}</font></span></td></tr></table>
   </td></tr></table>
   <p class="f-text" style="margin:0 0 24px;font-size:14px;line-height:1.65;color:${P().text}">${action}</p>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto"><tr>
     <td class="btn-bg" align="center" bgcolor="${Q.btn}" style="background-color:${Q.btn};background-image:linear-gradient(90deg,${Q.btnA},${Q.btnB});border-radius:10px">
-      <a href="${escapeHtml(upgradeUrl)}" class="f-btn" style="display:inline-block;padding:13px 26px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none"><font color="#ffffff">Aumentar plano InvoiceXpress →</font></a>
+      <a href="${escapeHtml(upgradeUrl)}" class="f-btn" style="display:inline-block;padding:13px 26px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none"><font color="#ffffff">${T("Aumentar plano InvoiceXpress →", "Upgrade your InvoiceXpress plan →")}</font></a>
     </td></tr></table>
-  <p style="margin:14px 0 0;text-align:center;font-size:13px"><a href="${escapeHtml(dashboardUrl)}" class="f-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">Ver no painel Rioko</font></a></p>`;
+  <p style="margin:14px 0 0;text-align:center;font-size:13px"><a href="${escapeHtml(dashboardUrl)}" class="f-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">${T("Ver no painel Rioko", "View in the Rioko dashboard")}</font></a></p>`;
 
-  const html = `<!doctype html><html lang="pt-PT"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="${P().colorScheme}"><meta name="supported-color-schemes" content="${P().colorScheme}"><title>${escapeHtml(title)}</title>${style}</head>
+  const html = `<!doctype html><html lang="${lang() === "en" ? "en" : "pt-PT"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="${P().colorScheme}"><meta name="supported-color-schemes" content="${P().colorScheme}"><title>${escapeHtml(title)}</title>${style}</head>
 <body style="margin:0;padding:0;background:${P().pageBg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:${P().text};-webkit-font-smoothing:antialiased">
-<div style="display:none;max-height:0;overflow:hidden">${reached ? "Faturação bloqueada: a conta InvoiceXpress atingiu o limite de documentos do plano." : "A conta InvoiceXpress está a 90% do limite de documentos do plano."}</div>
+<div style="display:none;max-height:0;overflow:hidden">${reached ? T("Faturação bloqueada: a conta InvoiceXpress atingiu o limite de documentos do plano.", "Invoicing blocked: the InvoiceXpress account has reached the plan's document limit.") : T("A conta InvoiceXpress está a 90% do limite de documentos do plano.", "The InvoiceXpress account is at 90% of the plan's document limit.")}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${P().pageBg}" style="background-color:${P().pageBg};padding:32px 16px"><tr><td align="center">
   <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="card-bg" bgcolor="${P().cardBg}" style="max-width:600px;width:100%;background-color:${P().cardBg};border-radius:14px;overflow:hidden">
     <tr><td class="header-bg" bgcolor="${P().headerBg}" style="background-color:${P().headerBg};background-image:${P().bgGradient};padding:28px 32px 24px">
@@ -1343,8 +1408,8 @@ export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
       <div style="height:3px;width:100%;background-color:${P().blue};background-image:linear-gradient(90deg, ${P().blue}, ${P().purple});margin-top:24px"></div></td></tr>
     <tr><td class="card-bg" bgcolor="${P().cardBg}" style="background-color:${P().cardBg};padding:32px">${body}</td></tr>
     <tr><td class="footer-bg" bgcolor="${P().cardBgAlt}" style="background-color:${P().cardBgAlt};padding:24px 32px;border-top:1px solid ${P().border};text-align:center">
-      <p class="f-muted" style="margin:0;font-size:13px;color:${P().muted};line-height:1.6"><font color="${P().muted}">Precisa de ajuda? </font><a href="${escapeHtml(DEFAULT_HELP_URL)}" class="f-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">Contacte a equipa Rioko 2.0</font></a></p>
-      <p class="f-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}"><font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted}"><font color="${P().muted}">Kapta</font></a> · Notificação automática · Não responda a este email</font></p>${legalLinks()}</td></tr>
+      <p class="f-muted" style="margin:0;font-size:13px;color:${P().muted};line-height:1.6"><font color="${P().muted}">${T("Precisa de ajuda? ", "Need a hand? ")}</font><a href="${escapeHtml(DEFAULT_HELP_URL)}" class="f-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">${T("Contacte a equipa Rioko 2.0", "Contact the Rioko 2.0 team")}</font></a></p>
+      <p class="f-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}"><font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted}"><font color="${P().muted}">Kapta</font></a> · ${T("Notificação automática · Não responda a este email", "Automatic notification · Please do not reply to this email")}</font></p>${legalLinks()}</td></tr>
   </table></td></tr></table></body></html>`;
 
   return { subject, html };
@@ -1390,7 +1455,7 @@ export function tplDigest(input: {
   }).join("");
 
   const html = `<!doctype html>
-<html lang="pt-PT">
+<html lang="${lang() === "en" ? "en" : "pt-PT"}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1398,33 +1463,33 @@ export function tplDigest(input: {
   <meta name="supported-color-schemes" content="${P().colorScheme}">
 </head>
 <body style="margin:0;padding:0;background:${P().pageBg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:${P().text}">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${input.incidents.length} incidente(s) em aberto necessitam de atenção.</div>
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${T(`${input.incidents.length} incidente(s) em aberto necessitam de atenção.`, `${input.incidents.length} open incident(s) need your attention.`)}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${P().pageBg};padding:32px 16px">
     <tr><td align="center">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;background:${P().cardBg};border-radius:14px;overflow:hidden">
         <tr><td class="header-bg" bgcolor="${P().headerBg}" style="background-color:${P().headerBg};background-image:${P().bgGradient};padding:28px 32px 24px">
           <img src="${P().logoUrl}" alt="Rioko 2.0" width="${P().logoWidth}" height="auto" style="display:block;border:0;max-width:${P().logoWidth}px;height:auto">
-          <h1 class="force-white" style="margin:20px 0 0;color:#ffffff !important;font-size:22px;font-weight:600;letter-spacing:-0.3px"><font color="#ffffff">Resumo diário de incidentes</font></h1>
+          <h1 class="force-white" style="margin:20px 0 0;color:#ffffff !important;font-size:22px;font-weight:600;letter-spacing:-0.3px"><font color="#ffffff">${T("Resumo diário de incidentes", "Daily incident summary")}</font></h1>
           ${merchant}
           <div style="height:3px;width:100%;background-color:${P().blue};background-image:linear-gradient(90deg, ${P().blue}, ${P().purple});margin-top:24px"></div>
         </td></tr>
         <tr><td class="card-bg" bgcolor="${P().cardBg}" style="background-color:${P().cardBg};padding:28px 32px;color:${P().text}">
           <p style="margin:0 0 20px;color:${P().muted};font-size:14px">
-            <font color="${P().text}"><strong>${input.incidents.length}</strong></font> <font color="${P().muted}">incidente${input.incidents.length === 1 ? "" : "s"} em aberto ${input.incidents.length === 1 ? "necessita" : "necessitam"} de atenção.</font>
+            <font color="${P().text}"><strong>${input.incidents.length}</strong></font> <font color="${P().muted}">${T(`incidente${input.incidents.length === 1 ? "" : "s"} em aberto ${input.incidents.length === 1 ? "necessita" : "necessitam"} de atenção.`, `open incident${input.incidents.length === 1 ? "" : "s"} ${input.incidents.length === 1 ? "needs" : "need"} your attention.`)}</font>
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tbody>${rows}</tbody>
           </table>
           <div style="margin-top:24px">
-            ${ctaButton("Ver no painel", `${dashboardUrl}/superadmin/incidents`)}
+            ${ctaButton(T("Ver no painel", "View in the dashboard"), `${dashboardUrl}/superadmin/incidents`)}
           </div>
         </td></tr>
         <tr><td class="footer-bg" bgcolor="${P().cardBgAlt}" style="background-color:${P().cardBgAlt};padding:24px 32px;border-top:1px solid ${P().border};text-align:center">
           <p class="force-muted" style="margin:0;font-size:13px;color:${P().muted};line-height:1.6">
-            <font color="${P().muted}">Precisa de ajuda?</font> <a href="${escapeHtml(helpUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">Contacte a equipa Rioko 2.0</font></a>
+            <font color="${P().muted}">${T("Precisa de ajuda?", "Need a hand?")}</font> <a href="${escapeHtml(helpUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">${T("Contacte a equipa Rioko 2.0", "Contact the Rioko 2.0 team")}</font></a>
           </p>
           <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}">
-            <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · Notificação automática</font>
+            <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · ${T("Notificação automática", "Automatic notification")}</font>
           </p>${legalLinks()}
         </td></tr>
       </table>
@@ -1433,7 +1498,7 @@ export function tplDigest(input: {
 </body></html>`;
 
   return {
-    subject: `[Rioko 2.0] Resumo diário — ${input.incidents.length} incidente(s) em aberto`,
+    subject: T(`[Rioko 2.0] Resumo diário — ${input.incidents.length} incidente(s) em aberto`, `[Rioko 2.0] Daily summary — ${input.incidents.length} open incident(s)`),
     html,
   };
 }
@@ -1466,21 +1531,21 @@ export function tplPatternReport(input: {
       <tr><td style="padding:14px 18px">
         <div style="font-size:15px;font-weight:600;color:${P().text}">${escapeHtml(p.title)}${p.affected_count ? ` <span style="font-size:12px;color:${P().muted};font-weight:500">· ${p.affected_count}×</span>` : ""}</div>
         <div style="font-size:14px;line-height:1.6;color:${P().text};margin-top:6px">${escapeHtml(p.detail)}</div>
-        ${p.suggested_action ? `<div style="font-size:13px;line-height:1.6;color:${P().text};margin-top:8px"><strong>Ação:</strong> ${escapeHtml(p.suggested_action)}</div>` : ""}
+        ${p.suggested_action ? `<div style="font-size:13px;line-height:1.6;color:${P().text};margin-top:8px"><strong>${T("Ação:", "Action:")}</strong> ${escapeHtml(p.suggested_action)}</div>` : ""}
       </td></tr>
     </table>`).join("");
 
   const body = `
     ${paragraph(escapeHtml(input.summary))}
-    ${sectionTitle(`Padrões (${input.patterns.length}) · ${input.totalIncidents} incidentes na semana`)}
-    ${cards || paragraph("Sem padrões sistémicos identificados esta semana.")}
-    <div style="margin-top:8px;font-size:11px;color:${P().muted}">Gerado por IA · meramente indicativo · não substitui verificação humana</div>
-    ${ctaButton("Ver incidentes", `${dashboardUrl}/superadmin/incidents`)}
+    ${sectionTitle(T(`Padrões (${input.patterns.length}) · ${input.totalIncidents} incidentes na semana`, `Patterns (${input.patterns.length}) · ${input.totalIncidents} incidents this week`))}
+    ${cards || paragraph(T("Sem padrões sistémicos identificados esta semana.", "No systemic patterns identified this week."))}
+    <div style="margin-top:8px;font-size:11px;color:${P().muted}">${T("Gerado por IA · meramente indicativo · não substitui verificação humana", "AI generated · indicative only · not a substitute for checking it yourself")}</div>
+    ${ctaButton(T("Ver incidentes", "View incidents"), `${dashboardUrl}/superadmin/incidents`)}
   `;
   return {
-    subject: `[Rioko 2.0] Relatório semanal de padrões — ${input.weekLabel}`,
+    subject: T(`[Rioko 2.0] Relatório semanal de padrões — ${input.weekLabel}`, `[Rioko 2.0] Weekly pattern report — ${input.weekLabel}`),
     html: shell({
-      title: "Relatório semanal de padrões (IA)",
+      title: T("Relatório semanal de padrões (IA)", "Weekly pattern report (AI)"),
       preheader: input.summary.slice(0, 120),
       bodyHtml: body,
       helpUrl: DEFAULT_HELP_URL,
@@ -1533,7 +1598,7 @@ export function tplWeeklyUnprocessed(input: {
     const idChips = it.missingIds.length
       ? `<div style="margin-top:8px">${it.missingIds.slice(0, 12).map((id) =>
           `<span style="display:inline-block;background:${P().chipBg};border:1px solid ${P().borderSubtle};color:${P().text};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:4px 8px;border-radius:5px;margin:0 4px 4px 0">${escapeHtml(id)}</span>`
-        ).join("")}${it.missingIds.length > 12 ? `<span style="font-size:12px;color:${P().muted}">… e mais ${it.missingIds.length - 12}</span>` : ""}</div>`
+        ).join("")}${it.missingIds.length > 12 ? `<span style="font-size:12px;color:${P().muted}">${T(`… e mais ${it.missingIds.length - 12}`, `… and ${it.missingIds.length - 12} more`)}</span>` : ""}</div>`
       : "";
     return `<tr>
       <td style="padding:14px 0;border-bottom:1px solid ${P().border};vertical-align:top;width:8px">
@@ -1560,10 +1625,10 @@ export function tplWeeklyUnprocessed(input: {
   const creditSection = creditRows
     ? `<div style="margin-top:28px;padding-top:20px;border-top:1px solid ${P().border}">
             <p style="margin:0 0 8px;color:${P().text};font-size:15px;line-height:1.6">
-              <font color="${P().text}">Estes reembolsos <strong>não geraram nota de crédito</strong>. A fatura original existe; falta o documento que a corrige.</font>
+              <font color="${P().text}">${T("Estes reembolsos <strong>não geraram nota de crédito</strong>. A fatura original existe; falta o documento que a corrige.", "These refunds <strong>did not produce a credit note</strong>. The original invoice exists; what is missing is the document that corrects it.")}</font>
             </p>
             <p style="margin:0 0 16px;color:${P().muted};font-size:14px">
-              <font color="${P().text}"><strong>${nc}</strong></font> <font color="${P().muted}">reembolso${ncPlural} sem nota de crédito.</font>
+              <font color="${P().text}"><strong>${nc}</strong></font> <font color="${P().muted}">${T(`reembolso${ncPlural} sem nota de crédito.`, `refund${ncPlural} with no credit note.`)}</font>
             </p>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tbody>${creditRows}</tbody>
@@ -1574,15 +1639,15 @@ export function tplWeeklyUnprocessed(input: {
   // A merchant can have only credit-note failures and zero unbilled sales —
   // then the whole email is about notas de crédito, headline included.
   const salesOnly = n > 0 || creditRows === "";
-  const heading = salesOnly ? "Faturas por emitir" : "Notas de crédito por emitir";
+  const heading = salesOnly ? T("Faturas por emitir", "Invoices still to be issued") : T("Notas de crédito por emitir", "Credit notes still to be issued");
   const subject = salesOnly
-    ? `[Rioko 2.0] ${n} fatura${plural} por emitir`
-    : `[Rioko 2.0] ${nc} nota${ncPlural} de crédito por emitir`;
+    ? T(`[Rioko 2.0] ${n} fatura${plural} por emitir`, `[Rioko 2.0] ${n} invoice${plural} still to be issued`)
+    : T(`[Rioko 2.0] ${nc} nota${ncPlural} de crédito por emitir`, `[Rioko 2.0] ${nc} credit note${ncPlural} still to be issued`);
   const preheader = salesOnly
-    ? `${n} venda${plural} recebida${plural} sem fatura emitida.`
-    : `${nc} reembolso${ncPlural} sem nota de crédito emitida.`;
+    ? T(`${n} venda${plural} recebida${plural} sem fatura emitida.`, `${n} sale${plural} received with no invoice issued.`)
+    : T(`${nc} reembolso${ncPlural} sem nota de crédito emitida.`, `${nc} refund${ncPlural} with no credit note issued.`);
   const html = `<!doctype html>
-<html lang="pt-PT">
+<html lang="${lang() === "en" ? "en" : "pt-PT"}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1602,25 +1667,25 @@ export function tplWeeklyUnprocessed(input: {
         </td></tr>
         <tr><td class="card-bg" bgcolor="${P().cardBg}" style="background-color:${P().cardBg};padding:28px 32px;color:${P().text}">
           ${rows ? `<p style="margin:0 0 8px;color:${P().text};font-size:15px;line-height:1.6">
-            <font color="${P().text}">Estas vendas foram recebidas mas <strong>ainda não têm fatura emitida</strong>. Reveja-as e reemita no painel.</font>
+            <font color="${P().text}">${T("Estas vendas foram recebidas mas <strong>ainda não têm fatura emitida</strong>. Reveja-as e reemita no painel.", "These sales came in but <strong>still have no invoice issued</strong>. Review them and re-issue from the dashboard.")}</font>
           </p>
           <p style="margin:0 0 20px;color:${P().muted};font-size:14px">
-            <font color="${P().text}"><strong>${n}</strong></font> <font color="${P().muted}">venda${plural} por faturar.</font>
+            <font color="${P().text}"><strong>${n}</strong></font> <font color="${P().muted}">${T(`venda${plural} por faturar.`, `sale${plural} still to be invoiced.`)}</font>
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tbody>${rows}</tbody>
           </table>` : ""}
           ${creditSection}
           <div style="margin-top:24px">
-            ${ctaButton("Abrir painel", dashboardUrl)}
+            ${ctaButton(T("Abrir painel", "Open the dashboard"), dashboardUrl)}
           </div>
         </td></tr>
         <tr><td class="footer-bg" bgcolor="${P().cardBgAlt}" style="background-color:${P().cardBgAlt};padding:24px 32px;border-top:1px solid ${P().border};text-align:center">
           <p class="force-muted" style="margin:0;font-size:13px;color:${P().muted};line-height:1.6">
-            <font color="${P().muted}">Precisa de ajuda?</font> <a href="${escapeHtml(helpUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">Contacte a equipa Rioko 2.0</font></a>
+            <font color="${P().muted}">${T("Precisa de ajuda?", "Need a hand?")}</font> <a href="${escapeHtml(helpUrl)}" class="force-blue" style="color:${P().blue};text-decoration:none;font-weight:500"><font color="${P().blue}">${T("Contacte a equipa Rioko 2.0", "Contact the Rioko 2.0 team")}</font></a>
           </p>
           <p class="force-muted" style="margin:12px 0 0;font-size:11px;color:${P().muted}">
-            <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · Resumo semanal · Não responda a este email</font>
+            <font color="${P().muted}">Rioko 2.0 by <a href="https://kapta.pt" style="color:${P().muted};text-decoration:underline"><font color="${P().muted}">Kapta</font></a> · ${T("Resumo semanal · Não responda a este email", "Weekly summary · Please do not reply to this email")}</font>
           </p>${legalLinks()}
         </td></tr>
       </table>
@@ -1659,35 +1724,36 @@ export function renderAccountInviteEmail(input: AccountInviteInput): RenderedTem
   const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
   const account = escapeHtml(input.accountLabel);
   const permission = input.role === "admin"
-    ? "administrador: pode configurar integrações, emitir e gerir a faturação"
-    : "só leitura: vê tudo, não altera nada";
+    ? T("administrador: pode configurar integrações, emitir e gerir a faturação", "administrator: can set up integrations, issue documents and manage billing")
+    : T("só leitura: vê tudo, não altera nada", "read only: sees everything, changes nothing");
 
   const bodyHtml = [
-    paragraph(`Foi convidado para gerir a conta <strong>${account}</strong> no Rioko.`),
-    calloutBox("As suas permissões", escapeHtml(permission)),
+    paragraph(T(`Foi convidado para gerir a conta <strong>${account}</strong> no Rioko.`, `You have been invited to manage the <strong>${account}</strong> account on Rioko.`)),
+    calloutBox(T("As suas permissões", "Your permissions"), escapeHtml(permission)),
     input.hasLogin
-      ? paragraph(`Como já tem login Rioko com <strong>${escapeHtml(input.email)}</strong>, o acesso já está ativo: entre e a conta aparece na sua área.`)
-      : paragraph(`Para entrar, crie a sua conta com <strong>${escapeHtml(input.email)}</strong>. O acesso a ${account} fica ligado automaticamente.`),
+      ? paragraph(T(`Como já tem login Rioko com <strong>${escapeHtml(input.email)}</strong>, o acesso já está ativo: entre e a conta aparece na sua área.`, `As you already have a Rioko login with <strong>${escapeHtml(input.email)}</strong>, your access is already active: sign in and the account is there.`))
+      : paragraph(T(`Para entrar, crie a sua conta com <strong>${escapeHtml(input.email)}</strong>. O acesso a ${account} fica ligado automaticamente.`, `To get in, create your account with <strong>${escapeHtml(input.email)}</strong>. Access to ${account} is linked automatically.`)),
     ctaButton(
-      input.hasLogin ? "Abrir o Rioko" : "Criar a minha conta",
+      input.hasLogin ? T("Abrir o Rioko", "Open Rioko") : T("Criar a minha conta", "Create my account"),
       input.hasLogin ? dashboardUrl : (input.inviteUrl ?? dashboardUrl),
     ),
     input.hasLogin || !input.inviteUrl ? "" : paragraph(
-      `<span style="font-size:12px;color:${P().muted}">Este link é pessoal e válido por 30 dias.</span>`,
+      T(`<span style="font-size:12px;color:${P().muted}">Este link é pessoal e válido por 30 dias.</span>`,
+        `<span style="font-size:12px;color:${P().muted}">This link is personal and valid for 30 days.</span>`),
     ),
-    paragraph(`<span style="font-size:13px;color:${P().muted}">Se não estava à espera deste convite, ignore este email.</span>`),
+    paragraph(T(`<span style="font-size:13px;color:${P().muted}">Se não estava à espera deste convite, ignore este email.</span>`, `<span style="font-size:13px;color:${P().muted}">If you were not expecting this invitation, just ignore this email.</span>`)),
   ].join("");
 
   return {
-    subject: `Foi convidado para gerir a conta ${input.accountLabel} no Rioko`,
+    subject: T(`Foi convidado para gerir a conta ${input.accountLabel} no Rioko`, `You have been invited to manage the ${input.accountLabel} account on Rioko`),
     html: shell({
-      title: "Convite para gerir uma conta",
-      preheader: `${input.accountLabel} deu-lhe acesso ao Rioko`,
+      title: T("Convite para gerir uma conta", "Invitation to manage an account"),
+      preheader: T(`${input.accountLabel} deu-lhe acesso ao Rioko`, `${input.accountLabel} has given you access to Rioko`),
       bodyHtml,
       merchantName: input.accountLabel,
       helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
       dashboardUrl,
-      footerNote: "Convite de acesso · Não responda a este email",
+      footerNote: T("Convite de acesso · Não responda a este email", "Access invitation · Please do not reply to this email"),
     }),
   };
 }
@@ -1722,31 +1788,33 @@ export function renderRunInCheckEmail(input: RunInCheckInput): RenderedTemplate 
 
   const bodyHtml = [
     paragraph(input.reminder
-      ? `Continuamos à espera da sua confirmação sobre as primeiras faturas de <strong>${escapeHtml(input.connectionLabel)}</strong>.`
-      : `A sua integração <strong>${escapeHtml(input.connectionLabel)}</strong> já emitiu ${n} ${n === 1 ? "documento" : "documentos"}.`),
+      ? T(`Continuamos à espera da sua confirmação sobre as primeiras faturas de <strong>${escapeHtml(input.connectionLabel)}</strong>.`, `We are still waiting for your confirmation on the first invoices from <strong>${escapeHtml(input.connectionLabel)}</strong>.`)
+      : T(`A sua integração <strong>${escapeHtml(input.connectionLabel)}</strong> já emitiu ${n} ${n === 1 ? "documento" : "documentos"}.`, `Your <strong>${escapeHtml(input.connectionLabel)}</strong> integration has already issued ${n} ${n === 1 ? "document" : "documents"}.`)),
     calloutBox(
-      "Estão todos em rascunho, de propósito",
-      "Um documento fechado é comunicado à AT e só se corrige por nota de crédito. "
-      + "Por isso os primeiros ficam em rascunho até alguém que conhece o negócio os ver.",
+      T("Estão todos em rascunho, de propósito", "They are all drafts, on purpose"),
+      T("Um documento fechado é comunicado à AT e só se corrige por nota de crédito. "
+        + "Por isso os primeiros ficam em rascunho até alguém que conhece o negócio os ver.",
+        "A closed document is reported to the tax authority and is only corrected by a credit note. "
+        + "That is why the first ones stay as drafts until somebody who knows the business has looked at them."),
     ),
-    paragraph("Abra-os no seu programa de faturação e confirme três coisas: o valor bate certo com o que recebeu, o IVA está como esperava, e o cliente está identificado como deve."),
-    ctaButton("Já verifiquei, avançar", input.answerUrl),
-    paragraph(`<span style="font-size:13px;color:${P().muted}">Se alguma coisa estiver errada, use o mesmo link e escolha "há algo errado". Não fechamos nada e falamos consigo.</span>`),
+    paragraph(T("Abra-os no seu programa de faturação e confirme três coisas: o valor bate certo com o que recebeu, o IVA está como esperava, e o cliente está identificado como deve.", "Open them in your invoicing software and check three things: the amount matches what you were paid, the VAT is what you expected, and the customer is identified the way it should be.")),
+    ctaButton(T("Já verifiquei, avançar", "I have checked, go ahead"), input.answerUrl),
+    paragraph(T(`<span style="font-size:13px;color:${P().muted}">Se alguma coisa estiver errada, use o mesmo link e escolha "há algo errado". Não fechamos nada e falamos consigo.</span>`, `<span style="font-size:13px;color:${P().muted}">If something is wrong, use the same link and pick "something is wrong". We close nothing and we talk it through with you.</span>`)),
   ].join("");
 
   return {
     subject: input.reminder
-      ? `Lembrete: confirme as primeiras faturas de ${input.connectionLabel}`
-      : `Confirme as primeiras ${n} faturas de ${input.connectionLabel}`,
+      ? T(`Lembrete: confirme as primeiras faturas de ${input.connectionLabel}`, `Reminder: confirm the first invoices from ${input.connectionLabel}`)
+      : T(`Confirme as primeiras ${n} faturas de ${input.connectionLabel}`, `Confirm the first ${n} invoices from ${input.connectionLabel}`),
     html: shell({
-      title: input.reminder ? "Lembrete: as suas primeiras faturas" : "Confirme as suas primeiras faturas",
-      preheader: `${n} ${n === 1 ? "documento" : "documentos"} em rascunho à sua espera`,
+      title: input.reminder ? T("Lembrete: as suas primeiras faturas", "Reminder: your first invoices") : T("Confirme as suas primeiras faturas", "Confirm your first invoices"),
+      preheader: T(`${n} ${n === 1 ? "documento" : "documentos"} em rascunho à sua espera`, `${n} draft ${n === 1 ? "document" : "documents"} waiting for you`),
       bodyHtml,
       merchantName: input.merchantName,
       connectionLabel: input.connectionLabel,
       helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
       dashboardUrl,
-      footerNote: "Verificação de arranque · Enviado uma vez, com um lembrete",
+      footerNote: T("Verificação de arranque · Enviado uma vez, com um lembrete", "Run-in check · Sent once, with one reminder"),
     }),
   };
 }
@@ -1802,54 +1870,63 @@ export interface LegacyPriceInput {
 export function renderLegacyPriceEmail(input: LegacyPriceInput): RenderedTemplate {
   const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
   const subscribeUrl = input.subscribeUrl ?? `${dashboardUrl}/faturacao`;
-  const periodWord = input.interval === "year" ? "anual" : "mensal";
+  const periodWord = input.interval === "year" ? T("anual", "annual") : T("mensal", "monthly");
   const currentLabel = input.currentAmountLabel
     ? `<strong>${escapeHtml(input.currentAmountLabel)}</strong>`
-    : "o preço a que subscreveu";
+    : T("o preço a que subscreveu", "the price you subscribed at");
 
   const opening = input.stage === "marked"
     ? paragraph(
-        `A sua subscrição ${periodWord} do Rioko está a ${currentLabel}, que foi o preço em vigor quando começou. ` +
-        `Esse preço mantém-se até <strong>${escapeHtml(input.endsAtLabel)}</strong>, data em que a subscrição actual termina.`,
+        T(`A sua subscrição ${periodWord} do Rioko está a ${currentLabel}, que foi o preço em vigor quando começou. ` +
+          `Esse preço mantém-se até <strong>${escapeHtml(input.endsAtLabel)}</strong>, data em que a subscrição actual termina.`,
+          `Your ${periodWord} Rioko subscription is at ${currentLabel}, which was the price in force when you started. ` +
+          `That price holds until <strong>${escapeHtml(input.endsAtLabel)}</strong>, the date the current subscription ends.`),
       )
     : paragraph(
-        `A sua subscrição ${periodWord} do Rioko, a ${currentLabel}, termina a <strong>${escapeHtml(input.endsAtLabel)}</strong>. ` +
-        `Não é renovada nessa data, e nada lhe é cobrado sem a sua confirmação.`,
+        T(`A sua subscrição ${periodWord} do Rioko, a ${currentLabel}, termina a <strong>${escapeHtml(input.endsAtLabel)}</strong>. ` +
+          `Não é renovada nessa data, e nada lhe é cobrado sem a sua confirmação.`,
+          `Your ${periodWord} Rioko subscription, at ${currentLabel}, ends on <strong>${escapeHtml(input.endsAtLabel)}</strong>. ` +
+          `It is not renewed on that date, and nothing is charged to you without your confirmation.`),
       );
 
   const bodyHtml = [
     opening,
     calloutBox(
-      "O que muda",
-      `A partir dessa data o plano ${periodWord} passa a <strong>${escapeHtml(input.nextAmountLabel)}</strong>. ` +
-      "Para continuar a emitir documentos sem interrupção, basta subscrever antes do fim.",
+      T("O que muda", "What changes"),
+      T(`A partir dessa data o plano ${periodWord} passa a <strong>${escapeHtml(input.nextAmountLabel)}</strong>. ` +
+        "Para continuar a emitir documentos sem interrupção, basta subscrever antes do fim.",
+        `From that date the ${periodWord} plan moves to <strong>${escapeHtml(input.nextAmountLabel)}</strong>. ` +
+        "To keep issuing documents without a break, simply subscribe before it ends."),
     ),
-    ctaButton("Subscrever o plano actual", subscribeUrl),
+    ctaButton(T("Subscrever o plano actual", "Subscribe to the current plan"), subscribeUrl),
     paragraph(
-      `<span style="font-size:13px;color:${P().muted}">Até essa data não é preciso fazer nada: a faturação automática ` +
-      "continua a funcionar exactamente como hoje.</span>",
+      T(`<span style="font-size:13px;color:${P().muted}">Até essa data não é preciso fazer nada: a faturação automática ` +
+        "continua a funcionar exactamente como hoje.</span>",
+        `<span style="font-size:13px;color:${P().muted}">Until then there is nothing to do: automatic invoicing ` +
+        "keeps working exactly as it does today.</span>"),
     ),
     paragraph(
-      `<span style="font-size:13px;color:${P().muted}">Se preferir falar connosco antes de decidir, responda a este email.</span>`,
+      T(`<span style="font-size:13px;color:${P().muted}">Se preferir falar connosco antes de decidir, responda a este email.</span>`,
+        `<span style="font-size:13px;color:${P().muted}">If you would rather talk to us before deciding, just reply to this email.</span>`),
     ),
   ].join("");
 
   return {
     subject: input.stage === "marked"
-      ? `O preço da sua subscrição Rioko mantém-se até ${input.endsAtLabel}`
-      : `A sua subscrição Rioko termina a ${input.endsAtLabel}`,
+      ? T(`O preço da sua subscrição Rioko mantém-se até ${input.endsAtLabel}`, `Your Rioko subscription price holds until ${input.endsAtLabel}`)
+      : T(`A sua subscrição Rioko termina a ${input.endsAtLabel}`, `Your Rioko subscription ends on ${input.endsAtLabel}`),
     html: shell({
       title: input.stage === "marked"
-        ? "O seu preço mantém-se até ao fim da subscrição"
-        : "A sua subscrição está a terminar",
+        ? T("O seu preço mantém-se até ao fim da subscrição", "Your price holds until the subscription ends")
+        : T("A sua subscrição está a terminar", "Your subscription is ending"),
       severity: input.stage === "ending" ? "warning" : undefined,
-      preheader: `Termina a ${input.endsAtLabel}. O plano seguinte é ${input.nextAmountLabel}.`,
+      preheader: T(`Termina a ${input.endsAtLabel}. O plano seguinte é ${input.nextAmountLabel}.`, `It ends on ${input.endsAtLabel}. The plan that follows is ${input.nextAmountLabel}.`),
       bodyHtml,
       merchantName: input.accountLabel ?? undefined,
-      connectionLabel: "Subscrição Rioko",
+      connectionLabel: T("Subscrição Rioko", "Rioko subscription"),
       helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
       dashboardUrl,
-      footerNote: "Faturação da subscrição",
+      footerNote: T("Faturação da subscrição", "Subscription billing"),
     }),
   };
 }
@@ -1857,63 +1934,69 @@ export function renderLegacyPriceEmail(input: LegacyPriceInput): RenderedTemplat
 export function renderPaymentFailedEmail(input: PaymentFailedInput): RenderedTemplate {
   const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
   const account = escapeHtml(input.accountLabel);
-  const amount = input.amountLabel ? `<strong>${escapeHtml(input.amountLabel)}</strong>` : "o valor da subscrição";
+  const amount = input.amountLabel ? `<strong>${escapeHtml(input.amountLabel)}</strong>` : T("o valor da subscrição", "the subscription amount");
 
   // What happens next is the whole point of the email, and it differs: Stripe
   // either retries on a known date, or has stopped retrying and the access is
   // about to go with it. Never promise a retry that is not coming.
   const consequence = input.finalAttempt
     ? calloutBox(
-        "Sem novas tentativas automáticas",
-        "Esta foi a última tentativa de cobrança. Sem um método de pagamento válido, a subscrição é suspensa e a emissão automática de documentos para.",
+        T("Sem novas tentativas automáticas", "No further automatic attempts"),
+        T("Esta foi a última tentativa de cobrança. Sem um método de pagamento válido, a subscrição é suspensa e a emissão automática de documentos para.",
+          "That was the last charge attempt. Without a valid payment method, the subscription is suspended and automatic document issuing stops."),
         P().error,
       )
     : calloutBox(
-        "O que acontece a seguir",
+        T("O que acontece a seguir", "What happens next"),
         input.nextAttemptLabel
-          ? `Voltamos a tentar cobrar a <strong>${escapeHtml(input.nextAttemptLabel)}</strong>. Se o método de pagamento for atualizado antes disso, a cobrança passa e não há qualquer interrupção.`
-          : "Vamos voltar a tentar cobrar nos próximos dias. Se o método de pagamento for atualizado antes disso, a cobrança passa e não há qualquer interrupção.",
+          ? T(`Voltamos a tentar cobrar a <strong>${escapeHtml(input.nextAttemptLabel)}</strong>. Se o método de pagamento for atualizado antes disso, a cobrança passa e não há qualquer interrupção.`, `We try to charge again on <strong>${escapeHtml(input.nextAttemptLabel)}</strong>. If the payment method is updated before then, the charge goes through and nothing is interrupted.`)
+          : T("Vamos voltar a tentar cobrar nos próximos dias. Se o método de pagamento for atualizado antes disso, a cobrança passa e não há qualquer interrupção.", "We will try to charge again over the next few days. If the payment method is updated before then, the charge goes through and nothing is interrupted."),
         P().warning,
       );
 
   const secondary = input.invoiceUrl && input.invoiceUrl !== input.updateUrl
     ? paragraph(
-        `<span style="font-size:13px;color:${P().muted}">Prefere liquidar já esta fatura? ` +
-        `<a href="${escapeHtml(input.invoiceUrl)}" style="color:${P().blue};text-decoration:none">Pagar a fatura em aberto</a>.</span>`,
+        T(`<span style="font-size:13px;color:${P().muted}">Prefere liquidar já esta fatura? ` +
+          `<a href="${escapeHtml(input.invoiceUrl)}" style="color:${P().blue};text-decoration:none">Pagar a fatura em aberto</a>.</span>`,
+          `<span style="font-size:13px;color:${P().muted}">Would you rather settle this invoice right now? ` +
+          `<a href="${escapeHtml(input.invoiceUrl)}" style="color:${P().blue};text-decoration:none">Pay the open invoice</a>.</span>`),
       )
     : "";
 
   const bodyHtml = [
-    paragraph(`A cobrança de ${amount} da subscrição Rioko de <strong>${account}</strong> não foi autorizada pelo cartão registado.`),
-    paragraph("A subscrição continua ativa e a faturação automática mantém-se a funcionar. Só falta atualizar o método de pagamento, o que demora menos de um minuto:"),
-    ctaButton("Atualizar método de pagamento", input.updateUrl),
+    paragraph(T(`A cobrança de ${amount} da subscrição Rioko de <strong>${account}</strong> não foi autorizada pelo cartão registado.`, `The ${amount} charge for the Rioko subscription of <strong>${account}</strong> was not authorised by the card on file.`)),
+    paragraph(T("A subscrição continua ativa e a faturação automática mantém-se a funcionar. Só falta atualizar o método de pagamento, o que demora menos de um minuto:", "The subscription is still active and automatic invoicing keeps working. All that is missing is updating the payment method, which takes less than a minute:")),
+    ctaButton(T("Atualizar método de pagamento", "Update payment method"), input.updateUrl),
     paragraph(
-      `<span style="font-size:12px;color:${P().muted}">O link abre uma página segura da Stripe e não pede palavra-passe. ` +
-      `Se já tiver expirado, pode fazer o mesmo no painel, em Faturação.</span>`,
+      T(`<span style="font-size:12px;color:${P().muted}">O link abre uma página segura da Stripe e não pede palavra-passe. ` +
+        `Se já tiver expirado, pode fazer o mesmo no painel, em Faturação.</span>`,
+        `<span style="font-size:12px;color:${P().muted}">The link opens a secure Stripe page and asks for no password. ` +
+        `If it has expired, you can do the same in the dashboard, under Billing.</span>`),
     ),
     consequence,
     calloutBox(
-      "Motivos mais comuns",
-      "Cartão expirado ou substituído pelo banco; plafond insuficiente no momento da cobrança; autenticação do banco (3-D Secure) não confirmada.",
+      T("Motivos mais comuns", "Most common reasons"),
+      T("Cartão expirado ou substituído pelo banco; plafond insuficiente no momento da cobrança; autenticação do banco (3-D Secure) não confirmada.",
+        "A card that expired or was replaced by the bank; not enough available balance at the moment of the charge; bank authentication (3-D Secure) not confirmed."),
     ),
     secondary,
-    paragraph(`<span style="font-size:13px;color:${P().muted}">Se já resolveu entretanto, ignore este email.</span>`),
+    paragraph(T(`<span style="font-size:13px;color:${P().muted}">Se já resolveu entretanto, ignore este email.</span>`, `<span style="font-size:13px;color:${P().muted}">If you have already sorted it out, please ignore this email.</span>`)),
   ].join("");
 
   return {
     subject: input.finalAttempt
-      ? `Última tentativa falhada — atualize o pagamento da subscrição Rioko`
-      : `O pagamento da subscrição Rioko não foi concluído`,
+      ? T(`Última tentativa falhada — atualize o pagamento da subscrição Rioko`, `Last attempt failed — update the payment for your Rioko subscription`)
+      : T(`O pagamento da subscrição Rioko não foi concluído`, `The payment for your Rioko subscription did not go through`),
     html: shell({
-      title: "O pagamento da subscrição não foi concluído",
+      title: T("O pagamento da subscrição não foi concluído", "The subscription payment did not go through"),
       severity: input.finalAttempt ? "error" : "warning",
-      preheader: `Atualize o método de pagamento${input.amountLabel ? ` (${input.amountLabel})` : ""} para manter a subscrição ativa.`,
+      preheader: T(`Atualize o método de pagamento${input.amountLabel ? ` (${input.amountLabel})` : ""} para manter a subscrição ativa.`, `Update the payment method${input.amountLabel ? ` (${input.amountLabel})` : ""} to keep the subscription active.`),
       bodyHtml,
       merchantName: input.accountLabel,
-      connectionLabel: "Subscrição Rioko",
+      connectionLabel: T("Subscrição Rioko", "Rioko subscription"),
       helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
       dashboardUrl,
-      footerNote: "Faturação da subscrição",
+      footerNote: T("Faturação da subscrição", "Subscription billing"),
     }),
   };
 }

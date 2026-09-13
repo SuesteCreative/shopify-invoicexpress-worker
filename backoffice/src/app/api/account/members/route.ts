@@ -197,6 +197,9 @@ export async function POST(req: NextRequest) {
                     has_login: joinedNow,
                     invite_url: inviteUrl,
                     dashboard_url: new URL(req.url).origin,
+                    // The invitee has no record of their own yet, so they are
+                    // written to in the language of the account inviting them.
+                    user_id: ctx.accountId,
                 }),
             });
             notified = res.ok;

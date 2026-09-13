@@ -34,7 +34,8 @@ export const destLabel = (d?: string | null) => DEST_LABEL[d ?? ""] ?? (d ? cap(
 export const sourceIcon = (s?: string | null): LucideIcon => SOURCE_ICON[s ?? ""] ?? ShoppingBag;
 export const destIcon = (_d?: string | null): LucideIcon => FileText;
 
-/** The left-side "record" noun per source: Shopify has encomendas, Lodgify has
- *  reservas. Used in copy ("Sem fatura", pending messages, search placeholder). */
-export const recordNoun = (s?: string | null): { singular: string; plural: string } =>
-    s === "lodgify" ? { singular: "reserva", plural: "reservas" } : { singular: "encomenda", plural: "encomendas" };
+/** The left-side "record" noun per source: Shopify has orders, Lodgify has
+ *  bookings. Returns the message-key stem (`nounOrder*` / `nounBooking*`) so the
+ *  caller translates it — the copy it feeds is merchant-facing. */
+export const recordNounKey = (s?: string | null): "Order" | "Booking" =>
+    s === "lodgify" ? "Booking" : "Order";

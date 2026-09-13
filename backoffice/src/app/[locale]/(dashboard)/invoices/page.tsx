@@ -7,7 +7,7 @@ import {
     Box, ShoppingBag, Receipt, Split, Zap
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { cn } from "@/lib/utils";
 
@@ -106,6 +106,7 @@ export default function InvoicesPage() {
 
 function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string }) {
     const t = useTranslations("invoices");
+    const locale = useLocale();
     const [expanded, setExpanded] = useState(false);
 
     const isFinalized = ["finalized", "settled", "sent"].includes(invoice.status);
@@ -160,7 +161,7 @@ function InvoiceCard({ invoice, shopDomain }: { invoice: any; shopDomain: string
                         </div>
                         <h3 className="text-lg font-medium text-fg tracking-tight">{invoice.number}</h3>
                         <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em] flex items-center gap-1.5">
-                            {invoice.reference} • {new Date(invoice.date).toLocaleDateString('pt-PT')}
+                            {invoice.reference} • {new Date(invoice.date).toLocaleDateString(locale === "en" ? "en-GB" : "pt-PT")}
                         </p>
                     </div>
                 </div>

@@ -1,0 +1,18 @@
+-- The language every communication with this client goes out in: the dashboard
+-- they see, the toasts it shows, and every email we send them.
+--
+-- One setting per ACCOUNT, not per person: it lives on the customer record, the
+-- operator sets it there, and the client can change it on the Conta page. An
+-- invited member of the account reads the owner's choice, so an account speaks
+-- one language wherever it is addressed.
+--
+-- 'pt' for everyone, including the accounts that already exist: that is the
+-- language they have been written to until today, so the default is the only
+-- value that changes nothing on the day it lands. English clients are marked by
+-- hand afterwards.
+--
+-- Apply by hand:
+--   npx wrangler d1 execute rioko-db --remote --command "ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'pt'"
+-- NEVER `d1 migrations apply` on this database: its ledger is stuck at 0017 and
+-- it would replay 0018+ onto columns that already exist.
+ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'pt';

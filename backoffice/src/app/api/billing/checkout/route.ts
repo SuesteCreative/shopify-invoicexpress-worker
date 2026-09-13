@@ -44,7 +44,12 @@ export async function POST(req: NextRequest) {
         // sending the merchant off to Stripe. Same session, same everything below
         // it: only where the browser goes afterwards changes.
         const embedded = body.ui_mode === "embedded";
-        const locale = body.locale === "en" ? "en" : "pt";
+        // The page says which language it is being read in; a caller that says
+        // nothing (the dashboard's own subscribe button) gets the language on
+        // the client's record rather than Portuguese by default.
+        const langRow: any = body.locale ? null : await getDB().prepare("SELECT language FROM users WHERE id = ?")
+            .bind(targetUserId).first().catch(() => null);
+        const locale = (body.locale ?? langRow?.language) === "en" ? "en" : "pt";
 
         const stripe = getStripe();
         const db = getDB();

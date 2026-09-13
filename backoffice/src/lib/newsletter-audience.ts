@@ -44,6 +44,8 @@ const SUB_STATES = new Set(["active", "trialing", "past_due", "canceled", "unpai
 /** The states the gate refuses. Same list as GATE_OPEN's NOT IN. */
 const DEAD_STATES = new Set(["past_due", "canceled", "unpaid", "incomplete"]);
 const PLANS = new Set(["monthly", "annual"]);
+/** The language a client is written to (0061). */
+const LANGS = new Set(["pt", "en"]);
 /** A user id as a `user:` pick carries it. Anything else never reaches the SQL. */
 const PICK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** The shape the worker re-checks before it creates a contact. */
@@ -126,6 +128,13 @@ function parameterised(key: string): Fragment | null {
             binds: [arg],
         };
     }
+    if (head === "lang" && LANGS.has(arg)) {
+        // A campaign is one HTML in one language, so the audience is where the
+        // language is decided: ticking "PT" is what keeps a Portuguese campaign
+        // out of an English client's inbox. Its own group, so it ANDs with the
+        // rest instead of widening them.
+        return { group: "language", sql: `COALESCE(u.language, 'pt') = ?`, binds: [arg] };
+    }
     if (head === "plan" && PLANS.has(arg)) {
         return {
             group: "subscription",
@@ -166,6 +175,7 @@ export const FILTER_KEYS: string[] = [
     ...[...DEST_KINDS].map((k) => `dest:${k}`),
     ...[...SUB_STATES].map((k) => `sub:${k}`),
     ...[...PLANS].map((k) => `plan:${k}`),
+    ...[...LANGS].map((k) => `lang:${k}`),
     "early_bird_ending:30",
     ...Object.keys(FIXED),
 ];

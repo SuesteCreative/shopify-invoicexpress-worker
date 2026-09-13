@@ -26,6 +26,14 @@
  * Every `Notas:` line in the range becomes a bullet under "Para o comerciante",
  * which is the only section the merchant ever sees. A release with no such
  * line never reaches them — the right outcome for refactors and tooling.
+ *
+ * And the wrong outcome for anything else, which is why a range holding
+ * features or fixes and no `Notas:` at all stops here instead of writing a
+ * silent entry. Say `--no-merchant-notes` when the release really is internal.
+ * The alternative is to write "Para o comerciante" into CHANGELOG.md by hand
+ * afterwards — often the better text, since one person reading the whole range
+ * beats thirty authors guessing — and then re-run
+ * backoffice/scripts/sync-version.mjs, which changelog.test.ts checks.
  */
 
 import { execFileSync } from "node:child_process";
@@ -181,6 +189,38 @@ if (commits.length === 0) {
     process.exit(0);
 }
 
+/**
+ * A release with nothing to say to a merchant is a legitimate outcome — that is
+ * what a refactor or a week of tooling looks like, and changelog.test.ts asserts
+ * such releases exist. What is NOT legitimate is a release full of features and
+ * fixes where nobody happened to write the line, because those two produce the
+ * same file and the same silence.
+ *
+ * v8.6.0 was that: thirty-seven commits, thirteen of them features, and "Para o
+ * comerciante" came out empty. It was caught by reading a dry run closely. The
+ * next one would not be.
+ *
+ * So the omission has to be typed, not defaulted into.
+ */
+const noted = commits.filter((c) => c.notes.length > 0);
+const merchantVisible = commits.filter((c) => c.type === "feat" || c.type === "fix");
+if (noted.length === 0 && merchantVisible.length > 0 && !has("--no-merchant-notes")) {
+    const sample = merchantVisible.slice(0, 8).map((c) => `            ${c.sha}  ${c.subject}`);
+    console.error(
+        `[release] ${merchantVisible.length} feature/fix commits and not one "Notas:" line.\n` +
+            `          "Para o comerciante" would come out empty, and that is the only\n` +
+            `          section a merchant ever reads.\n\n` +
+            sample.join("\n") +
+            (merchantVisible.length > sample.length
+                ? `\n            ... and ${merchantVisible.length - sample.length} more`
+                : "") +
+            `\n\n          Either add a "Notas: ..." trailer to the commits a merchant feels,\n` +
+            `          or pass --no-merchant-notes to say this release really is internal\n` +
+            `          (and write the section by hand afterwards if it is not).`,
+    );
+    process.exit(1);
+}
+
 const version = nextVersion(head.version, commits);
 const title = val("--title") ?? deriveTitle(commits);
 const headSha = git("rev-parse", "--short", "HEAD");
@@ -188,7 +228,11 @@ const entry = render(version, title, commits, headSha);
 
 if (has("--dry")) {
     console.log(entry);
-    console.log(`[release] ${commits.length} commits, v${head.version} -> v${version} (dry run)`);
+    console.log(
+        `[release] ${commits.length} commits, v${head.version} -> v${version} (dry run)\n` +
+            `[release] ${noted.reduce((n, c) => n + c.notes.length, 0)} merchant lines from ` +
+            `${noted.length} of ${commits.length} commits`,
+    );
     process.exit(0);
 }
 
@@ -201,7 +245,12 @@ execFileSync(process.execPath, [resolve(root, "backoffice/scripts/sync-version.m
     stdio: "inherit",
 });
 
-console.log(`[release] v${head.version} -> v${version} — ${commits.length} commits — ${title}`);
+console.log(
+    `[release] v${head.version} -> v${version} — ${commits.length} commits — ${title}\n` +
+        `[release] ${noted.reduce((n, c) => n + c.notes.length, 0)} merchant lines from ` +
+        `${noted.length} of ${commits.length} commits` +
+        (noted.length === 0 ? " — write \"Para o comerciante\" by hand, then re-run backoffice/scripts/sync-version.mjs" : ""),
+);
 
 if (has("--commit")) {
     git(

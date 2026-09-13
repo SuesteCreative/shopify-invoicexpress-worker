@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { CHANGELOG, CHANGELOG_PUBLIC } from "./changelog.generated";
 import { RIOKO_VERSION } from "./version";
+// The real parser and the real path, not a copy of either: this test exists to
+// catch drift, and a second implementation of the parser would be drift.
+import { parse, changelogPath } from "../../scripts/changelog-parse.mjs";
 
 /**
  * Both files are generated from CHANGELOG.md by scripts/sync-version.mjs. The
@@ -12,6 +16,21 @@ import { RIOKO_VERSION } from "./version";
 const semver = (v: string) => v.split(".").map(Number);
 
 describe("changelog", () => {
+    /**
+     * The check that matters, and the one that was missing: the generated files
+     * are compared to CHANGELOG.md, not only to each other.
+     *
+     * "Para o comerciante" is written by hand after `npm run release` cuts the
+     * entry — the release script fills the internal sections from commit
+     * subjects, but the merchant lines come from `Notas:` trailers nobody
+     * writes. Editing the markdown and forgetting to re-run sync-version.mjs
+     * left every other test passing while the panel served the previous
+     * version's notes. Nothing pointed at it.
+     */
+    it("is regenerated from the changelog it claims to come from", () => {
+        expect(parse(readFileSync(changelogPath, "utf8"))).toEqual(CHANGELOG);
+    });
+
     it("has the head entry as the running version", () => {
         expect(CHANGELOG[0].version).toBe(RIOKO_VERSION);
     });

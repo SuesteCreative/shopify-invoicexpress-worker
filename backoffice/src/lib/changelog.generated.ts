@@ -20,6 +20,218 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+        "version": "8.6.0",
+        "emoji": "✨",
+        "title": "Convide um amigo, ganhe 2 meses",
+        "date": "September 13, 2026",
+        "commit": "9cd2d1e",
+        "highlight": false,
+        "body": [
+            {
+                "t": "h",
+                "text": "Para o comerciante"
+            },
+            {
+                "t": "li",
+                "text": "Convida quem quiser: por cada pessoa que entrar pelo teu link e ligar uma integração, ganhas 2 meses. Quem entra tem o primeiro mês grátis, sem cartão. O teu link está em **Convidar**, no menu."
+            },
+            {
+                "t": "li",
+                "text": "O cartão da subscrição passa a mostrar o preço que pagas mesmo. Quem está no plano antigo via 75 €/ano no painel e pagava 50 €."
+            },
+            {
+                "t": "li",
+                "text": "Uma ligação deixa de poder ficar activa sem as credenciais do destino. Havia contas subscritas, com tudo verde, que não emitiam nada e não davam sinal."
+            },
+            {
+                "t": "li",
+                "text": "Nos assistentes de integração, a explicação da opção de IVA passa a dizer o que ela faz mesmo. Prometia somar 23% em sete dos nove sítios onde nem sequer era lida."
+            },
+            {
+                "t": "h",
+                "text": "Novo"
+            },
+            {
+                "t": "li",
+                "text": "**audit** — a check for the regime, not just the total"
+            },
+            {
+                "t": "li",
+                "text": "**audit** — say which rule set each rate, not just the rate"
+            },
+            {
+                "t": "li",
+                "text": "**audit** — check the exemption code against where the zero lines went"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — sort integrations by date, newest first, with an order toggle"
+            },
+            {
+                "t": "li",
+                "text": "**shopify** — give the legacy integrations an invoice cutoff"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — replace a wrong Kapta service invoice, by its number"
+            },
+            {
+                "t": "li",
+                "text": "**invoicexpress** — let a connection hold its own credentials"
+            },
+            {
+                "t": "li",
+                "text": "**verify** — say so when a document's exemption code contradicts its buyer"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — one catalogue, every sellable pair, at the price it should be"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — the catalogue tool also fixes the products it skips"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — the seat product gets the template too"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — write to the client list, and let them leave"
+            },
+            {
+                "t": "li",
+                "text": "**referral** — convide um amigo, ganhe 2 meses"
+            },
+            {
+                "t": "h",
+                "text": "Corrigido"
+            },
+            {
+                "t": "li",
+                "text": "**audit** — stop reporting the normal rate on shipping as a deviation"
+            },
+            {
+                "t": "li",
+                "text": "**onboarding** — put the finish panel under the last step, not above the first"
+            },
+            {
+                "t": "li",
+                "text": "**connections** — stop a connection going live without credentials, and say so when it does"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — read the Kapta number the way the document prints it"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — match a payment on who the account is, not on the price alone"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — match the Kapta document on Stripe's invoice number"
+            },
+            {
+                "t": "li",
+                "text": "**api** — stop shipping connection credentials to the browser"
+            },
+            {
+                "t": "li",
+                "text": "**api** — keep the legacy integration credentials on the server"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — never match a payment to a cancelled Kapta document"
+            },
+            {
+                "t": "li",
+                "text": "**wizards** — the InvoiceXpress credentials go on the connection, not on Shopify's row"
+            },
+            {
+                "t": "li",
+                "text": "**wizards** — stop promising that the VAT toggle adds 23%"
+            },
+            {
+                "t": "li",
+                "text": "**seats** — the pool is the record, and the money is checked before the seat"
+            },
+            {
+                "t": "li",
+                "text": "**subscriptions** — the panel and the gate stop disagreeing about the last day"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — a lookup key beats an id in the price book"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — serve the product image from a path nothing has 404ed"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — move the default price before archiving the one it replaces"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — the card says what the client pays, and a pair needs one list less"
+            },
+            {
+                "t": "li",
+                "text": "**referral** — put the free month where the gate will look for it"
+            },
+            {
+                "t": "li",
+                "text": "**marketing** — the eight defects an adversarial review confirmed"
+            },
+            {
+                "t": "h",
+                "text": "Arquitectura"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — the subscription gate as one expression, not three"
+            },
+            {
+                "t": "h",
+                "text": "Documentação"
+            },
+            {
+                "t": "li",
+                "text": "**changelog** — v8.5.0 — A version ladder, and patch notes for two audiences"
+            },
+            {
+                "t": "li",
+                "text": "**architecture** — the credential rule, next to the two tables that hold them"
+            },
+            {
+                "t": "li",
+                "text": "**marketing** — the parts nobody can ship for you"
+            },
+            {
+                "t": "li",
+                "text": "**referral** — how to undo a credit when a refund is made by hand"
+            }
+        ],
+        "publicBody": [
+            {
+                "t": "li",
+                "text": "Convida quem quiser: por cada pessoa que entrar pelo teu link e ligar uma integração, ganhas 2 meses. Quem entra tem o primeiro mês grátis, sem cartão. O teu link está em **Convidar**, no menu."
+            },
+            {
+                "t": "li",
+                "text": "O cartão da subscrição passa a mostrar o preço que pagas mesmo. Quem está no plano antigo via 75 €/ano no painel e pagava 50 €."
+            },
+            {
+                "t": "li",
+                "text": "Uma ligação deixa de poder ficar activa sem as credenciais do destino. Havia contas subscritas, com tudo verde, que não emitiam nada e não davam sinal."
+            },
+            {
+                "t": "li",
+                "text": "Nos assistentes de integração, a explicação da opção de IVA passa a dizer o que ela faz mesmo. Prometia somar 23% em sete dos nove sítios onde nem sequer era lida."
+            }
+        ]
+    },
+    {
         "version": "8.5.0",
         "emoji": "✨",
         "title": "A version ladder, and patch notes for two audiences",

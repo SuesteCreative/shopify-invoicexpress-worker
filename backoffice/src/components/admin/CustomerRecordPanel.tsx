@@ -244,7 +244,7 @@ export function CustomerRecordPanel({ code }: { code: string }) {
                 </div>
             </div>
 
-            {tab === "identidade" && <IdentityTab data={data} />}
+            {tab === "identidade" && <IdentityTab data={data} code={code} onSaved={load} />}
             {tab === "subscricoes" && <SubscriptionsTab data={data} base={base} />}
             {tab === "integracoes" && <ConnectionsTab data={data} />}
             {tab === "fiscal" && <FiscalTab data={data} />}
@@ -260,17 +260,122 @@ export function CustomerRecordPanel({ code }: { code: string }) {
     );
 }
 
-function IdentityTab({ data }: { data: any }) {
+/**
+ * The two fields the merchant cannot change, and the operator can.
+ *
+ * Editable only for a hiperadmin — the same gate every other write that decides
+ * what a document says carries. Before this, applying a client's request meant
+ * impersonating them and re-running their onboarding form.
+ */
+function FiscalField({ code, field, label, value, mono, onSaved }: {
+    code: string; field: "nif" | "company_name"; label: string;
+    value: string | null; mono?: boolean; onSaved: () => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState(value ?? "");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const save = async () => {
+        setBusy(true); setError(null);
+        try {
+            const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ field, value: draft }),
+            });
+            const body: any = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(body?.error === "nif_must_be_nine_digits" ? "O NIF tem de ter nove dígitos." : (body?.error || `HTTP ${res.status}`));
+                return;
+            }
+            setEditing(false);
+            onSaved();
+        } catch (e: any) {
+            setError(String(e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    if (!editing) {
+        return (
+            <div className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{label}</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-sm font-bold text-fg ${mono ? "font-mono text-xs" : ""}`}>
+                        {value || <span className="text-fg-40 font-medium">—</span>}
+                    </span>
+                    <button type="button" onClick={() => { setDraft(value ?? ""); setEditing(true); }}
+                        className="text-[10px] font-black uppercase tracking-widest text-accent-ink hover:underline">
+                        alterar
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">{label}</span>
+            <input
+                autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+                className="w-full bg-surface-2 border border-hairline rounded-xl px-3 py-2 text-sm font-medium text-fg focus:outline-none focus:border-accent/40"
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+                <button type="button" onClick={save} disabled={busy}
+                    className="bg-fg text-surface px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-30">
+                    {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Guardar
+                </button>
+                <button type="button" onClick={() => setEditing(false)}
+                    className="text-[10px] font-black uppercase tracking-widest text-fg-40 hover:text-fg">cancelar</button>
+                {error && <span className="text-[10px] font-black uppercase tracking-widest text-destructive">{error}</span>}
+            </div>
+        </div>
+    );
+}
+
+function IdentityTab({ data, code, onSaved }: { data: any; code: string; onSaved: () => void }) {
     const c = data.customer;
     const identity = c.identity ?? {};
+    const requests: any[] = data.identity_requests ?? [];
+    const fieldLabel = (f: string) => (f === "nif" ? "NIF" : "nome fiscal");
+
     return (
         <div className="space-y-6">
+            {requests.length > 0 && (
+                <Section icon={<AlertTriangle className="w-5 h-5 text-soon" />} title="Pedidos por responder"
+                    desc="O cliente pediu isto a partir da página Conta. Fica em aberto enquanto o valor pedido diferir do que está guardado — aplicá-lo é fechá-lo.">
+                    <div className="space-y-2">
+                        {requests.map((r) => (
+                            <div key={r.id} className="text-sm flex flex-wrap items-center gap-2 border-b border-hairline/60 pb-2">
+                                <Pill tone="warn">{fieldLabel(r.field)}</Pill>
+                                <span className="font-mono text-xs text-fg-40">{r.old_value || "—"}</span>
+                                <span className="text-fg-40">→</span>
+                                <span className="font-mono text-xs font-bold text-fg">{r.new_value}</span>
+                                <span className="text-[10px] text-fg-40 uppercase tracking-widest">{moment(r.created_at)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </Section>
+            )}
+
             <Section icon={<Building2 className="w-5 h-5 text-accent-ink" />} title="Dados do registo"
                 desc="O que o cliente preencheu no onboarding. É o que a página Conta lê e, salvo o NIF e o nome fiscal, o que ele pode corrigir.">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     <Field label="Código" value={c.client_code} mono />
-                    <Field label="Nome fiscal" value={c.company_name} />
-                    <Field label="NIF" value={c.nif} mono />
+                    {data.fiscal_visible ? (
+                        <>
+                            <FiscalField code={code} field="company_name" label="Nome fiscal" value={c.company_name} onSaved={onSaved} />
+                            <FiscalField code={code} field="nif" label="NIF" value={c.nif} mono onSaved={onSaved} />
+                        </>
+                    ) : (
+                        <>
+                            <Field label="Nome fiscal" value={c.company_name} />
+                            <Field label="NIF" value={c.nif} mono />
+                        </>
+                    )}
                     <Field label="Nome" value={c.name} />
                     <Field label="Email" value={c.email} />
                     <Field label="Telefone" value={c.phone} />

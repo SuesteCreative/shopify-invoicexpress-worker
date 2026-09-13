@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdmin, isHiperadmin, getRole, getImpersonationId } from "@/lib/admin";
 import { resolveClientCode, lookupRetiredCode, ensureClientCode } from "@/lib/client-code";
 import { accountLabel } from "@/lib/labels";
+import { auditConfigChange } from "@/lib/config-audit";
+import { outstandingIdentityRequests } from "@/lib/client-record-sql";
 import { loadBillingIdentity } from "@/lib/billing-identity";
 import { CONNECTION_PUBLIC_SELECT, redactConfigJson, stripIntegrationSecrets } from "@/lib/redact";
 import { listSubscriptions, stripeDashboardBase, subscriptionUIState } from "@/lib/stripe";
@@ -90,7 +92,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 .bind(accountId).first());
         if (!userRow) return NextResponse.json({ error: "not_found", retired: null }, { status: 404 });
 
-        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts] = await Promise.all([
+        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows] = await Promise.all([
             db.prepare(`
                 SELECT ${CONNECTION_PUBLIC_SELECT},
                        destination_config_json,
@@ -130,6 +132,17 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 SELECT (SELECT COUNT(*) FROM processed_orders WHERE user_id = ?1) AS documents,
                        (SELECT COUNT(*) FROM incidents WHERE user_id = ?1 AND status IN ('open','acknowledged')) AS incidents_open
             `).bind(accountId).first().catch(() => ({ documents: 0, incidents_open: 0 })),
+
+            // What the client asked us to change about their fiscal identity.
+            // There is no status column on purpose: a request stands while what
+            // was asked for still differs from what is stored, so applying it IS
+            // closing it. See /api/user/identity-request.
+            db.prepare(`
+                SELECT id, field, old_value, new_value, created_at
+                  FROM config_audit
+                 WHERE user_id = ? AND scope = 'profile_change_request'
+                 ORDER BY created_at DESC LIMIT 10
+            `).bind(accountId).all().catch(() => ({ results: [] })),
         ]);
 
         // What each subscription costs, so the record can name the plan and the
@@ -223,11 +236,84 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             members: ((memberRows as any).results ?? []),
             seats,
             counts,
+            // Only the ones still outstanding — see outstandingIdentityRequests
+            // for why there is no status column to read instead.
+            identity_requests: outstandingIdentityRequests(((requestRows as any).results ?? []) as any[], userRow),
             fiscal_visible: fiscalVisible,
             viewer_role: viewerRole,
         });
     } catch (error: any) {
         console.error("[admin/clientes] GET failed:", error?.message ?? error);
         return NextResponse.json({ error: "read_failed" }, { status: 500 });
+    }
+}
+
+/** The two fields a merchant cannot change about themselves. */
+const OPERATOR_EDITABLE = new Set(["nif", "company_name"]);
+
+/**
+ * Apply a fiscal identity change, from the page where the request is read.
+ *
+ * The merchant's own route refuses these two once the account is registered, on
+ * purpose: they are what already-issued Kapta invoices print and what the
+ * payment matcher pairs on. Somebody still has to be able to correct a wrong
+ * one, and until this existed that somebody had to impersonate the client and
+ * re-run their onboarding form — a detour with no record of who changed what.
+ *
+ * Hiperadmin, like every other write that decides what a document says, and
+ * audited into the same trail the request arrived on, so the two read as one
+ * story: asked on the 13th, applied on the 14th, by whom.
+ */
+export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code: string }> }) {
+    try {
+        const { userId } = await auth();
+        if (!userId || !(await isHiperadmin(userId))) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        const body = await request.json() as { field?: string; value?: string };
+        const field = String(body.field ?? "");
+        if (!OPERATOR_EDITABLE.has(field)) {
+            return NextResponse.json({ error: "field_not_editable" }, { status: 400 });
+        }
+
+        // An empty string is "unset", not the empty string — same rule the fiscal
+        // console applies to every text field it writes.
+        const raw = String(body.value ?? "").trim();
+        const value = raw === "" ? null : raw.slice(0, 120);
+        if (field === "nif" && value !== null && !/^\d{9}$/.test(value)) {
+            return NextResponse.json({ error: "nif_must_be_nine_digits" }, { status: 400 });
+        }
+
+        const { env } = getRequestContext();
+        const db = (env as any).DB;
+        if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+
+        const { code } = await ctx.params;
+        const resolved = await resolveClientCode(db, code);
+        if (!resolved) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+        const before: any = await db.prepare(`SELECT ${field} AS value FROM users WHERE id = ?`)
+            .bind(resolved.accountId).first();
+        if (!before) return NextResponse.json({ error: "not_found" }, { status: 404 });
+        if (String(before.value ?? "") === String(value ?? "")) {
+            return NextResponse.json({ success: true, unchanged: true, value });
+        }
+
+        await db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).bind(value, resolved.accountId).run();
+
+        await auditConfigChange(db, {
+            userId: resolved.accountId,
+            actor: userId,
+            scope: "profile",
+            field,
+            oldValue: before.value,
+            newValue: value,
+        });
+
+        return NextResponse.json({ success: true, value });
+    } catch (error: any) {
+        console.error("[admin/clientes] PATCH failed:", error?.message ?? error);
+        return NextResponse.json({ error: "write_failed" }, { status: 500 });
     }
 }

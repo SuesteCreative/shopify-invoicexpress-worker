@@ -21,23 +21,36 @@ type Role = "hiperadmin" | "superadmin" | "user";
  * have to select by hand off a card is a code that gets mistyped. Absent until
  * migration 0058 is applied, and then it simply is not rendered.
  */
-const ClientCodeChip = ({ code, title, copiedLabel }: { code?: string | null; title: string; copiedLabel: string }) => {
+const ClientCodeChip = ({ code, href, openLabel, copyLabel, copiedLabel }: {
+    code?: string | null; href: string; openLabel: string; copyLabel: string; copiedLabel: string;
+}) => {
     const [copied, setCopied] = useState(false);
     if (!code) return null;
+    // Two actions, two targets: the number opens the record, the icon beside it
+    // copies. One element doing both would have to pick, and both are things an
+    // operator does with a code they are looking at.
     return (
-        <button
-            type="button"
-            title={copied ? copiedLabel : title}
-            onClick={() => {
-                navigator.clipboard?.writeText(code)
-                    .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); })
-                    .catch(() => { /* no clipboard permission: the code is still readable */ });
-            }}
-            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-surface-2 border border-hairline font-mono text-[10px] tracking-[0.18em] text-fg hover:bg-fg/5 transition-colors"
-        >
-            {copied ? <Check className="w-2.5 h-2.5 text-accent-ink" /> : <Copy className="w-2.5 h-2.5 text-fg-40" />}
-            {code}
-        </button>
+        <span className="inline-flex items-center rounded-md bg-surface-2 border border-hairline overflow-hidden">
+            <Link
+                href={href}
+                title={openLabel}
+                className="px-2 py-0.5 font-mono text-[10px] tracking-[0.18em] text-fg hover:bg-fg/5 hover:text-accent-ink transition-colors"
+            >
+                {code}
+            </Link>
+            <button
+                type="button"
+                title={copied ? copiedLabel : copyLabel}
+                onClick={() => {
+                    navigator.clipboard?.writeText(code)
+                        .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); })
+                        .catch(() => { /* no clipboard permission: the code is still readable */ });
+                }}
+                className="px-1.5 py-1 border-l border-hairline hover:bg-fg/5 transition-colors"
+            >
+                {copied ? <Check className="w-2.5 h-2.5 text-accent-ink" /> : <Copy className="w-2.5 h-2.5 text-fg-40" />}
+            </button>
+        </span>
     );
 };
 
@@ -471,14 +484,28 @@ export function SuperadminPanel() {
                                     <button onClick={() => setLabelEditing(null)} className="p-1.5 rounded-md bg-surface-2 text-fg-40 hover:text-fg transition-all"><X className="w-3.5 h-3.5" /></button>
                                 </span>
                             ) : (
-                                <button
-                                    onClick={() => { setLabelEditing(user.entry_id); setLabelDraft(label || ""); }}
-                                    title={t("storeLabelEdit")}
-                                    className="group/lbl flex items-center gap-2 transition-all"
-                                >
-                                    <h2 className="text-xl font-bold group-hover/lbl:text-accent-ink transition-colors">{label || user.name}</h2>
-                                    <Pencil className="w-3.5 h-3.5 text-fg-40 opacity-40 group-hover/lbl:opacity-100 group-hover/lbl:text-accent-ink transition-all" />
-                                </button>
+                                /* The name opens the record and the pencil
+                                   renames. It used to be one button that only
+                                   renamed, which meant the most obvious thing on
+                                   the card led nowhere — and the pencil was
+                                   decoration. Two targets, both already visible. */
+                                <span className="group/lbl flex items-center gap-2">
+                                    <Link
+                                        href={`/admin/clientes/${user.client_code || user.id}`}
+                                        title={t("record")}
+                                        className="transition-all"
+                                    >
+                                        <h2 className="text-xl font-bold group-hover/lbl:text-accent-ink transition-colors">{label || user.name}</h2>
+                                    </Link>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setLabelEditing(user.entry_id); setLabelDraft(label || ""); }}
+                                        title={t("storeLabelEdit")}
+                                        className="p-0.5 rounded-md hover:bg-fg/5 transition-all"
+                                    >
+                                        <Pencil className="w-3.5 h-3.5 text-fg-40 opacity-40 group-hover/lbl:opacity-100 hover:text-accent-ink transition-all" />
+                                    </button>
+                                </span>
                             )}
                             <RoleBadge role={targetRole} t={t} />
                             <SubBadge state={user.sub_state} t={t} />
@@ -528,7 +555,13 @@ export function SuperadminPanel() {
                         <div className="flex flex-col gap-1.5">
                             <p className="text-fg-40 text-sm font-medium">{user.email}</p>
                             <div className="flex items-center justify-center lg:justify-start">
-                                <ClientCodeChip code={user.client_code} title={t("clientCodeCopy")} copiedLabel={t("clientCodeCopied")} />
+                                <ClientCodeChip
+                                    code={user.client_code}
+                                    href={`/admin/clientes/${user.client_code || user.id}`}
+                                    openLabel={t("record")}
+                                    copyLabel={t("clientCodeCopy")}
+                                    copiedLabel={t("clientCodeCopied")}
+                                />
                             </div>
                             <div className="flex items-center justify-center lg:justify-start gap-2 text-[10px] font-black text-fg-40 uppercase tracking-widest">
                                 <CalendarDays className="w-3 h-3 text-destructive/60" />

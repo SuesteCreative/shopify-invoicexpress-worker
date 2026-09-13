@@ -15,7 +15,9 @@ export const runtime = "edge";
  * same function, in this same file. That is the whole safety property: the count
  * an operator saw in the preview and the list that is actually mailed cannot
  * come from different code, because there is only one call site and the browser
- * never sends a list — only the filters that produce one.
+ * never sends a list — only the filters that produce one. The two exceptions are
+ * still keys: `user:<id>` for a client picked by hand, and `email:<address>` for
+ * an address typed by the operator, both resolved in resolveAudience like the rest.
  *
  * Same code is not the same moment, though. A send carries the count the
  * operator was shown, and is refused when the audience resolved now is a
@@ -42,10 +44,14 @@ export async function GET() {
                          scheduled_at, sent_by, created_at, filters_json
                   FROM newsletter_campaigns ORDER BY created_at DESC LIMIT 30`)
         .all();
+    // The pick-by-hand list: what the empty filter resolves, so it offers exactly
+    // the people a `user:` pick can reach, and nobody the base set leaves out.
+    const clients = await resolveAudience(db(), []);
 
     return NextResponse.json({
         templates: templates.results ?? [],
         campaigns: campaigns.results ?? [],
+        clients: clients.map(({ user_id, label, client_code, email }) => ({ user_id, label, client_code, email })),
         filter_keys: FILTER_KEYS,
     });
 }

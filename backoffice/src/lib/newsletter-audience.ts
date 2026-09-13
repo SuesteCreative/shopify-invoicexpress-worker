@@ -44,6 +44,10 @@ const SUB_STATES = new Set(["active", "trialing", "past_due", "canceled", "unpai
 /** The states the gate refuses. Same list as GATE_OPEN's NOT IN. */
 const DEAD_STATES = new Set(["past_due", "canceled", "unpaid", "incomplete"]);
 const PLANS = new Set(["monthly", "annual"]);
+/** A user id as a `user:` pick carries it. Anything else never reaches the SQL. */
+const PICK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** The shape the worker re-checks before it creates a contact. */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** The legacy Shopify→InvoiceXpress pipe has no `connections` row — it is
  *  columns on `integrations`. Both halves of that pair have to look there too,
@@ -176,6 +180,17 @@ export const FILTER_KEYS: string[] = [
  */
 export function audienceQuery(keys: string[]): { sql: string; binds: unknown[] } {
     const groups = new Map<string, { sql: string[]; binds: unknown[] }>();
+
+    // Clients picked by hand travel as `user:<id>`, all of them one group, bound
+    // as a single JSON array so a long pick cannot run into D1's cap on bound
+    // parameters. A pick that fails the id shape still opens the group: a
+    // malformed pick must select nobody, never fall through to everyone.
+    const picks = keys.filter((k) => k.startsWith("user:"));
+    if (picks.length) {
+        const ids = picks.map((k) => k.slice(5)).filter((id) => PICK_ID.test(id));
+        groups.set("pick", { sql: ["(u.id IN (SELECT value FROM json_each(?)))"], binds: [JSON.stringify(ids)] });
+    }
+
     for (const key of keys) {
         const f = fragmentFor(key);
         if (!f) continue;
@@ -213,9 +228,27 @@ export function firstNameOf(name: unknown, label: string): string {
     return s ? s.split(/\s+/)[0] : "";
 }
 
+/** Addresses typed by hand, as `email:<address>`: valid ones only, lowercased, once. */
+export function manualEmailsOf(keys: string[]): string[] {
+    return [...new Set(keys
+        .filter((k) => k.startsWith("email:"))
+        .map((k) => k.slice(6).trim().toLowerCase())
+        .filter((e) => EMAIL_SHAPE.test(e)))];
+}
+
 export async function resolveAudience(db: any, keys: string[]): Promise<Recipient[]> {
-    const { sql, binds } = audienceQuery(keys);
-    const { results } = await db.prepare(sql).bind(...binds).all();
+    const rest = keys.filter((k) => !k.startsWith("email:"));
+    const typed = rest.length !== keys.length;
+    const chosen = rest.some((k) => k.startsWith("user:") || fragmentFor(k) !== null);
+
+    // Typed addresses with nothing else chosen mean "these addresses", never
+    // "every customer plus these": the empty filter is everyone, and typing an
+    // email, even an invalid one, must not widen a send to the whole list.
+    let results: unknown[] = [];
+    if (chosen || !typed) {
+        const { sql, binds } = audienceQuery(rest);
+        results = (await db.prepare(sql).bind(...binds).all()).results ?? [];
+    }
     const seen = new Set<string>();
     const out: Recipient[] = [];
     for (const r of (results ?? []) as any[]) {
@@ -231,6 +264,12 @@ export async function resolveAudience(db: any, keys: string[]): Promise<Recipien
             client_code: r.client_code ? String(r.client_code) : null,
             email, label, first_name: firstNameOf(r.name, label),
         });
+    }
+    for (const email of manualEmailsOf(keys)) {
+        if (seen.has(email)) continue;
+        seen.add(email);
+        // Not an account: no id, no customer number, no name to greet by.
+        out.push({ user_id: "", client_code: null, email, label: email, first_name: "" });
     }
     return out;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { audienceQuery, fragmentFor, firstNameOf } from "./newsletter-audience";
+import { audienceQuery, fragmentFor, firstNameOf, resolveAudience } from "./newsletter-audience";
 
 /**
  * A newsletter goes to people. Getting the audience wrong is not an error that
@@ -52,8 +52,72 @@ function db() {
             const { sql, binds } = audienceQuery(keys);
             return (sqlite.prepare(sql).all(...binds) as any[]).map((r) => r.user_id);
         },
+        /** The same database behind the D1 shape resolveAudience expects. */
+        d1: {
+            prepare: (sql: string) => ({
+                bind: (...binds: unknown[]) => ({
+                    all: async () => ({ results: sqlite.prepare(sql).all(...binds) }),
+                }),
+            }),
+        },
     };
 }
+
+describe("picked by hand", () => {
+    it("sends to exactly the clients picked", () => {
+        const d = db();
+        fleet(d);
+        expect(d.ids(["user:user_shop", "user:user_stripe"]).sort()).toEqual(["user_shop", "user_stripe"]);
+    });
+
+    it("ANDs the pick with the other groups", () => {
+        const d = db();
+        fleet(d);
+        // Picked shop and stripe, but only those that never paid: shop paid.
+        expect(d.ids(["user:user_shop", "user:user_stripe", "never_paid"])).toEqual(["user_stripe"]);
+    });
+
+    it("cannot reach past the customer base", () => {
+        const d = db();
+        fleet(d);
+        expect(d.ids(["user:user_admin", "user:user_seat"])).toEqual([]);
+    });
+
+    it("selects nobody for a malformed pick, never everybody", () => {
+        const d = db();
+        fleet(d);
+        expect(d.ids(["user:x' OR 1=1 --"])).toEqual([]);
+    });
+
+    it("binds a long pick as one parameter", () => {
+        const q = audienceQuery(Array.from({ length: 300 }, (_, i) => `user:user_${i}`));
+        expect(q.binds.length).toBe(1);
+        expect((q.sql.match(/\?/g) ?? []).length).toBe(1);
+    });
+});
+
+describe("typed addresses", () => {
+    it("alone, go only to those addresses", async () => {
+        const d = db();
+        fleet(d);
+        const out = await resolveAudience(d.d1, ["email:Novo@Empresa.pt", "email:novo@empresa.pt"]);
+        expect(out.map((r) => r.email)).toEqual(["novo@empresa.pt"]);
+        expect(out[0]).toMatchObject({ user_id: "", client_code: null, first_name: "" });
+    });
+
+    it("add to the filtered clients, once per address", async () => {
+        const d = db();
+        fleet(d);
+        const out = await resolveAudience(d.d1, ["source:stripe", "email:stripe@x.pt", "email:lead@y.pt"]);
+        expect(out.map((r) => r.email)).toEqual(["stripe@x.pt", "lead@y.pt"]);
+    });
+
+    it("never widen to everyone when every typed address is invalid", async () => {
+        const d = db();
+        fleet(d);
+        expect(await resolveAudience(d.d1, ["email:nope"])).toEqual([]);
+    });
+});
 
 /** One of each shape that exists in production. */
 function fleet(d: ReturnType<typeof db>) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Mail, AlertTriangle, Send, Save, Eye } from "lucide-react";
 
 /**
@@ -25,6 +25,7 @@ interface Campaign {
     scheduled_at: string | null; created_at: string; filters_json: string;
 }
 interface Recipient { user_id: string; email: string; label: string; first_name: string }
+interface Client { user_id: string; label: string; client_code: string | null; email: string }
 interface Preview {
     count: number; recipients: Recipient[]; html: string;
     subject: string; preview_text: string | null;
@@ -97,17 +98,27 @@ const n = (v: number) => new Intl.NumberFormat("pt-PT").format(v);
 const BTN = "px-4 py-2 rounded-xl text-sm font-medium border border-hairline text-fg hover:bg-fg/5 transition-all disabled:opacity-40 flex items-center gap-2";
 const BTN_PRIMARY = "px-4 py-2 rounded-xl text-sm font-medium bg-fg text-surface hover:bg-accent hover:text-on-accent transition-all disabled:opacity-40 flex items-center gap-2";
 const FIELD = "w-full bg-surface-2/50 border border-hairline rounded-xl px-3 py-2 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/20";
+/** Same shape the worker re-checks before a contact is created. */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Search that finds "João" when "joao" is typed. */
+const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
 export function NewsletterPanel() {
     const [templates, setTemplates] = useState<Template[]>([]);
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+    const [clients, setClients] = useState<Client[]>([]);
     const [slug, setSlug] = useState("");
     const [name, setName] = useState("");
     const [subject, setSubject] = useState("");
     const [previewText, setPreviewText] = useState("");
     const [html, setHtml] = useState("");
     const [filters, setFilters] = useState<string[]>([]);
+    const [manualText, setManualText] = useState("");
     const [scheduledAt, setScheduledAt] = useState("");
+
+    const [query, setQuery] = useState("");
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const pickerRef = useRef<HTMLDivElement>(null);
 
     const [preview, setPreview] = useState<Preview | null>(null);
     const [previewedFor, setPreviewedFor] = useState<string | null>(null);
@@ -115,12 +126,24 @@ export function NewsletterPanel() {
     const [error, setError] = useState<string | null>(null);
     const [note, setNote] = useState<string | null>(null);
 
+    /** Addresses typed by hand. They travel as `email:` keys beside the filters,
+     *  so the simulation, the count check and the campaign record treat them like
+     *  any other choice, with nothing of their own to fall out of step. */
+    const manual = useMemo(() => {
+        const tokens = manualText.split(/[\s,;]+/).map((t) => t.trim().toLowerCase()).filter(Boolean);
+        return {
+            valid: [...new Set(tokens.filter((t) => EMAIL.test(t)))],
+            invalid: tokens.filter((t) => !EMAIL.test(t)),
+        };
+    }, [manualText]);
+    const keys = useMemo(() => [...filters, ...manual.valid.map((e) => `email:${e}`)], [filters, manual]);
+
     /** What the preview was drawn for. Anything typed afterwards invalidates it,
      *  the inbox line and the schedule included: both go out with the send, so a
      *  simulation that never saw them has not approved them. */
     const signature = useMemo(
-        () => JSON.stringify([subject, previewText, html, [...filters].sort(), scheduledAt]),
-        [subject, previewText, html, filters, scheduledAt],
+        () => JSON.stringify([subject, previewText, html, [...keys].sort(), scheduledAt]),
+        [subject, previewText, html, keys, scheduledAt],
     );
     const previewIsCurrent = preview !== null && previewedFor === signature;
 
@@ -131,12 +154,28 @@ export function NewsletterPanel() {
             if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
             setTemplates(body.templates ?? []);
             setCampaigns(body.campaigns ?? []);
+            setClients(body.clients ?? []);
         } catch (e) {
             setError(String((e as Error).message ?? e));
         }
     }, []);
 
     useEffect(() => { void load(); }, [load]);
+
+    useEffect(() => {
+        if (!pickerOpen) return;
+        const close = (e: MouseEvent) => {
+            if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false);
+        };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+    }, [pickerOpen]);
+
+    const shownClients = useMemo(() => {
+        const q = fold(query.trim());
+        return q ? clients.filter((c) => fold(`${c.label} ${c.client_code ?? ""} ${c.email}`).includes(q)) : clients;
+    }, [clients, query]);
+    const picked = clients.filter((c) => filters.includes(`user:${c.user_id}`));
 
     const pick = (t: Template) => {
         setSlug(t.slug); setName(t.name); setSubject(t.subject);
@@ -151,7 +190,7 @@ export function NewsletterPanel() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    action, slug, subject, html, filters,
+                    action, slug, subject, html, filters: keys,
                     preview_text: previewText || undefined,
                     scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
                     // The count this operator approved. The route resolves the
@@ -348,6 +387,90 @@ export function NewsletterPanel() {
                     ))}
                 </div>
 
+                <div className="grid gap-4 sm:grid-cols-2">
+                    {/* Picked by hand: one more group, so it ANDs with the chips above. */}
+                    <fieldset className="space-y-2">
+                        <legend className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">Clientes</legend>
+                        <p className="text-[10px] text-fg-40 leading-snug">
+                            escolhidos à mão; com outros filtros, só os escolhidos que também os cumprem
+                        </p>
+                        <div ref={pickerRef} className="relative">
+                            <input
+                                value={query}
+                                onChange={(e) => { setQuery(e.target.value); setPickerOpen(true); }}
+                                onFocus={() => setPickerOpen(true)}
+                                onKeyDown={(e) => { if (e.key === "Escape") setPickerOpen(false); }}
+                                placeholder={`Procurar entre ${n(clients.length)} clientes: nome, código ou email`}
+                                className={FIELD}
+                            />
+                            {pickerOpen && (
+                                <div className="absolute z-30 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border border-hairline bg-surface shadow-lg p-1">
+                                    {shownClients.length === 0 ? (
+                                        <p className="px-3 py-2 text-[11px] text-fg-40">Nenhum cliente com esse texto.</p>
+                                    ) : shownClients.map((c) => {
+                                        const key = `user:${c.user_id}`;
+                                        return (
+                                            <label key={c.user_id} className="flex items-center gap-3 px-3 py-1.5 rounded-lg hover:bg-fg/5 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={filters.includes(key)}
+                                                    onChange={() => toggle(key)}
+                                                    className="accent-accent shrink-0"
+                                                />
+                                                <span className="text-sm text-fg truncate flex-1">{c.label}</span>
+                                                <span className="font-mono text-[10px] text-fg-40 shrink-0">{c.client_code ?? "sem código"}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                        {picked.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                                {picked.map((c) => (
+                                    <button
+                                        key={c.user_id}
+                                        onClick={() => toggle(`user:${c.user_id}`)}
+                                        title="Tirar da lista"
+                                        className="px-2.5 py-1 rounded-lg text-[11px] border bg-accent/18 text-accent-ink border-accent/45"
+                                    >
+                                        {c.label} ×
+                                    </button>
+                                ))}
+                                <button
+                                    onClick={() => setFilters((f) => f.filter((k) => !k.startsWith("user:")))}
+                                    className="px-2.5 py-1 rounded-lg text-[11px] text-fg-40 hover:text-fg"
+                                >
+                                    Limpar
+                                </button>
+                            </div>
+                        )}
+                    </fieldset>
+
+                    <label className="space-y-2 block">
+                        <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em] block">Emails manuais</span>
+                        <span className="text-[10px] text-fg-40 leading-snug block">
+                            um por linha ou separados por vírgula; somam-se aos filtros, e sozinhos vão só para estes emails
+                        </span>
+                        <textarea
+                            value={manualText}
+                            onChange={(e) => setManualText(e.target.value)}
+                            rows={3}
+                            spellCheck={false}
+                            placeholder="nome@empresa.pt"
+                            className={`${FIELD} font-mono text-[11px]`}
+                        />
+                        {(manual.valid.length > 0 || manual.invalid.length > 0) && (
+                            <span className="text-[10px] text-fg-40 block">
+                                {n(manual.valid.length)} válidos
+                                {manual.invalid.length > 0 && (
+                                    <span className="text-destructive"> · ignorados: {manual.invalid.join(", ")}</span>
+                                )}
+                            </span>
+                        )}
+                    </label>
+                </div>
+
                 {preview && (
                     <div className="rounded-2xl p-4 bg-surface-2 border border-hairline space-y-3">
                         <p className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">
@@ -369,7 +492,7 @@ export function NewsletterPanel() {
 
                         <div className="max-h-56 overflow-y-auto space-y-1">
                             {preview.recipients.map((r) => (
-                                <div key={r.user_id} className="flex items-baseline justify-between gap-3">
+                                <div key={r.email} className="flex items-baseline justify-between gap-3">
                                     <span className="text-sm text-fg truncate">{r.label}</span>
                                     <span className="font-mono text-[10px] text-fg-40 shrink-0">{r.email}</span>
                                 </div>

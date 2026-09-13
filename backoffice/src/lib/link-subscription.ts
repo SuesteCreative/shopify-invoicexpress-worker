@@ -195,22 +195,28 @@ export async function linkSubscriptionToConnection(opts: {
             const custEmail = typeof sub.customer === "object" ? sub.customer?.email : null;
             const custName = typeof sub.customer === "object" ? sub.customer?.name : null;
 
-            // Only when the webhook has not already recorded this invoice. It keys
-            // its row on the EVENT id and this one on the invoice id, so INSERT OR
-            // IGNORE never collided: the same payment got two rows, each matched to
-            // a different Kapta document (seen on 2026-09-10). admin-stats-sql
-            // already collapses the pair for revenue; the ledger should not hold it.
+            // Only when this account's ledger does not already hold this invoice.
+            // The webhook keys its row on the EVENT id and this one on the invoice
+            // id, so INSERT OR IGNORE never collided and one payment got two rows,
+            // each matched to a different Kapta document (seen on 2026-09-10). This
+            // covers the link arriving after the webhook, the order seen in
+            // production; a webhook arriving after the link still adds its row, and
+            // the customer record collapses that pair on display.
+            //
+            // Scoped to the account being linked: a subscription can move to a new
+            // account (the invite claim does exactly that), and the old account's
+            // row must neither stand in for the new one's nor receive its match.
             await db.prepare(`
                 INSERT OR IGNORE INTO billing_events (id, user_id, type, stripe_object_id, payment_intent_id, amount_cents, currency, status, raw_json)
                 SELECT ?, ?, 'invoice.paid', ?, ?, ?, ?, 'paid', ?
-                 WHERE NOT EXISTS (SELECT 1 FROM billing_events WHERE stripe_object_id = ? AND type = 'invoice.paid')
+                 WHERE NOT EXISTS (SELECT 1 FROM billing_events WHERE stripe_object_id = ? AND type = 'invoice.paid' AND user_id = ?)
             `).bind(
                 inv.id, userId, inv.id, piId, inv.amount_paid || 0, inv.currency || "eur",
                 // The invoice NUMBER goes in, not just the subscription id: it is the
                 // reference Kapta stamps on the document, and without it a retry of
                 // this event by the nightly cron has nothing exact left to search on.
                 JSON.stringify({ manual_link: true, subscription: sub.id, number: inv.number || null }),
-                inv.id,
+                inv.id, userId,
             ).run();
 
             const match = await matchStripeChargeToIX({
@@ -227,13 +233,14 @@ export async function linkSubscriptionToConnection(opts: {
             });
             if (match.ix_invoice_id) {
                 ixMatched = true;
-                // By the payment, so it reaches the webhook's row when that is the
-                // one that exists — and never over a document already matched: a
-                // weaker heuristic here replaced nothing, it added a second answer.
+                // By the payment within this account, so it reaches the webhook's row
+                // when that is the one that exists — and never over a document already
+                // matched: a weaker heuristic here replaced nothing, it added a second
+                // answer. Never another account's row (see the insert above).
                 await db.prepare(`
                     UPDATE billing_events SET ix_invoice_id = ?, ix_invoice_permalink = ?, ix_match_method = ?, ix_match_score = ?
-                    WHERE stripe_object_id = ? AND type = 'invoice.paid' AND ix_invoice_id IS NULL
-                `).bind(match.ix_invoice_id, match.ix_invoice_permalink, match.ix_match_method, match.ix_match_score, inv.id).run();
+                    WHERE stripe_object_id = ? AND type = 'invoice.paid' AND user_id = ? AND ix_invoice_id IS NULL
+                `).bind(match.ix_invoice_id, match.ix_invoice_permalink, match.ix_match_method, match.ix_match_score, inv.id, userId).run();
             }
         }
     } catch (e: any) {

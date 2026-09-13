@@ -745,9 +745,16 @@ function ConnectionsTab({ data }: { data: any }) {
                                         trial that ran out is a row the worker refuses on. */}
                                     {conn.subscribed === false && (
                                         <Pill tone="bad">
-                                            {conn.subscription_status
-                                                ? `subscrição bloqueada (${conn.subscription_status}) — o worker recusa faturar`
-                                                : "sem subscrição — o worker recusa faturar"}
+                                            {conn.subscription_status == null
+                                                ? "sem subscrição"
+                                                // A blocked trial is one with no paid Stripe subscription
+                                                // behind it: it ran out, or it never had an end.
+                                                : conn.subscription_status === "trialing"
+                                                    ? (conn.subscription_trial_end
+                                                        ? `trial terminou a ${day(conn.subscription_trial_end)}`
+                                                        : "trial sem subscrição paga")
+                                                    : `subscrição ${conn.subscription_status}`}
+                                            {" — o worker recusa faturar"}
                                         </Pill>
                                     )}
                                     {conn.admin_label && <span className="text-xs text-fg-40 font-bold">{conn.admin_label}</span>}
@@ -903,8 +910,18 @@ function StripeTab({ data, base }: { data: any; base: string }) {
                                         {e.ix_match_method && <div className="text-[10px] text-fg-40">{e.ix_match_method}</div>}
                                         {/* One payment, recorded by the webhook AND by a manual link. */}
                                         {e.ix_conflict ? (
-                                            <div className="text-[10px] font-bold text-destructive">
-                                                registado {e.duplicate_rows}× com documentos diferentes — confirmar qual é o certo
+                                            <div className="text-[10px] font-bold text-destructive space-y-1">
+                                                <div>registado {e.duplicate_rows}× com documentos diferentes — confirmar qual é o certo</div>
+                                                {(e.ix_alternatives ?? []).map((alt: any) => alt.ix_invoice_permalink ? (
+                                                    <a key={String(alt.ix_invoice_id)} href={alt.ix_invoice_permalink} target="_blank" rel="noopener noreferrer"
+                                                        className="flex items-center gap-1 font-medium text-accent-ink hover:underline">
+                                                        outro documento: {String(alt.ix_invoice_id)} <ExternalLink className="w-3 h-3" />
+                                                    </a>
+                                                ) : (
+                                                    <div key={String(alt.ix_invoice_id)} className="font-mono font-medium text-fg-40">
+                                                        outro documento: {String(alt.ix_invoice_id)}
+                                                    </div>
+                                                ))}
                                             </div>
                                         ) : e.duplicate_rows > 1 ? (
                                             <div className="text-[10px] text-fg-40">registado {e.duplicate_rows}×</div>

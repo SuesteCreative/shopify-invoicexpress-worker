@@ -210,8 +210,10 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             return {
                 subscribed: exempt || (!!row && !isSubscriptionBlocked(row)),
                 // Why not, when not: no row at all, or the status of the one that
-                // no longer lets it through.
+                // no longer lets it through — and its trial end, because a blocked
+                // "trialing" row is refused for the day its trial ran out.
                 subscription_status: row ? String(row.status ?? "") : null,
+                subscription_trial_end: row ? (row.trial_end ?? null) : null,
             };
         };
 
@@ -367,6 +369,16 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
                 duplicate_rows: rows.length,
                 ix_conflict: new Set(rows.map(docOf).filter(Boolean)).size > 1,
                 ix_shared: base.type === "invoice.paid" && !!doc && (paymentsByDoc.get(doc)?.size ?? 0) > 1,
+                // The documents the other copies point at, so the operator asked to
+                // choose can open both instead of only the one shown.
+                ix_alternatives: rows
+                    .filter((r) => docOf(r) && docOf(r) !== doc)
+                    .map((r) => ({
+                        ix_invoice_id: r.ix_invoice_id,
+                        ix_invoice_permalink: r.ix_invoice_permalink,
+                        ix_match_method: r.ix_match_method,
+                        ix_match_score: r.ix_match_score,
+                    })),
             };
         });
         const customerIds = [...new Set(

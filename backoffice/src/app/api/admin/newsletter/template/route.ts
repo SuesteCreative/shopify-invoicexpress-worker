@@ -17,6 +17,7 @@ export async function PUT(request: NextRequest) {
         const body = await request.json().catch(() => ({})) as {
             slug?: string; name?: string; subject?: string;
             preview_text?: string; html?: string;
+            language?: string; family?: string;
         };
 
         const slug = String(body.slug ?? "").trim().toLowerCase();
@@ -29,13 +30,24 @@ export async function PUT(request: NextRequest) {
             return NextResponse.json({ error: "Falta o assunto ou o corpo" }, { status: 400 });
         }
 
+        // A língua desta versão e a campanha a que pertence (0062). A língua é o
+        // que o envio impõe à audiência, por isso só pode ser uma das duas; a
+        // família, quando não vem dita, é o próprio slug — uma campanha sem
+        // traduções é uma família de uma versão só.
+        const language = body.language === "en" ? "en" : "pt";
+        const family = String(body.family ?? "").trim() || slug;
+        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(family) || family.length > 40) {
+            return NextResponse.json({ error: "Família inválida" }, { status: 400 });
+        }
+
         const db = (getRequestContext().env as any).DB as D1Database;
         await db.prepare(`
-            INSERT INTO newsletter_templates (slug, name, subject, preview_text, html, updated_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO newsletter_templates (slug, name, subject, preview_text, html, language, family, updated_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(slug) DO UPDATE SET
               name = excluded.name, subject = excluded.subject,
               preview_text = excluded.preview_text, html = excluded.html,
+              language = excluded.language, family = excluded.family,
               updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP
         `).bind(
             slug,
@@ -43,6 +55,8 @@ export async function PUT(request: NextRequest) {
             body.subject.trim().slice(0, 300),
             body.preview_text?.trim().slice(0, 300) ?? null,
             body.html,
+            language,
+            family,
             userId,
         ).run();
 

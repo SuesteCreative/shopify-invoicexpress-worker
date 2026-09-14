@@ -238,6 +238,24 @@ export function firstNameOf(name: unknown, label: string): string {
     return s ? s.split(/\s+/)[0] : "";
 }
 
+/**
+ * The audience of a campaign written in one language can only be the clients who
+ * read that language.
+ *
+ * Applied on the server, from the version being sent, and not left to the chip
+ * an operator remembers to tick: the language filter decides WHO receives, the
+ * template decides WHAT is sent, and nothing tied the two together. On
+ * 14/09/2026 one click separated the Portuguese copy from the four English
+ * clients.
+ *
+ * Any language the caller asked for is dropped rather than merged: two language
+ * chips would OR inside the group and widen the send back to everyone.
+ */
+export function withLanguage(keys: string[], language: string): string[] {
+    const lang = language === "en" ? "en" : "pt";
+    return [...keys.filter((k) => !k.startsWith("lang:")), `lang:${lang}`];
+}
+
 /** Addresses typed by hand, as `email:<address>`: valid ones only, lowercased, once. */
 export function manualEmailsOf(keys: string[]): string[] {
     return [...new Set(keys

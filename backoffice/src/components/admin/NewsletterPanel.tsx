@@ -18,6 +18,10 @@ import { Loader2, Mail, AlertTriangle, Send, Save, Eye } from "lucide-react";
 interface Template {
     slug: string; name: string; subject: string;
     preview_text: string | null; html: string; updated_at: string;
+    /** Em que língua esta versão está escrita (0062). Manda na audiência. */
+    language: "pt" | "en";
+    /** A campanha a que a versão pertence. Sem traduções, é o próprio slug. */
+    family: string;
 }
 interface Campaign {
     id: string; slug: string; subject: string; recipients: number;
@@ -30,6 +34,8 @@ interface Preview {
     count: number; recipients: Recipient[]; html: string;
     subject: string; preview_text: string | null;
     legal_error: string | null; unknown_vars: string[];
+    /** A língua que o servidor impôs à audiência, e os filtros com ela dentro. */
+    language?: string | null; filters?: string[];
 }
 
 /** The groups mirror the ones the SQL composes by, so "OR dentro do grupo"
@@ -49,16 +55,6 @@ const GROUPS: { title: string; hint?: string; keys: [string, string][] }[] = [
             ["dest:invoicexpress", "InvoiceXpress"],
             ["dest:moloni", "Moloni"],
             ["dest:vendus", "Vendus"],
-        ],
-    },
-    {
-        // A campaign is one HTML in one language. This is what keeps a
-        // Portuguese campaign out of an English client's inbox — there is no
-        // automatic pairing between a template and a language, by decision.
-        title: "Língua", hint: "a língua da ficha de cada cliente",
-        keys: [
-            ["lang:pt", "Português"],
-            ["lang:en", "English"],
         ],
     },
     {
@@ -133,6 +129,8 @@ export function NewsletterPanel() {
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [slug, setSlug] = useState("");
+    const [language, setLanguage] = useState<"pt" | "en">("pt");
+    const [family, setFamily] = useState("");
     const [name, setName] = useState("");
     const [subject, setSubject] = useState("");
     const [previewText, setPreviewText] = useState("");
@@ -204,8 +202,50 @@ export function NewsletterPanel() {
 
     const pick = (t: Template) => {
         setSlug(t.slug); setName(t.name); setSubject(t.subject);
+        setLanguage(t.language ?? "pt"); setFamily(t.family || t.slug);
         setPreviewText(t.preview_text ?? ""); setHtml(t.html);
         setPreview(null); setPreviewedFor(null); setNote(null);
+    };
+
+    /* Uma entrada por campanha, não por versão: a portuguesa é a cara da
+       família, e a inglesa deixa de ser uma campanha à parte que alguém pode
+       enviar ao público errado. */
+    const families = useMemo(() => {
+        const byFamily = new Map<string, Template[]>();
+        for (const t of templates) {
+            const key = t.family || t.slug;
+            byFamily.set(key, [...(byFamily.get(key) ?? []), t]);
+        }
+        return [...byFamily.entries()].map(([key, versions]) => ({
+            family: key,
+            versions,
+            head: versions.find((v) => (v.language ?? "pt") === "pt") ?? versions[0],
+        }));
+    }, [templates]);
+
+    const siblings = useMemo(
+        () => templates.filter((t) => (t.family || t.slug) === (family || slug)),
+        [templates, family, slug],
+    );
+
+    /**
+     * Mudar de versão dentro da mesma campanha. Se a versão ainda não existe,
+     * abre em branco com o slug já formado: é o Gravar que a cria. Em branco e
+     * não pré-preenchida com o português, porque uma tradução por fazer que
+     * ninguém nota é exactamente o acidente que isto veio evitar.
+     */
+    const switchLanguage = (next: "pt" | "en") => {
+        if (next === language) return;
+        const existing = siblings.find((t) => (t.language ?? "pt") === next);
+        if (existing) { pick(existing); return; }
+        const base = family || slug;
+        setLanguage(next);
+        setFamily(base);
+        setSlug(next === "pt" ? base : `${base}-${next}`);
+        setName(next === "en" ? `${name} (EN)` : name.replace(/\s*\(EN\)$/, ""));
+        setSubject(""); setPreviewText(""); setHtml("");
+        setPreview(null); setPreviewedFor(null);
+        setNote("Versão nova, por escrever. Grava para a criar.");
     };
 
     const post = async (action: "preview" | "test" | "send") => {
@@ -273,7 +313,7 @@ export function NewsletterPanel() {
             const res = await fetch("/api/admin/newsletter/template", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ slug, name, subject, preview_text: previewText, html }),
+                body: JSON.stringify({ slug, name, subject, preview_text: previewText, html, language, family: family || slug }),
             });
             const body = await readJson(res);
             if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
@@ -327,17 +367,22 @@ export function NewsletterPanel() {
                 <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">Mensagem</h2>
 
                 <div className="flex flex-wrap gap-2">
-                    {templates.map((t) => (
+                    {families.map((f) => (
                         <button
-                            key={t.slug}
-                            onClick={() => pick(t)}
+                            key={f.family}
+                            onClick={() => pick(f.head)}
                             className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
-                                slug === t.slug
+                                (family || slug) === f.family
                                     ? "bg-accent/18 text-accent-ink border-accent/45"
                                     : "border-hairline text-fg-60 hover:text-fg hover:bg-fg/5"
                             }`}
                         >
-                            {t.name}
+                            {f.head.name}
+                            {f.versions.length > 1 && (
+                                <span className="ml-2 font-mono text-[9px] text-fg-40 uppercase">
+                                    {f.versions.map((v) => v.language ?? "pt").sort().join(" · ")}
+                                </span>
+                            )}
                         </button>
                     ))}
                     {templates.length === 0 && (
@@ -350,7 +395,32 @@ export function NewsletterPanel() {
                 <div className="grid gap-3 sm:grid-cols-2">
                     <label className="space-y-1">
                         <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">Slug</span>
-                        <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="novidades-outubro" className={FIELD} />
+                        <div className="flex items-center gap-2">
+                            <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="novidades-outubro" className={FIELD} />
+                            {/* A versão desta campanha que estás a editar. A audiência
+                                segue-a: o envio impõe a língua no servidor, a partir
+                                da versão gravada. */}
+                            <div className="inline-flex items-center gap-0.5 rounded-full p-0.5 border border-hairline bg-surface-2/50 shrink-0">
+                                {(["pt", "en"] as const).map((l) => {
+                                    const exists = siblings.some((t) => (t.language ?? "pt") === l);
+                                    return (
+                                        <button
+                                            key={l}
+                                            type="button"
+                                            onClick={() => switchLanguage(l)}
+                                            title={exists ? undefined : "Ainda não existe: abre em branco para a escreveres"}
+                                            className={`rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-all ${
+                                                language === l
+                                                    ? "bg-fg text-surface"
+                                                    : exists ? "text-fg-60 hover:text-fg" : "text-fg-40/60 hover:text-fg-60"
+                                            }`}
+                                        >
+                                            {l}{!exists && language !== l ? " +" : ""}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </label>
                     <label className="space-y-1">
                         <span className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.18em]">Nome</span>
@@ -398,6 +468,13 @@ export function NewsletterPanel() {
                     <p className="mt-1 text-[11px] text-fg-40">
                         OU dentro de cada grupo, E entre grupos. Sem nada escolhido, vai para todas
                         as contas de cliente com email.
+                    </p>
+                    {/* A língua não é uma escolha daqui, e dizê-lo é metade do
+                        valor da mudança: o envio impõe a da versão, no servidor. */}
+                    <p className="mt-1 text-[11px] text-fg-40">
+                        A língua não se escolhe aqui: esta campanha está escrita em{" "}
+                        <strong className="text-fg-60">{language === "en" ? "inglês" : "português"}</strong>
+                        {" "}e só chega às fichas nessa língua.
                     </p>
                 </div>
 

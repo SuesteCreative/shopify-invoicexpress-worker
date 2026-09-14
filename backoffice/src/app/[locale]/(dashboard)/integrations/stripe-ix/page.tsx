@@ -17,6 +17,7 @@ import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 import { cn } from "@/lib/utils";
 import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
+import { ixStepState } from "@/lib/ix-step-state";
 
 const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_SOURCE_ENABLED === "1";
 const WEBHOOK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/webhooks/stripe`;
@@ -93,11 +94,11 @@ export default function StripeIXIntegration() {
             if (integ._user_name) setDbUserName(integ._user_name);
             if (integ.shopify_domain) setShopifyDomain(integ.shopify_domain);
             if (integ.shopify_api_version) setShopifyApiVersion(integ.shopify_api_version);
-            const ixName = stripe?.connection?.ix_account_name ?? integ.ix_account_name;
-            if (ixName) setIxAccount(ixName);
-            // The key itself stays on the server; this only says one is stored.
-            // The connection's own credentials first, the legacy row as fallback.
-            setIxKeyStored(!!stripe?.connection?.has_ix_credentials || !!integ.has_ix_api_key);
+            // One rule, both places a credential can live, every wizard.
+            const ix = ixStepState(integ, stripe?.connection);
+            setIxAccount(ix.accountName);
+            setIxKeyStored(ix.keyStored);
+            setIxAuthorized(ix.authorized);
             if (integ.ix_environment) setIxEnvironment(integ.ix_environment);
             if (integ.ix_exemption_reason) setExemptionReason(integ.ix_exemption_reason);
             if (integ.vat_included !== undefined) setVatIncluded(integ.vat_included === 1);
@@ -110,11 +111,6 @@ export default function StripeIXIntegration() {
                 const v = parseFloat(String(integ.ix_retention));
                 if (Number.isFinite(v)) setIxRetention(v);
             }
-            // The connection's own credentials answer for themselves: the legacy
-            // row's `ix_authorized` is a verdict about ITS pair, and an account
-            // that keeps its key on the connection has none there to read.
-            if (stripe?.connection?.has_ix_credentials) setIxAuthorized(true);
-            else if (integ.ix_authorized !== undefined) setIxAuthorized(integ.ix_authorized === 1);
             if (integ.ix_error) setIxError(integ.ix_error);
             if (integ._viewer_role) setUserRole(integ._viewer_role);
             if (integ.user_id) setTargetUserId(integ.user_id);
@@ -156,7 +152,9 @@ export default function StripeIXIntegration() {
             // past the last one is the completed view, where every step is still
             // listed and reopenable, which is how an already-authorised merchant
             // gets back to the invoice settings.
-            const ixOk = integ.ix_authorized === 1;
+            // The same answer the badge shows, so the resume step and the badge
+            // cannot disagree about whether InvoiceXpress is configured.
+            const ixOk = ix.authorized;
             if (conn?.status === "active") setStep(4);
             else if (webhookSaved && ixOk) setStep(3);
             else if (webhookSaved) setStep(2);

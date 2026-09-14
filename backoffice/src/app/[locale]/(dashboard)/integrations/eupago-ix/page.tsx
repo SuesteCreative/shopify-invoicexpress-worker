@@ -12,6 +12,7 @@ import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import InvoiceNote from "@/components/InvoiceNote";
 import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
+import { ixStepState } from "@/lib/ix-step-state";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
@@ -74,15 +75,15 @@ export default function EuPagoIxIntegration() {
                 if (cancelled) return;
 
                 let ixOk = false, setOk = false;
+                // Both places a credential can live, answered together below.
+                let legacyIx: any = null;
+                let connectionIx: any = null;
                 if (integRes.ok) {
                     const data = await integRes.json() as any;
+                    legacyIx = data;
                     if (data._viewer_role) setUserRole(data._viewer_role);
                     if (data.user_id) setTargetUserId(data.user_id);
                     setOwnedByShopify(!!data.shopify_domain);
-                    if (data.ix_account_name) setIxAccount(data.ix_account_name);
-                    // The key itself no longer leaves the server; this is what
-                    // renders the dots and lets a save skip re-typing it.
-                    setIxKeyStored(!!data.has_ix_api_key);
                     if (data.ix_environment) setIxEnvironment(data.ix_environment);
                     if (data.ix_exemption_reason) setExemptionReason(data.ix_exemption_reason);
                     if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
@@ -90,10 +91,6 @@ export default function EuPagoIxIntegration() {
                     if (data.ix_document_type) setIxDocumentType(data.ix_document_type);
                     if (data.ix_payment_term !== undefined) setIxPaymentTerm(parseInt(String(data.ix_payment_term)));
                     if (data.ix_sequence_name) setIxSequenceName(data.ix_sequence_name);
-                    if (data.ix_authorized !== undefined) {
-                        ixOk = data.ix_authorized === 1;
-                        setIxAuthorized(ixOk);
-                    }
                     if (data.ix_error) setIxError(data.ix_error);
                     setOk = !!data.ix_sequence_name;
                     setSettingsSaved(setOk);
@@ -103,6 +100,7 @@ export default function EuPagoIxIntegration() {
                 if (eupagoRes.ok) {
                     const data = await eupagoRes.json() as { connection?: { status: ConnectionStatus; source_config: { has_hmac_secret: boolean; api_key_masked: string | null }; fiscal?: ConnectionFiscal; webhook_url?: string } | null };
                     if (data.connection) {
+                        connectionIx = data.connection;
                         setHasSavedHmac(data.connection.source_config.has_hmac_secret);
                         setHasSavedApiKey(!!data.connection.source_config.api_key_masked);
                         setConnectionStatus(data.connection.status);
@@ -115,21 +113,6 @@ export default function EuPagoIxIntegration() {
                         // applies: for a non-Shopify source it reads the
                         // connection and nothing else. The form has to show what
                         // the next document will actually use.
-
-                        // The credentials this connection holds for itself win
-                        // over the account's legacy row, the same precedence the
-                        // worker applies.
-                        if ((data.connection as any).has_ix_credentials) {
-                            setIxKeyStored(true);
-                            ixOk = true;
-                            // And the badge says so: the legacy row holds no
-                            // verdict about a key that lives on the connection,
-                            // so reading it left the step "pendente" over
-                            // credentials that were verified minutes earlier.
-                            setIxAuthorized(true);
-                        }
-                        const connIxName = (data.connection as any).ix_account_name;
-                        if (connIxName) setIxAccount(String(connIxName));
 
                         const fiscal = data.connection.fiscal ?? {};
                         if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
@@ -151,6 +134,13 @@ export default function EuPagoIxIntegration() {
                         setSettingsSaved(setOk);
                     }
                 }
+
+                // One rule, both places a credential can live, every wizard.
+                const ix = ixStepState(legacyIx, connectionIx);
+                setIxAccount(ix.accountName);
+                setIxKeyStored(ix.keyStored);
+                setIxAuthorized(ix.authorized);
+                ixOk = ix.authorized;
 
                 if (status === "active") setStep(5);
                 else if (eupagoOk && ixOk && setOk) setStep(4);

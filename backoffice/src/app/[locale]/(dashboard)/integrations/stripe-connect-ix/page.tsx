@@ -16,6 +16,7 @@ import InvoiceNote from "@/components/InvoiceNote";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 import { cn } from "@/lib/utils";
 import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
+import { ixStepState } from "@/lib/ix-step-state";
 
 /**
  * Stripe Connect → InvoiceXpress.
@@ -112,26 +113,16 @@ export default function StripeConnectIxIntegration() {
 
         if (integ?._viewer_role) setUserRole(integ._viewer_role);
         if (integ?.user_id) setTargetUserId(integ.user_id);
-        // InvoiceXpress credentials live on the legacy row: one IX account per
-        // Rioko account, shared by every connection that files into it.
-        // The connection's name first, the account's legacy row as fallback.
-        const ixName = source?.connection?.ix_account_name ?? integ?.ix_account_name;
-        if (ixName) setIxAccount(String(ixName));
+        // One rule, both places a credential can live, every wizard. Reading
+        // either place alone is what gave this page a dead "Atualizar" button
+        // and the others a pending badge over a working connection.
+        const ix = ixStepState(integ, source?.connection);
+        setIxAccount(ix.accountName);
         if (integ?.ix_environment) setIxEnvironment(String(integ.ix_environment));
-        // The key itself stays on the server; `has_ix_api_key` says whether one
-        // is stored, which is all this page ever did with it.
-        // The connection's own credentials first; the account's legacy row is
-        // the fallback for a setup made before a connection could hold them.
-        const hasIxKey = !!source?.connection?.has_ix_credentials
-            || (!!integ?.ix_account_name && !!integ?.has_ix_api_key);
-        // Both of these ask "is a key stored", so both have to look in both
-        // places. This one used to read the legacy row alone, so an account
-        // whose credentials live only on the connection got `false` here and a
-        // dead "Atualizar" button: the save is gated on a key being stored OR
-        // typed, and the merchant had no reason to retype one to change a series.
+        const hasIxKey = ix.keyStored;
         setIxKeyStored(hasIxKey);
         setIxCredsSaved(hasIxKey);
-        setIxAuthorized(hasIxKey);
+        setIxAuthorized(ix.authorized);
 
         const conn = connect?.connection;
         const sConnected = !!conn?.stripe?.connected;

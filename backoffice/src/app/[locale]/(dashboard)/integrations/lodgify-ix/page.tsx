@@ -12,6 +12,7 @@ import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import InvoiceNote from "@/components/InvoiceNote";
 import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
+import { ixStepState } from "@/lib/ix-step-state";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
@@ -73,16 +74,17 @@ export default function LodgifyIxIntegration() {
                 if (cancelled) return;
 
                 let ixOk = false, setOk = false;
+                // Both halves of the InvoiceXpress answer, read together below:
+                // deciding it here from the legacy row alone is what put
+                // "pendente" over a working connection.
+                let legacyIx: any = null;
+                let connectionIx: any = null;
                 if (integRes.ok) {
                     const data = await integRes.json() as any;
+                    legacyIx = data;
                     if (data._viewer_role) setUserRole(data._viewer_role);
                     if (data.user_id) setTargetUserId(data.user_id);
                     setOwnedByShopify(!!data.shopify_domain);
-                    if (data.ix_account_name) setIxAccount(data.ix_account_name);
-                    // The key itself no longer leaves the server. `has_ix_api_key`
-                    // is what the field renders as dots and what lets this page
-                    // save without asking for it again.
-                    setIxKeyStored(!!data.has_ix_api_key);
                     if (data.ix_environment) setIxEnvironment(data.ix_environment);
                     if (data.ix_exemption_reason) setExemptionReason(data.ix_exemption_reason);
                     if (data.vat_included !== undefined) setVatIncluded(data.vat_included === 1);
@@ -90,10 +92,6 @@ export default function LodgifyIxIntegration() {
                     if (data.ix_document_type) setIxDocumentType(data.ix_document_type);
                     if (data.ix_payment_term !== undefined) setIxPaymentTerm(parseInt(String(data.ix_payment_term)));
                     if (data.ix_sequence_name) setIxSequenceName(data.ix_sequence_name);
-                    if (data.ix_authorized !== undefined) {
-                        ixOk = data.ix_authorized === 1;
-                        setIxAuthorized(ixOk);
-                    }
                     if (data.ix_error) setIxError(data.ix_error);
                     setOk = !!data.ix_sequence_name;
                     setSettingsSaved(setOk);
@@ -111,6 +109,7 @@ export default function LodgifyIxIntegration() {
                     };
                     if (data.connection) {
                         const cfg = data.connection.source_config;
+                        connectionIx = data.connection;
                         setHasSavedApiKey(cfg.has_api_key);
                         setConnectionStatus(data.connection.status);
                         if (data.connection.webhook_url) setWebhookUrl(data.connection.webhook_url);
@@ -121,24 +120,6 @@ export default function LodgifyIxIntegration() {
                         // applies: for a non-Shopify source it reads the
                         // connection and nothing else. The form has to show what
                         // the next document will actually use.
-
-                        // The credentials this connection holds for itself win
-                        // over the account's legacy row, the same precedence the
-                        // worker applies.
-                        if ((data.connection as any).has_ix_credentials) {
-                            setIxKeyStored(true);
-                            ixOk = true;
-                            // And the badge says so. `ix_authorized` is the legacy
-                            // row's verdict, and an account whose credentials live
-                            // only on the connection has none there: the step read
-                            // "pendente" over a key that had just been verified,
-                            // and the completion card stayed red on a connection
-                            // that was issuing documents. Presence is the honest
-                            // answer here, the same one the Stripe wizard gives.
-                            setIxAuthorized(true);
-                        }
-                        const connIxName = (data.connection as any).ix_account_name;
-                        if (connIxName) setIxAccount(String(connIxName));
 
                         const fiscal = data.connection.fiscal ?? {};
                         if (fiscal.ix_sequence_name) setIxSequenceName(fiscal.ix_sequence_name);
@@ -160,6 +141,13 @@ export default function LodgifyIxIntegration() {
                         setSettingsSaved(setOk);
                     }
                 }
+
+                // One rule, both places a credential can live, every wizard.
+                const ix = ixStepState(legacyIx, connectionIx);
+                setIxAccount(ix.accountName);
+                setIxKeyStored(ix.keyStored);
+                setIxAuthorized(ix.authorized);
+                ixOk = ix.authorized;
 
                 if (lodgifyOk && ixOk && setOk) setStep(4);
                 else if (lodgifyOk && ixOk) setStep(3);

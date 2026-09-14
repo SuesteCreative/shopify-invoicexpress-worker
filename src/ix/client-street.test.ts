@@ -8,6 +8,10 @@ import { IxBuilder } from "./builder";
 // Bestisafil (14/09/2026): document 270275892 reached InvoiceXpress with
 // "1269-046 Lisboa" and no street, while the charge held
 // "Av. da Liberdade nº 110".
+//
+// Fixed in the merge itself (`presentFields`) rather than per field: the street
+// was the third field to need the same workaround, and the fourth would have
+// needed it too.
 const base = {
   user_id: "u1", ix_document_type: "invoice_receipt",
   vat_included: 1, oss_enabled: 0, b2b_reverse_charge: 0, pos_mode: 0, auto_finalize: 0,
@@ -39,8 +43,7 @@ const stripeShapedOrder = (): any => ({
 
 describe("the street on the InvoiceXpress client", () => {
   it("keeps the street a blank customer address used to erase", () => {
-    const c = new IxBuilder({ ...base, stripe_address_from_charge: 1 } as any)
-      .buildInvoiceClient(stripeShapedOrder());
+    const c = new IxBuilder(base as any).buildInvoiceClient(stripeShapedOrder());
 
     expect(c.address).toBe("Av. da Liberdade nº 110");
     // The two that already survived must keep surviving.
@@ -48,21 +51,30 @@ describe("the street on the InvoiceXpress client", () => {
     expect(c.city).toBe("Lisboa");
   });
 
-  // Shopify reads the same builder, and there `customer.address` is the buyer's
-  // saved address: letting it win is the precedence that shop has always had.
-  it("leaves the merge alone for a connection that did not declare the flag", () => {
-    const c = new IxBuilder(base as any).buildInvoiceClient(stripeShapedOrder());
+  // The reason this was gated behind a flag before, and the reason the fix is to
+  // drop BLANKS rather than to reorder the layers: on Shopify `customer.address`
+  // is the buyer's saved address, and letting it win is the precedence that shop
+  // has always had. It still wins — wherever it actually says something.
+  it("still lets a real customer address win over the order's", () => {
+    const o = stripeShapedOrder();
+    o.order.customer.address = { address1: "Rua do Carmo 71", city: "Lisboa", zip: "1200-093", country_code: "PT", country: "PT" };
+    const c = new IxBuilder(base as any).buildInvoiceClient(o);
 
-    expect(c.address).toBe("");
+    expect(c.address).toBe("Rua do Carmo 71");
   });
 
-  // The flag changes which layer is asked first, not what a real value means: a
-  // customer address that actually says something still wins on Shopify.
   it("never invents a street when neither layer has one", () => {
     const o = stripeShapedOrder();
     o.order.billing_address.address1 = "";
-    const c = new IxBuilder({ ...base, stripe_address_from_charge: 1 } as any).buildInvoiceClient(o);
+    const c = new IxBuilder(base as any).buildInvoiceClient(o);
 
     expect(c.address).toBeUndefined();
+  });
+
+  // The house rule for anything that changes a document: an account that
+  // declared nothing must come out exactly as it did before. `base` carries no
+  // flag at all, and every case above runs on it.
+  it("needs no flag declared to behave this way", () => {
+    expect((base as any).stripe_address_from_charge).toBeUndefined();
   });
 });

@@ -19,6 +19,7 @@
     "stripe-connect:on": "node scripts/stripe-connect-killswitch.mjs --on",
     "stripe-connect:rollback": "node scripts/stripe-connect-killswitch.mjs --rollback",
     "shadow:normalize": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-normalize.mjs",
+    "shadow:address": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-address.mjs",
     "shadow:refund": "npm run gen:builder && npm run gen:normalize && node scripts/shadow-refund.mjs",
     "build": "wrangler deploy --dry-run -c wrangler.jsonc",
     "preview": "wrangler dev -c wrangler.jsonc",

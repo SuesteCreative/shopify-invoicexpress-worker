@@ -3655,7 +3655,9 @@
         },
         "exportCode": {
             "label": "Non-EU exemption code",
-            "help": "Stamped when a sale outside the EU is zero-rated. Empty uses M40."
+            "optionServices": "Services - M40",
+            "optionGoods": "Goods - M05",
+            "help": "Stamped when a sale outside the EU is zero-rated. Services are exempt under art. 6(6) of the CIVA and goods under art. 14: the same sale under different articles, and nothing in the data tells a course from a parcel."
         },
         "consequence": "This changes the VAT on documents issued from now on, and the nightly sweep also re-issues the last 30 days. Check with whoever does your accounting before switching it on.",
         "consequenceMoloni": "This changes the VAT on documents issued from now on, and the nightly sweep also re-issues the last 30 days. The destination countries' rates must exist in your Moloni account, or the document is refused. Check with whoever does your accounting before switching it on."

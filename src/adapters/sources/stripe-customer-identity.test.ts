@@ -3,6 +3,7 @@ import { StripeSource } from "./stripe-source";
 import { extractPtNif, hasPtFiscalMarker, pickUnitId, ptNifApplies } from "../destinations/moloni-destination";
 import type { AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
+import { NO_RULES } from "../../services/rules-catalogue";
 
 // A Stripe payment does not have to carry the buyer's name anywhere the event
 // can see. Multibanco (and Link, and off-session subscription charges) leave
@@ -280,5 +281,44 @@ describe("the buyer's address, when only the payment carries one", () => {
     expect(n.order.billing_address?.address1).toBe("");
     expect(n.order.billing_address?.zip).toBe("");
     expect(n.order.billing_address?.phone).toBeFalsy();
+  });
+
+  // The same decision, asked for as an intent instead of a switch. The flag
+  // still works and is untouched; this is how the next account will ask.
+  describe("asked for as an account rule", () => {
+    const ruleCtx = {
+      sourceConfig: { restricted_key: "rk_live_test" },
+      rules: { ...NO_RULES, buyer_address: "payment_then_customer" },
+    } as unknown as AdapterCtx;
+
+    it("takes the address off the charge, with no flag set anywhere", async () => {
+      stubStripe(CUSTOMER_NO_ADDRESS, { billing_details: { name: null, address: STREET } });
+      const n = (await new StripeSource().toNormalized(piEvent(), ruleCtx))!;
+
+      expect(n.order.billing_address?.address1).toBe("Rua da Imprensa Nacional nº 67 Apt. 152");
+      expect(n.order.billing_address?.zip).toBe("1250-124");
+    });
+
+    // The guarantee the whole rules layer rests on: an account that declared
+    // nothing is byte-identical to one from before rules existed. Three shapes
+    // of "declared nothing", because all three occur — a loaded ctx with the
+    // defaults, a rule whose value IS the default, and a hand-rolled ctx that
+    // never had the field at all.
+    it("changes nothing for an account that declared no rule", async () => {
+      const payload = () => stubStripe(
+        { ...CUSTOMER, phone: null, tax_ids: { data: [] } },
+        { billing_details: { name: null, address: STREET, phone: "+351919999999" } },
+      );
+      const defaulted = { sourceConfig: { restricted_key: "rk_live_test" }, rules: NO_RULES } as unknown as AdapterCtx;
+
+      payload();
+      const a = (await new StripeSource().toNormalized(piEvent(), defaulted))!;
+      payload();
+      const b = (await new StripeSource().toNormalized(piEvent(), ctx))!;
+
+      expect(a.order.billing_address).toEqual(b.order.billing_address);
+      expect(a.order.billing_address?.address1).toBe("");
+      expect(a.order.billing_address?.phone).toBeFalsy();
+    });
   });
 });

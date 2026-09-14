@@ -4,6 +4,8 @@ import type { AdapterCtx } from "../adapters/types";
 import { loadProductMappings } from "./product-mappings";
 import { loadProductOverrides } from "./product-overrides";
 import { loadTagRoutingRules, type TagRoutingRule } from "./tag-routing";
+import { loadAccountRules } from "./account-rules";
+import { NO_RULES } from "./rules-catalogue";
 import { makeViesChecker } from "../ix/vies";
 import { resolveLodgifyGateway } from "./lodgify-api";
 import { projectConnectionBehaviour } from "./connection-context";
@@ -49,8 +51,9 @@ export async function buildAdapterCtx(
   projectConnectionBehaviour(config, input.destinationConfig, source);
 
   // Explicit product mappings (Moloni) + per-SKU overrides (IX) + tag routing
-  // rules. All are one D1 round-trip with empty fallbacks.
-  const [productMappings, productOverrides, tagRoutingRules] = await Promise.all([
+  // rules + the account's own rules. All are one D1 round-trip with empty
+  // fallbacks.
+  const [productMappings, productOverrides, tagRoutingRules, rules] = await Promise.all([
     destination === "moloni" && config.user_id
       ? loadProductMappings(env, config.user_id, source)
       : Promise.resolve(undefined),
@@ -65,6 +68,12 @@ export async function buildAdapterCtx(
     (destination === "invoicexpress" || destination === "moloni") && config.user_id
       ? loadTagRoutingRules(env, config.user_id, source, destination)
       : Promise.resolve([]),
+    // Every source and every destination: a rule is about how THIS pair's
+    // documents are produced, and which pairs a given rule may apply to is the
+    // catalogue's business, not this function's.
+    config.user_id
+      ? loadAccountRules(env, config.user_id, source, destination)
+      : Promise.resolve(NO_RULES),
   ]);
 
   // Built once per run when anything might ask whether a buyer is a registered
@@ -86,6 +95,7 @@ export async function buildAdapterCtx(
       destinationConfig: input.destinationConfig,
       productMappings,
       productOverrides,
+      rules,
       viesChecker,
       // Stripe only, both kinds. Resolved here because the Connect answer needs
       // the platform key off `env`, which the adapter never sees. A

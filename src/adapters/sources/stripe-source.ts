@@ -1357,7 +1357,17 @@ export class StripeSource implements SourceAdapter {
     // address on the Customer AND the buyer typed a different one at payment,
     // it changes which of the two reaches the document. Every other Stripe
     // connection keeps the behaviour it has today until it says otherwise.
-    if (Number(ctx.config?.stripe_address_from_charge) === 1) {
+    //
+    // Two ways to ask for it, for now. `stripe_address_from_charge` is the flag
+    // this shipped behind; `buyer_address` is the account rule that says the same
+    // thing as an intent, and is how the next account will ask. The flag is left
+    // working rather than migrated, so no live connection changes behaviour on
+    // the day the rules layer lands. An account that declared neither reads
+    // `undefined === "payment_then_customer"`, which is false — the same answer
+    // the flag alone gave, with no second code path.
+    const addressFromPayment = Number(ctx.config?.stripe_address_from_charge) === 1
+      || ctx.rules?.buyer_address === "payment_then_customer";
+    if (addressFromPayment) {
       if (isSubstantiveAddress(charge?.billing_details?.address)) {
         fillBlankBillingAddress(normalized, charge.billing_details.address);
       }

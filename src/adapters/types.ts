@@ -48,6 +48,16 @@ export interface AdapterCtx {
     exemption_reason?: string;
     name_override?: string;
   }>;
+  // What this account declared about how its documents are produced, with the
+  // catalogue's defaults filled in — see services/rules-catalogue.ts.
+  //
+  // Optional in the type, and never optional in meaning. `buildAdapterCtx`
+  // always sets it, but callers all over the worker hand-roll a bare ctx with a
+  // cast, and those would carry `undefined` past the type at runtime. So every
+  // read site asks `ctx.rules?.<id> === "<a non-default option>"`: absent reads
+  // false, which is the same answer the default gives, so there is no second
+  // code path for an account without rules.
+  rules?: Readonly<Record<string, string>>;
   // VIES checker for B2B EU reverse-charge classification. Built once per
   // pipeline run when the connection declared reverse charge or asked for the
   // regime to be named, so the decision can tell a real intra-Community supply

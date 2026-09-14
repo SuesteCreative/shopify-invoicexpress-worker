@@ -34,7 +34,7 @@ async function target(request: NextRequest, ctx: { params: Promise<{ code: strin
   const resolved = await resolveClientCode(db, code);
   if (!resolved) return { error: NextResponse.json({ error: "not_found" }, { status: 404 }) };
 
-  return { db, userId, accountId: resolved.accountId };
+  return { db, env, userId, accountId: resolved.accountId };
 }
 
 export async function GET(request: NextRequest, ctx: { params: Promise<{ code: string }> }) {
@@ -78,7 +78,7 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ code
 
     // Scoped to this company: a post id from another account answers 404 rather
     // than confirming that it exists.
-    const hidden = await deleteAccountPost(t.db, { accountId: t.accountId, actor: t.userId, postId });
+    const hidden = await deleteAccountPost(t.db, { accountId: t.accountId, actor: t.userId, postId }, t.env);
     if (!hidden) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
     return NextResponse.json({ posts: await listAccountPosts(t.db, t.accountId) });

@@ -14,6 +14,7 @@ import InvoiceNote from "@/components/InvoiceNote";
 import SubscriptionCard from "@/components/SubscriptionCard";
 
 import { cn } from "@/lib/utils";
+import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
 
 export default function ShopifyIXIntegration() {
     const t = useTranslations("shopifyIxSetup");
@@ -77,38 +78,6 @@ export default function ShopifyIXIntegration() {
     // webhooksActive can be "unknown" when token lacks read_webhooks, so we also
     // allow completion if both Shopify and IX are authorized AND we're on step 4+
     const allComplete = shopifyAuthorized && ixAuthorized && (webhooksActive || step >= 4);
-
-    const exemptionOptions = [
-        { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
-        { value: "M02", label: "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho" },
-        { value: "M04", label: "Isento artigo 13.º do CIVA" },
-        { value: "M05", label: "Isento artigo 14.º do CIVA" },
-        { value: "M06", label: "Isento artigo 15.º do CIVA" },
-        { value: "M07", label: "Isento artigo 9.º do CIVA" },
-        { value: "M09", label: "IVA – não confere direito a dedução" },
-        { value: "M10", label: "Regime especial de isenção artigo 53.º do CIVA" },
-        { value: "M11", label: "Regime particular do tabaco" },
-        { value: "M12", label: "Regime da margem de lucro – Agências de Viagens" },
-        { value: "M13", label: "Regime da margem de lucro – Bens em segunda mão" },
-        { value: "M14", label: "Regime da margem de lucro – Objetos de arte" },
-        { value: "M15", label: "Regime da margem de lucro – Objetos de coleção e antiguidades" },
-        { value: "M16", label: "Isento artigo 14.º do RITI" },
-        { value: "M19", label: "Outras isenções" },
-        { value: "M20", label: "IVA - regime forfetário" },
-        { value: "M21", label: "IVA – não confere direito à dedução (ou expressão similar)" },
-        { value: "M25", label: "Mercadorias à consignação" },
-        { value: "M26", label: "Isenção de IVA com direito à dedução no cabaz alimentar" },
-        { value: "M30", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea i) do CIVA)" },
-        { value: "M31", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea j) do CIVA)" },
-        { value: "M32", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea l) do CIVA)" },
-        { value: "M33", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea m) do CIVA)" },
-        { value: "M34", label: "IVA - autoliquidação (artigo 2.º, n.º 1, alínea n) do CIVA)" },
-        { value: "M40", label: "IVA - autoliquidação (artigo 6.º, n.º 6, alínea a) do CIVA, a contrário)" },
-        { value: "M41", label: "IVA - autoliquidação (artigo 8.º, n.º 3 do RITI)" },
-        { value: "M42", label: "IVA - autoliquidação (Decreto-Lei n.º 21/2007, de 29 de janeiro)" },
-        { value: "M43", label: "IVA - autoliquidação (Decreto-Lei n.º 362/99, de 16 de setembro)" },
-        { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
-    ];
 
     // Load existing data
     useEffect(() => {

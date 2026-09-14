@@ -30,6 +30,7 @@ export const VAT_EXEMPTION_OPTIONS: ReadonlyArray<{ value: string; label: string
     { value: "M20", label: "IVA – regime forfetário (artigo 59.º-D n.º 2 do CIVA)" },
     { value: "M21", label: "IVA – não confere direito à dedução (artigo 72.º n.º 4 do CIVA)" },
     { value: "M25", label: "Mercadorias à consignação (artigo 38.º n.º 1 alínea a) do CIVA)" },
+    { value: "M26", label: "Cabaz alimentar — isenção com direito a dedução (regime terminado a 04/01/2024)" },
     { value: "M30", label: "IVA – autoliquidação: sucatas e resíduos (artigo 2.º n.º 1 alínea i))" },
     { value: "M31", label: "IVA – autoliquidação: construção civil (artigo 2.º n.º 1 alínea j))" },
     { value: "M32", label: "IVA – autoliquidação: direitos de emissão (artigo 2.º n.º 1 alínea l))" },

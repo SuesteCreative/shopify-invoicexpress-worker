@@ -17,6 +17,7 @@ import { RIOKO_CONFIG } from "@/lib/config";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import InvoiceNote from "@/components/InvoiceNote";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
+import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
@@ -25,21 +26,6 @@ type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 // so this URL is only there to satisfy Moloni's "activate the app" requirement —
 // any reachable value works; we hand clients a stable, shared one.
 const MOLONI_CALLBACK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/moloni/callback`;
-
-const exemptionOptions = [
-    { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
-    { value: "M02", label: "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho" },
-    { value: "M04", label: "Isento artigo 13.º do CIVA" },
-    { value: "M05", label: "Isento artigo 14.º do CIVA" },
-    { value: "M06", label: "Isento artigo 15.º do CIVA" },
-    { value: "M07", label: "Isento artigo 9.º do CIVA" },
-    { value: "M09", label: "IVA – não confere direito a dedução" },
-    { value: "M10", label: "Regime especial de isenção artigo 53.º do CIVA" },
-    { value: "M11", label: "Regime particular do tabaco" },
-    { value: "M16", label: "Isento artigo 14.º do RITI" },
-    { value: "M20", label: "IVA - regime forfetário" },
-    { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
-];
 
 export default function LodgifyMoloniIntegration() {
     const t = useTranslations("lodgifyMoloniSetup");

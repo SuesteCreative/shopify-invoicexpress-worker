@@ -9,27 +9,13 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/IntegrationStepper";
+import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
 
 const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_SOURCE_ENABLED === "1";
 const WEBHOOK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/webhooks/stripe`;
 const RECOMMENDED_EVENTS = ["payment_intent.succeeded", "charge.succeeded", "charge.refunded"];
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
-
-const exemptionOptions = [
-    { value: "M01", label: "Artigo 16.º, n.º 6 do CIVA" },
-    { value: "M02", label: "Artigo 6.º do Decreto-Lei n.º 198/90, de 19 de junho" },
-    { value: "M04", label: "Isento artigo 13.º do CIVA" },
-    { value: "M05", label: "Isento artigo 14.º do CIVA" },
-    { value: "M06", label: "Isento artigo 15.º do CIVA" },
-    { value: "M07", label: "Isento artigo 9.º do CIVA" },
-    { value: "M09", label: "IVA – não confere direito a dedução" },
-    { value: "M10", label: "Regime especial de isenção artigo 53.º do CIVA" },
-    { value: "M11", label: "Regime particular do tabaco" },
-    { value: "M16", label: "Isento artigo 14.º do RITI" },
-    { value: "M20", label: "IVA - regime forfetário" },
-    { value: "M99", label: "Não sujeito; não tributado (ou similar)" },
-];
 
 export default function StripeVendusIntegration() {
     const t = useTranslations("stripeVendusSetup");

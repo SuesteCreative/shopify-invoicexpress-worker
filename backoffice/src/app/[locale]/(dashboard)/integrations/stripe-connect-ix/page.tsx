@@ -101,6 +101,14 @@ export default function StripeConnectIxIntegration() {
     // credentials, and read "AUTORIZADO" for a day while every payment died at
     // the proxy with UNAUTHENTICATED.
     const [ixCredsSaved, setIxCredsSaved] = useState(false);
+    // Whether the key InvoiceXpress holds is the key we hold. This wizard never
+    // asked, so "AUTORIZADO" here only ever meant "a credential is stored", and
+    // a rotated key pasted one character short read exactly the same as a good
+    // one. Set from presence on load, from a real answer after a save — which is
+    // as honest as it can be without persisting the verdict.
+    const [ixAuthorized, setIxAuthorized] = useState(false);
+    /** ISO minute of the last successful save, so the merchant can see it landed. */
+    const [savedAt, setSavedAt] = useState("");
     // Exactly what the connection states, and nothing else. Starting from {} and
     // only ever merging what the merchant touches is what keeps a key that was
     // never stated from being written as `false` on the next save.
@@ -129,8 +137,14 @@ export default function StripeConnectIxIntegration() {
         // the fallback for a setup made before a connection could hold them.
         const hasIxKey = !!source?.connection?.has_ix_credentials
             || (!!integ?.ix_account_name && !!integ?.has_ix_api_key);
-        setIxKeyStored(!!integ?.has_ix_api_key);
+        // Both of these ask "is a key stored", so both have to look in both
+        // places. This one used to read the legacy row alone, so an account
+        // whose credentials live only on the connection got `false` here and a
+        // dead "Atualizar" button: the save is gated on a key being stored OR
+        // typed, and the merchant had no reason to retype one to change a series.
+        setIxKeyStored(hasIxKey);
         setIxCredsSaved(hasIxKey);
+        setIxAuthorized(hasIxKey);
 
         const conn = connect?.connection;
         const sConnected = !!conn?.stripe?.connected;
@@ -224,9 +238,16 @@ export default function StripeConnectIxIntegration() {
     const handleSaveIx = async () => {
         // The body below already omits a blank key, so a stored one survives a
         // save that only changes the account name or the environment.
-        if (!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)) return;
+        //
+        // Says why it did nothing. A bare `return` here left the button looking
+        // broken: clicking it produced no save, no error and no spinner.
+        if (!ixAccount.trim() || (!ixApiKey.trim() && !ixKeyStored)) {
+            setIxError(tPage("errorIxRequired"));
+            return;
+        }
         setSaving(true);
         setIxError("");
+        setSavedAt("");
         try {
             // Credentials AND fiscal identity on the connection, in one post.
             //
@@ -254,7 +275,8 @@ export default function StripeConnectIxIntegration() {
                     // merchant never touched is absent here, and absent is off.
                     ...registrations,
                 },
-                status: "draft",
+                // No status: this is a settings save, not a lifecycle change.
+                // It used to post "draft", which deactivated the connection.
             });
             if (!fiscalRes.ok) {
                 const d: any = await fiscalRes.json().catch(() => ({}));
@@ -262,7 +284,39 @@ export default function StripeConnectIxIntegration() {
                 return;
             }
             setSettingsSaved(true);
-            setStep(3);
+
+            // Ask InvoiceXpress whether the key actually works, the way every
+            // other IX wizard does. Presence is not a verdict, and a merchant who
+            // has just rotated a key is precisely the one who needs the verdict:
+            // theirs is the case where a good save and a mistyped one look
+            // identical until the first sale of the day fails to invoice.
+            //
+            // Deliberately AFTER the save. They rotated the key; the new one has
+            // to be stored even if it was pasted wrong, or the next attempt
+            // starts from a credential nobody has any more.
+            const valRes = await fetch("/api/integrations/validate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "ix", source_kind: SOURCE_KIND }),
+            });
+            const valData = await valRes.json().catch(() => ({})) as { isValid?: boolean; error?: string };
+
+            // The key is on the server now, so the field goes back to showing
+            // that one is stored rather than holding a copy of it.
+            setIxApiKey("");
+            // The server's account of things, including the status: `load` also
+            // decides which step to open, so nothing may set a step after it.
+            await load();
+            // AFTER the reload, never before: `load` sets `ixAuthorized` from
+            // presence, which would overwrite the verdict just obtained and put
+            // a green tick back on a key InvoiceXpress had refused.
+            setIxAuthorized(!!valData.isValid);
+
+            if (!valData.isValid) {
+                setIxError(valData.error || tIx("alertSaveError"));
+                return;
+            }
+            setSavedAt(new Date().toTimeString().slice(0, 5));
         } catch (e: any) {
             setIxError(e?.message ?? "Unknown error");
         } finally {
@@ -384,7 +438,7 @@ export default function StripeConnectIxIntegration() {
             title: tPage("step2Title"),
             description: tPage("step2Desc"),
             icon: FileText,
-            isAuthorized: ixCredsSaved && settingsSaved,
+            isAuthorized: ixAuthorized && settingsSaved,
             errorMsg: ixError,
             body: (
                 <div className="grid md:grid-cols-2 gap-8">
@@ -496,7 +550,7 @@ export default function StripeConnectIxIntegration() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {([
                             { icon: CreditCard, label: tIx("stripeLabel"), ok: stripeConnected },
-                            { icon: FileText, label: tIx("ixLabel"), ok: ixCredsSaved && settingsSaved },
+                            { icon: FileText, label: tIx("ixLabel"), ok: ixAuthorized && settingsSaved },
                         ] as const).map(({ icon: Icon, label, ok }) => (
                             <div key={label} className={cn("flex items-center gap-3 px-5 py-4 rounded-2xl border", ok ? "bg-accent-hot/5 border-accent-hot/20" : "bg-soon/5 border-soon/20")}>
                                 <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", ok ? "bg-accent-hot/10" : "bg-soon/10")}><Icon className={cn("w-4 h-4", ok ? "text-accent-hot" : "text-soon")} /></div>
@@ -533,7 +587,7 @@ export default function StripeConnectIxIntegration() {
                 subtitle={tPage("engineSubtitle")}
                 providers={[
                     { icon: CreditCard, authorized: stripeConnected },
-                    { icon: FileText, authorized: ixCredsSaved && settingsSaved },
+                    { icon: FileText, authorized: ixAuthorized && settingsSaved },
                     { icon: Settings2, authorized: allComplete, color: "accentHot" },
                 ]}
                 allComplete={allComplete}
@@ -541,6 +595,18 @@ export default function StripeConnectIxIntegration() {
                 realtimeOnLabel={tIx("realtimeOn")}
                 waitingLabel={tIx("waitingConnection")}
             />
+
+            {/* Saying so is the whole point, and it has to be said out here.
+                The key field is empty by design on every load, so a merchant who
+                has just pasted a rotated key cannot otherwise tell a save that
+                worked from one that did nothing. Inside the step it would be
+                invisible in the case that matters most: on a live connection the
+                reload collapses the stepper, taking the step body with it. */}
+            {savedAt && !ixError && (
+                <p className="text-[11px] font-bold text-accent-hot text-center">
+                    {tPage("savedVerified", { time: savedAt })}
+                </p>
+            )}
 
             <IntegrationStepper
                 steps={steps}

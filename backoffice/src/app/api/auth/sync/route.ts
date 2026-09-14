@@ -18,7 +18,8 @@ export async function POST() {
         const db = (env as any).DB;
 
         const email = user.emailAddresses?.[0]?.emailAddress || null;
-        const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || "User";
+        // No "User" fallback — see the Clerk webhook and lib/client-code.
+        const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || null;
 
         // Upsert the user, role untouched, with the customer number that comes
         // with a new row. Shared with the Clerk webhook so there is exactly one

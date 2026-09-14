@@ -53,7 +53,10 @@ export async function POST(req: Request) {
     if (eventType === "user.created" || eventType === "user.updated") {
         const { id, email_addresses, first_name, last_name, username } = evt.data;
         const email = email_addresses?.[0]?.email_address || null;
-        const name = `${first_name || ""} ${last_name || ""}`.trim() || username || "User";
+        // No "User" fallback: a sign-up with no name has no name, and storing a
+        // placeholder made every panel and every alert email call the account
+        // "User". upsertUserRow refuses it either way.
+        const name = `${first_name || ""} ${last_name || ""}`.trim() || username || null;
         // An invited extra user carries the membership in the invitation's public
         // metadata, which Clerk copies onto the user it creates.
         const invitedAccountId = (evt.data as any)?.public_metadata?.rioko_account_id as string | undefined;

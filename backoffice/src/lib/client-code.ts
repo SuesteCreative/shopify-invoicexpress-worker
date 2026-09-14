@@ -31,6 +31,8 @@
  * caught before production. Same reason `kapta-doc-number.ts` is runtime-free.
  */
 
+import { realName } from "./labels";
+
 export const CLIENT_CODE_PREFIX = "RIO-";
 export const CLIENT_CODE_RE = /^RIO-[0-9A-F]{6}$/;
 
@@ -146,7 +148,13 @@ export async function upsertUserRow(
     db: any,
     user: { id: string; email: string | null; name: string | null },
 ): Promise<void> {
-    const touch = () => db.prepare(UPSERT_SQL_NO_CODE).bind(user.id, user.email, user.name).run();
+    // Clerk hands over the literal "User" for a sign-up with no first name, no
+    // last name and no username. It is not a name, it identifies nobody, and
+    // stored once it is what every panel and every alert email then reads back
+    // as the account. An empty name is stored empty; the SQL above already
+    // decides when a stored name may be replaced. See lib/labels.
+    const name = realName(user.name);
+    const touch = () => db.prepare(UPSERT_SQL_NO_CODE).bind(user.id, user.email, name).run();
 
     let existing: string | null = null;
     try {
@@ -172,7 +180,7 @@ export async function upsertUserRow(
     const prior = await priorClientCode(db, user.id);
     if (prior) {
         try {
-            await db.prepare(UPSERT_SQL).bind(user.id, user.email, user.name, prior).run();
+            await db.prepare(UPSERT_SQL).bind(user.id, user.email, name, prior).run();
             return;
         } catch (e: any) {
             if (MISSING_COLUMN.test(String(e?.message ?? e))) { await touch(); return; }
@@ -184,7 +192,7 @@ export async function upsertUserRow(
         const code = newClientCode();
         try {
             await claimClientCode(db, code, user.id);
-            await db.prepare(UPSERT_SQL).bind(user.id, user.email, user.name, code).run();
+            await db.prepare(UPSERT_SQL).bind(user.id, user.email, name, code).run();
             return;
         } catch (e: any) {
             const msg = String(e?.message ?? e);

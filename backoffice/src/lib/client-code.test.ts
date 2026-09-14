@@ -139,6 +139,21 @@ describe("upsertUserRow", () => {
         expect(h.row("user_a").name).toBe("Maria Joana Silva Santos");
     });
 
+    it("never stores the Clerk placeholder as a name", async () => {
+        // Clerk sends the literal "User" for a sign-up with no first name, no
+        // last name and no username. Stored, it is what the panels and the
+        // alert emails then called the account.
+        const h = harness();
+        await upsertUserRow(h.db, { id: "user_a", email: "a@x.pt", name: "User" });
+        expect(h.row("user_a").name ?? null).toBeNull();
+        expect(h.row("user_a").client_code).toMatch(CLIENT_CODE_RE);
+
+        // And it cannot come back over the name a registered account typed.
+        h.sqlite.exec("UPDATE users SET registration_completed = 1, name = 'Matilde Silva' WHERE id = 'user_a'");
+        await upsertUserRow(h.db, { id: "user_a", email: "a@x.pt", name: "User" });
+        expect(h.row("user_a").name).toBe("Matilde Silva");
+    });
+
     it("heals a row that arrived without one", async () => {
         const h = harness();
         h.sqlite.exec("INSERT INTO users (id, email, name) VALUES ('user_old', 'old@x.pt', 'Old');");

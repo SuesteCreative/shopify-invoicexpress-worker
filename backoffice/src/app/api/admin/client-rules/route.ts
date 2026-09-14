@@ -46,6 +46,8 @@ const DANGEROUS_FIELDS = new Set([
   // Moves `billing_address.country_code`, which gates the PT NIF downstream —
   // and decides which of two addresses Stripe holds reaches the document.
   "stripe_address_from_charge",
+  // Decides whether a sale becomes a document at all.
+  "stripe_invoice_out_of_band",
 ]);
 
 /** Legacy boolean toggles, kept working exactly as before. */

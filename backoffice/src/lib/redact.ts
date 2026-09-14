@@ -34,6 +34,7 @@ export const FISCAL_CONFIG_KEYS = [
   "stripe_routing_hints",
   "stripe_address_from_charge",
   "stripe_line_names_from_product",
+  "stripe_invoice_out_of_band",
   // Tax behaviour. `projectConnectionBehaviour` isolates these per connection
   // (CONNECTION_FISCAL_RATES / _TOGGLES) — and until now nothing could write
   // them there. The console offered the fields, wrote them to the legacy row,

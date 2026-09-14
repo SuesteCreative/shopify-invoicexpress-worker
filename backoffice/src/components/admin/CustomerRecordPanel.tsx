@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import { Section } from "@/components/admin/Section";
-import { MAX_NOTES_CHARS } from "@/lib/company-notes";
+import { MAX_POST_CHARS } from "@/lib/account-posts";
 import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
 import { connectionLabel } from "@/lib/connection-kinds";
 import { connectionKeyForScope, attributeDocumentEvent, groupByConnection } from "@/lib/client-record-sql";
@@ -153,6 +153,9 @@ export function CustomerRecordPanel({ code, askedForMember = null }: { code: str
     const [error, setError] = useState<string | null>(null);
     const [retired, setRetired] = useState<any>(null);
     const [tab, setTab] = useState<Tab>("identidade");
+    // Held apart from `data` so publishing or hiding a post re-renders the wall
+    // from what the write returned, without re-fetching the whole record.
+    const [posts, setPosts] = useState<any[]>([]);
 
     const load = useCallback(async () => {
         setLoading(true); setError(null); setRetired(null);
@@ -166,6 +169,7 @@ export function CustomerRecordPanel({ code, askedForMember = null }: { code: str
                 return;
             }
             setData(body);
+            setPosts(body?.posts ?? []);
         } catch (e: any) {
             setError(String(e));
         } finally {
@@ -274,7 +278,7 @@ export function CustomerRecordPanel({ code, askedForMember = null }: { code: str
             {tab === "identidade" && <IdentityTab data={data} code={code} onSaved={load} />}
             {tab === "subscricoes" && <SubscriptionsTab data={data} base={base} />}
             {tab === "integracoes" && <ConnectionsTab data={data} />}
-            {tab === "fiscal" && <FiscalTab data={data} code={code} onSaved={load} />}
+            {tab === "fiscal" && <FiscalTab data={data} code={code} userId={c.id} onPosted={setPosts} posts={posts} />}
             {tab === "stripe" && <StripeTab data={data} base={base} />}
             {tab === "faturas" && (
                 <Section icon={<Receipt className="w-5 h-5 text-accent-ink" />} title="Faturas de serviço da Kapta"
@@ -865,67 +869,155 @@ function ConnectionsTab({ data }: { data: any }) {
 }
 
 /**
- * What the operator knows about this company that the configuration cannot say.
+ * The company's wall: what the operator knows that the configuration cannot say.
  *
  * Under the settings and not beside them, because the two are different kinds of
- * thing: above is what the system APPLIES, here is what a person needs to know
- * to read it — an instruction that arrived by email, why an exemption code is
- * the one it is, what was agreed and when. A note changes no document.
+ * thing. Above is what the system APPLIES; here is what a person needs in order
+ * to read it — an instruction that arrived by email, why an exemption code is the
+ * one it is, what was agreed and when. A post changes no document.
  *
- * The same note as the one in /admin/client-rules: one row, two screens. It also
- * travels with this company's incident diagnoses, with emails and tax numbers
- * stripped out, so an alert is read with the context the operator has.
+ * Posted, not edited. The single box this replaced was replace-on-write, so two
+ * people writing at once silently overwrote each other; and holding only the
+ * current state meant a decision and the decision that reversed it could not both
+ * be there, so one was deleted and the reasoning went with it.
+ *
+ * Configuration changes are woven into the same feed, read live from
+ * `config_audit`. That is what keeps the history current whether or not anybody
+ * writes anything: the system posts what changed, the operator posts why.
  */
-function CompanyNotesCard({ code, value, onSaved }: { code: string; value: string; onSaved: () => void }) {
-    const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+function AccountWall({ code, userId, posts, onPosted }: { code: string; userId: string; posts: any[]; onPosted: (posts: any[]) => void }) {
+    const [draft, setDraft] = useState("");
+    const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [changes, setChanges] = useState<any[]>([]);
+    const [withChanges, setWithChanges] = useState(true);
 
-    const save = async (next: string) => {
-        if (next === value) return;
-        setState("saving"); setError(null);
+    // Read live rather than copied into the wall at write time: a copy would go
+    // stale the moment a setting is changed through any of the other routes that
+    // write one. `post` and `post_deleted` are excluded — those rows ARE the
+    // posts beside them, and showing both says everything twice.
+    useEffect(() => {
+        let alive = true;
+        fetch(`/api/admin/config-audit?user_id=${encodeURIComponent(userId)}&limit=100`)
+            .then((r) => r.json())
+            .then((d: any) => {
+                if (!alive) return;
+                setChanges((d?.entries ?? []).filter((e: any) => e.scope !== "account_posts"));
+            })
+            .catch(() => { if (alive) setChanges([]); });
+        return () => { alive = false; };
+    }, [userId]);
+
+    const post = async () => {
+        const body = draft.trim();
+        if (!body) return;
+        setBusy("post"); setError(null);
         try {
-            const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}`, {
-                method: "PATCH",
+            const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}/posts`, {
+                method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ field: "notes", value: next }),
+                body: JSON.stringify({ body }),
             });
-            const body: any = await res.json().catch(() => ({}));
-            if (!res.ok) { setError(body?.error || `HTTP ${res.status}`); setState("idle"); return; }
-            setState("saved");
-            onSaved();
+            const out: any = await res.json().catch(() => ({}));
+            if (!res.ok) { setError(out?.error || `HTTP ${res.status}`); return; }
+            setDraft("");
+            onPosted(out.posts ?? []);
         } catch (e: any) {
-            setError(String(e)); setState("idle");
+            setError(String(e));
+        } finally {
+            setBusy(null);
         }
     };
 
+    const remove = async (id: string) => {
+        setBusy(id); setError(null);
+        try {
+            const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}/posts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+            const out: any = await res.json().catch(() => ({}));
+            if (!res.ok) { setError(out?.error || `HTTP ${res.status}`); return; }
+            onPosted(out.posts ?? []);
+        } catch (e: any) {
+            setError(String(e));
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const who = (p: any) => p.author_name || p.author_email || "operador";
+
+    // Newest first, posts and configuration changes in one stream.
+    const feed: any[] = [
+        ...posts.map((p: any) => ({ kind: "post", at: p.created_at, p })),
+        ...(withChanges ? changes.map((c: any) => ({ kind: "change", at: c.created_at, c })) : []),
+    ].sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")));
+
     return (
         <Section icon={<NotebookPen className="w-5 h-5 text-accent-ink" />} title="Notas desta conta"
-            desc="As alterações específicas feitas para este cliente, para não se perderem. Guardado ao sair do campo, e fica no registo."
-            right={
-                state === "saving"
-                    ? <Loader2 className="w-3 h-3 animate-spin text-fg-40" />
-                    : state === "saved"
-                        ? <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Guardado</span>
-                        : null
-            }>
-            <textarea
-                className="w-full min-h-[160px] rounded-2xl border border-hairline bg-surface-2/40 p-4 text-sm text-fg font-medium leading-relaxed outline-none focus:border-accent/40"
-                maxLength={MAX_NOTES_CHARS}
-                defaultValue={value}
-                onFocus={() => setState("idle")}
-                onBlur={(e) => void save(e.target.value)}
-                placeholder="ex.: portes a 0% por decisão de 12/08; a série FT2026 foi comunicada em 14/09; a Matilde pediu que as faturas saiam em rascunho até fecharem o ano."
-            />
-            <p className="text-[10px] text-fg-40 mt-2">
-                Não altera nenhum documento — o que o sistema aplica é a configuração acima. Vai anexado aos
-                diagnósticos de incidentes desta empresa, com emails e NIFs removidos.
-            </p>
-            {error && <p className="text-[10px] font-black uppercase tracking-widest text-destructive mt-2">{error}</p>}
+            desc="As alterações específicas feitas para este cliente, para não se perderem. Publicado por ordem cronológica, com as alterações de configuração pelo meio."
+            right={changes.length > 0 ? (
+                <button type="button" onClick={() => setWithChanges((v) => !v)}
+                    className="text-[10px] font-black uppercase tracking-widest text-fg-40 hover:text-fg">
+                    {withChanges ? "Só notas" : "Com alterações"}
+                </button>
+            ) : null}>
+            <div className="space-y-5">
+                <div className="space-y-2">
+                    <textarea
+                        className="w-full min-h-[110px] rounded-2xl border border-hairline bg-surface-2/40 p-4 text-sm text-fg font-medium leading-relaxed outline-none focus:border-accent/40"
+                        maxLength={MAX_POST_CHARS}
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        placeholder="ex.: portes a 0% por decisão de 12/08; a série FT2026 foi comunicada em 14/09; a Matilde pediu que as faturas saiam em rascunho até fecharem o ano."
+                    />
+                    <div className="flex items-start justify-between gap-4">
+                        <p className="text-[10px] text-fg-40">
+                            Não altera nenhum documento — o que o sistema aplica é a configuração acima. Vai anexado aos
+                            diagnósticos de incidentes desta empresa, com emails e NIFs removidos.
+                        </p>
+                        <button type="button" onClick={() => void post()} disabled={!draft.trim() || busy === "post"}
+                            className="shrink-0 inline-flex items-center gap-2 rounded-full bg-fg text-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-30">
+                            {busy === "post" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Publicar
+                        </button>
+                    </div>
+                    {error && <p className="text-[10px] font-black uppercase tracking-widest text-destructive">{error}</p>}
+                </div>
+
+                {feed.length === 0 ? (
+                    <p className="text-sm text-fg-40 font-medium">Nada publicado ainda sobre esta conta.</p>
+                ) : (
+                    <div className="space-y-3">
+                        {feed.map((item) => item.kind === "post" ? (
+                            <div key={item.p.id} className="rounded-2xl border border-hairline bg-surface-2/40 p-4 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">
+                                        {who(item.p)} · {moment(item.p.created_at)}
+                                    </span>
+                                    <button type="button" onClick={() => void remove(item.p.id)} disabled={busy === item.p.id}
+                                        title="Apagar" aria-label="Apagar"
+                                        className="shrink-0 text-fg-40 hover:text-destructive disabled:opacity-30">
+                                        {busy === item.p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                                    </button>
+                                </div>
+                                <p className="text-sm text-fg font-medium leading-relaxed whitespace-pre-wrap break-words">{item.p.body}</p>
+                            </div>
+                        ) : (
+                            <div key={item.c.id} className="flex items-start gap-3 px-4 py-1.5 text-[11px] text-fg-40">
+                                <Wrench className="w-3 h-3 mt-0.5 shrink-0" />
+                                <span className="font-medium break-words">
+                                    <span className="font-mono">{item.c.field}</span>{" "}
+                                    <span className="opacity-70">{String(item.c.old_value ?? "—")} → {String(item.c.new_value ?? "—")}</span>
+                                    {" · "}{moment(item.c.created_at)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
         </Section>
     );
 }
 
-function FiscalTab({ data, code, onSaved }: { data: any; code: string; onSaved: () => void }) {
+function FiscalTab({ data, code, userId, posts, onPosted }: { data: any; code: string; userId: string; posts: any[]; onPosted: (p: any[]) => void }) {
     if (!data.fiscal_visible) {
         return (
             <Section icon={<Scale className="w-5 h-5 text-soon" />} title="Regras fiscais">
@@ -968,7 +1060,7 @@ function FiscalTab({ data, code, onSaved }: { data: any; code: string; onSaved: 
                 )}
             </Section>
 
-            <CompanyNotesCard code={code} value={String(data.company_notes ?? "")} onSaved={onSaved} />
+            <AccountWall code={code} userId={userId} posts={posts} onPosted={onPosted} />
         </div>
     );
 }

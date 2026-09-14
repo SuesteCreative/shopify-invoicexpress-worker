@@ -5,7 +5,7 @@ import { isHiperadmin } from "@/lib/admin";
 import { redactConfigJson, FISCAL_CONFIG_KEYS, INTEGRATION_FISCAL_COLUMNS } from "@/lib/redact";
 import { auditConfigChange } from "@/lib/config-audit";
 import { MAX_CUSTOM_INVOICE_NOTE } from "@/lib/connection-fiscal";
-import { saveCompanyNotes } from "@/lib/company-notes";
+import { createAccountPost, listAccountPosts } from "@/lib/account-posts";
 
 export const runtime = "edge";
 
@@ -111,7 +111,17 @@ export async function GET() {
       `SELECT id, user_id, source_kind, destination_kind, status, destination_config_json, invoice_cutoff
          FROM connections ORDER BY user_id, source_kind`,
     ).all(),
-    db.prepare("SELECT user_id, notes, updated_at, updated_by FROM company_rules").all(),
+    // The most recent post of every company's wall, so the console can show what
+    // is known about a client without a request per row. `account_posts` replaced
+    // the single note; this reads the same knowledge, newest first.
+    db.prepare(
+      `SELECT p.user_id, p.body AS notes, p.created_at AS updated_at, p.author AS updated_by
+         FROM account_posts p
+        WHERE p.deleted_at IS NULL
+          AND p.id = (SELECT p2.id FROM account_posts p2
+                       WHERE p2.user_id = p.user_id AND p2.deleted_at IS NULL
+                       ORDER BY p2.created_at DESC, p2.rowid DESC LIMIT 1)`,
+    ).all().catch(() => ({ results: [] })),
   ]);
 
   const connectionsByUser = new Map<string, any[]>();
@@ -179,13 +189,14 @@ export async function PATCH(request: NextRequest) {
 
   // ── Shape 1: the free-text notes ───────────────────────────────────────────
   //
-  // Shared with the Regras fiscais tab of the client record, which writes the
-  // same note through the same helper — one note per company, not one per
-  // screen. Writing through it is also what finally audits this shape: it was
-  // the only one of the four that left no trail.
+  // Posts to the company's wall — the same wall the Regras fiscais tab of the
+  // client record shows. It used to REPLACE a single note, which meant this
+  // console and that tab could silently overwrite each other; now both append,
+  // so the worst either can do is add.
   if (typeof body.notes === "string") {
-    await saveCompanyNotes(db, { accountId: targetUserId, actor: userId, notes: body.notes });
-    return NextResponse.json({ success: true });
+    const created = await createAccountPost(db, { accountId: targetUserId, author: userId, body: body.notes });
+    if ("error" in created) return NextResponse.json({ error: created.error }, { status: 400 });
+    return NextResponse.json({ success: true, posts: await listAccountPosts(db, targetUserId, 5) });
   }
 
   // ── Shape 2: a key inside a connection's destination_config_json ───────────

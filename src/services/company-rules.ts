@@ -35,12 +35,41 @@ export function scrubNotes(notes: string): string {
 }
 
 /**
- * The company's notes, or null. Best-effort by design: this decorates a
- * diagnosis that is itself advisory, so a missing table or a D1 blip must never
- * be the reason an incident email fails to go out.
+ * The company's wall, newest first, trimmed to the budget above — or null.
+ *
+ * The operator's knowledge used to be one editable field (`company_rules.notes`)
+ * and is now a feed of posts. Newest first because the budget cuts the TAIL, and
+ * what was written most recently is the likeliest to still be true; a post that
+ * falls off the end is the oldest one, not an arbitrary one.
+ *
+ * Best-effort by design: this decorates a diagnosis that is itself advisory, so
+ * a missing table or a D1 blip must never be the reason an incident email fails
+ * to go out. The old column is read as a fallback so a worker deployed before
+ * migration 0064 still finds something.
  */
 export async function getCompanyRulesNotes(env: Env, userId?: string | null): Promise<string | null> {
   if (!userId) return null;
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT body, created_at FROM account_posts
+        WHERE user_id = ? AND deleted_at IS NULL
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 20`,
+    ).bind(userId).all<{ body: string; created_at: string }>();
+
+    const posts = (rows?.results ?? []).filter((p) => p?.body?.trim());
+    if (posts.length > 0) {
+      // Dated, because "portes a 0%" and the decision that reversed it read as a
+      // contradiction without the two dates that order them.
+      const joined = posts
+        .map((p) => `[${String(p.created_at ?? "").slice(0, 10)}] ${p.body.trim()}`)
+        .join("\n");
+      return scrubNotes(joined);
+    }
+  } catch (e: any) {
+    console.warn(`[company-rules] wall lookup failed (advisory, ignored): ${e?.message ?? e}`);
+  }
+
   try {
     const row = await env.DB.prepare(
       "SELECT notes FROM company_rules WHERE user_id = ?",

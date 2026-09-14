@@ -17,7 +17,7 @@ import { priceBook } from "@/lib/price-book";
 import { getSeatPool } from "@/lib/account";
 import { loadAccountReferrals } from "@/lib/client-record-referrals";
 import { asLang, isLang } from "@/lib/user-language";
-import { saveCompanyNotes } from "@/lib/company-notes";
+import { createAccountPost, listAccountPosts } from "@/lib/account-posts";
 import { syncAccountStripeLocale } from "@/lib/stripe-locale";
 
 export const runtime = "edge";
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             .bind(accountId).first().catch(() => null);
         userRow.language = asLang(languageRow?.language);
 
-        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows, referrals, companyRulesRow] = await Promise.all([
+        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows, referrals, accountPosts] = await Promise.all([
             db.prepare(`
                 SELECT ${CONNECTION_PUBLIC_SELECT},
                        destination_config_json,
@@ -180,12 +180,11 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             // the read fails: "nobody" would be the page inventing an answer.
             loadAccountReferrals(db, accountId).catch(() => null),
 
-            // What the operator knows about this company that the configuration
-            // cannot say. Written here and in /admin/client-rules, which is the
-            // same row; it also rides along with this account's incident
-            // diagnoses, scrubbed of emails and tax numbers.
-            db.prepare("SELECT notes FROM company_rules WHERE user_id = ?")
-                .bind(accountId).first().catch(() => null),
+            // The company's wall: what the operator knows that the configuration
+            // cannot say, posted rather than rewritten. It also rides along with
+            // this account's incident diagnoses, scrubbed of emails and tax
+            // numbers.
+            listAccountPosts(db, accountId).catch(() => []),
         ]);
 
         // What each subscription costs, so the record can name the plan and the
@@ -432,9 +431,9 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             referrals,
             fiscal_visible: fiscalVisible,
             // Gated with the rest of the fiscal block, and for the same reason:
-            // these notes are about how a company is invoiced, and protecting the
+            // the wall says how a company is invoiced and why, and protecting the
             // page while serving the data protects nothing.
-            company_notes: fiscalVisible ? ((companyRulesRow as any)?.notes ?? "") : null,
+            posts: fiscalVisible ? (accountPosts as any[]) : null,
             viewer_role: viewerRole,
         });
     } catch (error: any) {
@@ -473,17 +472,17 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
         const body = await request.json() as { field?: string; value?: string; reject?: boolean; reason?: string };
         const field = String(body.field ?? "");
 
-        // ── The operator's notes on this company ───────────────────────────────
+        // ── A note about this company ──────────────────────────────────────────
         //
-        // Its own branch, before the editable-field gate: every other field here
-        // is a column on `users` capped at 120 characters, and this is free text
-        // on `company_rules` capped at 1500. Same row /admin/client-rules writes,
-        // so the two screens are one note and not two.
+        // Kept as an alias that POSTS to the wall, because this shape shipped for
+        // a day as "replace the company's note" and callers were told about it.
+        // It is no longer a replace: the wall is append-only, so the worst an old
+        // caller can now do is add a post rather than silently overwrite what
+        // somebody else wrote. `POST /api/admin/clientes/<code>/posts` is the
+        // door to use.
         //
-        // Hiperadmin, like the rest of the fiscal block it sits under. Audited,
-        // which the fiscal console's own notes write never was — migration 0035
-        // declared the `company_rules` scope and nothing ever wrote it, so a note
-        // could change with no record of who changed it or what it said before.
+        // Its own branch, before the editable-field gate, because every other
+        // field here is a column on `users` capped at 120 characters.
         if (field === "notes") {
             if (!(await isHiperadmin(userId))) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -496,12 +495,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
             const target = await resolveClientCode(notesDb, notesCode);
             if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-            const { unchanged } = await saveCompanyNotes(notesDb, {
+            const created = await createAccountPost(notesDb, {
                 accountId: target.accountId,
-                actor: userId,
-                notes: String(body.value ?? ""),
+                author: userId,
+                body: String(body.value ?? ""),
             });
-            return NextResponse.json({ success: true, ...(unchanged ? { unchanged: true } : {}) });
+            if ("error" in created) return NextResponse.json({ error: created.error }, { status: 400 });
+            return NextResponse.json({ success: true, id: created.id });
         }
 
         if (!OPERATOR_EDITABLE.has(field) && !ADMIN_EDITABLE.has(field)) {

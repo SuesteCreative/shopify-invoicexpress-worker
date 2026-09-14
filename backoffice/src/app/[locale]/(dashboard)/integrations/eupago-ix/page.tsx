@@ -122,6 +122,11 @@ export default function EuPagoIxIntegration() {
                         if ((data.connection as any).has_ix_credentials) {
                             setIxKeyStored(true);
                             ixOk = true;
+                            // And the badge says so: the legacy row holds no
+                            // verdict about a key that lives on the connection,
+                            // so reading it left the step "pendente" over
+                            // credentials that were verified minutes earlier.
+                            setIxAuthorized(true);
                         }
                         const connIxName = (data.connection as any).ix_account_name;
                         if (connIxName) setIxAccount(String(connIxName));

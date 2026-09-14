@@ -110,7 +110,11 @@ export default function StripeIXIntegration() {
                 const v = parseFloat(String(integ.ix_retention));
                 if (Number.isFinite(v)) setIxRetention(v);
             }
-            if (integ.ix_authorized !== undefined) setIxAuthorized(integ.ix_authorized === 1);
+            // The connection's own credentials answer for themselves: the legacy
+            // row's `ix_authorized` is a verdict about ITS pair, and an account
+            // that keeps its key on the connection has none there to read.
+            if (stripe?.connection?.has_ix_credentials) setIxAuthorized(true);
+            else if (integ.ix_authorized !== undefined) setIxAuthorized(integ.ix_authorized === 1);
             if (integ.ix_error) setIxError(integ.ix_error);
             if (integ._viewer_role) setUserRole(integ._viewer_role);
             if (integ.user_id) setTargetUserId(integ.user_id);

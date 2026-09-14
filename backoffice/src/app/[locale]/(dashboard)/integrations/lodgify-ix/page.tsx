@@ -128,6 +128,14 @@ export default function LodgifyIxIntegration() {
                         if ((data.connection as any).has_ix_credentials) {
                             setIxKeyStored(true);
                             ixOk = true;
+                            // And the badge says so. `ix_authorized` is the legacy
+                            // row's verdict, and an account whose credentials live
+                            // only on the connection has none there: the step read
+                            // "pendente" over a key that had just been verified,
+                            // and the completion card stayed red on a connection
+                            // that was issuing documents. Presence is the honest
+                            // answer here, the same one the Stripe wizard gives.
+                            setIxAuthorized(true);
                         }
                         const connIxName = (data.connection as any).ix_account_name;
                         if (connIxName) setIxAccount(String(connIxName));

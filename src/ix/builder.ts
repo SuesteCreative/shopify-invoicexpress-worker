@@ -1364,7 +1364,12 @@ export class IxBuilder {
     const reasonCode = this.config.ix_b2b_exemption_reason ?? "M16";
     const rcMention = `Reverse charge — Article 196 EU VAT Directive 2006/112/EC. Buyer VAT: ${countryCode}${vatNumber}`;
     const noteRaw = (normalized.order.note ?? "").trim();
-    const observations = (noteRaw ? `${noteRaw} | ${rcMention}` : rcMention).slice(0, 200);
+    // Same order as the generic path above: the mandatory mention first, the
+    // merchant's standing note last, so the 200-char cap takes the note and
+    // never the legal text. It was the other way round here, which meant a long
+    // enough order note already truncated the Article 196 mention.
+    const customNote = (this.config.custom_invoice_note ?? "").trim();
+    const observations = [rcMention, noteRaw, customNote].filter(Boolean).join(" | ").slice(0, 200);
 
     const invoice: IxInvoice = {
       client,

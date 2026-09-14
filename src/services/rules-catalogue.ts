@@ -71,6 +71,31 @@ export const RULES: Readonly<Record<string, RuleDef>> = {
     // e escolhe qual das duas moradas do Stripe chega ao documento.
     dangerous: true,
   },
+
+  bare_nif_scan: {
+    id: "bare_nif_scan",
+    default: "any_field",
+    options: ["any_field", "labeled_fields_only"],
+    label: "De onde pode vir um NIF de 9 dígitos sem prefixo",
+    help: {
+      any_field:
+        "De qualquer sítio: atributos, nota da encomenda, morada, nome do cliente. "
+        + "É o que todas as contas fazem, e é o que apanha o NIF que o comprador "
+        + "escreveu na caixa do andar.",
+      labeled_fields_only:
+        "Só de um campo cujo NOME diga que é um número fiscal (nif, vat, fiscal, "
+        + "contribuinte, tax, iva, tva…). Um número solto na nota, na morada ou no "
+        + "nome deixa de contar. Um VAT com prefixo de país (PT510217729) continua a "
+        + "ser aceite de qualquer campo, porque o prefixo é ele próprio a etiqueta.",
+    },
+    appliesTo: {},
+    // Escolhe se um número passa a ser o contribuinte de um documento fiscal.
+    // Medido a 14/09/2026 contra o builder real: com o comportamento a que a
+    // conta chega por defeito, uma metadata `stora_id` de 9 dígitos é carimbada
+    // como NIF, válida ou não. É a classe do incidente em que o regex de VAT
+    // fez NIFs de palavras da morada.
+    dangerous: true,
+  },
 };
 
 /** Every rule at its default: what an account that declared nothing gets. */

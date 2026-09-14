@@ -1124,6 +1124,39 @@ function applyBuyerName(normalized: Normalized, name: string): void {
   }
 }
 
+/**
+ * Copy a Stripe address onto the billing address, and only where it is blank.
+ *
+ * Shared by the two tiers that recover an address the event did not carry — the
+ * charge's payment method and the Customer record — so the precedence between
+ * them is stated once, by call order, instead of being duplicated as two
+ * near-identical blocks that can drift apart.
+ *
+ * The all-blank test reads `country_code` as well, so a source that states only
+ * a country still counts as having filled it. That is load-bearing for the
+ * Customer tier, where `country_code` gates the PT NIF in
+ * `moloni-destination.resolveOrCreateCustomer`; callers that may hold a
+ * country-only address decide for themselves whether it is worth writing.
+ */
+function fillBlankBillingAddress(normalized: Normalized, addr: any): void {
+  const billing = normalized.order.billing_address;
+  if (!billing || !addr) return;
+  if (billing.address1 || billing.city || billing.zip || billing.country_code) return;
+  billing.address1 = addr.line1 ?? "";
+  billing.address2 = addr.line2 ?? "";
+  billing.city = addr.city ?? "";
+  billing.province = addr.state ?? "";
+  billing.province_code = addr.state ?? "";
+  billing.zip = addr.postal_code ?? "";
+  billing.country = addr.country ?? "";
+  billing.country_code = addr.country ?? "";
+}
+
+/** Does this Stripe address say where someone lives, or only which country? */
+function isSubstantiveAddress(addr: any): boolean {
+  return !!addr && !!(addr.line1 || addr.postal_code || addr.city);
+}
+
 export class StripeSource implements SourceAdapter {
   readonly kind = "stripe" as const;
 
@@ -1254,6 +1287,48 @@ export class StripeSource implements SourceAdapter {
     if (nameEmpty) {
       const chargeName = charge?.billing_details?.name;
       if (typeof chargeName === "string" && chargeName.trim()) applyBuyerName(normalized, chargeName.trim());
+    }
+
+    // Buyer-address tier 2: the same coin flip as the name above, in the field
+    // that decides whether the document carries a morada at all.
+    //
+    // The buyer types their address into the payment form, so it lands on the
+    // payment METHOD — `charge.billing_details.address` — and reaches the
+    // Customer record only if the merchant's software also writes it there.
+    // Measured on Bestisafil (14/09/2026): of 77 paid September payments, all 77
+    // carry a full address on the charge and only 21 carry one on the Customer.
+    //
+    // `payment_intent.succeeded` and `charge.succeeded` both map to the canonical
+    // "created" topic and dedup onto the same PaymentIntent, so only one of them
+    // ever builds the document — and the charge-shaped branch reads this field
+    // directly while the PI-shaped branch has `pi.shipping` and nothing else.
+    // Which webhook Stripe happened to deliver first therefore decided whether
+    // those other 56 sales were invoiced with a street or with a bare country.
+    // Reading it here settles the answer before either branch can win the race.
+    //
+    // Substance is required, not mere presence: a card charge states the country
+    // even when it states nothing else, and writing that would satisfy the
+    // all-blank test in `fillBlankBillingAddress` and lock out the Customer's
+    // real address — turning a fix into a regression for the buyers whose
+    // address only the Customer holds.
+    //
+    // Behind `stripe_address_from_charge`, off by default, because this is not
+    // only a recovery: where a merchant's software keeps its own authoritative
+    // address on the Customer AND the buyer typed a different one at payment,
+    // it changes which of the two reaches the document. Every other Stripe
+    // connection keeps the behaviour it has today until it says otherwise.
+    if (Number(ctx.config?.stripe_address_from_charge) === 1) {
+      if (isSubstantiveAddress(charge?.billing_details?.address)) {
+        fillBlankBillingAddress(normalized, charge.billing_details.address);
+      }
+      // The phone is its own field, for the same reason it is one tier below: it
+      // is not part of the address and must not be gated on one.
+      if (normalized.order.billing_address && !normalized.order.billing_address.phone) {
+        const chargePhone = charge?.billing_details?.phone;
+        if (typeof chargePhone === "string" && chargePhone.trim()) {
+          normalized.order.billing_address.phone = chargePhone.trim();
+        }
+      }
     }
 
     // The document is dated by the PAYMENT, not by the intent to pay. `pi.created`
@@ -1393,17 +1468,10 @@ export class StripeSource implements SourceAdapter {
         normalized.order.customer.email = String(stripeCustomer.email);
       }
       const billing = normalized.order.billing_address;
-      const addr = stripeCustomer.address;
-      if (billing && addr && !billing.address1 && !billing.city && !billing.zip && !billing.country_code) {
-        billing.address1 = addr.line1 ?? "";
-        billing.address2 = addr.line2 ?? "";
-        billing.city = addr.city ?? "";
-        billing.province = addr.state ?? "";
-        billing.province_code = addr.state ?? "";
-        billing.zip = addr.postal_code ?? "";
-        billing.country = addr.country ?? "";
-        billing.country_code = addr.country ?? "";
-      }
+      // Written even when it states only a country: `country_code` is what gates
+      // the PT NIF downstream, so a country-only Customer address is worth more
+      // here than it is one tier up.
+      fillBlankBillingAddress(normalized, stripeCustomer.address);
       // The phone is its own field, not part of the address. Filling it only
       // inside the all-blank branch above meant a buyer whose payment carried
       // any scrap of an address — a card's country is enough — was invoiced

@@ -129,6 +129,7 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
     stripe_metadata_map: null,
     stripe_scope_skip_metadata: null,
     ix_multicurrency: 0,
+    stripe_address_from_charge: 0,
   } as unknown as IRequestConfig;
 }
 
@@ -185,6 +186,13 @@ export const CONNECTION_FISCAL_FLAGS = [
   "ix_require_series",
   "ix_multicurrency",
   "stripe_routing_hints",
+  // Whether the buyer's address may be read off the charge's payment method
+  // rather than only off the Customer record. Off by default, and a flag rather
+  // than a plain fix, because it changes which of two addresses Stripe already
+  // holds ends up on the document — for a merchant whose Customer records are
+  // the authoritative ones, that is a change they did not ask for. It also
+  // moves `billing_address.country_code`, which gates the PT NIF downstream.
+  "stripe_address_from_charge",
 ] as const;
 
 /**

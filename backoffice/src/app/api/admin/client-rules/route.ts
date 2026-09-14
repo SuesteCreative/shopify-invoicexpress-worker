@@ -43,6 +43,9 @@ const DANGEROUS_FIELDS = new Set([
   // which legal exemption is named, what VAT the lines carry, and in which
   // currency the amounts are read.
   "ix_derive_exemption", "stripe_tax_from_source", "ix_multicurrency",
+  // Moves `billing_address.country_code`, which gates the PT NIF downstream —
+  // and decides which of two addresses Stripe holds reaches the document.
+  "stripe_address_from_charge",
 ]);
 
 /** Legacy boolean toggles, kept working exactly as before. */

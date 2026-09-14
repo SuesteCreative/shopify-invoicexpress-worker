@@ -199,3 +199,86 @@ describe("when a NIF may be stamped", () => {
     expect(ptNifApplies(order("PT"), null)).toBe(false);
   });
 });
+
+// The buyer types their address into the payment form, so it lands on the
+// payment METHOD and reaches the Customer record only if the merchant's software
+// also writes it there. Measured on Bestisafil (14/09/2026): of 77 paid
+// September payments all 77 carried a full address on the charge and only 21
+// carried one on the Customer, so 56 buyers were invoiced with a bare country —
+// or with a street, depending on which of `payment_intent.succeeded` and
+// `charge.succeeded` Stripe happened to deliver first. Both dedup onto the same
+// PaymentIntent, so only one of them ever builds the document.
+describe("the buyer's address, when only the payment carries one", () => {
+  const CUSTOMER_NO_ADDRESS = { ...CUSTOMER, address: null, tax_ids: { data: [] } };
+  // Off by default for every other Stripe connection; this merchant declared it.
+  const onCtx = { sourceConfig: { restricted_key: "rk_live_test" }, config: { stripe_address_from_charge: 1 } } as unknown as AdapterCtx;
+  const STREET = {
+    line1: "Rua da Imprensa Nacional nº 67 Apt. 152",
+    line2: null,
+    city: "Lisboa",
+    state: null,
+    postal_code: "1250-124",
+    country: "PT",
+  };
+
+  it("takes the address off the charge when the Customer has none", async () => {
+    stubStripe(CUSTOMER_NO_ADDRESS, { billing_details: { name: null, address: STREET } });
+    const n = (await new StripeSource().toNormalized(piEvent(), onCtx))!;
+
+    expect(n.order.billing_address?.address1).toBe("Rua da Imprensa Nacional nº 67 Apt. 152");
+    expect(n.order.billing_address?.zip).toBe("1250-124");
+    expect(n.order.billing_address?.city).toBe("Lisboa");
+    expect(n.order.billing_address?.country_code).toBe("PT");
+  });
+
+  // A card charge states the country even when it states nothing else. Writing
+  // that would satisfy the all-blank test and lock out the real address one tier
+  // down — the fix would become a regression for exactly the buyers it helps.
+  it("does not let a country-only charge shut out the Customer's real address", async () => {
+    stubStripe(
+      { ...CUSTOMER, address: STREET, tax_ids: { data: [] } },
+      { billing_details: { name: null, address: { line1: null, city: null, postal_code: null, country: "PT" } } },
+    );
+    const n = (await new StripeSource().toNormalized(piEvent(), onCtx))!;
+
+    expect(n.order.billing_address?.address1).toBe("Rua da Imprensa Nacional nº 67 Apt. 152");
+    expect(n.order.billing_address?.zip).toBe("1250-124");
+  });
+
+  // The tiers only ever fill blanks: an address the event itself carried is the
+  // buyer's own statement about this sale and outranks both lookups.
+  it("leaves an address the event already carried alone", async () => {
+    stubStripe(CUSTOMER_NO_ADDRESS, { billing_details: { name: null, address: STREET } });
+    const shipped = piEvent({
+      shipping: { name: "Natália Izosimova", address: { line1: "Av. da Liberdade 110", city: "Lisboa", postal_code: "1269-046", country: "PT" } },
+    });
+    const n = (await new StripeSource().toNormalized(shipped, onCtx))!;
+
+    expect(n.order.billing_address?.address1).toBe("Av. da Liberdade 110");
+    expect(n.order.billing_address?.zip).toBe("1269-046");
+  });
+
+  it("takes the phone off the charge when the Customer has none", async () => {
+    stubStripe(
+      { ...CUSTOMER, phone: null, tax_ids: { data: [] } },
+      { billing_details: { name: null, address: STREET, phone: "+351919999999" } },
+    );
+    const n = (await new StripeSource().toNormalized(piEvent(), onCtx))!;
+
+    expect(n.order.billing_address?.phone).toBe("+351919999999");
+  });
+
+  // The whole point of the flag: a Stripe→IX connection that never asked for
+  // this keeps the behaviour it had, address and phone included.
+  it("leaves the charge alone for a connection that did not declare the flag", async () => {
+    stubStripe(
+      { ...CUSTOMER, phone: null, tax_ids: { data: [] } },
+      { billing_details: { name: null, address: STREET, phone: "+351919999999" } },
+    );
+    const n = (await new StripeSource().toNormalized(piEvent(), ctx))!;
+
+    expect(n.order.billing_address?.address1).toBe("");
+    expect(n.order.billing_address?.zip).toBe("");
+    expect(n.order.billing_address?.phone).toBeFalsy();
+  });
+});

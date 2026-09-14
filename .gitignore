@@ -72,3 +72,12 @@ _git_push.bat
 
 # Output of `wrangler deploy --dry-run --outdir`.
 .drybuild/
+
+# Reports, exports and renders produced for a client or for review. Untracked
+# but not ignored, they sat one `git add -A` away from publishing a client's
+# invoice list — and the sessions that write here are the same ones that commit.
+Claude outputs/
+
+# Agent worktrees. A worktree checked out under the repo is a second copy of the
+# whole tree; committing one is not a stray file, it is the repo inside itself.
+.claude/worktrees/

@@ -392,7 +392,15 @@ export class InvoiceXpressDestination implements DestinationAdapter {
         : { name: "" },
       items,
       reference: opts.reference,
-      ...(opts.reason ? { observations: String(opts.reason) } : {}),
+      // The reason for the credit first, the merchant's standing note after it.
+      // A credit note rectifies an invoice and is itself a document, so a fixed
+      // mention belongs on it; and this was the one `observations` in the repo
+      // with no cap at all, which IX would have truncated wherever it liked.
+      ...(() => {
+        const obs = [opts.reason, (ctx.config.custom_invoice_note ?? "").trim()]
+          .filter(Boolean).map(String).join(" | ").slice(0, 200);
+        return obs ? { observations: obs } : {};
+      })(),
       // Same trap as the date PUT: IX reads an exemption back as `tax_exemption`
       // and sometimes as "", which `??` would keep and the wire would then drop,
       // leaving IX to stamp M99 on the credit note. See resolveExemptionCode.

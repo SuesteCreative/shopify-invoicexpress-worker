@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
+import { MAX_CUSTOM_INVOICE_NOTE } from "@/lib/connection-fiscal";
 
 export const runtime = "edge";
 
@@ -51,6 +52,8 @@ type MoloniBody = {
     pt_regional_rates?: boolean;
     b2b_reverse_charge_pipeline?: boolean;
     oss_export_exemption_code?: string;
+    /** The merchant's standing note on every document this connection issues. */
+    custom_invoice_note?: string;
     status?: "draft" | "active" | "paused" | "error";
 };
 
@@ -86,6 +89,9 @@ function redactConfig(cfg: Record<string, unknown>) {
         pt_regional_rates: typeof cfg.pt_regional_rates === "boolean" ? cfg.pt_regional_rates : undefined,
         b2b_reverse_charge_pipeline: typeof cfg.b2b_reverse_charge_pipeline === "boolean" ? cfg.b2b_reverse_charge_pipeline : undefined,
         oss_export_exemption_code: typeof cfg.oss_export_exemption_code === "string" ? cfg.oss_export_exemption_code : undefined,
+        // Not a secret: it is text the merchant wrote to be printed on their own
+        // documents, and the panel has to render it back to be editable.
+        custom_invoice_note: typeof cfg.custom_invoice_note === "string" ? cfg.custom_invoice_note : undefined,
     };
 }
 
@@ -286,6 +292,12 @@ export async function POST(request: NextRequest) {
         oss_export_exemption_code: typeof body.oss_export_exemption_code === "string"
             ? (body.oss_export_exemption_code.trim() || undefined)
             : previousCfg.oss_export_exemption_code,
+        // "" is kept rather than collapsed to undefined, unlike the line above:
+        // an empty note is how a merchant deletes one, and `undefined` would be
+        // dropped by the merge patch and leave the old text on their invoices.
+        custom_invoice_note: typeof body.custom_invoice_note === "string"
+            ? body.custom_invoice_note.trim().slice(0, MAX_CUSTOM_INVOICE_NOTE)
+            : previousCfg.custom_invoice_note,
         // Fallback VAT rate applied when the payment source carries no tax (e.g.
         // Stripe PaymentIntents). "" / null clears it → exempt. Undefined keeps prior.
         default_vat_rate: body.default_vat_rate === "" || body.default_vat_rate === null

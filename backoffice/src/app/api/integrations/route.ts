@@ -7,6 +7,7 @@ import { primaryConnectionKey } from "@/lib/stripe";
 import { DEFAULT_CONNECTION_KEY } from "@/lib/subscription-key";
 import { ixCredentialsPresent } from "@/lib/destination-credentials";
 import { stripIntegrationSecrets } from "@/lib/redact";
+import { MAX_CUSTOM_INVOICE_NOTE } from "@/lib/connection-fiscal";
 import { auditFieldDiff } from "@/lib/config-audit";
 
 export const runtime = "edge";
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
         }
 
-        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid, ix_send_email, ix_email_subject, ix_email_body } = body;
+        const { shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid, ix_send_email, ix_email_subject, ix_email_body, custom_invoice_note } = body;
 
         const clean_shopify_domain = shopify_domain ? shopify_domain.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
 
@@ -135,6 +136,12 @@ export async function POST(request: NextRequest) {
         const sendEmailBit = ix_send_email !== undefined ? (ix_send_email ? 1 : 0) : null;
         const emailSubject = ix_email_subject !== undefined ? (String(ix_email_subject).trim().slice(0, 200) || null) : undefined;
         const emailBody = ix_email_body !== undefined ? (String(ix_email_body).trim().slice(0, 1000) || null) : undefined;
+        // The merchant's standing note. Same shape as the two above: absent
+        // leaves it alone, empty clears it, and the cap is the one the
+        // destination would otherwise apply by truncating.
+        const customNote = custom_invoice_note !== undefined
+            ? (String(custom_invoice_note).trim().slice(0, MAX_CUSTOM_INVOICE_NOTE) || null)
+            : undefined;
 
         // Check if integration exists
         const existing: any = await db
@@ -192,7 +199,7 @@ export async function POST(request: NextRequest) {
             await db
                 .prepare(`
           UPDATE integrations
-          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, ix_send_email = ?, ix_email_subject = ?, ix_email_body = ?, ix_authorized = ?, updated_at = CURRENT_TIMESTAMP
+          SET shopify_domain = ?, shopify_token = ?, shopify_webhook_secret = ?, shopify_api_version = ?, ix_account_name = ?, ix_api_key = ?, ix_environment = ?, ix_exemption_reason = ?, vat_included = ?, auto_finalize = ?, shopify_authorized = ?, webhooks_active = ?, ix_document_type = ?, ix_payment_term = ?, ix_sequence_name = ?, ix_retention_enabled = ?, ix_retention = ?, only_invoice_when_paid = ?, ix_send_email = ?, ix_email_subject = ?, ix_email_body = ?, custom_invoice_note = ?, ix_authorized = ?, updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
         `)
                 // ABSENT MEANS UNCHANGED.
@@ -232,6 +239,7 @@ export async function POST(request: NextRequest) {
                     sendEmailBit ?? (existing.ix_send_email ?? 0),
                     emailSubject !== undefined ? emailSubject : (existing.ix_email_subject ?? null),
                     emailBody !== undefined ? emailBody : (existing.ix_email_body ?? null),
+                    customNote !== undefined ? customNote : (existing.custom_invoice_note ?? null),
                     finalIxAuthorized,
                     targetUserId
                 )
@@ -263,14 +271,17 @@ export async function POST(request: NextRequest) {
                     auto_finalize: auto_finalize !== undefined ? (auto_finalize ? 1 : 0) : (existing.auto_finalize ?? 0),
                     only_invoice_when_paid: only_invoice_when_paid !== undefined ? (only_invoice_when_paid ? 1 : 0) : (existing.only_invoice_when_paid ?? 0),
                     ix_send_email: sendEmailBit ?? (existing.ix_send_email ?? 0),
+                    // Fiscal config that prints on the document, so it belongs
+                    // in the trail alongside the rest.
+                    custom_invoice_note: customNote !== undefined ? customNote : (existing.custom_invoice_note ?? null),
                 },
             );
         } else {
             const id = crypto.randomUUID();
             await db
                 .prepare(`
-          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid, ix_send_email, ix_email_subject, ix_email_body)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO integrations (id, user_id, shopify_domain, shopify_token, shopify_webhook_secret, shopify_api_version, ix_account_name, ix_api_key, ix_environment, ix_exemption_reason, vat_included, auto_finalize, shopify_authorized, webhooks_active, ix_document_type, ix_payment_term, ix_sequence_name, ix_retention_enabled, ix_retention, only_invoice_when_paid, ix_send_email, ix_email_subject, ix_email_body, custom_invoice_note)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
                 .bind(
                     id,
@@ -295,7 +306,8 @@ export async function POST(request: NextRequest) {
                     only_invoice_when_paid ? 1 : 0,
                     sendEmailBit ?? 0,
                     emailSubject ?? null,
-                    emailBody ?? null
+                    emailBody ?? null,
+                    customNote ?? null
                 )
                 .run();
 

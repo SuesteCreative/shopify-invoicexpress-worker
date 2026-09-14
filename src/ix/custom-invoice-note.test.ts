@@ -67,3 +67,40 @@ describe("the merchant's standing invoice note", () => {
     expect(obs.indexOf("Isento de IVA")).toBeLessThan(obs.indexOf("Nota da loja"));
   });
 });
+
+/**
+ * The reverse-charge invoice is built on its own path, not through the one
+ * above, and it carries the Article 196 mention that makes a zero-rated B2B
+ * sale legible to the buyer's tax authority. That mention used to be appended
+ * LAST, which put it first in line to be cut.
+ */
+describe("the same note on a reverse-charge invoice", () => {
+  const rcObservations = (cfg: any, note = "") => {
+    const normalized = normalizedFrom(exemptOrder());
+    normalized.order.note = note;
+    const { invoice } = new IxBuilder(cfg).buildReverseChargeInvoice(normalized, "ES", "B12345678");
+    return (invoice as any).observations ?? "";
+  };
+
+  it("carries the merchant's standing note", () => {
+    expect(rcObservations(config({ custom_invoice_note: "Regime de IVA de caixa" })))
+      .toContain("Regime de IVA de caixa");
+  });
+
+  it("keeps the Article 196 mention whole when the note is too long", () => {
+    const obs = rcObservations(config({ custom_invoice_note: "N".repeat(400) }));
+    expect(obs.length).toBeLessThanOrEqual(200);
+    expect(obs.startsWith("Reverse charge — Article 196 EU VAT Directive")).toBe(true);
+  });
+
+  it("keeps it whole when the ORDER note is the long one", () => {
+    // The pre-existing bug: an order note alone was enough to truncate it.
+    const obs = rcObservations(config({}), "O".repeat(400));
+    expect(obs.startsWith("Reverse charge — Article 196 EU VAT Directive")).toBe(true);
+  });
+
+  it("changes nothing when no note is configured", () => {
+    expect(rcObservations(config({ custom_invoice_note: null })))
+      .toBe(rcObservations(config({ custom_invoice_note: "  " })));
+  });
+});

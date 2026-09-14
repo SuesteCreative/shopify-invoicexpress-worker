@@ -642,7 +642,7 @@ export async function autoResolveStaleIncidents(
       let ids: string[] = [];
       try {
         ids = (JSON.parse(row.affected_ids_json || "[]") as unknown[])
-          .map(String).filter((x) => /^d{10,}$/.test(x));
+          .map(String).filter((x) => /^\d{10,}$/.test(x));
       } catch { /* malformed: nothing to verify against */ }
 
       // Nothing checkable (a refund reference, a Lodgify booking, an empty list)
@@ -655,13 +655,13 @@ export async function autoResolveStaleIncidents(
         continue;
       }
 
-      const ph = ids.map(() => "?").join(",");
-      const found = await env.DB.prepare(
-        `SELECT order_id AS oid FROM processed_orders WHERE invoice_id IS NOT NULL AND order_id IN (${ph})
-         UNION SELECT order_id AS oid FROM reconciliation_match WHERE invoice_id IS NOT NULL AND order_id IN (${ph})
-         UNION SELECT booking_id AS oid FROM lodgify_partial_invoices WHERE invoice_id IS NOT NULL AND booking_id IN (${ph})`
-      ).bind(...ids, ...ids, ...ids).all();
-      const invoiced = new Set(((found.results ?? []) as any[]).map((r) => String(r.oid)));
+      // The same answer the healer and the paused notice use. Hand-rolling the
+      // three-table UNION here asked processed_orders for an `order_id` column
+      // it does not have (the order id IS the primary key `id`), so the moment
+      // the regex above stopped filtering everything out, this threw — and the
+      // catch below is outside the loop, so one bad row would have skipped the
+      // verification for every remaining incident. One function, one truth.
+      const invoiced = await new AppStorage(env).getInvoicedOrderIdsAnySource(ids);
 
       if (ids.every((id) => invoiced.has(id))) {
         await env.DB.prepare(

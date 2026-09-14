@@ -210,6 +210,32 @@ const countryCache = new Map<number, Map<string, number>>(); // companyId → IS
 // are absent from DB but names are stored (lazy-resolution path).
 const resolvedIdCache = new Map<string, { companyId: number; documentSetId: number }>();
 
+/** Moloni truncates `notes`; the same 200 the IX `observations` field takes. */
+export const MOLONI_NOTES_MAX = 200;
+
+/**
+ * A document's `notes`, obligatory text first and the merchant's own note last.
+ *
+ * The order is the whole point, and it is the same rule `src/ix/builder.ts`
+ * follows: the cap has to eat the note, never the mention. Moloni's notes used
+ * to be a booking reference and a guest note, short enough that nothing was ever
+ * cut. A standing merchant note fills the field on every document, and then
+ * whatever is appended last is what disappears — including the "Data do
+ * pagamento" line that a document issued later than its payment depends on.
+ */
+export function moloniNotes(...parts: Array<string | null | undefined>): string {
+  return parts
+    .map((v) => (v == null ? "" : String(v).trim()))
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, MOLONI_NOTES_MAX);
+}
+
+/** The merchant's standing note, as the connection or the legacy row states it. */
+function customNoteOf(ctx: AdapterCtx): string {
+  return (ctx.config?.custom_invoice_note ?? "").trim();
+}
+
 function readMoloniCfg(ctx: AdapterCtx): MoloniCfg {
   // Credentials live in `connections.destination_config_json` (Phase 5 storage).
   // Adapter falls back to the legacy `integrations` row only for the `ix_*`
@@ -1428,7 +1454,11 @@ async function insertMoloniDoc(
       ...payload,
       date: minYmd,
       expiration_date: minYmd,
-      notes: (existingNotes ? `${existingNotes} | ${paymentNote}` : paymentNote).slice(0, 200),
+      // The payment date FIRST. It used to be appended, which was safe only
+      // while `notes` was short; with a standing merchant note the field is
+      // already at the cap and this line, the one thing on the document that
+      // reconciles it to the payment it covers, was the part cut off.
+      notes: moloniNotes(paymentNote, existingNotes),
     };
     return await moloniCall<{ document_id?: number }>(cfg, token, insertPath, retry, "create");
   }
@@ -1521,8 +1551,10 @@ async function redateMoloniDraft(
   // 30/07/2026"); with none, say at least when the money actually moved — a
   // document dated later than its payment must carry the real date somewhere.
   const note = o.note ?? `Data do pagamento: ${formatPtYmd(o.originalDate)}`;
-  const existing = o.existingNotes.trim();
-  const notes = (existing ? `${existing} | ${note}` : note).slice(0, 200);
+  // The transaction note first, for the same reason as the insert retry: it is
+  // the line that ties this document to the payment, and appending it left it
+  // as the first thing the cap removed once the notes carried a standing note.
+  const notes = moloniNotes(note, o.existingNotes);
 
   await moloniCall(cfg, token, updatePath, {
     document_id: Number(o.documentId),
@@ -1747,10 +1779,13 @@ export class MoloniDestination implements DestinationAdapter {
       // Channel reference first: on an OTA stay it is the only thread back to
       // the payout that covers this document, and the guest note (when there is
       // one) is a NIF the customer record already carries.
-      notes: [normalized.order.channel_reference, normalized.order.note]
-        .filter((v) => v != null && String(v).trim() !== "")
-        .join(" | ")
-        .slice(0, 200),
+      // The merchant's standing note goes last, after the reference and the
+      // guest note: whatever sits at the end is what the 200-char cap eats.
+      notes: moloniNotes(
+        normalized.order.channel_reference,
+        normalized.order.note,
+        customNoteOf(ctx),
+      ),
       ...(needsExemption ? { exemption_reason: exemptionReason } : {}),
       // Non-EUR: issue in the paid currency; Moloni derives the EUR fiscal value.
       ...(exchange ? { exchange_currency_id: exchange.currencyId, exchange_rate: exchange.rate } : {}),
@@ -1920,7 +1955,13 @@ export class MoloniDestination implements DestinationAdapter {
       date: todayYmd(),
       expiration_date: todayYmd(),
       our_reference: opts.reference,
-      ...(opts.reason ? { notes: String(opts.reason).slice(0, 200) } : {}),
+      // A credit note rectifies an invoice and is a document in its own right,
+      // so a standing mention belongs on it too. The reason for the credit comes
+      // first; the merchant's note is what the cap gives up.
+      ...(() => {
+        const notes = moloniNotes(opts.reason, customNoteOf(ctx));
+        return notes ? { notes } : {};
+      })(),
       products,
       status: 0,
       associated_documents: [{ associated_id: Number(invoiceId), value: gross }],
@@ -2355,7 +2396,14 @@ export class MoloniDestination implements DestinationAdapter {
         customer_id: customerId,
         net_value: value,
         status: 1,
-        ...(opts.notes ? { notes: String(opts.notes).slice(0, 200) } : {}),
+        // The caller owns this one: a receipt records a payment, and the
+        // merchant's standing note is about the invoice's regime, not about how
+        // the money arrived. Through the helper only so the cap lives in one
+        // place rather than being restated here.
+        ...(() => {
+          const notes = moloniNotes(opts.notes);
+          return notes ? { notes } : {};
+        })(),
         payments: [{ payment_method_id: paymentMethodId, date, value }],
         associated_documents: [{ associated_id: Number(invoiceId), value }],
       },

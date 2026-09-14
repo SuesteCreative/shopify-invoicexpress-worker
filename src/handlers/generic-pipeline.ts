@@ -152,6 +152,21 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
  * of SourceAdapter + DestinationAdapter so any (source, destination) tuple
  * benefits from the same business logic (gate check, idempotency, NIF, builder).
  */
+/**
+ * The claim bucket for a source, or null when that source must not be claimed.
+ *
+ * Scoped by user because a Stripe or EuPago connection has no shop domain, and
+ * an unscoped claim would put every such account in one bucket.
+ *
+ * Lodgify is absent on purpose: its instalments issue several documents against
+ * the same booking id, so a claim keyed on that id would block the second
+ * instalment instead of a duplicate.
+ */
+export function claimScopeFor(source: string, userId?: string | null): string | null {
+  const CLAIMED_SOURCES = new Set(["stripe", "stripe_connect", "eupago"]);
+  return CLAIMED_SOURCES.has(source) && userId ? `u:${userId}` : null;
+}
+
 export async function runAdapterPipeline(input: RunPipelineInput): Promise<void> {
   const { env, config, source, destination, topic, webhookId, body } = input;
 
@@ -220,10 +235,18 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
   // drafts; this is the same compare-and-swap, scoped by user because a Stripe
   // connection has no shop domain.
   //
-  // NEW SOURCES ONLY. The restricted-key `stripe` connections keep the behaviour
-  // they have today: they carry a history of documents issued without a claim,
-  // and their merchants have arranged around it.
-  const claimScope = source === "stripe_connect" && config.user_id ? `u:${config.user_id}` : null;
+  // Every source whose external id names ONE sale. The restricted-key `stripe`
+  // connections were left out of this when it was written, on the grounds that
+  // their merchants had arranged around the duplicates. That reasoning expired
+  // the moment any of them started finalizing: an unclaimed race used to leave
+  // three drafts to delete, and now leaves three certified documents and two
+  // credit notes. Measured on Wim Hof Method, 14/09/2026, hours before that
+  // connection moved to `stripe_connect`: two sales, six documents.
+  //
+  // Lodgify is deliberately absent. Its instalments issue several documents
+  // against the same booking id on purpose, so a claim keyed on that id would
+  // block the second instalment rather than a duplicate.
+  const claimScope = claimScopeFor(source, config.user_id);
   if (claimScope && !await appStorage.claimOrder(externalId, undefined, claimScope)) {
     // Throw rather than ack, for the reason spelled out in orders-created: if the
     // holder died, acking here would consume the redelivery that was the sale's

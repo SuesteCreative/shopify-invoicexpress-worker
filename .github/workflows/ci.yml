@@ -19,6 +19,16 @@ jobs:
 
       - run: npm ci
 
+      # The unit suite spans BOTH packages: vitest runs from the root and picks
+      # up `backoffice/src/**/*.test.ts`, and `connection-config-writable.test.ts`
+      # deliberately imports the backoffice's own module to assert the two key
+      # lists agree. Root `npm ci` does not install the backoffice's
+      # dependencies, so the moment a backoffice module imports anything
+      # external the whole run fails to resolve it — locally invisible, because
+      # developing the backoffice means having installed them.
+      - name: Install backoffice dependencies
+        run: npm ci --prefix backoffice
+
       # Catches the class of bug that shipped silently before CI existed:
       # a type error never blocked a deploy because wrangler bundles with
       # esbuild, which does not typecheck.

@@ -633,10 +633,17 @@ export async function autoResolveStaleIncidents(
   // ever fix them. Here silence is not the signal; a document existing is.
   let keptUnbilled = 0;
   try {
+    // EVERY open one, not only the quiet ones. Waiting 24h to ask "is it
+    // invoiced yet?" meant an order the healer fixed at 09:05 stayed red until
+    // the next night — the incident table was right about the failure and wrong
+    // about the present, and every reader inherited that: the digest, the
+    // merchant email, and the fleet page's new failure pill. The verification
+    // itself is unchanged and so is its rule, that a document existing is the
+    // only thing that closes one of these.
     const stale = await env.DB.prepare(
-      `SELECT id, affected_ids_json FROM incidents
-        WHERE status = 'open' AND last_seen_at < ? AND kind IN (${kindPh})`
-    ).bind(cutoffIso, ...INVOICE_FAILURE_KINDS).all();
+      `SELECT id, affected_ids_json, last_seen_at FROM incidents
+        WHERE status = 'open' AND kind IN (${kindPh})`
+    ).bind(...INVOICE_FAILURE_KINDS).all();
 
     for (const row of ((stale.results ?? []) as any[])) {
       let ids: string[] = [];
@@ -646,7 +653,13 @@ export async function autoResolveStaleIncidents(
       } catch { /* malformed: nothing to verify against */ }
 
       // Nothing checkable (a refund reference, a Lodgify booking, an empty list)
-      // falls back to the old behaviour rather than staying open forever.
+      // falls back to the old behaviour rather than staying open forever — and
+      // that fallback stays on the clock. Closing an unverifiable alarm the
+      // moment it is raised would delete the alarm, not the problem.
+      if (ids.length === 0 && String(row.last_seen_at ?? "") >= cutoffIso) {
+        keptUnbilled++;
+        continue;
+      }
       if (ids.length === 0) {
         await env.DB.prepare(
           "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE id = ?"

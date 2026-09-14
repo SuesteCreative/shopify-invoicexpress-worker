@@ -28,6 +28,8 @@ export interface ConnectionHealthResult {
   checked: number;
   unconfigured: number;
   reported: number;
+  /** Alarms closed because the connection is configured again. */
+  resolved: number;
   /** `${user_id} ${source}→${destination}: ${reason}` — for the cron log. */
   findings: string[];
 }
@@ -89,6 +91,32 @@ export function missingDestinationCredential(
 }
 
 /**
+ * Close this connection's standing "cannot issue" alarm, and say how many.
+ *
+ * `resolved`, not `auto_resolved`, for one behavioural reason: `reportIncident`
+ * reopens a bucket only when it finds it `resolved`. An alarm closed here is a
+ * positive verdict — the credentials are back — so if the condition returns
+ * inside the same daily bucket it must alarm again. `auto_resolved` is reserved
+ * for its own meaning, "this went quiet", which is precisely what closing on
+ * evidence is not.
+ */
+async function closeUnconfiguredIncident(env: Env, connectionId: unknown): Promise<number> {
+  if (!connectionId) return 0;
+  try {
+    const res = await env.DB.prepare(
+      `UPDATE incidents SET status = 'resolved', resolved_at = ?
+        WHERE connection_id = ? AND kind = 'connection_unconfigured'
+          AND status IN ('open', 'acknowledged')`
+    ).bind(new Date().toISOString(), String(connectionId)).run();
+    return (res as any).meta?.changes ?? 0;
+  } catch (e: any) {
+    // Housekeeping must never break the survey it rides on.
+    console.error(`[ConnHealth] could not close alarm for ${connectionId}: ${e?.message ?? e}`);
+    return 0;
+  }
+}
+
+/**
  * `dryRun` finds and reports nothing.
  *
  * The first real run of this emails every affected merchant directly, which is
@@ -101,7 +129,7 @@ export async function runConnectionHealthCheck(
   env: Env,
   opts: { dryRun?: boolean } = {},
 ): Promise<ConnectionHealthResult> {
-  const result: ConnectionHealthResult = { checked: 0, unconfigured: 0, reported: 0, findings: [] };
+  const result: ConnectionHealthResult = { checked: 0, unconfigured: 0, reported: 0, resolved: 0, findings: [] };
 
   const rows: any[] = ((await env.DB.prepare(
     `SELECT c.user_id, c.id AS connection_id, c.source_kind, c.destination_kind,
@@ -124,7 +152,17 @@ export async function runConnectionHealthCheck(
       : { ix_account_name: row.ix_account_name, ix_api_key: row.ix_api_key };
 
     const missing = missingDestinationCredential(destinationKind, parse(row.destination_config_json), legacyRow);
-    if (!missing) continue;
+    if (!missing) {
+      // A connection that is configured again closes its own alarm, here, on
+      // the positive fact. Nothing else does: `autoResolveStaleIncidents` shuts
+      // this kind after 24h of silence, so a merchant who fixed their key at
+      // 09:00 kept a red row all day, and — worse — "auto_resolved" read the
+      // same whether it was fixed or merely quiet. Bestisafil and Farracemota
+      // each carried one of these for a day over a connection that was issuing
+      // documents the whole time. The check already knows the answer for free.
+      if (!opts.dryRun) result.resolved += await closeUnconfiguredIncident(env, row.connection_id);
+      continue;
+    }
 
     result.unconfigured++;
     const label = connectionLabelOf(row.source_kind, destinationKind);

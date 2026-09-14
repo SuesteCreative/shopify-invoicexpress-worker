@@ -80,3 +80,54 @@ describe("autoResolveStaleIncidents", () => {
     expect(res.keptUnbilled).toBe(0);
   });
 });
+
+/**
+ * The second lie in the same table: right about the failure, wrong about now.
+ *
+ * Verification only ran on incidents that had been quiet for 24h, so an order
+ * the healer invoiced at 09:05 stayed `open` — and red on every surface that
+ * reads open incidents — until the following night. A document exists; that is
+ * the only thing that settles it, and there is no reason to wait a day to ask.
+ */
+describe("autoResolveStaleIncidents — a fresh incident is verified too", () => {
+  const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+  it("closes a fresh incident whose order has since been invoiced", async () => {
+    invoiced.clear();
+    invoiced.add("7428630446300");
+    const closed: string[] = [];
+    const env: any = { DB: fakeDb(
+      [{ id: "inc-3", affected_ids_json: '["7428630446300"]', last_seen_at: recent } as any], closed) };
+
+    const res = await autoResolveStaleIncidents(env);
+
+    expect(closed).toEqual(["inc-3"]);
+    expect(res.keptUnbilled).toBe(0);
+  });
+
+  it("keeps a fresh incident it cannot check, instead of closing it unverified", async () => {
+    invoiced.clear();
+    const closed: string[] = [];
+    const env: any = { DB: fakeDb(
+      [{ id: "inc-4", affected_ids_json: '["pi_3UFUUcJwZ8gzmNr41jJejqng"]', last_seen_at: recent } as any], closed) };
+
+    const res = await autoResolveStaleIncidents(env);
+
+    // The 24h fallback is what closes an unverifiable one, and it has not run
+    // out yet. Closing it now would delete the alarm rather than the problem.
+    expect(closed).toEqual([]);
+    expect(res.keptUnbilled).toBe(1);
+  });
+
+  it("keeps a fresh incident whose order is still unbilled", async () => {
+    invoiced.clear();
+    const closed: string[] = [];
+    const env: any = { DB: fakeDb(
+      [{ id: "inc-5", affected_ids_json: '["7428630446300"]', last_seen_at: recent } as any], closed) };
+
+    const res = await autoResolveStaleIncidents(env);
+
+    expect(closed).toEqual([]);
+    expect(res.keptUnbilled).toBe(1);
+  });
+});

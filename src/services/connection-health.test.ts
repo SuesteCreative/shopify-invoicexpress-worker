@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { missingDestinationCredential } from "./connection-health";
+import { missingDestinationCredential, runConnectionHealthCheck } from "./connection-health";
 
 /**
  * The three live shapes this was written for, on 2026-09-12:
@@ -59,5 +59,80 @@ describe("missingDestinationCredential — the other destinations", () => {
     // have been emailed every night about a system they do not use.
     expect(missingDestinationCredential("moloni", { moloni_auth_mode: "oauth" }, { ix_account_name: null, ix_api_key: null }))
       .toBeNull();
+  });
+});
+
+/**
+ * The alarm has to close on evidence, not on silence.
+ *
+ * Bestisafil and Farracemota each carried an open `connection_unconfigured`
+ * for a day over a connection that was issuing documents the whole time: the
+ * nightly check saw them healthy and said nothing, and only the 24h staleness
+ * sweep eventually shut them — which reads the same whether a thing was fixed
+ * or merely went quiet.
+ */
+describe("runConnectionHealthCheck — closing the alarm", () => {
+  const connection = {
+    user_id: "user_1", connection_id: "conn_1",
+    source_kind: "stripe_connect", destination_kind: "invoicexpress",
+    destination_config_json: JSON.stringify({ ix_account_name: "bestisafilsocieda", ix_api_key: "k" }),
+    // No legacy row: the shape that started all of this.
+    ix_account_name: null, ix_api_key: null,
+  };
+
+  /** Records every write so the test can assert on what was closed. */
+  const fakeEnv = (row: any) => {
+    const writes: Array<{ sql: string; binds: any[] }> = [];
+    return {
+      writes,
+      env: {
+        DB: {
+          prepare(sql: string) {
+            return {
+              bind(...binds: any[]) {
+                if (/^\s*UPDATE incidents/i.test(sql)) writes.push({ sql, binds });
+                return this;
+              },
+              all: async () => ({ results: [row] }),
+              run: async () => ({ meta: { changes: 1 } }),
+              first: async () => null,
+            };
+          },
+        },
+      } as any,
+    };
+  };
+
+  it("resolves the open alarm when the connection is configured again", async () => {
+    const { env, writes } = fakeEnv(connection);
+    const result = await runConnectionHealthCheck(env);
+
+    expect(result.unconfigured).toBe(0);
+    expect(result.resolved).toBe(1);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].sql).toContain("connection_unconfigured");
+    // `resolved`, never `auto_resolved`: reportIncident reopens only that one,
+    // so closing it any other way would swallow the next real failure inside
+    // the same daily bucket.
+    expect(writes[0].sql).toContain("'resolved'");
+    expect(writes[0].sql).not.toContain("auto_resolved");
+    expect(writes[0].binds).toContain("conn_1");
+  });
+
+  it("closes nothing while the credentials are still missing", async () => {
+    const { env, writes } = fakeEnv({ ...connection, destination_config_json: "{}" });
+    const result = await runConnectionHealthCheck(env);
+
+    expect(result.unconfigured).toBe(1);
+    expect(result.resolved).toBe(0);
+    expect(writes).toHaveLength(0);
+  });
+
+  it("writes nothing at all on a dry run", async () => {
+    const { env, writes } = fakeEnv(connection);
+    const result = await runConnectionHealthCheck(env, { dryRun: true });
+
+    expect(result.resolved).toBe(0);
+    expect(writes).toHaveLength(0);
   });
 });

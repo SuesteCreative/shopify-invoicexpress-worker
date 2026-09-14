@@ -88,7 +88,7 @@ export async function GET() {
         const CONN_SQL_LEGACY = CONN_SQL
             .replace("c.admin_label, c.invoice_cutoff,", "NULL AS admin_label, NULL AS invoice_cutoff,");
 
-        const [userRows, connRows, subRows_, integrationRows, orderRows] = await Promise.all([
+        const [userRows, connRows, subRows_, integrationRows, orderRows, incidentRows] = await Promise.all([
             db.prepare(
                 `SELECT id, email, name, company_name, admin_label, role,
                         COALESCE(is_inactive, 0) AS is_inactive
@@ -121,6 +121,19 @@ export async function GET() {
                  FROM processed_orders
                  WHERE user_id IS NOT NULL AND invoice_id IS NOT NULL
                  GROUP BY user_id, source_kind, destination_kind`
+            ).all().catch(() => ({ results: [] })),
+            // What is actually FAILING, as opposed to what is merely filled in.
+            // Everything above answers "is this configured", and a pipe can be
+            // configured, active, paid for, and rejecting every document it
+            // sends — which is what WHM was doing while this page called it
+            // complete. `connection_id` is null on all but one incident kind,
+            // so the account is the join and the row says so.
+            db.prepare(
+                `SELECT user_id, connection_id, kind, severity,
+                        SUM(occurrences) AS n, MAX(last_seen_at) AS last_seen_at
+                 FROM incidents
+                 WHERE status IN ('open', 'acknowledged') AND user_id IS NOT NULL
+                 GROUP BY user_id, connection_id, kind, severity`
             ).all().catch(() => ({ results: [] })),
         ]);
 
@@ -156,6 +169,38 @@ export async function GET() {
         const docsByPipe = new Map<string, number>();
         for (const o of rows(orderRows)) {
             docsByPipe.set(`${o.user_id}::${o.source_kind}::${o.destination_kind}`, Number(o.n));
+        }
+
+        /**
+         * The worst thing currently open against each account, and how many.
+         *
+         * Worst by severity, ties broken by recency: an operator scanning this
+         * page needs the headline, and the incidents view is one click away for
+         * the rest. `kinds` carries the count so a row cannot imply that one
+         * rejection is the whole story when there are ninety-four.
+         */
+        const SEVERITY_RANK: Record<string, number> = { critical: 4, error: 3, warning: 2, info: 1 };
+        interface Trouble {
+            kind: string; severity: string; occurrences: number;
+            last_seen_at: string | null; kinds: number;
+            /** Whether the incident names this connection or only the account. */
+            scope: "connection" | "account";
+        }
+        const troubleByUser = new Map<string, Trouble>();
+        for (const i of rows(incidentRows)) {
+            const prev = troubleByUser.get(i.user_id);
+            const worse = !prev
+                || (SEVERITY_RANK[i.severity] ?? 0) > (SEVERITY_RANK[prev.severity] ?? 0)
+                || ((SEVERITY_RANK[i.severity] ?? 0) === (SEVERITY_RANK[prev.severity] ?? 0)
+                    && String(i.last_seen_at ?? "") > String(prev.last_seen_at ?? ""));
+            troubleByUser.set(i.user_id, worse ? {
+                kind: i.kind,
+                severity: i.severity,
+                occurrences: Number(i.n ?? 0),
+                last_seen_at: i.last_seen_at ?? null,
+                kinds: (prev?.kinds ?? 0) + 1,
+                scope: i.connection_id ? "connection" : "account",
+            } : { ...prev, kinds: prev.kinds + 1 });
         }
 
         /**
@@ -254,6 +299,7 @@ export async function GET() {
                 updated_at: c.updated_at ?? null,
                 sub_state: subStateFor(c.user_id, key, u?.role ?? null),
                 legacy_price: legacyFor(c.user_id, key),
+                trouble: troubleByUser.get(c.user_id) ?? null,
                 can_delete: true,
             });
         }
@@ -299,6 +345,7 @@ export async function GET() {
                 updated_at: i.updated_at ?? null,
                 sub_state: subStateFor(i.user_id, LEGACY_KEY, u?.role ?? null),
                 legacy_price: legacyFor(i.user_id, LEGACY_KEY),
+                trouble: troubleByUser.get(i.user_id) ?? null,
                 // Its verbs mean something different — see connection-lifecycle:
                 // reset keeps the fiscal settings, delete takes them with it.
                 can_delete: true,

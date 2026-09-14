@@ -28,8 +28,34 @@ export interface IxSequence {
  * series"), because a caller validating a name must not reject one on the
  * strength of a failed lookup.
  */
-export async function listIxSequences(db: any, userId: string): Promise<IxSequence[] | null> {
-  const integration: any = await db
+export async function listIxSequences(
+  db: any,
+  userId: string,
+  sourceKind?: string,
+): Promise<IxSequence[] | null> {
+  // The connection's own credentials first, the account's legacy row as the
+  // fallback: the order the worker and `missingDestinationCredentials` already
+  // apply. Reading the legacy row alone answered `null` for every account
+  // without a Shopify pipe, and `null` here is indistinguishable from "the
+  // account has no series" — so the picker went quietly empty and the rule
+  // form's series guard skipped itself, on exactly the accounts (WHM, per
+  // country) where typing the wrong series costs the most.
+  const conn: any = await db
+    .prepare(
+      `SELECT json_extract(destination_config_json, '$.ix_account_name') AS ix_account_name,
+              json_extract(destination_config_json, '$.ix_api_key')      AS ix_api_key,
+              json_extract(destination_config_json, '$.ix_environment')  AS ix_environment
+         FROM connections
+        WHERE user_id = ? AND destination_kind = 'invoicexpress'
+          AND json_extract(destination_config_json, '$.ix_account_name') IS NOT NULL
+          AND trim(json_extract(destination_config_json, '$.ix_api_key')) <> ''
+        ORDER BY (source_kind = ?) DESC, updated_at DESC
+        LIMIT 1`
+    )
+    .bind(userId, sourceKind ?? "")
+    .first();
+
+  const integration: any = conn ?? await db
     .prepare("SELECT ix_account_name, ix_api_key, ix_environment FROM integrations WHERE user_id = ?")
     .bind(userId)
     .first();

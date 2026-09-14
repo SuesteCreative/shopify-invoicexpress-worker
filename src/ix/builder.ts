@@ -7,6 +7,7 @@ import { buildExemptionMention } from "./exemption-mentions";
 import type { ViesChecker } from "./vies";
 import { type ReconcileLine } from "../adapters/reconcile";
 import { documentReference } from "../services/document-references";
+import { presentFields } from "../utils";
 import { format } from "date-fns";
 
 /** InvoiceXpress hard limit on the client name; longer values reject the document. */
@@ -688,11 +689,16 @@ export class IxBuilder {
     // spreads below simply contribute nothing.
     const customer = normalized.order.customer ?? ({} as NonNullable<Normalized["order"]["customer"]>);
 
+    // `presentFields` drops blank keys before each spread, so a later layer that
+    // is present but empty can no longer erase an earlier one that carried a
+    // real value — see the note on the helper. The ORDER below is unchanged: on
+    // Shopify `customer.address` is the buyer's saved address and still wins
+    // wherever it actually has one.
     return {
-      ...normalized.order.shipping_address ?? {},
-      ...customer.default_address ?? {},
-      ...normalized.order.billing_address ?? {},
-      ...customer.address ?? {},
+      ...presentFields(normalized.order.shipping_address),
+      ...presentFields(customer.default_address),
+      ...presentFields(normalized.order.billing_address),
+      ...presentFields(customer.address),
     };
   }
 
@@ -961,29 +967,19 @@ export class IxBuilder {
     const rawCountry = String(order.billing_address?.country || order.billing_address?.country_code || "").trim();
 
     // Billing zip first (same source as city/country), merged-address fallback.
-    // pickInvoiceAddress spreads can override a real zip with "" from a later
-    // empty address, so resolve here instead of trusting the merge order.
+    // This began as a workaround for blank layers overwriting a real zip, which
+    // `pickInvoiceAddress` now prevents on its own. Kept because it also states
+    // a precedence worth keeping: the zip comes from the same address as the
+    // city and the country it has to agree with.
     const postalCode = String(order.billing_address?.zip || address.zip || "").trim();
 
-    // The street, which is the one address field still trusting that merge.
-    //
-    // `pickInvoiceAddress` spreads `customer.address` LAST, and every Stripe
-    // shape sets that to an all-empty address — so `address1: ""` overwrites the
-    // street the payment carried. City and zip escape it, the zip by the very
-    // workaround three lines up and the city by reading `order.billing_address`
-    // directly; nobody ever gave the street the same treatment. Measured on
-    // Bestisafil (14/09/2026): document 270275892 reached InvoiceXpress with
-    // "1269-046 Lisboa" and no street, while the charge held
-    // "Av. da Liberdade nº 110".
-    //
-    // Behind the connection's flag rather than fixed outright, because the merge
-    // is not meaningless everywhere: on Shopify, `customer.address` is the
-    // buyer's saved address and letting it win over the order's is the
-    // precedence that shop has always had. A connection that declared its buyer
-    // address comes from the payment is saying which one it wants.
-    const street = Number(this.config.stripe_address_from_charge) === 1
-      ? (String(order.billing_address?.address1 || address.address1 || "").trim() || undefined)
-      : address.address1;
+    // The street needs no workaround of its own any more: `pickInvoiceAddress`
+    // drops blank fields before merging, so a later all-empty layer can no
+    // longer erase what an earlier one carried. This used to read billing first
+    // behind `stripe_address_from_charge` — the flag is still what grafts the
+    // charge's address onto the order, but deciding the merge is no longer part
+    // of its job.
+    const street = address.address1;
 
     // InvoiceXpress caps the client name at 100 characters and rejects the whole
     // document past it ("Nome é demasiado longo"), so the order never invoices at

@@ -192,6 +192,20 @@ function vendusTaxId(rate: number): "NOR" | "INT" | "RED" | "ISE" | "OUT" {
 function pickInvoiceAddress(normalized: Normalized) {
   // IX-compatible priority: billing first, then shipping fallback. See
   // memory:rioko-invoice-address-priority.
+  //
+  // This merge has the same blank-overwrites-filled flaw `presentFields` fixes
+  // in IxBuilder, and it is DELIBERATELY not fixed here. Unlike IxBuilder, which
+  // reads the fiscal id from `billing.address2` / `shipping.address2` directly,
+  // `buildClient` below takes `fiscal_id` from the MERGED `address2`, verbatim
+  // and unvalidated. Dropping blanks would let an earlier layer's address2
+  // survive where today it is erased — which would put a tax number that was
+  // never on the document onto a live fiscal document. An address fix is not
+  // allowed to do that.
+  //
+  // Fix the `fiscal_id` read first: it is the `fiscal_id: "SILVA"` class that
+  // `IxBuilder.inspectAddressTaxId` was written to stop, still live here. Then
+  // this merge can have the same treatment. There are no Vendus connections in
+  // production today, so neither bug is reaching anyone.
   const customer = normalized.order.customer;
   return {
     ...customer?.default_address ?? {},

@@ -3655,7 +3655,9 @@
         },
         "exportCode": {
             "label": "Código de isenção fora da UE",
-            "help": "Carimbado quando uma venda para fora da UE fica a 0%. Vazio usa M40."
+            "optionServices": "Serviços - M40",
+            "optionGoods": "Produtos - M05",
+            "help": "Carimbado quando uma venda para fora da UE fica a 0%. Os serviços são isentos pelo art. 6.º n.º 6 do CIVA e os bens pelo art. 14.º: a mesma venda com artigos diferentes, e nada nos dados distingue um curso de uma encomenda."
         },
         "consequence": "Isto muda o IVA dos documentos emitidos a partir de agora, e o varrimento nocturno também reemite os últimos 30 dias. Confirma com quem trata da tua contabilidade antes de ligar.",
         "consequenceMoloni": "Isto muda o IVA dos documentos emitidos a partir de agora, e o varrimento nocturno também reemite os últimos 30 dias. As taxas dos países de destino têm de existir na tua conta Moloni, senão o documento é recusado. Confirma com quem trata da tua contabilidade antes de ligar."

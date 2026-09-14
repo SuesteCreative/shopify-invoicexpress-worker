@@ -4,6 +4,8 @@ import type { PostV2CreditNotesData, PostV2InvoicesData } from "../api/ix/client
 import { validatePTNIF } from "./nif";
 import { isCrossBorderEU, EU_COUNTRIES, isPlausibleEuVatLength } from "./eu-countries";
 import { buildExemptionMention } from "./exemption-mentions";
+import { ossCountry } from "./order-country";
+import { classifyExemption, type FiscalClassification } from "./fiscal-classification";
 import type { ViesChecker } from "./vies";
 import { type ReconcileLine } from "../adapters/reconcile";
 import { documentReference } from "../services/document-references";
@@ -1401,7 +1403,50 @@ export class IxBuilder {
       const { invoice, requestTaxExemptionReason } = this.buildReverseChargeInvoice(normalized, decision.countryCode, decision.vatNumber);
       return { status: "ready", invoice, requestTaxExemptionReason, reverseCharge: true };
     }
-    const { invoice, requestTaxExemptionReason, nifHold } = this.createInvoiceFromNormalizedOrder(normalized);
-    return { status: "ready", invoice, requestTaxExemptionReason, reverseCharge: false, nifHold };
+    const built = this.createInvoiceFromNormalizedOrder(normalized);
+    // Naming the regime, when the shop asked for it to be decided per sale.
+    //
+    // `ix_derive_exemption` has existed and been documented as exactly this
+    // since it was added, and until now only the adapter pipeline honoured it —
+    // so a Shopify shop could set the flag and every export still went out
+    // under the shop-wide code. Soul Krave, 14/09/2026.
+    //
+    // Built FIRST and reclassified only if the document actually carries a 0%
+    // line: a fully taxed sale needs no code, and classifying it anyway would
+    // spend a VIES call per order to reach a value nothing reads. Rebuilding is
+    // pure arithmetic on data already in hand, so the second call costs nothing.
+    const fiscal = built.requestTaxExemptionReason
+      ? await this.classifyDerivedExemption(normalized)
+      : null;
+    if (!fiscal) {
+      return { status: "ready", ...built, reverseCharge: false };
+    }
+    const reclassified = this.createInvoiceFromNormalizedOrder(normalized, { fiscal });
+    return { status: "ready", ...reclassified, reverseCharge: false };
+  }
+
+  /**
+   * The per-sale exemption classification, or null to keep the shop-wide code.
+   *
+   * Null whenever the shop did not ask (`ix_derive_exemption`), and whenever the
+   * classifier's answer IS the shop-wide code — passing that through would be
+   * the same document by a longer route.
+   *
+   * ponytail: the classifier's `hold` is not surfaced here. On this path an
+   * unconfirmed EU VAT number is already caught upstream by resolveReverseCharge
+   * returning "deferred", which queues the order rather than issuing it. Wire it
+   * through the day a shop runs derive_exemption with b2b_reverse_charge off.
+   */
+  private async classifyDerivedExemption(normalized: Normalized): Promise<FiscalClassification | null> {
+    if (Number(this.config.ix_derive_exemption) !== 1) return null;
+    const country = ossCountry(normalized.order);
+    if (!country) return null;
+    const fiscal = await classifyExemption({
+      buyerCountryCode: country,
+      euVatCandidates: this.extractEuVatCandidates(normalized),
+      config: this.config,
+      viesChecker: this.viesChecker,
+    });
+    return fiscal.basis === "configured" || fiscal.basis === "domestic" ? null : fiscal;
   }
 }

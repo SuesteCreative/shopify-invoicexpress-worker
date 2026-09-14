@@ -17,6 +17,7 @@ import { priceBook } from "@/lib/price-book";
 import { getSeatPool } from "@/lib/account";
 import { loadAccountReferrals } from "@/lib/client-record-referrals";
 import { asLang, isLang } from "@/lib/user-language";
+import { saveCompanyNotes } from "@/lib/company-notes";
 import { syncAccountStripeLocale } from "@/lib/stripe-locale";
 
 export const runtime = "edge";
@@ -106,7 +107,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             .bind(accountId).first().catch(() => null);
         userRow.language = asLang(languageRow?.language);
 
-        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows, referrals] = await Promise.all([
+        const [connRows, legacyRow, subscriptions, identity, events, memberRows, seats, counts, requestRows, referrals, companyRulesRow] = await Promise.all([
             db.prepare(`
                 SELECT ${CONNECTION_PUBLIC_SELECT},
                        destination_config_json,
@@ -178,6 +179,13 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             // Who invited this account and whom it invited. Null, not empty, when
             // the read fails: "nobody" would be the page inventing an answer.
             loadAccountReferrals(db, accountId).catch(() => null),
+
+            // What the operator knows about this company that the configuration
+            // cannot say. Written here and in /admin/client-rules, which is the
+            // same row; it also rides along with this account's incident
+            // diagnoses, scrubbed of emails and tax numbers.
+            db.prepare("SELECT notes FROM company_rules WHERE user_id = ?")
+                .bind(accountId).first().catch(() => null),
         ]);
 
         // What each subscription costs, so the record can name the plan and the
@@ -423,6 +431,10 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ code: s
             identity_requests: identityRequestStates(((requestRows as any).results ?? []) as any[], userRow),
             referrals,
             fiscal_visible: fiscalVisible,
+            // Gated with the rest of the fiscal block, and for the same reason:
+            // these notes are about how a company is invoiced, and protecting the
+            // page while serving the data protects nothing.
+            company_notes: fiscalVisible ? ((companyRulesRow as any)?.notes ?? "") : null,
             viewer_role: viewerRole,
         });
     } catch (error: any) {
@@ -460,6 +472,38 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ code:
 
         const body = await request.json() as { field?: string; value?: string; reject?: boolean; reason?: string };
         const field = String(body.field ?? "");
+
+        // ── The operator's notes on this company ───────────────────────────────
+        //
+        // Its own branch, before the editable-field gate: every other field here
+        // is a column on `users` capped at 120 characters, and this is free text
+        // on `company_rules` capped at 1500. Same row /admin/client-rules writes,
+        // so the two screens are one note and not two.
+        //
+        // Hiperadmin, like the rest of the fiscal block it sits under. Audited,
+        // which the fiscal console's own notes write never was — migration 0035
+        // declared the `company_rules` scope and nothing ever wrote it, so a note
+        // could change with no record of who changed it or what it said before.
+        if (field === "notes") {
+            if (!(await isHiperadmin(userId))) {
+                return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            }
+            const { env: notesEnv } = getRequestContext();
+            const notesDb = (notesEnv as any).DB;
+            if (!notesDb) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
+
+            const { code: notesCode } = await ctx.params;
+            const target = await resolveClientCode(notesDb, notesCode);
+            if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+            const { unchanged } = await saveCompanyNotes(notesDb, {
+                accountId: target.accountId,
+                actor: userId,
+                notes: String(body.value ?? ""),
+            });
+            return NextResponse.json({ success: true, ...(unchanged ? { unchanged: true } : {}) });
+        }
+
         if (!OPERATOR_EDITABLE.has(field) && !ADMIN_EDITABLE.has(field)) {
             return NextResponse.json({ error: "field_not_editable" }, { status: 400 });
         }

@@ -6,10 +6,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
     IdCard, Copy, Check, X, Loader2, AlertTriangle, ExternalLink, Wrench, UserCog,
-    Building2, CreditCard, Zap, Scale, Receipt, ScrollText, Moon, Users, Gift,
+    Building2, CreditCard, Zap, Scale, Receipt, ScrollText, Moon, Users, Gift, NotebookPen,
 } from "lucide-react";
 
 import { Section } from "@/components/admin/Section";
+import { MAX_NOTES_CHARS } from "@/lib/company-notes";
 import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
 import { connectionLabel } from "@/lib/connection-kinds";
 import { connectionKeyForScope, attributeDocumentEvent, groupByConnection } from "@/lib/client-record-sql";
@@ -273,7 +274,7 @@ export function CustomerRecordPanel({ code, askedForMember = null }: { code: str
             {tab === "identidade" && <IdentityTab data={data} code={code} onSaved={load} />}
             {tab === "subscricoes" && <SubscriptionsTab data={data} base={base} />}
             {tab === "integracoes" && <ConnectionsTab data={data} />}
-            {tab === "fiscal" && <FiscalTab data={data} />}
+            {tab === "fiscal" && <FiscalTab data={data} code={code} onSaved={load} />}
             {tab === "stripe" && <StripeTab data={data} base={base} />}
             {tab === "faturas" && (
                 <Section icon={<Receipt className="w-5 h-5 text-accent-ink" />} title="Faturas de serviço da Kapta"
@@ -863,7 +864,68 @@ function ConnectionsTab({ data }: { data: any }) {
     );
 }
 
-function FiscalTab({ data }: { data: any }) {
+/**
+ * What the operator knows about this company that the configuration cannot say.
+ *
+ * Under the settings and not beside them, because the two are different kinds of
+ * thing: above is what the system APPLIES, here is what a person needs to know
+ * to read it — an instruction that arrived by email, why an exemption code is
+ * the one it is, what was agreed and when. A note changes no document.
+ *
+ * The same note as the one in /admin/client-rules: one row, two screens. It also
+ * travels with this company's incident diagnoses, with emails and tax numbers
+ * stripped out, so an alert is read with the context the operator has.
+ */
+function CompanyNotesCard({ code, value, onSaved }: { code: string; value: string; onSaved: () => void }) {
+    const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+    const [error, setError] = useState<string | null>(null);
+
+    const save = async (next: string) => {
+        if (next === value) return;
+        setState("saving"); setError(null);
+        try {
+            const res = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ field: "notes", value: next }),
+            });
+            const body: any = await res.json().catch(() => ({}));
+            if (!res.ok) { setError(body?.error || `HTTP ${res.status}`); setState("idle"); return; }
+            setState("saved");
+            onSaved();
+        } catch (e: any) {
+            setError(String(e)); setState("idle");
+        }
+    };
+
+    return (
+        <Section icon={<NotebookPen className="w-5 h-5 text-accent-ink" />} title="Notas desta conta"
+            desc="As alterações específicas feitas para este cliente, para não se perderem. Guardado ao sair do campo, e fica no registo."
+            right={
+                state === "saving"
+                    ? <Loader2 className="w-3 h-3 animate-spin text-fg-40" />
+                    : state === "saved"
+                        ? <span className="text-[10px] font-black uppercase tracking-widest text-fg-40">Guardado</span>
+                        : null
+            }>
+            <textarea
+                className="w-full min-h-[160px] rounded-2xl border border-hairline bg-surface-2/40 p-4 text-sm text-fg font-medium leading-relaxed outline-none focus:border-accent/40"
+                maxLength={MAX_NOTES_CHARS}
+                defaultValue={value}
+                onFocus={() => setState("idle")}
+                onBlur={(e) => void save(e.target.value)}
+                placeholder="ex.: portes a 0% por decisão de 12/08; a série FT2026 foi comunicada em 14/09; a Matilde pediu que as faturas saiam em rascunho até fecharem o ano."
+            />
+            <p className="text-[10px] text-fg-40 mt-2">
+                Não altera nenhum documento — o que o sistema aplica é a configuração acima. Vai anexado aos
+                diagnósticos de incidentes desta empresa, com emails e NIFs removidos.
+            </p>
+            {error && <p className="text-[10px] font-black uppercase tracking-widest text-destructive mt-2">{error}</p>}
+        </Section>
+    );
+}
+
+function FiscalTab({ data, code, onSaved }: { data: any; code: string; onSaved: () => void }) {
     if (!data.fiscal_visible) {
         return (
             <Section icon={<Scale className="w-5 h-5 text-soon" />} title="Regras fiscais">
@@ -877,33 +939,37 @@ function FiscalTab({ data }: { data: any }) {
 
     const conns: any[] = (data.connections ?? []).filter((c: any) => c.fiscal && Object.keys(c.fiscal).length > 0);
     return (
-        <Section icon={<Scale className="w-5 h-5 text-accent-ink" />} title="Regras fiscais"
-            desc="Leitura. Editar é em /admin/client-rules, onde cada alteração passa pela confirmação dos campos perigosos e fica no registo."
-            right={
-                <Link href="/admin/client-rules" className="text-[10px] font-black uppercase tracking-widest text-accent-ink hover:underline">
-                    Editar regras →
-                </Link>
-            }>
-            {conns.length === 0 ? (
-                <p className="text-sm text-fg-40 font-medium">
-                    Nenhuma configuração fiscal registada nesta conta — nem nas ligações nem na linha
-                    legada <span className="font-mono">integrations</span>.
-                </p>
-            ) : (
-                <div className="space-y-5">
-                    {conns.map((conn) => (
-                        <div key={conn.key} className="rounded-2xl border border-hairline bg-surface-2/40 p-5 space-y-3">
-                            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg">{conn.key}</span>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {Object.entries(conn.fiscal).map(([k, v]) => (
-                                    <Field key={k} label={k} value={typeof v === "boolean" ? (v ? "sim" : "não") : String(v ?? "")} mono />
-                                ))}
+        <div className="space-y-6">
+            <Section icon={<Scale className="w-5 h-5 text-accent-ink" />} title="Regras fiscais"
+                desc="Leitura. Editar é em /admin/client-rules, onde cada alteração passa pela confirmação dos campos perigosos e fica no registo."
+                right={
+                    <Link href="/admin/client-rules" className="text-[10px] font-black uppercase tracking-widest text-accent-ink hover:underline">
+                        Editar regras →
+                    </Link>
+                }>
+                {conns.length === 0 ? (
+                    <p className="text-sm text-fg-40 font-medium">
+                        Nenhuma configuração fiscal registada nesta conta — nem nas ligações nem na linha
+                        legada <span className="font-mono">integrations</span>.
+                    </p>
+                ) : (
+                    <div className="space-y-5">
+                        {conns.map((conn) => (
+                            <div key={conn.key} className="rounded-2xl border border-hairline bg-surface-2/40 p-5 space-y-3">
+                                <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg">{conn.key}</span>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {Object.entries(conn.fiscal).map(([k, v]) => (
+                                        <Field key={k} label={k} value={typeof v === "boolean" ? (v ? "sim" : "não") : String(v ?? "")} mono />
+                                    ))}
+                                </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </Section>
+                        ))}
+                    </div>
+                )}
+            </Section>
+
+            <CompanyNotesCard code={code} value={String(data.company_notes ?? "")} onSaved={onSaved} />
+        </div>
     );
 }
 

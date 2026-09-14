@@ -150,26 +150,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const ceil2 = (n: number) => Math.ceil(n * 100) / 100;
 
-/**
- * The country whose VAT applies, by the place-of-supply rule for distance
- * selling: where the goods or services go.
- *
- * Deliberately the OPPOSITE priority to the invoice's CLIENT block, which is
- * billing-first. The two answer different questions — who to bill, and whose
- * VAT to charge — and merging them would quietly get one of them wrong.
- */
-export function ossCountry(order: Normalized["order"]): string {
-  const candidates = [
-    order.shipping_address?.country_code,
-    order.billing_address?.country_code,
-    (order.customer as any)?.default_address?.country_code,
-  ];
-  for (const c of candidates) {
-    const cc = String(c ?? "").trim().toUpperCase();
-    if (cc.length === 2) return cc;
-  }
-  return "";
-}
+// ossCountry lives in ../ix/order-country so IxBuilder can read it too:
+// tax-rates imports the builder, so the builder cannot import tax-rates back.
+// Imported as well as re-exported: this module calls it itself.
+import { ossCountry } from "../ix/order-country";
+export { ossCountry };
 
 /** The exemption code a zero-rated non-EU sale carries. */
 export function ossExemptionCode(ctx: AdapterCtx): string {

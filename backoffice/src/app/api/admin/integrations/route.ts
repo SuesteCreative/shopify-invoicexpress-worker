@@ -76,6 +76,10 @@ export async function GET() {
                  json_extract(c.source_config_json, '$.stripe_account_id') AS stripe_account_id,
                  json_extract(c.source_config_json, '$.shop_domain')       AS shop_domain,
                  json_extract(c.destination_config_json, '$.ix_account_name')     AS ix_account_name,
+                 -- Presence only, never the key itself: this row is read by a
+                 -- browser-facing route and a credential has no business in it.
+                 (json_extract(c.destination_config_json, '$.ix_api_key') IS NOT NULL
+                  AND trim(json_extract(c.destination_config_json, '$.ix_api_key')) <> '') AS conn_has_ix_key,
                  json_extract(c.destination_config_json, '$.moloni_company_name') AS moloni_company_name
           FROM connections c
         `;
@@ -131,13 +135,15 @@ export async function GET() {
         }
 
         /**
-         * The account's InvoiceXpress credentials, by user.
+         * The account-wide InvoiceXpress credentials, by user.
          *
-         * They live on the `integrations` row — the same row the legacy Shopify
-         * pipe lives on — and NOT on the connection, which is the single fact
-         * behind every incident this page has caused. A Stripe→IX connection
-         * reads its credentials from here, so this page has to as well or it
-         * reports a connection as complete when it cannot issue anything.
+         * These live on the `integrations` row — the same row the legacy Shopify
+         * pipe lives on. It is no longer the only place: a connection made by
+         * any wizard since 2026-09 keeps its own pair in
+         * `destination_config_json`, and that is the one the worker reads for a
+         * non-Shopify source. So this map is the FALLBACK, for Shopify and for
+         * everything configured before connections could hold credentials, and
+         * the row above asks the connection first.
          */
         const ixCredsByUser = new Map<string, { account: string | null; ready: boolean }>();
         for (const i of rows(integrationRows)) {
@@ -203,13 +209,21 @@ export async function GET() {
             const key = `${c.source_kind}:${c.destination_kind}`;
             const hasSource = !!Number(c.has_source);
             // For InvoiceXpress, `destination_config_json` holds the fiscal
-            // identity (series, exemption code) and never the credentials, so
-            // "the blob is not empty" answered a different question than the
-            // one being asked. Bestisafil showed here as complete while every
-            // payment died at the proxy for want of an API key.
+            // identity (series, exemption code) as well, so "the blob is not
+            // empty" answered a different question than the one being asked.
+            // Bestisafil showed here as complete while every payment died at
+            // the proxy for want of an API key.
+            //
+            // The credentials themselves can be in either place, and the pair
+            // on the connection is the one the worker uses: asking the legacy
+            // row alone put "falta IX API" on Farracemota and Bestisafil while
+            // both connections held a full pair of their own and were issuing
+            // documents. Connection first, account row as the fallback — the
+            // same order as `missingDestinationCredentials`.
             const ixCreds = ixCredsByUser.get(c.user_id);
+            const connIxReady = !!c.ix_account_name && !!Number(c.conn_has_ix_key);
             const hasDestination = c.destination_kind === "invoicexpress"
-                ? !!ixCreds?.ready
+                ? (connIxReady || !!ixCreds?.ready)
                 : !!Number(c.has_destination);
             entries.push({
                 kind: "connection",

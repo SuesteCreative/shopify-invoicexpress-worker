@@ -5,6 +5,7 @@ import { isHiperadmin } from "@/lib/admin";
 import { redactConfigJson, FISCAL_CONFIG_KEYS, INTEGRATION_FISCAL_COLUMNS } from "@/lib/redact";
 import { auditConfigChange } from "@/lib/config-audit";
 import { MAX_CUSTOM_INVOICE_NOTE } from "@/lib/connection-fiscal";
+import { saveCompanyNotes } from "@/lib/company-notes";
 
 export const runtime = "edge";
 
@@ -62,7 +63,6 @@ const FORCE_FLAGS = ["shopify_authorized", "webhooks_active", "ix_authorized"];
 const EDITABLE_INTEGRATION_FIELDS = new Set<string>(INTEGRATION_FISCAL_COLUMNS);
 const EDITABLE_CONNECTION_KEYS = new Set<string>(FISCAL_CONFIG_KEYS);
 
-const MAX_NOTES_CHARS = 1500;
 /**
  * The same limit the merchant's own panel enforces. Two copies of a number that
  * has to match is how an operator's note gets silently cut to a different
@@ -178,16 +178,13 @@ export async function PATCH(request: NextRequest) {
   if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
   // ── Shape 1: the free-text notes ───────────────────────────────────────────
+  //
+  // Shared with the Regras fiscais tab of the client record, which writes the
+  // same note through the same helper — one note per company, not one per
+  // screen. Writing through it is also what finally audits this shape: it was
+  // the only one of the four that left no trail.
   if (typeof body.notes === "string") {
-    const notes = body.notes.slice(0, MAX_NOTES_CHARS);
-    await db.prepare(
-      `INSERT INTO company_rules (user_id, notes, updated_at, updated_by)
-       VALUES (?, ?, CURRENT_TIMESTAMP, ?)
-       ON CONFLICT(user_id) DO UPDATE SET
-         notes = excluded.notes,
-         updated_at = CURRENT_TIMESTAMP,
-         updated_by = excluded.updated_by`,
-    ).bind(targetUserId, notes, userId).run();
+    await saveCompanyNotes(db, { accountId: targetUserId, actor: userId, notes: body.notes });
     return NextResponse.json({ success: true });
   }
 

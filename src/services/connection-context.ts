@@ -132,6 +132,7 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
     ix_multicurrency: 0,
     stripe_address_from_charge: 0,
     stripe_line_names_from_product: 0,
+    stripe_invoice_out_of_band: 0,
   } as unknown as IRequestConfig;
 }
 
@@ -200,6 +201,10 @@ export const CONNECTION_FISCAL_FLAGS = [
   // reads, and a merchant whose Stripe descriptions are already the words they
   // want keeps them.
   "stripe_line_names_from_product",
+  // Whether an invoice paid outside Stripe is a sale this connection issues.
+  // Off by default: "paid out of band" is also how a merchant records a sale
+  // another system already invoiced.
+  "stripe_invoice_out_of_band",
 ] as const;
 
 /**

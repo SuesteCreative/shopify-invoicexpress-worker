@@ -1247,6 +1247,39 @@ export class StripeSource implements SourceAdapter {
     const normalized = stripeToNormalized(parsedBody);
     if (!normalized) return null;
 
+    // An invoice the merchant marked as paid OUTSIDE Stripe.
+    //
+    // `amount_paid` is the money Stripe watched arrive, and for one of these it
+    // is `0` — not null, not absent: zero, because zero went through Stripe. The
+    // `??` chain that reads it therefore stops at 0 instead of falling through
+    // to `total`, the sale arrives worth nothing, and the pipeline skips it as
+    // "total de valor zero" while reporting success. Five of Bestisafil's
+    // September sales, 905,23 €, were refused exactly that way.
+    //
+    // The lines are unaffected — they are built from `l.amount` — so only the
+    // order total has to be put back.
+    //
+    // `paid_out_of_band` separates this from a genuinely zero invoice cleanly.
+    // Measured 14/09/2026: LLJCSSOJ-0265 reports `true / amount_paid 0 / total
+    // 13578`, and LLJCSSOJ-0298, a real 0,00 € invoice, reports `false / 0 / 0`
+    // and stays skipped as it should.
+    //
+    // Gated, because "paid outside Stripe" is also how a merchant records a sale
+    // their OTHER system already invoiced — the shape `scopeBlocker` exists for.
+    // A connection has to say these are Rioko's to issue before any becomes a
+    // document. A partly-paid invoice keeps reading `amount_paid`, which is the
+    // truth there.
+    if (Number(ctx.config?.stripe_invoice_out_of_band) === 1
+      && String(parsedBody?.type ?? "").startsWith("invoice.")) {
+      const inv = parsedBody?.data?.object;
+      const realTotal = Number(inv?.total ?? 0) / 100;
+      if (inv?.paid_out_of_band === true && Number(normalized.order.total) === 0 && realTotal > 0) {
+        normalized.order.total = realTotal;
+        normalized.order.total_calculated = realTotal;
+        console.log(`[Stripe] ${inv.id}: paid out of band — billing ${realTotal.toFixed(2)} from invoice.total`);
+      }
+    }
+
     // Customer.tax_ids enrichment: for PI/Charge events the Customer's tax_ids
     // aren't on the event payload, so we expand via Stripe API when we have
     // a restricted_key in source_config. Session events already include

@@ -140,6 +140,16 @@ export interface IRequestConfig {
    */
   stripe_line_names_from_product: number | null;
   /**
+   * 1 = an invoice the merchant marked as paid OUTSIDE Stripe is a sale Rioko
+   * issues, billed at the invoice's `total`.
+   *
+   * Off by default. `amount_paid` is 0 for these, so without it the sale is
+   * skipped as worthless; with it on, a merchant who marks an invoice paid
+   * because their OTHER system already invoiced it would get a second document,
+   * which is why it is stated per connection.
+   */
+  stripe_invoice_out_of_band: number | null;
+  /**
    * A standing note the merchant wants on every document (VAT scheme wording, a
    * licence number, a fixed legal reference). Appended to `observations` AFTER
    * the mandatory fiscal mentions, so IX's 200-char cap truncates this rather

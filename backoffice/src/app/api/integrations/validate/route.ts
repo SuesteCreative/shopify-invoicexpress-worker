@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
+import { errorText } from "@/lib/upstream-error";
 
 export const runtime = "edge";
 
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
                     } else {
                         try {
                             const data = await res.json() as any;
-                            errorMessage = data.errors || `Erro na Shopify (${res.status})`;
+                            errorMessage = errorText(data.errors, `Erro na Shopify (${res.status})`);
                         } catch {
                             errorMessage = `Resposta Inválida da Shopify (${res.status})`;
                         }
@@ -190,7 +191,7 @@ export async function POST(request: NextRequest) {
                     const text = await res.text();
                     try {
                         const data = JSON.parse(text);
-                        errorMessage = data.errors || `Error ${res.status}. Check API Key and Account.`;
+                        errorMessage = errorText(data.errors, `Error ${res.status}. Check API Key and Account.`);
                     } catch {
                         errorMessage = `Error ${res.status}. Verifique se o Nome da Conta [${account}] está correto e se o Ambiente escolhido (Production vs Sandbox) corresponde à sua conta.`;
                     }

@@ -143,7 +143,13 @@ export function IntegrationStepper({ steps, step, setStep, userRole, onForceAuth
                     >
                         <div className="p-6 sm:p-10 flex flex-col lg:flex-row items-start lg:items-center gap-10">
                             <div className={cn("w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-700 shrink-0 shadow-inner p-1",
-                                isActive ? "bg-accent/20 text-accent-ink ring-1 ring-accent/30"
+                                // Green once the step is authorised, open or not.
+                                // The accent is terracotta in the light theme, and
+                                // the wizard lands on the completion step when
+                                // everything is done: the final card came up red
+                                // over three green ticks, which reads as a fault
+                                // rather than as "you are here".
+                                isActive ? (s.isAuthorized ? "bg-accent-hot/18 text-accent-hot ring-1 ring-accent-hot/30" : "bg-accent/20 text-accent-ink ring-1 ring-accent/30")
                                     : isComplete ? (s.isAuthorized ? "bg-accent-hot/18 text-accent-hot ring-1 ring-accent-hot/30" : "bg-soon/10 text-soon ring-1 ring-soon/30")
                                         : "bg-surface-2/50 text-fg-40 ring-1 ring-hairline"
                             )}>
@@ -158,7 +164,7 @@ export function IntegrationStepper({ steps, step, setStep, userRole, onForceAuth
                                         {s.title}
                                     </h2>
                                     {(isComplete || isActive) && <StatusBadge isAuthorized={s.isAuthorized} errorMsg={s.errorMsg} stepId={s.id} flagName={s.flagName} />}
-                                    {isActive && <div className="h-1.5 w-1.5 rounded-full bg-accent animate-ping" />}
+                                    {isActive && <div className={cn("h-1.5 w-1.5 rounded-full animate-ping", s.isAuthorized ? "bg-accent-hot" : "bg-accent")} />}
                                 </div>
                                 <p className="text-fg-60 font-medium leading-relaxed max-w-xl">{s.description}</p>
                             </div>

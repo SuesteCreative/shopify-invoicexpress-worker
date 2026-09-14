@@ -579,8 +579,8 @@ export default function ShopifyIXIntegration() {
                                     <p className="text-fg-60 font-medium leading-relaxed max-w-xl">{s.description}</p>
                                 </div>
                                 <div className="flex items-center gap-10 w-full lg:w-auto">
-                                    {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" /></div>}
-                                    {s.hasGearLogo && <div className={cn("hidden xl:block transition-all duration-700", isActive ? "opacity-100" : "opacity-20")}><Settings2 className="w-16 h-16 text-fg-60 stroke-[1]" /></div>}
+                                    {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "logo-idle")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className="object-contain" /></div>}
+                                    {s.hasGearLogo && <div className={cn("hidden xl:block transition-all duration-700", isActive ? "opacity-100" : "logo-idle")}><Settings2 className="w-16 h-16 text-fg-60 stroke-[1]" /></div>}
                                     {isActive && (
                                         <div className="flex items-center gap-4 ml-auto">
                                             {step > 1 && <button onClick={() => setStep(step - 1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>}

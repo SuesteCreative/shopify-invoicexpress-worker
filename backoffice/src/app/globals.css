@@ -78,6 +78,11 @@
   --logo-invert: 0;
   --logo-dim: 0.4;
 
+  /* A provider mark on a wizard step that is not the current one. Night fades a
+     light mark into the dark card and that is the whole effect. */
+  --logo-idle: 0.2;
+  --logo-idle-filter: grayscale(1);
+
   /* A plane one step off the card. Night has no second cream, so it sits on
      the card colour and the token exists only so day can differ. */
   --surface-3: #14181F;
@@ -164,6 +169,13 @@ html:not([data-theme]),
 
   --logo-invert: 1;
   --logo-dim: 0.55;
+
+  /* The same fade on a white card washes the mark out to nothing, so day flattens
+     it instead: brightness(0) makes a silhouette out of whatever colour the
+     artwork carries, invert() lifts that silhouette to a flat dark grey. Opaque,
+     so the grey is the same on the card and on the cream behind it. */
+  --logo-idle: 1;
+  --logo-idle-filter: grayscale(1) brightness(0) invert(0.42);
 
   /* Kapta cream-2: the shaded plane, for table heads and inset rows. */
   --surface-3: #EEE8DF;
@@ -284,6 +296,13 @@ body {
    brand colour changes that colour too. Two-colour marks use <ThemedLogo>. */
 .logo-adaptive {
   filter: invert(var(--logo-invert));
+}
+
+/* The dimmed state of a wizard step's provider mark. Replaces `opacity-20
+   grayscale`, which only ever read well on the night card. */
+.logo-idle {
+  opacity: var(--logo-idle);
+  filter: var(--logo-idle-filter);
 }
 
 /* The two halves of a <ThemedLogo> pair. Preflight already gives img

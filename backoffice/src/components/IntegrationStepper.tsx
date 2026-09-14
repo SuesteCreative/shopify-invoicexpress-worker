@@ -163,8 +163,8 @@ export function IntegrationStepper({ steps, step, setStep, userRole, onForceAuth
                                 <p className="text-fg-60 font-medium leading-relaxed max-w-xl">{s.description}</p>
                             </div>
                             <div className="flex items-center gap-10 w-full lg:w-auto">
-                                {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "opacity-20 grayscale")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className={cn("object-contain", s.logo.includes("-white") && "logo-adaptive")} /></div>}
-                                {s.hasGearLogo && <div className={cn("hidden xl:block transition-all duration-700", isActive ? "opacity-100" : "opacity-20")}><Settings2 className="w-16 h-16 text-fg-60 stroke-[1]" /></div>}
+                                {s.logo && <div className={cn("hidden xl:block transition-all duration-700 transform", isActive ? "opacity-100 grayscale-0" : "logo-idle")}><Image src={s.logo} alt={s.title} width={s.logoWidth ?? 80} height={40} className={cn("object-contain", s.logo.includes("-white") && "logo-adaptive")} /></div>}
+                                {s.hasGearLogo && <div className={cn("hidden xl:block transition-all duration-700", isActive ? "opacity-100" : "logo-idle")}><Settings2 className="w-16 h-16 text-fg-60 stroke-[1]" /></div>}
                                 {isComplete && <button onClick={() => setStep(s.id)} className="ml-auto bg-surface-2 hover:bg-surface-2 text-fg px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-hairline/50">{labels.update}</button>}
                             </div>
                         </div>

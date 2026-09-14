@@ -19,7 +19,12 @@ export const runtime = "edge";
  * redeployed keeps working.
  */
 
-const SOURCE_KINDS = ["shopify", "stripe", "lodgify", "eupago"];
+// Must match the worker's SourceKind (src/storage.ts): `buildAdapterCtx` loads
+// rules with the connection's own source_kind, so a Stripe Connect connection
+// looks for `stripe_connect` rows and nothing else. Leaving it out of this list
+// meant the page linked from the Connect settings could read rules but never
+// write one — the POST answered 400 for a source the UI already offered.
+const SOURCE_KINDS = ["shopify", "stripe", "stripe_connect", "lodgify", "eupago"];
 const DESTINATION_KINDS = ["invoicexpress", "moloni"];
 const DOC_TYPES = ["invoice", "invoice_receipt", "simplified_invoice"];
 const FINALIZE_MODES = ["finalize", "draft"];

@@ -233,12 +233,30 @@ export class IxBuilder {
   // sells exempt (art. 53, exports, reverse charge) and WRONG for one that just
   // failed to resolve its rate — see assertForcedRateApplied, which stops a
   // forced-rate line ever reaching this point at zero.
+  //
+  // A line worth NOTHING is not one of those cases. A discount code that takes
+  // a line to zero leaves it with no tax by arithmetic, not by exemption, and
+  // stamping the shop's generic code over it declares a fully taxed sale to be
+  // partly exempt: Soul Krave #1366 (14/09/2026) was 23% throughout, one line
+  // zeroed by a discount code, and the document went out saying M99. A discount
+  // reduces the taxable base; it does not create an exempt supply. So zero-value
+  // lines are ignored here — unless EVERY line is worth nothing, because then
+  // there is no positive line to carry the document and IX's 400 is the only
+  // thing left (one shop invoices zero-total orders on purpose).
   shouldRequestTaxExemptionReason(items: IxInvoice["items"]) {
-    return items.some(item =>
-      (typeof item.tax === "number"
-        ? item.tax
-        : item.tax.value) === 0
-    );
+    const rateOf = (item: IxInvoice["items"][number]) =>
+      typeof item.tax === "number" ? item.tax : item.tax.value;
+    // Net of its own discount percentage, in whole cents: the same value IX
+    // will compute for the line, so "worth nothing" means the same on both
+    // sides. Sub-cent residue counts as zero, as it does everywhere else here.
+    const cents = (item: IxInvoice["items"][number]) => {
+      const discount = Number((item as any).discount ?? 0);
+      const gross = Number(item.unit_price) * Number(item.quantity) * (1 - discount / 100);
+      return Number.isFinite(gross) ? Math.round(gross * 100) : 0;
+    };
+    const worthSomething = items.filter((item) => cents(item) !== 0);
+    if (worthSomething.length === 0) return items.some((item) => rateOf(item) === 0);
+    return worthSomething.some((item) => rateOf(item) === 0);
   }
 
   /**

@@ -5,6 +5,44 @@ que gera `src/lib/version.ts` e `src/lib/changelog.generated.ts` — o rodapé d
 `/changelog` saem daqui. O comentário `<!-- release: sha -->` marca o último commit incluído na
 versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
+## ✨ Version 8.9.0 — One language per client, for the screen and for the mail — September 14, 2026
+
+<!-- release: a2d6bf3 -->
+
+### Para o comerciante
+
+- O anúncio da campanha volta a aparecer na sessão seguinte se o fechares com "Agora não"; só o visto "Não mostrar novamente" o desliga de vez.
+- O anúncio da campanha está maior e ajusta-se ao ecrã, e volta a aparecer a quem o perdeu por ter carregado no botão em vez de na caixa "Não mostrar novamente".
+
+### Novo
+
+- **lang** — one language per client, for the screen and for the mail
+- **lang** — the subscription notices and the run-in check, in both languages
+- **lang** — every merchant email template, in both languages
+- **lang** — the reconciliation page speaks the reader's language
+- **referral** — let an invitee type the code a link could not carry
+- **ops** — a daily roll-up of who Rioko is refusing to invoice
+
+### Corrigido
+
+- **lodgify** — verify webhooks, refuse unsigned ones, and bill only through the poll
+- **lodgify** — a verified webhook only acknowledges; billing stays in the poll
+- **billing** — quote the price the checkout will charge, per pair
+- **lang** — say when the pill moved the screen and nothing else
+- **audit** — stop reporting deliberate scope as failure
+- **sweep** — finalize deferral no longer freezes a busy shop's last completed pass
+- **audit** — a rate the merchant typed is a decision, not a contradiction
+- **ix** — a deleted document no longer counts as "already invoiced"
+- **email** — the real wordmark, and a laptop that is not framed in white
+- **email** — night images with no transparency, because Outlook fills it black
+- **campaign** — "Agora não" lasts one sign-in, not forever
+- **campaign** — let the merchants the first version silenced back in, and grow the card
+- **newsletter** — the privacy link counts in English too
+
+### Documentação
+
+- **changelog** — v8.8.0 — Convida um amigo, newsletter e ficha de cliente
+
 ## ✨ Version 8.8.0 — Convida um amigo, newsletter e ficha de cliente — September 13, 2026
 
 <!-- release: 5ed9cba -->

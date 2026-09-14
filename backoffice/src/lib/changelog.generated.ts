@@ -20,6 +20,130 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+        "version": "8.9.0",
+        "emoji": "✨",
+        "title": "One language per client, for the screen and for the mail",
+        "date": "September 14, 2026",
+        "commit": "a2d6bf3",
+        "highlight": false,
+        "body": [
+            {
+                "t": "h",
+                "text": "Para o comerciante"
+            },
+            {
+                "t": "li",
+                "text": "O anúncio da campanha volta a aparecer na sessão seguinte se o fechares com \"Agora não\"; só o visto \"Não mostrar novamente\" o desliga de vez."
+            },
+            {
+                "t": "li",
+                "text": "O anúncio da campanha está maior e ajusta-se ao ecrã, e volta a aparecer a quem o perdeu por ter carregado no botão em vez de na caixa \"Não mostrar novamente\"."
+            },
+            {
+                "t": "h",
+                "text": "Novo"
+            },
+            {
+                "t": "li",
+                "text": "**lang** — one language per client, for the screen and for the mail"
+            },
+            {
+                "t": "li",
+                "text": "**lang** — the subscription notices and the run-in check, in both languages"
+            },
+            {
+                "t": "li",
+                "text": "**lang** — every merchant email template, in both languages"
+            },
+            {
+                "t": "li",
+                "text": "**lang** — the reconciliation page speaks the reader's language"
+            },
+            {
+                "t": "li",
+                "text": "**referral** — let an invitee type the code a link could not carry"
+            },
+            {
+                "t": "li",
+                "text": "**ops** — a daily roll-up of who Rioko is refusing to invoice"
+            },
+            {
+                "t": "h",
+                "text": "Corrigido"
+            },
+            {
+                "t": "li",
+                "text": "**lodgify** — verify webhooks, refuse unsigned ones, and bill only through the poll"
+            },
+            {
+                "t": "li",
+                "text": "**lodgify** — a verified webhook only acknowledges; billing stays in the poll"
+            },
+            {
+                "t": "li",
+                "text": "**billing** — quote the price the checkout will charge, per pair"
+            },
+            {
+                "t": "li",
+                "text": "**lang** — say when the pill moved the screen and nothing else"
+            },
+            {
+                "t": "li",
+                "text": "**audit** — stop reporting deliberate scope as failure"
+            },
+            {
+                "t": "li",
+                "text": "**sweep** — finalize deferral no longer freezes a busy shop's last completed pass"
+            },
+            {
+                "t": "li",
+                "text": "**audit** — a rate the merchant typed is a decision, not a contradiction"
+            },
+            {
+                "t": "li",
+                "text": "**ix** — a deleted document no longer counts as \"already invoiced\""
+            },
+            {
+                "t": "li",
+                "text": "**email** — the real wordmark, and a laptop that is not framed in white"
+            },
+            {
+                "t": "li",
+                "text": "**email** — night images with no transparency, because Outlook fills it black"
+            },
+            {
+                "t": "li",
+                "text": "**campaign** — \"Agora não\" lasts one sign-in, not forever"
+            },
+            {
+                "t": "li",
+                "text": "**campaign** — let the merchants the first version silenced back in, and grow the card"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — the privacy link counts in English too"
+            },
+            {
+                "t": "h",
+                "text": "Documentação"
+            },
+            {
+                "t": "li",
+                "text": "**changelog** — v8.8.0 — Convida um amigo, newsletter e ficha de cliente"
+            }
+        ],
+        "publicBody": [
+            {
+                "t": "li",
+                "text": "O anúncio da campanha volta a aparecer na sessão seguinte se o fechares com \"Agora não\"; só o visto \"Não mostrar novamente\" o desliga de vez."
+            },
+            {
+                "t": "li",
+                "text": "O anúncio da campanha está maior e ajusta-se ao ecrã, e volta a aparecer a quem o perdeu por ter carregado no botão em vez de na caixa \"Não mostrar novamente\"."
+            }
+        ]
+    },
+    {
         "version": "8.8.0",
         "emoji": "✨",
         "title": "Convida um amigo, newsletter e ficha de cliente",

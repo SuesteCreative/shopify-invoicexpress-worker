@@ -95,6 +95,9 @@ export function fillContactForTest(html: string, firstName: string): string {
  * to transactional mail (legalLinks()), not to a commercial email. What a
  * commercial email must carry is a working opt-out and an identifiable sender.
  */
+/** The privacy page, in either language it is served in. */
+const PRIVACY_LINK = /rioko\.online\/(?:pt|en)\/privacy/;
+
 export function requiredLegalOk(html: string): string | null {
     if (!html.includes("{{{RESEND_UNSUBSCRIBE_URL}}}")) {
         return "sem link de cancelamento: falta {{{RESEND_UNSUBSCRIBE_URL}}}";
@@ -102,7 +105,11 @@ export function requiredLegalOk(html: string): string | null {
     if (!html.includes(SENDER.NIF) || !html.includes(SENDER.COMPANY)) {
         return "sem identificação do remetente: falta a empresa ou o NIF";
     }
-    if (!html.includes("rioko.online/pt/privacy")) {
+    // Any locale of the page, not the Portuguese one. A campaign written for the
+    // clients whose record says English links them to /en/privacy, which is the
+    // same policy in the language they read it in — and this check refused to
+    // send it, saying the link was missing when it was there all along.
+    if (!PRIVACY_LINK.test(html)) {
         return "sem ligação à política de privacidade";
     }
     return null;

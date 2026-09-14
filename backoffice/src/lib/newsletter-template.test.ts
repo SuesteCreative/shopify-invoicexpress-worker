@@ -73,6 +73,19 @@ describe("requiredLegalOk", () => {
         const bare = fill(lawful).replace("https://rioko.online/pt/privacy", "#");
         expect(requiredLegalOk(bare)).toMatch(/privacidade/);
     });
+
+    it("takes the English page as the privacy link too", () => {
+        // A campaign for the clients whose record says English links them to the
+        // policy in the language they read it in. This check used to demand the
+        // Portuguese URL and refused the send, saying the link was missing.
+        const english = fill(lawful).replace("/pt/privacy", "/en/privacy");
+        expect(requiredLegalOk(english)).toBeNull();
+    });
+
+    it("does not take any other page for the policy", () => {
+        const elsewhere = fill(lawful).replace("/pt/privacy", "/pt/terms");
+        expect(requiredLegalOk(elsewhere)).toMatch(/privacidade/);
+    });
 });
 
 describe("unknownVars", () => {

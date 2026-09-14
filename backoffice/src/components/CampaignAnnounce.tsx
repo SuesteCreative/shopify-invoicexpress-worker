@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { campaignOpen } from "@/lib/referral";
+import { isCampaignDismissed, rememberCampaignClose } from "@/lib/campaign-dismissal";
 
 /**
  * The one announcement, on the way in.
@@ -16,17 +17,24 @@ import { campaignOpen } from "@/lib/referral";
  * to remove. After 31 October this renders nothing, everywhere, with no deploy —
  * it reads the same constant the server uses to refuse a claim.
  *
- * It comes back every browser session until "Não mostrar novamente" is ticked.
+ * It comes back on the next SIGN-IN until "Não mostrar novamente" is ticked.
  * Closing it any other way (the X, "Agora não", Esc, the backdrop, or following
- * the CTA or the terms) only puts it away until the browser closes, so the
+ * the CTA or the terms) only puts it away for the sign-in it is in, so the
  * terms page — which lives outside this layout — does not bring it straight back
- * on the way in again. That flag is a cookie with no expiry, not sessionStorage:
- * sessionStorage belongs to one tab, and Stripe's checkout returns in a new one,
- * where the pop-up opened again a second after the merchant paid. The permanent
- * flag is per user in localStorage, the
- * convention IntegrationSetupModal and the consent banner already use, which
- * makes it per BROWSER: a merchant on a second device sees it once more. For an
- * announcement with an expiry date that beats a column and a route.
+ * on the way in again.
+ *
+ * That temporary flag is keyed by Clerk's SESSION id, not by a browser session.
+ * A cookie with no expiry was the obvious way to say "until the browser closes"
+ * and it does not say it: Chrome and Edge restore session cookies along with the
+ * tabs, so one click on the X silenced the announcement for good on the default
+ * settings of most installs. sessionStorage is no better — it belongs to one
+ * tab, and Stripe's checkout returns in a new one. A sign-in is the boundary the
+ * merchant can actually see, and Clerk already numbers it.
+ *
+ * The permanent flag is per user in localStorage, the convention
+ * IntegrationSetupModal and the consent banner already use, which makes it per
+ * BROWSER: a merchant on a second device sees it once more. For an announcement
+ * with an expiry date that beats a column and a route.
  *
  * Never under impersonation. `useAuth()` returns the admin's id there, so it
  * would open on a client's dashboard and file the dismissal under the admin.
@@ -35,9 +43,6 @@ import { campaignOpen } from "@/lib/referral";
  * session is fine, one shown to an operator in a client's shoes is not.
  */
 
-const KEY_PREFIX = "rioko_campaign_dismissed:";
-/** A cookie name: no ":" allowed, unlike the localStorage key above. */
-const SESSION_COOKIE_PREFIX = "rioko_campaign_closed_";
 const BANNER = "/images/campanha-convites.png";
 
 /**
@@ -61,34 +66,32 @@ const CTA_BOX = { left: "5.1%", top: "78.4%", width: "15.4%", height: "7.4%" };
 
 export default function CampaignAnnounce() {
     const t = useTranslations("campaignAnnounce");
-    const { isLoaded, isSignedIn, userId } = useAuth();
+    const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
     const [open, setOpen] = useState(false);
     const [hasImage, setHasImage] = useState(true);
     const [dontShowAgain, setDontShowAgain] = useState(false);
 
     /**
      * Closing and silencing are different acts, and the tick is what separates
-     * them. Without it this comes back next session, which is what "reaparece
-     * até ser dispensado" means; with it, never again. Following the CTA or the
-     * terms is a close like any other: reading the terms is not a decision to
-     * stop hearing about the campaign.
+     * them. Without it this comes back on the next sign-in, which is what
+     * "reaparece até ser dispensado" means; with it, never again. Following the
+     * CTA or the terms is a close like any other: reading the terms is not a
+     * decision to stop hearing about the campaign.
      */
     const close = useCallback(() => {
         setOpen(false);
         if (!userId) return;
         try {
-            document.cookie = `${SESSION_COOKIE_PREFIX}${userId}=1; path=/; SameSite=Lax`;
-            if (dontShowAgain) localStorage.setItem(KEY_PREFIX + userId, "1");
+            rememberCampaignClose(localStorage, userId, sessionId, dontShowAgain);
         } catch { /* private mode: it comes back next load, which is survivable */ }
-    }, [dontShowAgain, userId]);
+    }, [dontShowAgain, userId, sessionId]);
 
     useEffect(() => {
         if (!isLoaded || !isSignedIn || !userId) return;
         if (!campaignOpen()) return;
         let dismissed = false;
         try {
-            dismissed = localStorage.getItem(KEY_PREFIX + userId) === "1"
-                || document.cookie.split("; ").includes(`${SESSION_COOKIE_PREFIX}${userId}=1`);
+            dismissed = isCampaignDismissed(localStorage, userId, sessionId);
         } catch { /* ignore */ }
         if (dismissed) return;
 
@@ -106,7 +109,7 @@ export default function CampaignAnnounce() {
             })
             .catch(() => { /* fail closed, see above */ });
         return () => { cancelled = true; clearTimeout(timer); };
-    }, [isLoaded, isSignedIn, userId]);
+    }, [isLoaded, isSignedIn, userId, sessionId]);
 
     useEffect(() => {
         if (!open) return;

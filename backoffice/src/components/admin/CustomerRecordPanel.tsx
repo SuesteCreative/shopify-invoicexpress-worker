@@ -6,11 +6,25 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
     IdCard, Copy, Check, X, Loader2, AlertTriangle, ExternalLink, Wrench, UserCog,
-    Building2, CreditCard, Zap, Scale, Receipt, ScrollText, Moon, Users, Gift, NotebookPen,
+    Building2, CreditCard, Zap, Scale, Receipt, ScrollText, Moon, Users, Gift, NotebookPen, Paperclip,
 } from "lucide-react";
 
 import { Section } from "@/components/admin/Section";
 import { MAX_POST_CHARS } from "@/lib/account-posts";
+import { MAX_FILE_BYTES, MAX_FILES_PER_POST } from "@/lib/account-file-types";
+
+/** Why an upload was refused, in words rather than in a code. */
+const FILE_ERRORS: Record<string, string> = {
+    too_large: "maior do que 10 MB",
+    too_many: "já tem ficheiros a mais",
+    empty: "ficheiro vazio",
+    unsupported_type: "tipo não aceite",
+    blob_not_configured: "armazenamento por configurar",
+};
+
+const humanSize = (n: number) => n >= 1024 * 1024
+    ? `${(n / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(n / 1024))} KB`;
 import { BillingInvoiceLink } from "@/components/admin/BillingInvoiceLink";
 import { connectionLabel } from "@/lib/connection-kinds";
 import { connectionKeyForScope, attributeDocumentEvent, groupByConnection } from "@/lib/client-record-sql";
@@ -891,6 +905,7 @@ function AccountWall({ code, userId, posts, onPosted }: { code: string; userId: 
     const [error, setError] = useState<string | null>(null);
     const [changes, setChanges] = useState<any[]>([]);
     const [withChanges, setWithChanges] = useState(true);
+    const [files, setFiles] = useState<File[]>([]);
 
     // Read live rather than copied into the wall at write time: a copy would go
     // stale the moment a setting is changed through any of the other routes that
@@ -908,6 +923,10 @@ function AccountWall({ code, userId, posts, onPosted }: { code: string; userId: 
         return () => { alive = false; };
     }, [userId]);
 
+    // The post is written first and the files hung off it afterwards, so a file
+    // that is refused loses the file and not what was typed. Each failure is
+    // named rather than collapsed into "upload failed": the reasons are things
+    // the operator can act on — too big, too many, a kind we will not store.
     const post = async () => {
         const body = draft.trim();
         if (!body) return;
@@ -920,8 +939,27 @@ function AccountWall({ code, userId, posts, onPosted }: { code: string; userId: 
             });
             const out: any = await res.json().catch(() => ({}));
             if (!res.ok) { setError(out?.error || `HTTP ${res.status}`); return; }
+
+            const failed: string[] = [];
+            for (const file of files) {
+                const form = new FormData();
+                form.append("post_id", out.id);
+                form.append("file", file);
+                const up = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}/files`, { method: "POST", body: form });
+                if (!up.ok) {
+                    const why: any = await up.json().catch(() => ({}));
+                    failed.push(`${file.name}: ${FILE_ERRORS[why?.error] ?? why?.error ?? up.status}`);
+                }
+            }
+            if (failed.length) setError(failed.join(" · "));
+
             setDraft("");
-            onPosted(out.posts ?? []);
+            setFiles([]);
+            // Re-read rather than trusting what the post returned: the files were
+            // attached after it was written, so its own response predates them.
+            const fresh: any = await fetch(`/api/admin/clientes/${encodeURIComponent(code)}/posts`)
+                .then((r) => r.json()).catch(() => null);
+            onPosted(fresh?.posts ?? out.posts ?? []);
         } catch (e: any) {
             setError(String(e));
         } finally {
@@ -969,15 +1007,49 @@ function AccountWall({ code, userId, posts, onPosted }: { code: string; userId: 
                         onChange={(e) => setDraft(e.target.value)}
                         placeholder="ex.: portes a 0% por decisão de 12/08; a série FT2026 foi comunicada em 14/09; a Matilde pediu que as faturas saiam em rascunho até fecharem o ano."
                     />
+                    {files.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                            {files.map((f, i) => (
+                                <span key={`${f.name}-${i}`}
+                                    className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface-2/60 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-fg-40">
+                                    <Paperclip className="w-3 h-3" />
+                                    <span className="normal-case tracking-normal font-medium text-fg">{f.name}</span>
+                                    <span>{humanSize(f.size)}</span>
+                                    <button type="button" aria-label="Remover" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                                        className="text-fg-40 hover:text-destructive"><X className="w-3 h-3" /></button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     <div className="flex items-start justify-between gap-4">
                         <p className="text-[10px] text-fg-40">
                             Não altera nenhum documento — o que o sistema aplica é a configuração acima. Vai anexado aos
                             diagnósticos de incidentes desta empresa, com emails e NIFs removidos.
                         </p>
-                        <button type="button" onClick={() => void post()} disabled={!draft.trim() || busy === "post"}
-                            className="shrink-0 inline-flex items-center gap-2 rounded-full bg-fg text-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-30">
-                            {busy === "post" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Publicar
-                        </button>
+                        <div className="shrink-0 flex items-center gap-2">
+                            <label className={`inline-flex items-center gap-2 rounded-full border border-hairline px-3 py-2 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:text-fg ${files.length >= MAX_FILES_PER_POST ? "opacity-30 pointer-events-none" : "text-fg-40"}`}>
+                                <Paperclip className="w-3 h-3" /> Anexar
+                                <input
+                                    type="file"
+                                    className="hidden"
+                                    multiple
+                                    accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.csv,.txt,.tsv,.xlsx,.xls"
+                                    onChange={(e) => {
+                                        const picked = Array.from(e.target.files ?? []);
+                                        // Caught here so the operator is told before the upload,
+                                        // and again on the server, which is the check that counts.
+                                        const tooBig = picked.filter((f) => f.size > MAX_FILE_BYTES).map((f) => f.name);
+                                        if (tooBig.length) setError(`${tooBig.join(", ")}: ${FILE_ERRORS.too_large}`);
+                                        setFiles((prev) => [...prev, ...picked.filter((f) => f.size <= MAX_FILE_BYTES)].slice(0, MAX_FILES_PER_POST));
+                                        e.target.value = "";
+                                    }}
+                                />
+                            </label>
+                            <button type="button" onClick={() => void post()} disabled={!draft.trim() || busy === "post"}
+                                className="inline-flex items-center gap-2 rounded-full bg-fg text-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-30">
+                                {busy === "post" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Publicar
+                            </button>
+                        </div>
                     </div>
                     {error && <p className="text-[10px] font-black uppercase tracking-widest text-destructive">{error}</p>}
                 </div>
@@ -999,6 +1071,30 @@ function AccountWall({ code, userId, posts, onPosted }: { code: string; userId: 
                                     </button>
                                 </div>
                                 <p className="text-sm text-fg font-medium leading-relaxed whitespace-pre-wrap break-words">{item.p.body}</p>
+                                {(item.p.files ?? []).length > 0 && (
+                                    <div className="flex flex-wrap gap-3 pt-1">
+                                        {(item.p.files as any[]).map((f) => {
+                                            const href = `/api/admin/clientes/${encodeURIComponent(code)}/files?id=${encodeURIComponent(f.id)}`;
+                                            // Images render; everything else is a link that downloads.
+                                            // Which of the two is decided by the type the UPLOAD
+                                            // verified, never by the file's name.
+                                            return String(f.content_type ?? "").startsWith("image/") ? (
+                                                <a key={f.id} href={href} target="_blank" rel="noopener noreferrer" title={f.filename}>
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={href} alt={f.filename}
+                                                        className="h-28 w-auto rounded-xl border border-hairline object-cover" />
+                                                </a>
+                                            ) : (
+                                                <a key={f.id} href={href} target="_blank" rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-fg-40 hover:text-fg">
+                                                    <Paperclip className="w-3 h-3" />
+                                                    <span className="normal-case tracking-normal font-medium text-fg">{f.filename}</span>
+                                                    <span>{humanSize(Number(f.size_bytes ?? 0))}</span>
+                                                </a>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div key={item.c.id} className="flex items-start gap-3 px-4 py-1.5 text-[11px] text-fg-40">

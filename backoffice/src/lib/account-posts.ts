@@ -1,4 +1,5 @@
 import { auditConfigChange } from "./config-audit";
+import { listPostFiles, deleteFilesOfPost } from "./account-files";
 
 /**
  * The account wall: what the operator knows about a company, posted rather than
@@ -34,7 +35,12 @@ export async function listAccountPosts(db: any, accountId: string, limit = 100) 
       ORDER BY p.created_at DESC, p.rowid DESC
       LIMIT ?`,
   ).bind(accountId, limit).all().catch(() => ({ results: [] }));
-  return (rows.results ?? []) as any[];
+
+  // Attachments in one extra query rather than one per post: a wall with twenty
+  // posts would otherwise be twenty-one round trips to render.
+  const posts = (rows.results ?? []) as any[];
+  const files = await listPostFiles(db, posts.map((p) => p.id));
+  return posts.map((p) => ({ ...p, files: files.get(p.id) ?? [] }));
 }
 
 /**
@@ -79,6 +85,7 @@ export async function createAccountPost(
 export async function deleteAccountPost(
   db: any,
   { accountId, actor, postId }: { accountId: string; actor: string; postId: string },
+  env?: any,
 ): Promise<boolean> {
   const prior: any = await db.prepare(
     `SELECT body FROM account_posts WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
@@ -90,6 +97,11 @@ export async function deleteAccountPost(
         SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ?
       WHERE id = ? AND user_id = ?`,
   ).bind(actor, postId, accountId).run();
+
+  // The post's text survives in the audit trail; its files do NOT survive
+  // anywhere. A sentence somebody wrote is a record worth keeping; a client's
+  // document kept after it was removed is a liability, not an audit trail.
+  if (env) await deleteFilesOfPost(db, env, { accountId, actor, postId });
 
   await auditConfigChange(db, {
     userId: accountId,

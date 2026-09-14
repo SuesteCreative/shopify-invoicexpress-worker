@@ -17,6 +17,12 @@ function harness() {
             id TEXT PRIMARY KEY, user_id TEXT NOT NULL, author TEXT, body TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, deleted_by TEXT
         );
+        CREATE TABLE account_post_files (
+            id TEXT PRIMARY KEY, post_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            pathname TEXT NOT NULL, filename TEXT NOT NULL, content_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TEXT, deleted_by TEXT
+        );
         CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, email TEXT);
         CREATE TABLE config_audit (
             id TEXT PRIMARY KEY, user_id TEXT, actor TEXT, scope TEXT, field TEXT,

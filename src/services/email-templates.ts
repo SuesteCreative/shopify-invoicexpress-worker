@@ -10,6 +10,7 @@
  *   body card for readability. Blue (#38bdf8) and purple (#a855f7) accents
  *   pulled from globals.css.
  */
+import { prettyConnectionLabel } from "./platform-names";
 
 export type IncidentKind =
   // We created the document and the destination stored something else — a total,
@@ -76,6 +77,10 @@ export type Severity = "info" | "warning" | "error" | "critical";
 
 export interface IncidentTemplateInput {
   merchantName?: string;
+  /** Account number, e.g. "RIO-D97EC7" (migration 0058). Printed beside the
+   *  name, never instead of it: a person reads the company and quotes the
+   *  number. */
+  clientCode?: string;
   connectionLabel?: string;            // e.g. "Stripe → InvoiceXpress"
   /** Human order reference, e.g. "#1234" (shown above the technical id). */
   orderRef?: string;
@@ -433,6 +438,26 @@ function severityLabel(s: Severity | undefined): string {
 // Layout primitives
 // ──────────────────────────────────────────────────────────────────────────
 
+/**
+ * The "who is this about" line under an email title.
+ *
+ * Name first, account number second — the number is a complement, never the
+ * identification. Empty when neither is known, which is deliberate: a header
+ * with no line beats a header that says "User".
+ */
+function merchantLineHtml(name?: string, code?: string): string {
+  const parts: string[] = [];
+  if (name && name.trim()) parts.push(escapeHtml(name.trim()));
+  if (code && code.trim()) {
+    parts.push(`<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px">${escapeHtml(code.trim())}</span>`);
+  }
+  if (parts.length === 0) return "";
+  return `
+    <p style="margin:6px 0 0;color:${P().muted};font-size:13px">
+      ${parts.join(" · ")}
+    </p>`;
+}
+
 function shell(opts: {
   title: string;
   severity?: Severity;
@@ -441,6 +466,8 @@ function shell(opts: {
   helpUrl: string;
   dashboardUrl: string;
   merchantName?: string;
+  /** Account number, e.g. "RIO-D97EC7". Rendered beside the name. */
+  clientCode?: string;
   connectionLabel?: string;
   /** Incident meta. Absent for emails that are not about a recurring problem
    *  (an account invite, say) — the meta row is then not rendered at all. */
@@ -461,17 +488,16 @@ function shell(opts: {
       ${opts.occurrences}× ${T("ocorrências", "occurrences")}
     </span>` : "";
 
-  const connectionChip = opts.connectionLabel ? `
+  // Callers pass the raw kinds ("lodgify → moloni"); the chip spells them.
+  const connectionLabel = prettyConnectionLabel(opts.connectionLabel);
+  const connectionChip = connectionLabel ? `
     <div style="margin-top:8px">
       <span style="display:inline-block;background:${P().headerChipBg};border:1px solid ${P().headerChipBorder};color:${P().headerChipText};font-size:12px;font-weight:500;padding:4px 10px;border-radius:${P().monoChipRadius};font-family:ui-monospace,SFMono-Regular,Menlo,monospace">
-        ${escapeHtml(opts.connectionLabel)}
+        ${escapeHtml(connectionLabel)}
       </span>
     </div>` : "";
 
-  const merchantLine = opts.merchantName ? `
-    <p style="margin:6px 0 0;color:${P().muted};font-size:13px">
-      ${escapeHtml(opts.merchantName)}
-    </p>` : "";
+  const merchantLine = merchantLineHtml(opts.merchantName, opts.clientCode);
 
   return `<!doctype html>
 <html lang="${lang() === "en" ? "en" : "pt-PT"}">
@@ -707,6 +733,7 @@ function baseInput(input: IncidentTemplateInput) {
     helpUrl: input.helpUrl ?? DEFAULT_HELP_URL,
     dashboardUrl: input.dashboardUrl ?? DEFAULT_DASHBOARD,
     merchantName: input.merchantName,
+    clientCode: input.clientCode,
     connectionLabel: input.connectionLabel,
     firstSeenAt: input.firstSeenAt,
     lastSeenAt: input.lastSeenAt,
@@ -1302,6 +1329,13 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
 export interface QuotaEmailInput {
   kind: "warning" | "reached";
   merchantName: string;
+  /** Account number, e.g. "RIO-D97EC7". Shown in the footer line, not in the
+   *  subject — the subject is read by the merchant, who knows who they are. */
+  clientCode?: string;
+  /** The platforms this account actually invoices through, e.g.
+   *  "Shopify · Stripe → InvoiceXpress". Omitted when none is known: the limit
+   *  belongs to the account, and naming the wrong pipe is worse than naming none. */
+  connectionLabel?: string;
   ixAccount: string;
   periodStart: string;          // "DD/MM/YYYY"
   periodEnd: string;
@@ -1404,7 +1438,7 @@ export function renderQuotaEmail(input: QuotaEmailInput): RenderedTemplate {
         <td valign="middle"><img src="${P().logoUrl}" alt="Rioko 2.0" width="${P().logoWidth}" style="display:block;border:0;max-width:${P().logoWidth}px;height:auto"></td>
         <td valign="middle" align="right"><span style="display:inline-block;background:${accent};color:#1a1206;font-size:11px;font-weight:700;letter-spacing:0.5px;padding:4px 11px;border-radius:12px"><font color="#1a1206">${chip}</font></span></td></tr></table>
       <div style="margin-top:20px"><h1 class="f-white" style="margin:0;color:${P().textStrong};font-size:22px;font-weight:600;letter-spacing:-0.3px;line-height:1.3"><span style="color:${P().textStrong}">${escapeHtml(title)}</span></h1>
-        <p class="f-muted" style="margin:6px 0 0;color:${P().muted};font-size:13px"><font color="${P().muted}">${escapeHtml(input.merchantName)} · Shopify → InvoiceXpress</font></p></div>
+        <p class="f-muted" style="margin:6px 0 0;color:${P().muted};font-size:13px"><font color="${P().muted}">${[input.merchantName, input.clientCode, input.connectionLabel].filter(Boolean).map((s) => escapeHtml(String(s))).join(" · ")}</font></p></div>
       <div style="height:3px;width:100%;background-color:${P().blue};background-image:linear-gradient(90deg, ${P().blue}, ${P().purple});margin-top:24px"></div></td></tr>
     <tr><td class="card-bg" bgcolor="${P().cardBg}" style="background-color:${P().cardBg};padding:32px">${body}</td></tr>
     <tr><td class="footer-bg" bgcolor="${P().cardBgAlt}" style="background-color:${P().cardBgAlt};padding:24px 32px;border-top:1px solid ${P().border};text-align:center">
@@ -1430,13 +1464,14 @@ export interface DigestIncident {
 
 export function tplDigest(input: {
   merchantName?: string;
+  clientCode?: string;
   incidents: DigestIncident[];
   helpUrl?: string;
   dashboardUrl?: string;
 }): RenderedTemplate {
   const helpUrl = input.helpUrl ?? DEFAULT_HELP_URL;
   const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
-  const merchant = input.merchantName ? `<p style="margin:6px 0 0;color:${P().muted};font-size:13px">${escapeHtml(input.merchantName)}</p>` : "";
+  const merchant = merchantLineHtml(input.merchantName, input.clientCode);
 
   const rows = input.incidents.map(i => {
     const sevColor = severityColor(i.severity);
@@ -1578,6 +1613,7 @@ export interface WeeklyUnprocessedItem {
  */
 export function tplWeeklyUnprocessed(input: {
   merchantName?: string;
+  clientCode?: string;
   items: WeeklyUnprocessedItem[];
   totalMissing: number;
   /** Refunds whose credit note failed. Listed apart — the sale IS invoiced, so
@@ -1589,9 +1625,7 @@ export function tplWeeklyUnprocessed(input: {
 }): RenderedTemplate {
   const helpUrl = input.helpUrl ?? DEFAULT_HELP_URL;
   const dashboardUrl = input.dashboardUrl ?? DEFAULT_DASHBOARD;
-  const merchant = input.merchantName
-    ? `<p style="margin:6px 0 0;color:${P().muted};font-size:13px">${escapeHtml(input.merchantName)}</p>`
-    : "";
+  const merchant = merchantLineHtml(input.merchantName, input.clientCode);
 
   const renderRows = (items: WeeklyUnprocessedItem[]) => items.map((it) => {
     const sevColor = severityColor(it.severity);

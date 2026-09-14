@@ -3,6 +3,7 @@ import { sendEmail } from "./email";
 import { loadInactiveUserIds } from "./inactive-accounts";
 import { legalLinks, renderInLang, T, lang } from "./email-templates";
 import { getUserLanguage } from "./user-language";
+import { REAL_NAME_SQL } from "./account-label";
 
 // Internal address always copied on renewal reminders so Kapta can follow up.
 const OPS_EMAIL = "pedro@kapta.pt";
@@ -187,7 +188,9 @@ export async function runEarlyBirdEndingReminders(
   const rows = await env.DB.prepare(
     `SELECT s.user_id,
             COALESCE(NULLIF(TRIM(s.email), ''), u.email)                          AS email,
-            COALESCE(NULLIF(TRIM(s.name), ''), u.admin_label, u.name, u.company_name) AS name,
+            -- "User" is the Clerk placeholder, and a greeting that reads "User,"
+            -- is worse than the generic "Olá," this falls back to.
+            COALESCE(NULLIF(TRIM(s.name), ''), u.admin_label, ${REAL_NAME_SQL("u")}, u.company_name) AS name,
             s.plan,
             s.trial_end                                                            AS current_period_end,
             s.early_bird_reminder_sent_for                                         AS marker

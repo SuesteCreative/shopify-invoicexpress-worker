@@ -9,6 +9,7 @@ import { redactIncident, diagnoseIncident, summarizeIncidentPatterns, type Incid
 import { getCompanyRulesNotes } from "./company-rules";
 import { redactSecrets, redactDeep } from "./redact";
 import { isInactiveAccount } from "./inactive-accounts";
+import { resolveAccountIdentity, type AccountIdentity } from "./account-label";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -362,7 +363,7 @@ async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: st
     return;
   }
 
-  const merchantName = input.merchant_name ?? await resolveMerchantName(env, input.user_id);
+  const merchant = await resolveMerchantIdentity(env, input.user_id, input.merchant_name);
 
   // Optional, advisory AI triage. Fail-open: any failure => undefined => the email
   // renders exactly as before (static "Causa provável" only). Only order-level kinds,
@@ -381,7 +382,8 @@ async function emailIncident(env: Env, input: ReportIncidentInput, bucketKey: st
   }
 
   const tpl = renderIncidentTemplate(input.kind, {
-    merchantName,
+    merchantName: merchant?.label,
+    clientCode: merchant?.code,
     connectionLabel: input.connection_label,
     occurrences: 1,
     firstSeenAt,
@@ -547,14 +549,27 @@ export async function resolveMerchantEmails(env: Env, userId?: string | null): P
   }
 }
 
-async function resolveMerchantName(env: Env, userId?: string | null): Promise<string | undefined> {
-  if (!userId) return undefined;
-  try {
-    const row: any = await env.DB.prepare("SELECT name FROM users WHERE id = ?").bind(userId).first();
-    return row?.name ?? undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * The line under the title of every alert email: who this is about.
+ *
+ * It used to read `users.name` and nothing else, so an account whose name the
+ * Clerk webhook had defaulted to "User" — the company name sitting one column
+ * over, unread — announced itself as "User" in every incident, digest and
+ * weekly report it produced. The precedence, the placeholder and the account
+ * number all live in ./account-label now.
+ *
+ * `override` is the caller's own label (the sweep already resolved one for its
+ * report); the number is always looked up, because a caller that knows the name
+ * still does not know the number.
+ */
+async function resolveMerchantIdentity(
+  env: Env,
+  userId?: string | null,
+  override?: string,
+): Promise<AccountIdentity | undefined> {
+  const id = await resolveAccountIdentity(env, userId);
+  if (!override) return id;
+  return { label: override, code: id?.code };
 }
 
 function parseEmailList(s: string | undefined): string[] {
@@ -696,12 +711,13 @@ export async function runIncidentDigest(env: Env): Promise<{ digestsSent: number
     const recipients = userId ? await resolveMerchantEmails(env, userId) : parseEmailList(env.KAPTA_DEV_EMAILS);
     if (recipients.length === 0) continue;
 
-    const merchantName = userId ? await resolveMerchantName(env, userId) : "Kapta team";
+    const merchant = userId ? await resolveMerchantIdentity(env, userId) : { label: "Kapta team" };
     const { tplDigest } = await import("./email-templates");
     const theme = userId ? await getUserTheme(env, userId) : "night";
     const language = await getUserLanguage(env, userId);
     const tpl = renderInLang(language, () => renderInTheme(theme, () => tplDigest({
-      merchantName,
+      merchantName: merchant?.label,
+      clientCode: merchant?.code,
       incidents: incidents.map(i => ({
         kind: i.kind,
         summary: i.summary,
@@ -1034,20 +1050,20 @@ export async function runWeeklyMerchantDigest(env: Env, opts: { dryRun?: boolean
     }
     const creditCount = uniqueCredits.size + creditAccountLevel;
 
-    const merchantName = await resolveMerchantName(env, userId);
+    const merchant = await resolveMerchantIdentity(env, userId);
     // Both read before the render: `renderInLang` and `renderInTheme` are
     // synchronous by contract — an await inside either callback is what would
     // let another request see this one's language.
     const weeklyTheme = await getUserTheme(env, userId);
     const weeklyLang = await getUserLanguage(env, userId);
     const tpl = renderInLang(weeklyLang, () => renderInTheme(weeklyTheme, () =>
-      tplWeeklyUnprocessed({ merchantName, items, totalMissing: missingCount, creditItems, totalCreditMissing: creditCount })));
+      tplWeeklyUnprocessed({ merchantName: merchant?.label, clientCode: merchant?.code, items, totalMissing: missingCount, creditItems, totalCreditMissing: creditCount })));
 
     // Dry-run: record what WOULD be sent, send nothing.
     if (opts.dryRun) {
-      // resolveMerchantName returns undefined for a user with no registered
-      // label; the preview row wants a displayable string.
-      preview!.push({ userId, merchantName: merchantName ?? userId, recipients, missingCount, subject: tpl.subject });
+      // The identity is undefined for a user with no registered label; the
+      // preview row wants a displayable string.
+      preview!.push({ userId, merchantName: merchant?.label || userId, recipients, missingCount, subject: tpl.subject });
       merchantsNotified++;
       totalMissing += missingCount;
       totalCreditMissing += creditCount;

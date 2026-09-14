@@ -4,6 +4,7 @@ import { sendEmail } from "./email";
 import { loadInactiveUserIds } from "./inactive-accounts";
 import { legalLinks, renderInLang, T, lang } from "./email-templates";
 import { getUserLanguage } from "./user-language";
+import { REAL_NAME_SQL } from "./account-label";
 
 // Internal address copied on every send so Kapta sees exactly what the
 // merchant saw, in the same thread they may reply to.
@@ -187,7 +188,8 @@ export async function runSubscriptionPausedNotices(
   const rows = await env.DB.prepare(
     `SELECT u.id                                                                      AS user_id,
             COALESCE(NULLIF(TRIM(s.email), ''), u.email)                              AS email,
-            COALESCE(NULLIF(TRIM(s.name), ''), u.admin_label, u.company_name, u.name) AS name,
+            -- "User" is the Clerk placeholder, never a greeting. See ./account-label.
+            COALESCE(NULLIF(TRIM(s.name), ''), u.admin_label, u.company_name, ${REAL_NAME_SQL("u")}) AS name,
             s.status                                                                  AS status,
             s.paused_notice_sent_at                                                   AS marker,
             CASE WHEN s.user_id IS NULL THEN 0 ELSE 1 END                             AS has_sub_row,

@@ -1,5 +1,6 @@
 import { Env } from "./env";
 import { redactDeep } from "./services/redact";
+import { accountName } from "./services/account-label";
 
 export interface IRequestConfig {
   id: string | null;
@@ -321,11 +322,12 @@ export class AppStorage {
 
   /**
    * Resolve human-facing merchant names for a set of user_ids in one query.
-   * Priority: `admin_label` (superadmin override) → `company_name` → `name`.
-   * Returns a Map<user_id, displayName>; callers fall back to the store domain
-   * for any id absent from the map. Used by the reconciliation sweep + incident
-   * emails so reports read "Salted Books" / "Zoo de Lagos" instead of the raw
-   * `*.myshopify.com` slug.
+   * Priority lives in `services/account-label` — one precedence for the whole
+   * worker, and the one place that knows "User" is a Clerk placeholder and not
+   * a name. Returns a Map<user_id, displayName>; callers fall back to the store
+   * domain for any id absent from the map. Used by the reconciliation sweep +
+   * incident emails so reports read "Salted Books" / "Zoo de Lagos" instead of
+   * the raw `*.myshopify.com` slug.
    */
   async getMerchantDisplayNames(userIds: Array<string | null | undefined>): Promise<Map<string, string>> {
     const ids = [...new Set(userIds.filter((x): x is string => !!x))];
@@ -336,10 +338,10 @@ export class AppStorage {
       `SELECT id, name, company_name, admin_label FROM users WHERE id IN (${placeholders})`
     ).bind(...ids).all();
     for (const r of ((res.results as any[]) ?? [])) {
-      const label =
-        (r.admin_label && String(r.admin_label).trim())
-        || (r.company_name && String(r.company_name).trim())
-        || (r.name && String(r.name).trim());
+      // accountName, not accountLabel: an id absent from the map means "nothing
+      // registered", which is what lets callers substitute the shop domain
+      // rather than print an email address.
+      const label = accountName(r);
       if (label) out.set(String(r.id), label);
     }
     return out;

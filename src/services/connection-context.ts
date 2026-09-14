@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
+import { prettyConnectionLabel } from "./platform-names";
 
 /**
  * Everything an operation on a merchant's connection needs, resolved once from
@@ -93,7 +94,10 @@ function parseJson(s: string | null | undefined): Record<string, any> {
 }
 
 export function connectionLabelOf(source: string, destination: string): string {
-  return `${source} → ${destination}`;
+  // Spelled, not raw: this label is shown to people — in the chip under an
+  // alert's title, in "A sua integração X" — and `stripe_connect → moloni` is
+  // an identifier, not a name. See ./platform-names.
+  return prettyConnectionLabel(`${source} → ${destination}`)!;
 }
 
 /**

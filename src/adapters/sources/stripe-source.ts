@@ -266,7 +266,13 @@ async function fetchRicherTaxSource(
   // A subscription or invoiced payment: the invoice has the lines and their
   // per-line tax, which is richer than anything the session would give us.
   if (invoiceId) {
-    const inv = await get(`https://api.stripe.com/v1/invoices/${encodeURIComponent(invoiceId)}`);
+    // `price.product` expanded so a caller can reach the merchant's own name for
+    // what was sold. The line's own `description` is Stripe's rendering of it —
+    // "1 × Box de 2,5 m² (at €80.00 / month)" — which is not what belongs on a
+    // fiscal document. Costs nothing to the callers that ignore it.
+    const inv = await get(
+      `https://api.stripe.com/v1/invoices/${encodeURIComponent(invoiceId)}?expand[]=lines.data.price.product`,
+    );
     if (inv?.id) return { type: "invoice.paid", data: { object: inv } };
   }
 
@@ -1357,6 +1363,7 @@ export class StripeSource implements SourceAdapter {
     // the same sale, and the safe answer is to keep what we had.
     const wantsHints = ctx.config?.stripe_routing_hints === 1;
     const wantsTax = ctx.config?.stripe_tax_from_source === 1 && !carriesTax(normalized);
+    const wantsNames = Number(ctx.config?.stripe_line_names_from_product) === 1;
     const piId = isPI ? String(obj?.id ?? "") : String(obj?.payment_intent ?? "");
     const invoiceId = obj?.invoice ? String(obj.invoice) : (charge?.invoice ? String(charge.invoice) : null);
 
@@ -1364,7 +1371,7 @@ export class StripeSource implements SourceAdapter {
     // richer object behind a PaymentIntent, and asking Stripe twice for the same
     // session would double the calls on every payment for no new information.
     const lookupStatus = { failed: false };
-    const lookupRan = restrictedKey != null && restrictedKey !== "" && (isPI || isCharge) && (wantsTax || wantsHints);
+    const lookupRan = restrictedKey != null && restrictedKey !== "" && (isPI || isCharge) && (wantsTax || wantsHints || wantsNames);
     const richerEvent = lookupRan
       ? await fetchRicherTaxSource(piId, invoiceId, restrictedKey!, lookupStatus, connectAccount)
       : null;
@@ -1385,6 +1392,51 @@ export class StripeSource implements SourceAdapter {
           console.log(`[Stripe] ${piId || invoiceId}: VAT read from ${richerEvent!.type}`);
         } else {
           console.warn(`[Stripe] ${piId || invoiceId}: ignoring ${richerEvent!.type} — it totals ${found} and the payment was ${paid}`);
+        }
+      }
+    }
+
+    // The merchant's own name for what was sold.
+    //
+    // A PaymentIntent and a charge carry no product, so the line is titled from
+    // `pi.description` — Stripe's own wording for why the charge happened:
+    // "Subscription update", "Subscription creation". That is what the buyer
+    // then reads on their invoice. The merchant's words are one hop away, on the
+    // Product behind the Stripe invoice line: "Box de 2,5 m²", with the sales
+    // description under it. Bestisafil's previous integrator put exactly that on
+    // every document, and the change was visible to their customers before it
+    // was visible to us.
+    //
+    // WORDS ONLY. Amount, quantity, tax and the dedup reference all stay as the
+    // payment stated them, so this cannot move money, retax a line or split a
+    // sale. The line's own `description` is deliberately not used: Stripe
+    // renders it as "1 × Box de 2,5 m² (at €80.00 / month)", which states a
+    // price and a period that the document states properly elsewhere.
+    //
+    // ponytail: single-line invoices only, and only when the one line agrees
+    // with what was paid. A multi-line invoice needs the lines themselves —
+    // amounts included — which is `stripe_tax_from_source`'s job; that path is
+    // gated on the invoice carrying tax, which an exempt merchant never does.
+    // Widen there, not here, the day one payment buys two different things.
+    if (wantsNames && richerEvent?.type === "invoice.paid") {
+      const lines = richerEvent.data?.object?.lines?.data;
+      const items = normalized.order.items ?? [];
+      if (Array.isArray(lines) && lines.length === 1 && items.length === 1) {
+        const product = lines[0]?.price?.product;
+        const productName = typeof product?.name === "string" ? product.name.trim() : "";
+        const lineTotal = Number(lines[0]?.amount) / 100;
+        const paid = Number(normalized.order.total);
+        if (productName && Number.isFinite(paid) && Math.abs(lineTotal - paid) <= 0.01) {
+          // The title, and nothing else. `sku` keeps the payment id, which is
+          // what makes a line traceable back to the money — and it is the only
+          // field the IX builder has for a description, where it lands prefixed
+          // "SKU: ". The Product's sales description would need a normalized
+          // field of its own and a change to a builder every destination shares;
+          // it is a paragraph of marketing copy, not a fiscal requirement.
+          items[0].title = productName;
+          console.log(`[Stripe] ${piId || invoiceId}: line titled "${productName}" from the Stripe product`);
+        } else if (productName) {
+          console.warn(`[Stripe] ${piId || invoiceId}: ignoring product name — the line totals ${lineTotal} and the payment was ${paid}`);
         }
       }
     }

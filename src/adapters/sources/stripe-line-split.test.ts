@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseLineSplit, parseDescriptionItems, solveBaseCents, splitStripePayment,
 } from "./stripe-line-split";
+import { StripeSource } from "./stripe-source";
 
 const RECIPE = JSON.stringify({
   base: { sku: "ELF-UNI", rate: 0 },
@@ -154,5 +155,53 @@ describe("splitStripePayment", () => {
       const lines = splitStripePayment(total, "Inscrição Sábados Lá Fora - Sessão (x1)", cfg);
       if (lines) expect(lines.reduce((s, l) => s + l.grossCents, 0)).toBe(total);
     }
+  });
+});
+
+describe("StripeSource emits the split as NET price + tax amount", () => {
+  it("gives the fee line a rate the destination will actually honour", async () => {
+    // The bug this pins: the first document Rioko issued for this merchant came
+    // out with the processing fee at "isento M07" instead of 23 %, because the
+    // lines were emitted GROSS with tax.unit_amount left at 0 — and every
+    // destination reads that zero as "the source stated no rate", falling through
+    // to the connection's default of 0. Price and tax amount are one contract.
+    const event = {
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_3UFVmyBp3wyQk8MN0AdXDzRK",
+          status: "succeeded",
+          amount_received: 6115,
+          currency: "eur",
+          created: 1_789_000_000,
+          description: "Inscrição Sessões Experimentais / Avulsas - Sessão Avulsa (x1)",
+        },
+      },
+    };
+    const normalized = await new StripeSource().toNormalized(event, { config: { stripe_line_split: RECIPE } } as any);
+    const items = normalized!.order.items;
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ sku: "ELF-UNI", quantity: 1, unit_price: 60 });
+    expect(items[0].tax).toMatchObject({ value: 0, unit_amount: 0 });
+
+    expect(items[1]).toMatchObject({ sku: "ELF-TAXA", quantity: 1 });
+    expect(items[1].tax.value).toBe(23);
+    // Net 0,935 + 0,215 of VAT = the 1,15 that was charged.
+    expect(items[1].unit_price).toBeCloseTo(0.935, 4);
+    expect(items[1].tax.unit_amount).toBeCloseTo(0.215, 4);
+
+    // The whole point: net + VAT, summed, is the money received.
+    const gross = items.reduce((s, it: any) => s + (it.unit_price * (1 + it.tax.value / 100)) * it.quantity, 0);
+    expect(gross).toBeCloseTo(61.15, 2);
+  });
+
+  it("leaves a payment alone when the connection declared no recipe", async () => {
+    const event = {
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_x", status: "succeeded", amount_received: 6115, currency: "eur", created: 1, description: "Seja o que for (x1)" } },
+    };
+    const normalized = await new StripeSource().toNormalized(event, { config: {} } as any);
+    expect(normalized!.order.items).toHaveLength(1);
   });
 });

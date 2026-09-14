@@ -1505,22 +1505,32 @@ export class StripeSource implements SourceAdapter {
       const totalCents = Math.round(Number(normalized.order.total) * 100);
       const lines = splitStripePayment(totalCents, String(items[0].title ?? ""), split);
       if (lines) {
-        normalized.order.items = lines.map((l, idx) => ({
-          ...items[0],
-          id: idx + 1,
-          quantity: l.qty,
-          // GROSS per unit, with tax.unit_amount left at 0: that pair is the
-          // contract the Moloni adapter reads as "back the net out of this at
-          // the connection's VAT-inclusive prices".
-          unit_price: Math.round((l.grossCents / l.qty) * 100) / 10000,
-          unit_price_calculated: Math.round((l.grossCents / l.qty) * 100) / 10000,
-          subtotal_calculated: Math.round((l.grossCents / l.qty) * 100) / 10000,
-          tax: { name: "VAT", value: l.rate, unit_amount: 0 },
-          discount: { name: "", percent: 0 },
-          title: l.title,
-          variant_title: null,
-          sku: l.sku,
-        }));
+        normalized.order.items = lines.map((l, idx) => {
+          // NET unit price plus the tax it carries — the same pair the Checkout
+          // Session shape emits, and the one every destination already reads.
+          //
+          // It has to be this pair and not "gross with no tax amount": the
+          // destinations treat `tax.unit_amount === 0` as "the source stated no
+          // rate at all" and fall through to the connection's default, which is
+          // how the fee line on the first document came out exempt instead of at
+          // 23 %. The two signals are one contract, not two.
+          const round4 = (n: number) => Math.round(n * 10000) / 10000;
+          const grossUnit = l.grossCents / l.qty / 100;
+          const netUnit = l.rate > 0 ? grossUnit / (1 + l.rate / 100) : grossUnit;
+          return {
+            ...items[0],
+            id: idx + 1,
+            quantity: l.qty,
+            unit_price: round4(netUnit),
+            unit_price_calculated: round4(netUnit),
+            subtotal_calculated: round4(netUnit),
+            tax: { name: "VAT", value: l.rate, unit_amount: l.rate > 0 ? round4(grossUnit - netUnit) : 0 },
+            discount: { name: "", percent: 0 },
+            title: l.title,
+            variant_title: null,
+            sku: l.sku,
+          };
+        });
         console.log(`[Stripe] ${normalized.order.reference}: split into ${lines.length} line(s) — `
           + lines.map((l) => `${l.sku} ${(l.grossCents / 100).toFixed(2)}@${l.rate}%`).join(", "));
       } else {

@@ -194,6 +194,9 @@ export function ClientRulesPanel() {
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, unknown>>({});
+  // Kept apart from `drafts`, which is keyed per field and saved on blur.
+  // A post is only written when the button is pressed.
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -280,9 +283,16 @@ export function ClientRulesPanel() {
     }
   };
 
+  // Appends to the company's wall. The row keeps only the LATEST post for
+  // display, so what lands in state is the text just published.
   const saveNotes = async (client: Client, notes: string) => {
-    const ok = await patch(draftKey(client.id, "notes", "notes"), { targetUserId: client.id, notes });
-    if (ok) setClients((prev) => prev.map((c) => c.id === client.id ? { ...c, notes } : c));
+    const body = notes.trim();
+    if (!body) return;
+    const ok = await patch(draftKey(client.id, "notes", "notes"), { targetUserId: client.id, notes: body });
+    if (ok) {
+      setClients((prev) => prev.map((c) => c.id === client.id ? { ...c, notes: body } : c));
+      setNoteDrafts((d) => ({ ...d, [client.id]: "" }));
+    }
   };
 
   const filtered = useMemo(() => {
@@ -478,13 +488,33 @@ export function ClientRulesPanel() {
                         <NotebookPen className="w-3 h-3 text-accent-ink" /> {t("notesTitle")}
                       </h3>
                       <p className="text-[11px] text-fg-40 mb-3">{t("notesHelp")}</p>
+                      {/* The latest post, read-only. The whole wall lives on the
+                          client record; this is here so the console says what is
+                          known about a client without leaving the page. */}
+                      {client.notes && (
+                        <p className="text-[11px] text-fg font-medium leading-relaxed whitespace-pre-wrap break-words rounded-xl border border-hairline bg-surface-2/40 p-3 mb-2">
+                          {client.notes}
+                        </p>
+                      )}
+                      {/* A composer, not an editor: it APPENDS to the wall.
+                          Starting empty rather than pre-filled with the last post,
+                          because a box holding somebody else's words invites
+                          editing them, and there is nothing here to edit. */}
                       <textarea
-                        className={`${inputCls} min-h-[120px] font-normal`}
-                        maxLength={1500}
-                        defaultValue={client.notes}
-                        onBlur={(e) => { if (e.target.value !== client.notes) void saveNotes(client, e.target.value); }}
+                        className={`${inputCls} min-h-[90px] font-normal`}
+                        maxLength={4000}
+                        value={noteDrafts[client.id] ?? ""}
+                        onChange={(e) => setNoteDrafts((d) => ({ ...d, [client.id]: e.target.value }))}
                         placeholder={t("notesPlaceholder")}
                       />
+                      <button
+                        type="button"
+                        disabled={!(noteDrafts[client.id] ?? "").trim()}
+                        onClick={() => void saveNotes(client, noteDrafts[client.id] ?? "")}
+                        className="mt-2 inline-flex items-center gap-2 rounded-full bg-fg text-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-30"
+                      >
+                        Publicar
+                      </button>
                       <p className="text-[10px] text-fg-40 mt-1">{t("notesPrivacy")}</p>
                     </section>
 

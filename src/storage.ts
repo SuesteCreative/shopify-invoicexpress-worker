@@ -106,6 +106,17 @@ export interface IRequestConfig {
    * subscription behind it.
    */
   stripe_scope_skip_metadata: string | null;
+  /**
+   * JSON recipe for taking ONE Stripe payment apart into several fiscal lines.
+   * NULL = off, and a payment stays the single line it has always been.
+   *
+   * A PaymentIntent carries no line items, so a sale that is part exempt service
+   * and part card-processing fee arrives as one number and is declared entirely
+   * at one rate. The recipe states the fee's percentage and fixed part (per form
+   * where they differ) and, when the merchant has one, the price of each named
+   * item. Read by `parseLineSplit`.
+   */
+  stripe_line_split: string | null;
   // 1 = foreign-currency handling for IX documents (see migration 0037).
   ix_multicurrency: number | null;
   /**

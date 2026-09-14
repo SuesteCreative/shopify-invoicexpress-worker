@@ -2,6 +2,7 @@ import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { saleReference } from "../../services/document-references";
 import { parseMetadataMap, applyMetadataMap, applyMetadataVatRate } from "./metadata-map";
+import { parseLineSplit, splitStripePayment } from "./stripe-line-split";
 import { pickInvoicePaymentIntent } from "../../services/stripe";
 import { ctxStripeAuth } from "../../services/stripe-auth";
 
@@ -1486,6 +1487,46 @@ export class StripeSource implements SourceAdapter {
       const rate = applyMetadataVatRate(normalized, metadataMap);
       if (filled.length > 0 || rate !== null) {
         console.log(`[Stripe] metadata filled ${filled.join(", ") || "nothing"}${rate !== null ? `, VAT ${rate}%` : ""}`);
+      }
+    }
+
+    // One payment, several fiscal lines.
+    //
+    // A PaymentIntent is a single number, so every shape above maps it to a
+    // single line at a single rate — and a sale that is part exempt service and
+    // part card-processing fee then has the whole of it declared at one of the
+    // two. The connection's recipe says how to take it apart; see
+    // stripe-line-split. Runs only on the single-line shapes and only when the
+    // source itself provided no tax breakdown, so a Stripe Tax sale is never
+    // second-guessed.
+    const split = parseLineSplit(ctx.config?.stripe_line_split);
+    const items = normalized.order.items ?? [];
+    if (split && items.length === 1 && !carriesTax(normalized)) {
+      const totalCents = Math.round(Number(normalized.order.total) * 100);
+      const lines = splitStripePayment(totalCents, String(items[0].title ?? ""), split);
+      if (lines) {
+        normalized.order.items = lines.map((l, idx) => ({
+          ...items[0],
+          id: idx + 1,
+          quantity: l.qty,
+          // GROSS per unit, with tax.unit_amount left at 0: that pair is the
+          // contract the Moloni adapter reads as "back the net out of this at
+          // the connection's VAT-inclusive prices".
+          unit_price: Math.round((l.grossCents / l.qty) * 100) / 10000,
+          unit_price_calculated: Math.round((l.grossCents / l.qty) * 100) / 10000,
+          subtotal_calculated: Math.round((l.grossCents / l.qty) * 100) / 10000,
+          tax: { name: "VAT", value: l.rate, unit_amount: 0 },
+          discount: { name: "", percent: 0 },
+          title: l.title,
+          variant_title: null,
+          sku: l.sku,
+        }));
+        console.log(`[Stripe] ${normalized.order.reference}: split into ${lines.length} line(s) — `
+          + lines.map((l) => `${l.sku} ${(l.grossCents / 100).toFixed(2)}@${l.rate}%`).join(", "));
+      } else {
+        // Not a failure: a sale whose arithmetic does not reproduce the charged
+        // total keeps its single line, which is what it would have had anyway.
+        console.warn(`[Stripe] ${normalized.order.reference}: line split did not reconcile with ${(totalCents / 100).toFixed(2)} — left as one line`);
       }
     }
 

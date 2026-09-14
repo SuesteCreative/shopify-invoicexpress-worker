@@ -128,6 +128,7 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
     stripe_routing_hints: 0,
     stripe_metadata_map: null,
     stripe_scope_skip_metadata: null,
+    stripe_line_split: null,
     ix_multicurrency: 0,
     stripe_address_from_charge: 0,
     stripe_line_names_from_product: 0,
@@ -307,6 +308,12 @@ export function projectConnectionBehaviour(
   // blob, so a second connection on the same account never inherits it.
   if (typeof destinationConfig.stripe_scope_skip_metadata === "string") {
     c.stripe_scope_skip_metadata = destinationConfig.stripe_scope_skip_metadata;
+  }
+  // How a single-amount payment is taken apart into lines. Per connection for
+  // the same reason as everything else here: two integrations on one account
+  // sell different things under different rates.
+  if (typeof destinationConfig.stripe_line_split === "string") {
+    c.stripe_line_split = destinationConfig.stripe_line_split;
   }
   // The fiscal identity of the documents this connection issues: which series
   // they are filed in, which exemption code they carry when the rate is 0%, and

@@ -195,11 +195,20 @@ export async function runDocumentVerifySweep(
   }
   result.candidates = candidates.length;
 
-  // Group by merchant so credentials, product mappings and tag rules are
-  // resolved once per connection instead of once per document.
+  // Group by CONNECTION, not by merchant.
+  //
+  // Each candidate already carries the `source_kind` and `destination_kind` the
+  // document was issued under — `document_events` is the one log that records
+  // them, which is why the rollback plan picked it as the reliable way to tell
+  // two connections apart. Grouping by merchant threw that away and then asked
+  // for "a connection for this user", `pick_latest`, which is `updated_at DESC`:
+  // whichever connection had been saved most recently. A document issued by
+  // `stripe_connect → moloni` was then read back with `stripe → invoicexpress`
+  // credentials, and came out either unreadable or — worse — as a drift, an
+  // incident telling the merchant their document does not match itself.
   const byScope = new Map<string, Candidate[]>();
   for (const c of candidates) {
-    const key = c.shopifyDomain ?? c.userId ?? "unknown";
+    const key = `${c.shopifyDomain ?? c.userId ?? "unknown"}|${c.sourceKind ?? ""}|${c.destinationKind ?? ""}`;
     const list = byScope.get(key) ?? [];
     list.push(c);
     byScope.set(key, list);
@@ -215,9 +224,17 @@ export async function runDocumentVerifySweep(
     }
 
     const first = group[0];
+    // The pair the document was issued under, when the row states one. Rows
+    // written before `document_events` carried the pair state neither, and those
+    // keep the old behaviour: ask for the merchant and take the latest.
     const resolved = await resolveConnectionContext(env, {
-      shop: first.shopifyDomain,
+      // `shop` short-circuits to legacy Shopify→InvoiceXpress, so it must not be
+      // offered for a document another integration issued: the shop domain is
+      // stamped on rows that have nothing to do with the shop.
+      shop: first.sourceKind && first.sourceKind !== "shopify" ? null : first.shopifyDomain,
       userId: first.userId,
+      source: (first.sourceKind as any) ?? undefined,
+      destination: (first.destinationKind as any) ?? undefined,
       onAmbiguous: "pick_latest",
     });
     if (!resolved.ok) {

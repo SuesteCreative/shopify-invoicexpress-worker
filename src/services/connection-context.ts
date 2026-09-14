@@ -284,12 +284,23 @@ export function projectConnectionBehaviour(
   }
 
   if (!destinationConfig) return config;
-  if (typeof destinationConfig.auto_finalize === "boolean") {
-    c.auto_finalize = destinationConfig.auto_finalize ? 1 : 0;
-  }
-  if (typeof destinationConfig.send_email === "boolean") {
-    c.ix_send_email = destinationConfig.send_email ? 1 : 0;
-  }
+  // `true` or `1`, both meaning on.
+  //
+  // These read booleans only, because the setup wizard writes booleans. The
+  // fiscal toggles a few lines above already accept either, and the difference
+  // is invisible until it decides a document: a connection whose
+  // `auto_finalize` is the number 1 — written by a repair, a migration, or a
+  // hand-edit in D1 — was silently ignored, the legacy row's 0 stood, and the
+  // account went on issuing drafts while its config said it was certifying.
+  // Measured on Wim Hof Method, 14/09/2026: fourteen minutes after the flag was
+  // set, a 258,85 € sale still came out a draft.
+  const onOff = (v: unknown): number | null =>
+    typeof v === "boolean" ? (v ? 1 : 0) : (v === 0 || v === 1 ? v : null);
+
+  const autoFinalize = onOff(destinationConfig.auto_finalize);
+  if (autoFinalize !== null) c.auto_finalize = autoFinalize;
+  const sendEmail = onOff(destinationConfig.send_email);
+  if (sendEmail !== null) c.ix_send_email = sendEmail;
   // A connection-based client has no legacy row to hold this, so without the
   // projection its standing invoice note would be settable in the console and
   // silently absent from every document it issued.

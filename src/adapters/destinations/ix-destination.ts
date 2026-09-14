@@ -552,7 +552,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     await restateOrderInEur(normalized.order);
 
     const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
-    const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides);
+    const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides, ctx.rules);
 
     // The per-sale classification, decided once by the pipeline before any
     // destination saw the order, and read here rather than re-derived.
@@ -699,7 +699,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       : refund.amountToRefund;
 
     const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
-    const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides);
+    const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides, ctx.rules);
     const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
 
     const refundItems = normalized.order.items.filter(item => refund.itemsIds.includes(item.id));

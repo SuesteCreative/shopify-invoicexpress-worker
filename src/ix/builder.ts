@@ -161,11 +161,25 @@ export class IxBuilder {
   private readonly config: IRequestConfig;
   private readonly viesChecker?: ViesChecker;
   private readonly overrides?: Map<string, IxProductOverride>;
+  /**
+   * What this account declared about how its documents are produced.
+   *
+   * Optional, and absent everywhere it is not passed — the legacy Shopify
+   * handlers construct this builder with three arguments and keep the
+   * catalogue's defaults, which are the behaviour they already had.
+   */
+  private readonly rules?: Readonly<Record<string, string>>;
 
-  constructor(config: IRequestConfig, viesChecker?: ViesChecker, overrides?: Map<string, IxProductOverride>) {
+  constructor(
+    config: IRequestConfig,
+    viesChecker?: ViesChecker,
+    overrides?: Map<string, IxProductOverride>,
+    rules?: Readonly<Record<string, string>>,
+  ) {
     this.config = config;
     this.viesChecker = viesChecker;
     this.overrides = overrides;
+    this.rules = rules;
   }
 
   /**
@@ -879,7 +893,7 @@ export class IxBuilder {
     // Address line 2, under the explicit rule: a usable tax id there is used,
     // plain address text is ignored. (`invalid` never reaches here — the build
     // is refused upstream in createInvoiceFromNormalizedOrder.)
-    if (!nif) {
+    if (!nif && this.rules?.bare_nif_scan !== "labeled_fields_only") {
       const fromAddress = this.inspectAddressTaxId(normalized);
       if (fromAddress.kind === "valid") nif = fromAddress.nif;
     }
@@ -1111,6 +1125,28 @@ export class IxBuilder {
   }
 
   extractAndValidateNIF(normalized: Normalized): string | null {
+    /**
+     * Whether a bare nine-digit number may become a fiscal id.
+     *
+     * By default it may, from anywhere — the note, the address, the customer's
+     * name — because a Portuguese shopper routinely types their NIF into the
+     * "Apartamento, andar" box and that is the only place it appears. The PT
+     * checksum below is what keeps a postal code or a house number out.
+     *
+     * A checksum is not an intent, though. Measured 14/09/2026 against this
+     * builder: a Stripe metadata entry `stora_id` holding nine digits is stamped
+     * as the buyer's contribuinte, and so is one that FAILS the checksum, through
+     * the non-PT branch at the end. Bestisafil's source writes numeric metadata,
+     * so the day an internal id grows to nine digits it silently becomes a tax
+     * number on a fiscal document. Same class as the incident where the EU-VAT
+     * regex turned words from an address into NIFs across 200 documents.
+     *
+     * An account that knows its NIF arrives in a named field can say so, and
+     * then only a field whose NAME claims to be a tax id counts. A
+     * country-prefixed VAT is unaffected: `extractEuVatCandidates` reads those,
+     * and the prefix is itself the label.
+     */
+    const labeledOnly = this.rules?.bare_nif_scan === "labeled_fields_only";
     const candidates: string[] = [];
     // Candidates that came from an explicitly NIF/VAT-labeled field, kept apart
     // from bare 9-digit numbers scraped out of free text (notes/address/phone),
@@ -1132,7 +1168,7 @@ export class IxBuilder {
         if (nameMatches) {
           const clean = value.replace(/\D/g, "");
           if (clean.length >= 9) { candidates.push(clean.slice(-9)); labeled.push(clean.slice(-9)); }
-        } else {
+        } else if (!labeledOnly) {
           const matches = value.match(/\b\d{9}\b/g);
           if (matches) candidates.push(...matches);
         }
@@ -1140,7 +1176,7 @@ export class IxBuilder {
     }
 
     // 4. Extract from General Order Note
-    if (order.note) {
+    if (order.note && !labeledOnly) {
       console.log(`[NIF] Checking Order Note: ${order.note.trim()}`);
       const matches = String(order.note.trim()).match(/\d{9}/g);
       if (matches) {
@@ -1166,7 +1202,7 @@ export class IxBuilder {
     const ninesIn = (s: unknown): string[] =>
       [...String(s ?? "").matchAll(/\d+/g)].map(m => m[0]).filter(d => d.length === 9);
 
-    const addrSources = [order.billing_address, (order as any).shipping_address];
+    const addrSources = labeledOnly ? [] : [order.billing_address, (order as any).shipping_address];
     for (const addr of addrSources) {
       if (!addr) continue;
       // `name` included deliberately: business buyers routinely paste company
@@ -1177,9 +1213,11 @@ export class IxBuilder {
         candidates.push(...ninesIn(field));
       }
     }
-    candidates.push(...ninesIn(order.customer?.name));
-    // Some merchants keep the NIF on the customer record rather than the order.
-    candidates.push(...ninesIn((order.customer as any)?.note));
+    if (!labeledOnly) {
+      candidates.push(...ninesIn(order.customer?.name));
+      // Some merchants keep the NIF on the customer record rather than the order.
+      candidates.push(...ninesIn((order.customer as any)?.note));
+    }
 
     // 6. Validate candidates for Portuguese algorithm
     for (const nif of candidates) {

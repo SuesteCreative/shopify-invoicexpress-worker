@@ -147,7 +147,6 @@ const OFF: VatDecision = {
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const ceil2 = (n: number) => Math.ceil(n * 100) / 100;
 
 // ossCountry lives in ../ix/order-country so IxBuilder can read it too:
@@ -257,19 +256,24 @@ function isExplicitlyPriced(ctx: AdapterCtx, item: Normalized["order"]["items"][
  *
  * exactly, before any rounding.
  *
- * Rounding is the hard half. InvoiceXpress stores `unit_price` at two decimals
- * and, on POST, silently ignores `items[*].discount_amount` — the only per-line
- * discount it honours is the percentage. Wim Hof Method's French sale is the
- * worked example: 181,35 € at 20 % is a net of 151,125, and no two-decimal net
- * reaches it (151,13 × 1,2 = 181,36; 151,12 × 1,2 = 181,34). So the line is
- * expressed the way `IxBuilder.buildLine` already expresses one — the net
- * CEILED to 2dp, plus the discount percentage that brings the subtotal back
- * down to the exact target — rather than with a 4dp net that IX would round and
- * a `discount_amount` it would drop. Moloni and Vendus read the same
- * percentage.
+ * Rounding is the hard half, and it does not always come out even. Wim Hof
+ * Method's French sale is the worked example: 181,35 € at 20 % is a net of
+ * 151,125, and no two-decimal net reaches it — 151,13 × 1,2 = 181,36 and
+ * 151,12 × 1,2 = 181,34.
  *
- * A monetary allocation is folded into that percentage rather than scaled: it
- * is already inside the line's gross, which is the quantity being preserved.
+ * This used to be papered over with a fractional discount percentage on a
+ * ceiled net. Measured against production InvoiceXpress on 14/09/2026, that
+ * does not survive a create: `discount_amount: 0.01` is ignored outright, and a
+ * 0,0066 % discount comes back as a whole cent off the base. The destination
+ * rounds the base to the cent and applies the rate to THAT, so the two totals
+ * either side of the target are the only ones it can express.
+ *
+ * So the line takes whichever of those two lands on the amount paid, and when
+ * neither does, the lower one: a document may fall a cent short of what was
+ * charged, it must never ask for more.
+ *
+ * A monetary allocation is folded into the net rather than scaled: it is
+ * already inside the line's gross, which is the quantity being preserved.
  */
 /**
  * Which regime this sale was made under, from facts about the buyer alone.
@@ -416,10 +420,32 @@ export async function decideVat(
     const targetNet = lineGross / (1 + r1 / 100);
     if (!(targetNet > 0)) continue;
 
-    // Ceil, so what is left over is a POSITIVE discount — IX rejects a negative
-    // one — and then solve for the percentage that lands on the target exactly.
+    // Ceil the unit, then discount whole CENTS off the subtotal.
+    //
+    // The discount percentage is honoured — measured against production
+    // InvoiceXpress on 14/09/2026 — but only to the cent: it is applied as
+    // round2(subtotal × percent/100), and `discount_amount` is ignored outright
+    // on create. So the reachable bases are the ceiled subtotal minus a whole
+    // number of cents, and the old code's assumption that a fractional
+    // percentage lands on the exact target was never true at the destination.
+    //
+    // Walk the cents down and take the first whose total does not exceed what
+    // the customer paid. Wim Hof Method's French sale is the worked example:
+    // 181,35 € at 20 % wants a net of 151,125, and 151,13 → 181,36 while
+    // 151,12 → 181,34. A document may fall a cent short of what was charged; it
+    // must never ask for more.
     const unit = ceil2(targetNet / qty);
-    const percent = round4(Math.max(0, (1 - targetNet / (unit * qty)) * 100));
+    const subtotal = round2(unit * qty);
+    const targetGross = round2(lineGross);
+    // Bounded: at quantity q a cent off the unit moves the total by q cents, so
+    // the search only has to cover one unit-cent's worth of overshoot.
+    const maxCents = Math.max(1, Math.ceil(qty)) + 1;
+    let cents = 0;
+    while (cents < maxCents && round2(round2(subtotal - cents / 100) * (1 + r1 / 100)) > targetGross) cents++;
+    const base = round2(subtotal - cents / 100);
+    // The percentage that makes the destination compute exactly those cents:
+    // it applies subtotal × percent/100, so percent is cents/subtotal.
+    const percent = subtotal > 0 ? Math.round((cents / subtotal) * 1e6) / 1e6 : 0;
 
     item.unit_price = unit;
     item.unit_price_calculated = unit;
@@ -429,8 +455,10 @@ export async function decideVat(
       name: item.tax?.name || "VAT",
       value: r1,
       // Zero EXACTLY when the rate is zero: three destinations read this field
-      // as "was any tax collected", not as an amount.
-      unit_amount: r1 === 0 ? 0 : round2(targetNet * r1 / 100),
+      // as "was any tax collected", not as an amount. Computed from the net the
+      // line actually carries, not the unreachable target, or it disagrees with
+      // the document by the same cent.
+      unit_amount: r1 === 0 ? 0 : round2(base * r1 / 100),
     };
     changed++;
   }

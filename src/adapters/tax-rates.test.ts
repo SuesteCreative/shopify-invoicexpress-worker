@@ -3,6 +3,9 @@ import { decideVat, ossRateFor, ossCountry, ptRegionalRate, EU_STANDARD_VAT_RATE
 import { computeExpectedGross } from "./reconcile";
 import type { AdapterCtx } from "./types";
 
+/** What a destination does to money: two decimals, half up. */
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 /**
  * The engine rewrites the VAT on a line. The one thing it must never do is
  * change what the customer paid — `reconcileTotalOrThrow` compares the document
@@ -92,10 +95,13 @@ describe("the money does not move when the rate does", () => {
     expect(out.country).toBe("FR");
     expect(n.order.items[0].tax.value).toBe(20);
     // The exact net is 83,3333, which two decimals cannot hold. The line is
-    // therefore expressed as IX accepts one: the net CEILED to 2dp, plus the
-    // discount percentage that brings the subtotal back to the exact target.
+    // therefore expressed as the destination can express one: the net CEILED to
+    // 2dp, plus a discount percentage worth a whole cent — the destination
+    // applies round2(subtotal × percent/100), so cents are all it can take off.
     expect(n.order.items[0].unit_price).toBe(83.34);
     expect(n.order.items[0].discount.percent).toBeGreaterThan(0);
+    // 83,34 − 0,01 = 83,33, and 83,33 × 1,2 = 99,996 → 100,00 exactly.
+    expect(round2(83.34 * n.order.items[0].discount.percent / 100)).toBe(0.01);
     expect(n.order.items[0].tax.unit_amount).toBeCloseTo(16.67, 2);
     // The whole point.
     expect(grossOf(n.order.items)).toBe(paid);
@@ -120,7 +126,35 @@ describe("the money does not move when the rate does", () => {
     // line at full price.
     expect(n.order.items[0].discount_allocation_amount).toBe(0);
     expect(n.order.items[0].discount.percent).toBeGreaterThan(0);
-    expect(grossOf(n.order.items)).toBeCloseTo(paid, 2);
+    // 108,76 is not expressible at 19 %: the base either side of it gives 108,77
+    // or 108,75, and the destination rounds the discount to the cent, so there
+    // is no third option. Land under, never over — a document may fall short of
+    // what was charged, it may not ask for more.
+    expect(grossOf(n.order.items)).toBeLessThanOrEqual(paid);
+    expect(paid - grossOf(n.order.items)).toBeLessThanOrEqual(0.02);
+  });
+
+  it("never exceeds what was paid when the total is not expressible", async () => {
+    // Wim Hof Method, 09/09/2026: 181,35 € charged with no VAT, owed to France
+    // at 20 %. The exact net is 151,125 and two decimals cannot hold it —
+    // 151,13 × 1,2 = 181,36 and 151,12 × 1,2 = 181,34. Issued at 181,34.
+    for (const [country, rate] of [["FR", 20], ["DE", 19], ["AT", 20]] as const) {
+      const n = normalized(country, [line({ unit_price: 181.35, unit_price_calculated: 181.35 })]);
+      await decideVat(n, ctx(), "invoicexpress");
+      expect(n.order.items[0].tax.value).toBe(rate);
+      expect(grossOf(n.order.items)).toBeLessThanOrEqual(181.35);
+      expect(181.35 - grossOf(n.order.items)).toBeLessThanOrEqual(0.01);
+    }
+  });
+
+  it("lands exactly when the amount does divide", async () => {
+    // The same account, same day: 99,25 € at Austria's 20 % is a net of
+    // 82,708333, and 82,71 × 1,2 = 99,252 → 99,25. Nothing to give away.
+    const n = normalized("AT", [line({ unit_price: 99.25, unit_price_calculated: 99.25 })]);
+    await decideVat(n, ctx(), "invoicexpress");
+    expect(n.order.items[0].unit_price).toBe(82.71);
+    expect(n.order.items[0].discount.percent).toBe(0);
+    expect(grossOf(n.order.items)).toBe(99.25);
   });
 
   it("survives a quantity greater than one, where 2dp rounding bites hardest", async () => {

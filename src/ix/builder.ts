@@ -965,6 +965,26 @@ export class IxBuilder {
     // empty address, so resolve here instead of trusting the merge order.
     const postalCode = String(order.billing_address?.zip || address.zip || "").trim();
 
+    // The street, which is the one address field still trusting that merge.
+    //
+    // `pickInvoiceAddress` spreads `customer.address` LAST, and every Stripe
+    // shape sets that to an all-empty address — so `address1: ""` overwrites the
+    // street the payment carried. City and zip escape it, the zip by the very
+    // workaround three lines up and the city by reading `order.billing_address`
+    // directly; nobody ever gave the street the same treatment. Measured on
+    // Bestisafil (14/09/2026): document 270275892 reached InvoiceXpress with
+    // "1269-046 Lisboa" and no street, while the charge held
+    // "Av. da Liberdade nº 110".
+    //
+    // Behind the connection's flag rather than fixed outright, because the merge
+    // is not meaningless everywhere: on Shopify, `customer.address` is the
+    // buyer's saved address and letting it win over the order's is the
+    // precedence that shop has always had. A connection that declared its buyer
+    // address comes from the payment is saying which one it wants.
+    const street = Number(this.config.stripe_address_from_charge) === 1
+      ? (String(order.billing_address?.address1 || address.address1 || "").trim() || undefined)
+      : address.address1;
+
     // InvoiceXpress caps the client name at 100 characters and rejects the whole
     // document past it ("Nome é demasiado longo"), so the order never invoices at
     // all. Trim to the last word boundary that fits rather than cutting a word in
@@ -981,7 +1001,7 @@ export class IxBuilder {
       email,
       fiscal_id: nif ?? undefined,
       code: String(order.customer?.id || order.id),
-      address: address.address1,
+      address: street,
       postal_code: postalCode || undefined,
       city: order.billing_address?.city,
       country: toIxCountryName(rawCountry),

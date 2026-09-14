@@ -5,6 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection, ixAccountNameOnConnection } from "@/lib/connection-fiscal";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
+import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
 
 export const runtime = "edge";
 
@@ -107,10 +108,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Missing stripe_account_id" }, { status: 400 });
     }
     const destinationKind = body.destination_kind === "moloni" ? "moloni" : "invoicexpress";
-    // NULL means "whatever the row already says". Every caller here is partial,
-    // and the invoice-settings step posts no status at all — defaulting to
-    // "draft" on the update would have deactivated a live connection the moment
-    // the merchant re-saved their series.
+    // NULL means "whatever the row already says". Every caller here is partial.
+    //
+    // This used to claim the invoice-settings step posts no status at all. It
+    // posts "draft", and so does every other wizard, which walked straight past
+    // the NULL default and deactivated the connection on a plain settings save.
+    // `STATUS_UPSERT_SQL` is what actually holds the line now; this default only
+    // covers the callers that state nothing, like install-webhook.
     const status = ["draft", "active", "paused", "error"].includes(body.status || "") ? body.status! : null;
 
     const { env } = getRequestContext();
@@ -160,12 +164,12 @@ export async function POST(request: NextRequest) {
            destination_config_json = CASE WHEN ? = 1
              THEN json_patch(COALESCE(connections.destination_config_json, '{}'), excluded.destination_config_json)
              ELSE connections.destination_config_json END,
-           status = COALESCE(?, connections.status),
+           ${STATUS_UPSERT_SQL},
            updated_at = excluded.updated_at`
     ).bind(
         id, authResult.targetUserId, sourceKind, destinationKind, JSON.stringify(sourceConfig),
         hasFiscal ? JSON.stringify(destinationPatch) : null, status, now, now,
-        hasFiscal ? 1 : 0, status,
+        hasFiscal ? 1 : 0,
     ).run();
 
 

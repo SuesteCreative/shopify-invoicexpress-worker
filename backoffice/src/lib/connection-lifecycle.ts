@@ -20,6 +20,37 @@ export interface DeleteResult {
 }
 
 /**
+ * `status` in a connection upsert, where "draft" is never an order to deactivate.
+ *
+ * No screen offers a merchant a way to turn an integration off. What every
+ * wizard does offer is a settings step, and all nine of them post
+ * `status: "draft"` alongside the settings — twenty call sites. The write then
+ * took a live connection off the air, and nothing said so: the worker only ever
+ * reads `status = 'active'` (src/services/connection-context.ts:360, :408,
+ * :489), so the merchant kept using a product that had quietly stopped
+ * invoicing them.
+ *
+ * Measured 14/09/2026 on a Stripe Connect -> InvoiceXpress client: they rotated
+ * their InvoiceXpress API key, pasted the new one into the wizard, and that one
+ * click both saved the key and ended their invoicing.
+ *
+ * Three routes had already been patched for this, each at the caller and each
+ * only for the case where the body states no status at all — see the comments
+ * at eupago-source:141 and moloni-destination:152. An explicit "draft" walked
+ * past all three. The rule belongs at the write, where every caller passes.
+ *
+ * Deactivating deliberately still works and has its own door: `setConnectionStatus`
+ * below writes 'active' | 'paused' and never comes through here. 'paused' and
+ * 'error' posted to these routes are preserved too, which is why this asks for
+ * "not already draft" rather than "already active".
+ */
+export const STATUS_UPSERT_SQL =
+    `status = CASE WHEN excluded.status = 'draft'
+                    AND connections.status IS NOT NULL
+                    AND connections.status <> 'draft'
+                   THEN connections.status ELSE excluded.status END`;
+
+/**
  * Tell Stripe before we forget the account id.
  *
  * Otherwise the merchant is left with Rioko listed as an authorised application

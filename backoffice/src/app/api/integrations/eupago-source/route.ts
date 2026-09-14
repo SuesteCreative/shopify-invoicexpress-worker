@@ -5,6 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection, ixAccountNameOnConnection } from "@/lib/connection-fiscal";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
+import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
 
 export const runtime = "edge";
 
@@ -172,7 +173,7 @@ export async function POST(request: NextRequest) {
          VALUES (?, ?, 'eupago', ?, ?, ?, ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
            source_config_json = excluded.source_config_json,
-           status = excluded.status,
+           ${STATUS_UPSERT_SQL},
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, destinationKind, JSON.stringify(sourceCfg), status, now, now).run();
 

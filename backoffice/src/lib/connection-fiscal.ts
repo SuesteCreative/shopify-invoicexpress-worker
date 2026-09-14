@@ -19,6 +19,17 @@
  * An absent key still means "not stated": the worker falls back to the legacy
  * row for a Shopify source, and to the destination's own default otherwise.
  */
+/**
+ * How long a merchant's standing invoice note may be.
+ *
+ * InvoiceXpress caps `observations` at 200 and the mandatory fiscal mentions are
+ * written into the same field, ahead of this. Moloni's `notes` takes the same
+ * 200. One limit for both destinations: a field that accepts more or less text
+ * depending on which invoicing system is behind it is worse than a limit that
+ * is merely conservative for one of them.
+ */
+export const MAX_CUSTOM_INVOICE_NOTE = 200;
+
 export const CONNECTION_FISCAL_TEXT_KEYS = [
     "ix_sequence_name",
     "ix_exemption_reason",
@@ -27,6 +38,12 @@ export const CONNECTION_FISCAL_TEXT_KEYS = [
     // wants one other than the default. Only consulted when a registration below
     // is on.
     "oss_export_exemption_code",
+    // The merchant's own line on their documents: a VAT scheme, a licence
+    // number, a fixed legal reference. It has always been readable by the
+    // worker from this blob; it just had no way in that a merchant could use,
+    // because this list is what `fiscalPatchFrom` will carry and anything
+    // missing from it was dropped without a word.
+    "custom_invoice_note",
 ] as const;
 
 /**
@@ -54,6 +71,7 @@ export interface ConnectionFiscal {
     ix_exemption_reason?: string;
     ix_document_type?: string;
     oss_export_exemption_code?: string;
+    custom_invoice_note?: string;
     vat_included?: boolean;
     auto_finalize?: boolean;
     oss_engine?: boolean;
@@ -90,7 +108,13 @@ export function fiscalPatchFrom(fiscal: Record<string, unknown> | undefined): Re
     const patch: Record<string, string | boolean> = {};
     for (const key of CONNECTION_FISCAL_TEXT_KEYS) {
         const value = fiscal[key];
-        if (typeof value === "string") patch[key] = value.trim();
+        if (typeof value !== "string") continue;
+        // The only one of these with a length the destination will enforce for
+        // us by silently truncating. Capped here, where all three source routes
+        // meet, rather than in each of them.
+        patch[key] = key === "custom_invoice_note"
+            ? value.trim().slice(0, MAX_CUSTOM_INVOICE_NOTE)
+            : value.trim();
     }
     for (const key of CONNECTION_FISCAL_BOOL_KEYS) {
         const value = fiscal[key];

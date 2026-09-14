@@ -12,6 +12,7 @@ import { IntegrationStepper, StepperHeader, type StepDef } from "@/components/In
 import SubscriptionCard from "@/components/SubscriptionCard";
 import { RETURN_SLUG_WIZARD_IX } from "@/lib/oauth-return";
 import TaxRegistrations from "@/components/TaxRegistrations";
+import InvoiceNote from "@/components/InvoiceNote";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 import { cn } from "@/lib/utils";
 
@@ -164,6 +165,7 @@ export default function StripeConnectIxIntegration() {
             ...(typeof fiscal.pt_regional_rates === "boolean" ? { pt_regional_rates: fiscal.pt_regional_rates } : {}),
             ...(typeof fiscal.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: fiscal.b2b_reverse_charge_pipeline } : {}),
             ...(typeof fiscal.oss_export_exemption_code === "string" ? { oss_export_exemption_code: fiscal.oss_export_exemption_code } : {}),
+            ...(typeof fiscal.custom_invoice_note === "string" ? { custom_invoice_note: fiscal.custom_invoice_note } : {}),
         });
         const hasFiscal = typeof fiscal.ix_document_type === "string";
         setSettingsSaved(hasFiscal);
@@ -513,6 +515,11 @@ export default function StripeConnectIxIntegration() {
                         onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
                         disabled={saving}
                         destination="invoicexpress"
+                    />
+                    <InvoiceNote
+                        value={registrations.custom_invoice_note ?? ""}
+                        onChange={(v) => setRegistrations((r) => ({ ...r, custom_invoice_note: v }))}
+                        disabled={saving}
                     />
 
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">

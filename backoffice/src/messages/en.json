@@ -3630,6 +3630,13 @@
         "inviteCodeHint": "You both get {months} free months. New accounts only, and the code has to be applied before paying.",
         "inviteCodeFailed": "The code could not be applied. Please try again."
     },
+    "invoiceNote": {
+        "title": "Standing note on invoices",
+        "subtitle": "Optional",
+        "help": "This text is added to the observations of every document this connection issues, after the mandatory legal mentions. Use it for a VAT scheme, a licence number, or a legal reference that has to appear every time.",
+        "placeholder": "e.g. Cash VAT accounting scheme",
+        "limitHint": "If the space runs out, this note is what gets cut, never the legal mention."
+    },
     "taxRegistrations": {
         "title": "Tax registrations",
         "subtitle": "What this business is registered to do",

@@ -16,6 +16,7 @@ import { alreadySubscribed } from "@/lib/subscription-state";
 import { useBillingPrice } from "@/lib/use-billing-price";
 import { formatMoney, annualSavingPct, monthlyEquivalent } from "@/lib/billing-display";
 import TaxRegistrations from "@/components/TaxRegistrations";
+import InvoiceNote from "@/components/InvoiceNote";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 /**
@@ -143,6 +144,7 @@ export default function StripeConnectMoloniIntegration() {
                 ...(typeof cfg.pt_regional_rates === "boolean" ? { pt_regional_rates: cfg.pt_regional_rates } : {}),
                 ...(typeof cfg.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: cfg.b2b_reverse_charge_pipeline } : {}),
                 ...(typeof cfg.oss_export_exemption_code === "string" ? { oss_export_exemption_code: cfg.oss_export_exemption_code } : {}),
+                ...(typeof cfg.custom_invoice_note === "string" ? { custom_invoice_note: cfg.custom_invoice_note } : {}),
             });
             if (cfg.default_vat_rate != null) setDefaultVatRate(String(cfg.default_vat_rate));
         }
@@ -593,6 +595,11 @@ export default function StripeConnectMoloniIntegration() {
                         onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
                         disabled={saving}
                         destination="moloni"
+                    />
+                    <InvoiceNote
+                        value={registrations.custom_invoice_note ?? ""}
+                        onChange={(v) => setRegistrations((r) => ({ ...r, custom_invoice_note: v }))}
+                        disabled={saving}
                     />
 
                     <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">

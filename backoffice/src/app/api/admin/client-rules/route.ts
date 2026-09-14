@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isHiperadmin } from "@/lib/admin";
 import { redactConfigJson, FISCAL_CONFIG_KEYS, INTEGRATION_FISCAL_COLUMNS } from "@/lib/redact";
 import { auditConfigChange } from "@/lib/config-audit";
+import { MAX_CUSTOM_INVOICE_NOTE } from "@/lib/connection-fiscal";
 
 export const runtime = "edge";
 
@@ -62,8 +63,12 @@ const EDITABLE_INTEGRATION_FIELDS = new Set<string>(INTEGRATION_FISCAL_COLUMNS);
 const EDITABLE_CONNECTION_KEYS = new Set<string>(FISCAL_CONFIG_KEYS);
 
 const MAX_NOTES_CHARS = 1500;
-/** IX truncates `observations` at 200 and the legal mentions are written first. */
-const MAX_CUSTOM_NOTE_CHARS = 200;
+/**
+ * The same limit the merchant's own panel enforces. Two copies of a number that
+ * has to match is how an operator's note gets silently cut to a different
+ * length than the merchant's.
+ */
+const MAX_CUSTOM_NOTE_CHARS = MAX_CUSTOM_INVOICE_NOTE;
 
 /**
  * Hiperadmin, for reading as well as writing.

@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
 
 export const runtime = "edge";
 
@@ -131,7 +132,7 @@ export async function POST(request: NextRequest) {
          VALUES (?, ?, ?, 'vendus', ?, ?, ?, ?)
          ON CONFLICT(user_id, source_kind, destination_kind) DO UPDATE SET
            destination_config_json = excluded.destination_config_json,
-           status = excluded.status,
+           ${STATUS_UPSERT_SQL},
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, sourceKind, JSON.stringify(destinationConfig), status, now, now).run();
 

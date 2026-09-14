@@ -236,12 +236,20 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ ok: true, webhook_url: webhookUrl, needs_manual_webhook: needsManualWebhook });
         }
 
-        // Non-active status update (pause/draft) — just update status, preserve config
+        // Non-active status update (pause/draft) — just update status, preserve config.
+        //
+        // The same rule as `STATUS_UPSERT_SQL`, written out because this is an
+        // UPDATE and has no `excluded` to read from. It is reached by the wizard's
+        // settings step, which posts `status: "draft"` and no api_key: the
+        // early-return above only catches a body that states no status at all, so
+        // saving a series used to land here and take the connection off the air.
         const now = new Date().toISOString();
         await db.prepare(
-            `UPDATE connections SET status = ?, updated_at = ?
-             WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ?`
-        ).bind(status, now, authResult.targetUserId, destinationKind).run();
+            `UPDATE connections
+                SET status = CASE WHEN ? = 'draft' AND status <> 'draft' THEN status ELSE ? END,
+                    updated_at = ?
+              WHERE user_id = ? AND source_kind = 'lodgify' AND destination_kind = ?`
+        ).bind(status, status, now, authResult.targetUserId, destinationKind).run();
 
         await saveFiscal();
 

@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
+import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
 
 export const runtime = "edge";
 
@@ -316,7 +317,7 @@ export async function POST(request: NextRequest) {
              CASE WHEN json_valid(connections.destination_config_json)
                   THEN connections.destination_config_json ELSE '{}' END,
              excluded.destination_config_json),
-           status = excluded.status,
+           ${STATUS_UPSERT_SQL},
            updated_at = excluded.updated_at`
     ).bind(id, authResult.targetUserId, sourceKind, JSON.stringify(destinationConfig), status, now, now).run();
 

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { isHiperadmin } from "@/lib/admin";
 import { callWorkerJson } from "@/lib/worker";
-import { resolveAudience, firstNameOf, FILTER_KEYS } from "@/lib/newsletter-audience";
+import { resolveAudience, firstNameOf, withLanguage, FILTER_KEYS } from "@/lib/newsletter-audience";
 import { fill, fillContactForTest, requiredLegalOk, unknownVars } from "@/lib/newsletter-template";
 
 export const runtime = "edge";
@@ -53,7 +53,12 @@ export async function GET() {
     }
 
     const templates = await db()
-        .prepare("SELECT slug, name, subject, preview_text, html, updated_at FROM newsletter_templates ORDER BY name")
+        .prepare(`SELECT slug, name, subject, preview_text, html, updated_at,
+                         COALESCE(language, 'pt') AS language,
+                         COALESCE(family, slug)    AS family
+                  FROM newsletter_templates ORDER BY name`)
+        // COALESCE, e não as colunas a seco: entre o deploy e a 0062
+        // aplicada à mão, a página tem de abrir na mesma.
         .all();
     const campaigns = await db()
         .prepare(`SELECT id, slug, subject, recipients, segment_id, broadcast_id,
@@ -118,7 +123,18 @@ export async function POST(request: NextRequest) {
         const legal = requiredLegalOk(html);
         const missing = unknownVars([rawHtml, rawSubject, rawPreview].join("\n"));
 
-        const recipients = await resolveAudience(db(), filters);
+        // The language of the version being sent decides who may receive it, and
+        // it is read from the saved row rather than taken from the browser: the
+        // whole point is that it cannot be argued with from the page. A slug with
+        // no row yet (a campaign being written) carries no language and nothing
+        // is forced.
+        const saved: any = await db()
+            .prepare("SELECT language FROM newsletter_templates WHERE slug = ?")
+            .bind(slug).first()
+            .catch(() => null);
+        const effective = saved?.language ? withLanguage(filters, String(saved.language)) : filters;
+
+        const recipients = await resolveAudience(db(), effective);
 
         if (action === "preview") {
             return NextResponse.json({
@@ -131,6 +147,10 @@ export async function POST(request: NextRequest) {
                 preview_text: previewText ?? null,
                 legal_error: legal,
                 unknown_vars: missing,
+                // A língua que a versão impôs à audiência: é o que explica uma
+                // contagem menor do que a que os chips sugerem.
+                language: saved?.language ? String(saved.language) : null,
+                filters: effective,
             });
         }
 
@@ -231,7 +251,9 @@ export async function POST(request: NextRequest) {
                 crypto.randomUUID(),
                 slug,
                 subject,
-                JSON.stringify(filters),
+                // O que foi mesmo usado, língua imposta incluída: reler os filtros
+                // do browser daqui a um mês não reproduziria esta lista.
+                JSON.stringify(effective),
                 // Code AND address. Filed under an email, a campaign can only ever
                 // be traced to a mailbox; filed under the customer number it is
                 // traceable to the account, which is the question anybody actually

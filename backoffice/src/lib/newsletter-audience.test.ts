@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { audienceQuery, fragmentFor, firstNameOf, resolveAudience } from "./newsletter-audience";
+import { audienceQuery, fragmentFor, firstNameOf, resolveAudience , withLanguage } from "./newsletter-audience";
 
 /**
  * A newsletter goes to people. Getting the audience wrong is not an error that
@@ -291,5 +291,28 @@ describe("firstNameOf", () => {
         expect(firstNameOf(null, "Loja Nova")).toBe("Loja");
         expect(firstNameOf("  ", "x@y.pt")).toBe("x@y.pt");
         expect(firstNameOf(null, "")).toBe("");
+    });
+});
+
+describe("withLanguage", () => {
+    it("puts the version's language on the audience", () => {
+        expect(withLanguage(["sub:active"], "en")).toEqual(["sub:active", "lang:en"]);
+    });
+
+    it("replaces any language the page asked for, instead of adding to it", () => {
+        // Two chips in the same group OR together, so keeping both would widen
+        // the send back to everyone — which is the accident this exists to stop.
+        expect(withLanguage(["lang:pt", "sub:active"], "en")).toEqual(["sub:active", "lang:en"]);
+        expect(withLanguage(["lang:en", "lang:pt"], "pt")).toEqual(["lang:pt"]);
+    });
+
+    it("treats anything that is not English as Portuguese", () => {
+        expect(withLanguage([], "")).toEqual(["lang:pt"]);
+        expect(withLanguage([], "fr")).toEqual(["lang:pt"]);
+    });
+
+    it("leaves hand-picked clients and typed addresses alone", () => {
+        expect(withLanguage(["user:abc", "email:a@b.pt"], "en"))
+            .toEqual(["user:abc", "email:a@b.pt", "lang:en"]);
     });
 });

@@ -109,6 +109,26 @@ export interface IRequestConfig {
   // 1 = foreign-currency handling for IX documents (see migration 0037).
   ix_multicurrency: number | null;
   /**
+   * 1 = the buyer's address may be read off the charge's payment method, not
+   * only off the Customer record.
+   *
+   * Off by default because it is not purely a recovery: where a merchant keeps
+   * its own authoritative address on the Customer AND the buyer typed a
+   * different one at payment, it changes which of the two reaches the document.
+   * It also moves `billing_address.country_code`, which gates the PT NIF.
+   */
+  stripe_address_from_charge: number | null;
+  /**
+   * 1 = a single-line Stripe invoice lends the document the merchant's own name
+   * for what was sold, taken from the Product behind the line.
+   *
+   * Off by default. Without it a PaymentIntent-triggered document is titled
+   * from `pi.description` — Stripe's own wording, "Subscription update" — which
+   * is what the buyer then reads on their invoice. Words only: the amount, the
+   * quantity and the tax stay as the payment stated them.
+   */
+  stripe_line_names_from_product: number | null;
+  /**
    * A standing note the merchant wants on every document (VAT scheme wording, a
    * licence number, a fixed legal reference). Appended to `observations` AFTER
    * the mandatory fiscal mentions, so IX's 200-char cap truncates this rather

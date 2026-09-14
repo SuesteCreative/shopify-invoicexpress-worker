@@ -57,6 +57,21 @@ const BANNER = "/images/campanha-convites.png";
  */
 const CROP = { width: 1920, height: 999 };
 
+/**
+ * Half again as wide as the 48rem it shipped at, and clamped on both axes so
+ * that growth never costs anybody the button.
+ *
+ * The third term is the one doing the real work. The card's height is almost
+ * entirely the artwork, and the artwork's height is its width ÷ 1.92 — so a
+ * card wide enough to look right on a 27" screen is a card taller than a 13"
+ * laptop, and the footer with the tick and "Agora não" is what falls off the
+ * bottom. Solving width ÷ 1.92 + footer + the backdrop's own padding ≤ the
+ * viewport gives `192vh` less the ~170px those two cost, which keeps the whole
+ * dialog on screen down to a 600px-tall window without a scrollbar, a media
+ * query or a measured layout.
+ */
+const CARD_MAX_WIDTH = "min(92vw, 72rem, calc(192vh - 170px))";
+
 /** Where the drawn button sits, measured off the artwork, in percentages of the
  *  CROPPED box. A little generous on every side: an invisible hit area that is
  *  slightly larger than the thing it sits on is forgiving, one that is smaller
@@ -136,7 +151,8 @@ export default function CampaignAnnounce() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 8, scale: 0.99 }}
                         onClick={(e) => e.stopPropagation()}
-                        className="glass rounded-[2rem] border-hairline w-full max-w-3xl overflow-hidden relative"
+                        className="glass rounded-[2rem] border-hairline w-full overflow-hidden relative"
+                        style={{ maxWidth: CARD_MAX_WIDTH }}
                     >
                         <button
                             onClick={close}

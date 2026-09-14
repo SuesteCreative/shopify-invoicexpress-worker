@@ -104,6 +104,22 @@ export interface SourceAdapter {
   verifyWebhook(rawBody: string, signature: string, secret: string): Promise<boolean>;
   externalId(parsedBody: any): string;
   toNormalized(parsedBody: any, ctx: AdapterCtx): Promise<Normalized | null>;
+  /**
+   * Why this sale is NOT ours to invoice — a sentence for the merchant, or null.
+   *
+   * A payment account is not the same thing as a stream of sales Rioko owns. A
+   * merchant can run a second system that invoices part of its own traffic into
+   * the SAME fiscal account, and then the question "was this paid?" and the
+   * question "is this ours?" have different answers. Nothing else in the
+   * pipeline asks the second one: the dedup keys are Rioko's own, and the
+   * destination reference check only sees documents Rioko wrote — so a sale the
+   * other system already invoiced looks, from here, exactly like a sale nobody
+   * has invoiced yet, and gets a second fiscal document.
+   *
+   * Answered by the SOURCE because only it knows what its own payloads look
+   * like. Silent (null) unless the connection configured a rule.
+   */
+  scopeBlocker?(parsedBody: any, ctx: AdapterCtx): Promise<string | null>;
 }
 
 export interface NormalizedRefund {

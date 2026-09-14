@@ -93,6 +93,18 @@ export interface IRequestConfig {
   stripe_routing_hints: number | null;
   // JSON map from Stripe metadata keys to invoice fields. NULL = off.
   stripe_metadata_map: string | null;
+  /**
+   * Comma-separated Stripe metadata keys that mean "the merchant's OTHER system
+   * already invoices this sale". NULL/empty = off, and one stream is the norm.
+   *
+   * Set on an account whose payments come from two places at once — a forms or
+   * booking app that issues its own documents into the same fiscal account, plus
+   * everything else, which is what Rioko was brought in for. Both streams are
+   * equally paid, so nothing downstream can tell them apart. Read by
+   * StripeSource.scopeBlocker, which also looks through a payment to the
+   * subscription behind it.
+   */
+  stripe_scope_skip_metadata: string | null;
   // 1 = foreign-currency handling for IX documents (see migration 0037).
   ix_multicurrency: number | null;
   /**

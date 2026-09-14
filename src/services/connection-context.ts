@@ -123,6 +123,7 @@ export function synthLegacyConfig(userId: string): IRequestConfig {
     ix_require_series: 0,
     stripe_routing_hints: 0,
     stripe_metadata_map: null,
+    stripe_scope_skip_metadata: null,
     ix_multicurrency: 0,
   } as unknown as IRequestConfig;
 }
@@ -282,6 +283,12 @@ export function projectConnectionBehaviour(
   }
   if (typeof destinationConfig.stripe_metadata_map === "string") {
     c.stripe_metadata_map = destinationConfig.stripe_metadata_map;
+  }
+  // Which of the account's payment streams belong to the merchant's other
+  // system. Isolated per connection by construction: it lives in the connection
+  // blob, so a second connection on the same account never inherits it.
+  if (typeof destinationConfig.stripe_scope_skip_metadata === "string") {
+    c.stripe_scope_skip_metadata = destinationConfig.stripe_scope_skip_metadata;
   }
   // The fiscal identity of the documents this connection issues: which series
   // they are filed in, which exemption code they carry when the rate is 0%, and

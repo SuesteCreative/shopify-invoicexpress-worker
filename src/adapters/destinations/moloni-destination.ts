@@ -16,7 +16,7 @@ import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow, receiptDelta } from "../reconcile";
 import { redactSecrets } from "../../security";
-import { refundReference, isRefundReference, documentReference } from "../../services/document-references";
+import { refundReference, isRefundReference, documentReference, crossSystemReferences } from "../../services/document-references";
 import { platformError } from "../../services/platform-error";
 import type { MoloniTokenProvider } from "../../services/moloni-oauth";
 
@@ -1629,6 +1629,38 @@ export class MoloniDestination implements DestinationAdapter {
           (d) => String(d.our_reference ?? "") === reference,
         );
         if (match?.document_id) return { id: String(match.document_id) };
+      }
+
+      // Second pass: the SAME sale, written by somebody else.
+      //
+      // `our_reference` only ever answers "did Rioko write this?" — it is Rioko's
+      // own spelling, `Order #<id>`. A merchant's other system, or the connector
+      // that preceded us, files the bare payment id in `your_reference` and
+      // leaves `our_reference` empty, so the pass above cannot see a single one
+      // of its documents. Measured on Escola Lá Fora (14/09/2026): 88 documents
+      // written by the merchant's own backoffice as `pi_3Tp77G…`, invisible to a
+      // lookup for `Order #pi_3Tp77G…`, one duplicate waiting per payment.
+      //
+      // Only for payment ids, and only exact. A bare number (`1137`, a Lodgify
+      // booking) is not unique enough to refuse a document over, and the
+      // instalment references built from it would collide with each other.
+      for (const candidate of crossSystemReferences(reference)) {
+        for (const getAllPath of getAllPaths) {
+          const found = await moloniCall<Array<{ document_id?: number; your_reference?: string }>>(
+            cfg, token, getAllPath, {
+              document_set_id: cfg.documentSetId,
+              your_reference: candidate,
+            },
+            "lookup",
+          );
+          const match = (Array.isArray(found) ? found : []).find(
+            (d) => String(d.your_reference ?? "") === candidate,
+          );
+          if (match?.document_id) {
+            console.log(`[Moloni] ${reference} already exists as your_reference ${candidate} (document ${match.document_id})`);
+            return { id: String(match.document_id) };
+          }
+        }
       }
       return null;
     } catch (e) {

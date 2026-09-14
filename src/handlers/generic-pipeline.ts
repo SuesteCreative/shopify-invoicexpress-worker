@@ -389,6 +389,38 @@ async function runPipelineCore(
         return;
       }
 
+      // Is this sale ours at all?
+      //
+      // Before any of it: a sale another system already invoices must not be
+      // normalized, re-rated, or looked up at the destination. Every gate below
+      // answers "has RIOKO done this?", and for a second system's document the
+      // answer is honestly no — which is how one payment ends up with two fiscal
+      // documents and the VAT on it declared twice.
+      const notOurs = sourceAdapter.scopeBlocker ? await sourceAdapter.scopeBlocker(body, ctx) : null;
+      if (notOurs) {
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await logDocumentEvent(env, {
+          externalId,
+          event: "skipped",
+          dedupKey: `skipped:scope:${externalId}`,
+          userId: config.user_id,
+          shopifyDomain: config.shopify_domain,
+          sourceKind: source,
+          destinationKind: destination,
+          actor: "pipeline",
+          summary: `Venda ${externalId} não facturada pelo Rioko: ${notOurs}.`,
+          detail: { reason: notOurs },
+        });
+        await appStorage.saveLog({
+          shopify_domain: config.shopify_domain,
+          topic: logTopic,
+          payload: externalId,
+          response: `Skipped: out of scope — ${notOurs}`,
+          status: 200,
+        });
+        return;
+      }
+
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
 

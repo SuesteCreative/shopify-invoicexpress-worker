@@ -49,6 +49,29 @@ export function documentReference(order: { invoice_reference?: string | null; or
 }
 
 /**
+ * The spellings the SAME sale may already be filed under by a system that is not
+ * Rioko — the merchant's own backoffice, or the connector that came before us.
+ *
+ * `saleReference` is Rioko's spelling and nobody else's, so an idempotency check
+ * that only looks for it answers "has Rioko issued this?" while pretending to
+ * answer "does a document for this payment exist?". Everything another system
+ * writes is invisible to it, and the merchant gets a second fiscal document for
+ * a payment that already had one. The other systems file the bare payment id;
+ * the older Stripe connectors prefixed it `#stripe_`.
+ *
+ * Deliberately narrow: only a payment-processor id, which is globally unique and
+ * therefore safe to refuse a document over. A bare order number would match
+ * another sale's document, and the instalment references built from one
+ * (`Order #1137-2`) would match each other.
+ */
+export function crossSystemReferences(reference: string): string[] {
+  const bare = reference.replace(/^Order #/i, "").trim();
+  if (!bare || bare === reference) return [];
+  if (!/^(pi|ch|cs|in|py|seti)_[A-Za-z0-9]+$/.test(bare)) return [];
+  return [bare, `#stripe_${bare}`];
+}
+
+/**
  * One instalment of a progressively-billed sale. `Order #1137-2`.
  * Lodgify bookings settle in stages and get one document per stage.
  */

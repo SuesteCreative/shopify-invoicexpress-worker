@@ -996,6 +996,55 @@ function stripeOriginOf(
 }
 
 /**
+ * The metadata keys that mean "another system already invoices this sale",
+ * as the connection wrote them: a comma-separated list.
+ */
+export function parseScopeSkipKeys(raw: unknown): string[] {
+  return String(raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Every metadata bag a Stripe object carries.
+ *
+ * A recurring charge is the whole reason this is a list. The other system marks
+ * the SUBSCRIPTION, and `invoice.metadata` stays empty for every renewal it ever
+ * bills — so a filter that reads only that field is blind to exactly the traffic
+ * it exists to exclude.
+ *
+ * Both spellings of the subscription's bag, deliberately. Stripe moved it out of
+ * `subscription_details` and into `parent.subscription_details` in the 2025
+ * versions, and a webhook arrives in whatever version its ENDPOINT was
+ * registered at, not the one our outbound reads pin. Reading one spelling is how
+ * three months of this merchant's mensalidades went unbilled in silence.
+ */
+function metadataBags(obj: any): any[] {
+  if (!obj || typeof obj !== "object") return [];
+  const bags = [
+    obj.metadata,
+    obj.subscription_details?.metadata,
+    obj.parent?.subscription_details?.metadata,
+    typeof obj.subscription === "object" ? obj.subscription?.metadata : null,
+  ];
+  return bags.filter((b) => b && typeof b === "object");
+}
+
+/** The first skip key present with a value, across every object given. */
+export function scopeSkipHit(objects: any[], keys: string[]): string | null {
+  for (const obj of objects) {
+    for (const bag of metadataBags(obj)) {
+      for (const key of keys) {
+        const value = bag[key];
+        if (value != null && String(value).trim() !== "") return key;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Union of two note_attribute lists, keyed on name+value so re-reading the same
  * metadata from a second Stripe object does not duplicate every entry — a
  * doubled `country:AU` would still route correctly, but a doubled NIF field is
@@ -1098,6 +1147,60 @@ export class StripeSource implements SourceAdapter {
     // single card payment — which fires several of them — deduplicates to one
     // processed_orders row and one document reference. See stripeStableId.
     return stripeStableId(parsedBody);
+  }
+
+  /**
+   * Is this payment ours to invoice, or does the merchant's other system own it?
+   *
+   * `stripe_scope_skip_metadata` names the keys that other system stamps on
+   * everything it creates. One Stripe account can carry two streams — a booking
+   * or forms app that invoices its own sales into the merchant's fiscal account,
+   * and everything else, which is what Rioko was brought in for. Both streams
+   * are equally "paid", so no gate downstream can tell them apart: the dedup keys
+   * are Rioko's own, and the destination reference check only ever sees documents
+   * Rioko itself wrote. Without this the merchant gets two fiscal documents for
+   * one payment, two numbers burnt out of the series, and VAT declared twice.
+   *
+   * Looks through to the document behind a payment when the event itself carries
+   * nothing. A subscription charge fires invoice.paid, payment_intent.succeeded
+   * and charge.succeeded; they all dedup onto the same PaymentIntent, but only
+   * the invoice carries the subscription's metadata. Deciding from whichever
+   * event arrived first would make the answer a race — and a race whose losing
+   * side mints a duplicate.
+   *
+   * Silent unless the connection named keys: an account with one stream is
+   * unaffected, and costs no extra call.
+   */
+  async scopeBlocker(parsedBody: any, ctx: AdapterCtx): Promise<string | null> {
+    const keys = parseScopeSkipKeys(ctx.config?.stripe_scope_skip_metadata);
+    if (keys.length === 0) return null;
+
+    const event = parsedBody;
+    const obj = event?.data?.object;
+    let hit = scopeSkipHit([obj], keys);
+
+    if (!hit) {
+      const type = String(event?.type ?? "");
+      const isPI = type.startsWith("payment_intent.");
+      const isCharge = type.startsWith("charge.");
+      const auth = ctxStripeAuth(ctx);
+      if (auth?.apiKey && (isPI || isCharge)) {
+        const piId = isPI ? String(obj?.id ?? "") : String(obj?.payment_intent ?? "");
+        const invoiceId = obj?.invoice ? String(obj.invoice) : null;
+        // A failed lookup must NOT read as "not theirs". Silence here means
+        // Stripe could not be asked, and answering "ours" on silence is the
+        // duplicate this whole method exists to prevent — so the failure is
+        // raised and the queue retries.
+        const status = { failed: false };
+        const richer = await fetchRicherTaxSource(piId, invoiceId, auth.apiKey, status, auth.connectAccount);
+        if (status.failed) {
+          throw new Error(`[Stripe] scope lookup failed for ${piId || invoiceId} — refusing to decide whose sale this is`);
+        }
+        hit = scopeSkipHit([richer?.data?.object], keys);
+      }
+    }
+
+    return hit ? `Facturada pelo outro sistema do comerciante (metadata ${hit})` : null;
   }
 
   async toNormalized(parsedBody: any, ctx: AdapterCtx): Promise<Normalized | null> {

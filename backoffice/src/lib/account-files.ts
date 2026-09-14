@@ -1,6 +1,21 @@
-import { put, del, get } from "@vercel/blob";
 import { auditConfigChange } from "./config-audit";
 import { identifyFile, safeFilename, MAX_FILE_BYTES, MAX_FILES_PER_POST } from "./account-file-types";
+
+/**
+ * `@vercel/blob` is reached for only when a blob is actually touched.
+ *
+ * A static import would put it in this module's graph, and this module is in the
+ * graph of `account-posts.ts`, which the unit suite imports. That suite runs from
+ * the REPO ROOT — both for `npm test` and for the Cloudflare build that deploys
+ * the worker — where the backoffice's own dependencies are not installed. The
+ * result was a red Workers build on every merge after this package arrived, and
+ * a worker that stopped being promoted while the backoffice deployed fine.
+ *
+ * Importing it here instead keeps the package out of the graph until a code path
+ * that genuinely needs it runs, which no test does. It also keeps the SDK out of
+ * the edge bundle for every request that never touches a file.
+ */
+const blob = () => import("@vercel/blob");
 
 /**
  * Files attached to a wall post.
@@ -91,6 +106,7 @@ export async function attachFileToPost(
   // client's name.
   const pathname = `accounts/${accountId}/${id}.${kind.ext}`;
 
+  const { put } = await blob();
   await put(pathname, file, {
     access: "private",
     token: rw,
@@ -126,6 +142,7 @@ export async function readPostFile(db: any, env: any, { accountId, fileId }: { a
   ).bind(fileId, accountId).first().catch(() => null);
   if (!row) return null;
 
+  const { get } = await blob();
   const result: any = await get(row.pathname, { access: "private", token: rw }).catch(() => null);
   if (!result || result.statusCode !== 200) return null;
 
@@ -158,7 +175,10 @@ export async function deletePostFile(
     `UPDATE account_post_files SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ? WHERE id = ?`,
   ).bind(actor, fileId).run();
 
-  if (rw) await del(row.pathname, { token: rw }).catch(() => undefined);
+  if (rw) {
+    const { del } = await blob();
+    await del(row.pathname, { token: rw }).catch(() => undefined);
+  }
 
   await auditConfigChange(db, {
     userId: accountId,

@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     // saved. Refusing a legitimate rule because a lookup was flaky would be the
     // worse failure.
     if (seriesName && destinationKind === "invoicexpress") {
-        const sequences = await listIxSequences(db, authResult.targetUserId);
+        const sequences = await listIxSequences(db, authResult.targetUserId, sourceKind);
         if (sequences !== null) {
             const match = findSequenceByName(sequences, seriesName);
             if (!match) {

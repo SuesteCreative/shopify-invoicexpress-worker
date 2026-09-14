@@ -44,6 +44,15 @@ interface Row {
     updated_at: string | null;
     sub_state: string;
     legacy_price: boolean;
+    /** The worst incident open against this account right now, if any. */
+    trouble?: {
+        kind: string;
+        severity: string;
+        occurrences: number;
+        last_seen_at: string | null;
+        kinds: number;
+        scope: "connection" | "account";
+    } | null;
     can_delete: boolean;
 }
 
@@ -102,8 +111,8 @@ const SUB_LABEL: Record<string, string> = {
     none: "sem subscrição",
 };
 
-const Badge = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-mono text-[9px] uppercase tracking-[0.14em] whitespace-nowrap ${className}`}>
+const Badge = ({ children, className = "", title }: { children: React.ReactNode; className?: string; title?: string }) => (
+    <span title={title} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-mono text-[9px] uppercase tracking-[0.14em] whitespace-nowrap ${className}`}>
         {children}
     </span>
 );
@@ -386,6 +395,31 @@ export function IntegrationsPanel() {
                                                         : !r.has_source ? `falta ${kindLabel(r.source)}`
                                                         : !r.has_destination ? `falta ${kindLabel(r.destination)}`
                                                         : "por activar"}
+                                                </Badge>
+                                            )}
+                                            {/* "completa" answers whether it is configured. This
+                                                answers whether it WORKS, and the two are not the
+                                                same fact: a complete, active, paid connection can
+                                                be rejecting every document it sends. Without this
+                                                the page could only ever report the first kind of
+                                                failure, so the second stayed invisible until
+                                                someone counted the unbilled orders. */}
+                                            {r.trouble && (
+                                                <Badge
+                                                    className={r.trouble.severity === "warning"
+                                                        ? "text-soon border-soon/40"
+                                                        : "text-destructive border-destructive/40"}
+                                                    title={`${r.trouble.occurrences} ocorrência(s)`
+                                                        + (r.trouble.kinds > 1 ? `, ${r.trouble.kinds} tipos em aberto` : "")
+                                                        + (r.trouble.last_seen_at ? `, última ${r.trouble.last_seen_at.slice(0, 16).replace("T", " ")}` : "")
+                                                        + (r.trouble.scope === "account"
+                                                            ? ". Aberto sobre a CONTA: pode não ser desta ligação."
+                                                            : ". Aberto sobre esta ligação.")}
+                                                >
+                                                    <AlertTriangle className="w-3 h-3" />
+                                                    {r.trouble.kind}
+                                                    {r.trouble.occurrences > 1 && ` ×${r.trouble.occurrences}`}
+                                                    {r.trouble.scope === "account" && "*"}
                                                 </Badge>
                                             )}
                                             {r.error && (

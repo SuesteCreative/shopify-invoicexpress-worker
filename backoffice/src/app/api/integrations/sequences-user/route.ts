@@ -25,6 +25,10 @@ export async function GET(request: NextRequest) {
     // Shared with the rule form, which has to refuse a series the account does
     // not have. `null` there means "could not tell"; this endpoint has always
     // answered with an empty list either way, and keeps doing so.
-    const sequences = await listIxSequences(db, targetUserId);
+    // `source_kind` only picks between two InvoiceXpress connections on one
+    // account; absent, the most recently updated one answers.
+    const sequences = await listIxSequences(
+        db, targetUserId, request.nextUrl.searchParams.get("source_kind") ?? undefined,
+    );
     return NextResponse.json(sequences ?? []);
 }

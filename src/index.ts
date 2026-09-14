@@ -3534,7 +3534,7 @@ export default {
       // is the one failure none of the heals above can see.
       try {
         const ch = await runConnectionHealthCheck(env);
-        console.log(`[Cron] Connection health: checked=${ch.checked} unconfigured=${ch.unconfigured} reported=${ch.reported}`);
+        console.log(`[Cron] Connection health: checked=${ch.checked} unconfigured=${ch.unconfigured} reported=${ch.reported} resolved=${ch.resolved}`);
         for (const f of ch.findings) console.warn(`[Cron] Connection health: ${f}`);
       } catch (e: any) {
         console.error(`[Cron] Connection health check failed: ${e.message}`);

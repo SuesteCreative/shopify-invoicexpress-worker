@@ -10,6 +10,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useUser } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
+import InvoiceNote from "@/components/InvoiceNote";
 import SubscriptionCard from "@/components/SubscriptionCard";
 
 import { cn } from "@/lib/utils";
@@ -59,6 +60,7 @@ export default function ShopifyIXIntegration() {
     const [ixDocumentType, setIxDocumentType] = useState("invoice_receipt");
     const [ixPaymentTerm, setIxPaymentTerm] = useState(0);
     const [ixSequenceName, setIxSequenceName] = useState("");
+    const [customInvoiceNote, setCustomInvoiceNote] = useState("");
     const [ixRetentionEnabled, setIxRetentionEnabled] = useState(false);
     const [ixRetention, setIxRetention] = useState<number>(16.5);
 
@@ -135,6 +137,7 @@ export default function ShopifyIXIntegration() {
                 if (data.ix_document_type) setIxDocumentType(data.ix_document_type);
                 if (data.ix_payment_term !== undefined) setIxPaymentTerm(parseInt(String(data.ix_payment_term)));
                 if (data.ix_sequence_name) setIxSequenceName(data.ix_sequence_name);
+                if (data.custom_invoice_note) setCustomInvoiceNote(data.custom_invoice_note);
                 if (data.ix_retention_enabled !== undefined) setIxRetentionEnabled(data.ix_retention_enabled === 1);
                 if (data.ix_retention !== undefined && data.ix_retention !== null) {
                     const v = parseFloat(String(data.ix_retention));
@@ -323,7 +326,7 @@ export default function ShopifyIXIntegration() {
                     shopify_webhook_secret: shopifyWebhookSecret, shopify_api_version: shopifyApiVersion,
                     ix_account_name: ixAccount, ix_api_key: ixApiKey, ix_environment: ixEnvironment,
                     ix_exemption_reason: exemptionReason, vat_included: vatIncluded, auto_finalize: autoFinalize, only_invoice_when_paid: onlyInvoiceWhenPaid, ix_send_email: ixSendEmail ? 1 : 0, ix_email_subject: ixEmailSubject, ix_email_body: ixEmailBody,
-                    ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention
+                    ix_document_type: ixDocumentType, ix_payment_term: ixPaymentTerm, ix_sequence_name: ixSequenceName, ix_retention_enabled: ixRetentionEnabled ? 1 : 0, ix_retention: ixRetention, custom_invoice_note: customInvoiceNote
                 })
             });
             if (res.ok) setStep(5);
@@ -760,6 +763,12 @@ export default function ShopifyIXIntegration() {
                                                         <div className="absolute right-6 top-[55%] -translate-y-1/2 pointer-events-none opacity-40"><ChevronRight className="w-5 h-5 rotate-90 text-soon" /></div>
                                                     </div>
                                                 </div>
+                                                <InvoiceNote
+                                                    value={customInvoiceNote}
+                                                    onChange={setCustomInvoiceNote}
+                                                    disabled={saving}
+                                                />
+
                                                 <div className="md:col-span-2 glass p-5 sm:p-6 rounded-2xl border-hairline flex items-center justify-between gap-4">
                                                     <div className="min-w-0">
                                                         <h3 className="font-bold text-sm">{t("overridesTitle")}</h3>

@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 import SubscriptionCard from "@/components/SubscriptionCard";
 import { RIOKO_CONFIG } from "@/lib/config";
 import TaxRegistrations from "@/components/TaxRegistrations";
+import InvoiceNote from "@/components/InvoiceNote";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 
 import { cn } from "@/lib/utils";
@@ -167,6 +168,7 @@ export default function StripeIXIntegration() {
             ...(typeof fiscal.pt_regional_rates === "boolean" ? { pt_regional_rates: fiscal.pt_regional_rates } : {}),
             ...(typeof fiscal.b2b_reverse_charge_pipeline === "boolean" ? { b2b_reverse_charge_pipeline: fiscal.b2b_reverse_charge_pipeline } : {}),
             ...(typeof fiscal.oss_export_exemption_code === "string" ? { oss_export_exemption_code: fiscal.oss_export_exemption_code } : {}),
+            ...(typeof fiscal.custom_invoice_note === "string" ? { custom_invoice_note: fiscal.custom_invoice_note } : {}),
             });
             if (typeof fiscal.auto_finalize === "boolean") setAutoFinalize(fiscal.auto_finalize);
             if (sCfg.stripe_account_id) setStripeAccountId(sCfg.stripe_account_id);
@@ -797,6 +799,11 @@ export default function StripeIXIntegration() {
                                                         onChange={(patch) => setRegistrations((r) => ({ ...r, ...patch }))}
                                                         disabled={saving}
                                                         destination="invoicexpress"
+                                                    />
+                                                    <InvoiceNote
+                                                        value={registrations.custom_invoice_note ?? ""}
+                                                        onChange={(v) => setRegistrations((r) => ({ ...r, custom_invoice_note: v }))}
+                                                        disabled={saving}
                                                     />
                                                     <div className="min-w-0">
                                                         <h3 className="font-bold text-sm">{t("overridesTitle")}</h3>

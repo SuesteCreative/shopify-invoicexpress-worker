@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readConnectionFiscal, fiscalPatchFrom } from "./connection-fiscal";
+import { readConnectionFiscal, fiscalPatchFrom, MAX_CUSTOM_INVOICE_NOTE } from "./connection-fiscal";
 
 describe("readConnectionFiscal", () => {
     it("returns what the connection states and stays silent about the rest", () => {
@@ -40,5 +40,27 @@ describe("fiscalPatchFrom", () => {
     it("takes false as a value, not as absence — it is the whole point of vat_included", () => {
         expect(fiscalPatchFrom({ vat_included: false, auto_finalize: false }))
             .toEqual({ vat_included: false, auto_finalize: false });
+    });
+
+    it("carries the merchant's standing note, which used to be dropped in silence", () => {
+        expect(fiscalPatchFrom({ custom_invoice_note: " Regime de IVA de caixa " }))
+            .toEqual({ custom_invoice_note: "Regime de IVA de caixa" });
+    });
+
+    it("cuts the note at the limit both destinations enforce anyway", () => {
+        const patch = fiscalPatchFrom({ custom_invoice_note: "N".repeat(400) })!;
+        expect((patch.custom_invoice_note as string).length).toBe(MAX_CUSTOM_INVOICE_NOTE);
+    });
+
+    it("keeps an empty note, which is how a merchant deletes one", () => {
+        // Not collapsed to undefined: the destination config is written with a
+        // merge patch, and an absent key would leave the old text on the
+        // documents while the panel showed an empty field.
+        expect(fiscalPatchFrom({ custom_invoice_note: "" })).toEqual({ custom_invoice_note: "" });
+    });
+
+    it("reads the note back for the panel to show", () => {
+        expect(readConnectionFiscal(JSON.stringify({ custom_invoice_note: "Nota" })))
+            .toEqual({ custom_invoice_note: "Nota" });
     });
 });

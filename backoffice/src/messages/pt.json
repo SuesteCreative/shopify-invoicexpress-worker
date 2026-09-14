@@ -3630,6 +3630,13 @@
         "inviteCodeHint": "Ganham os dois {months} meses grátis. Só para contas novas, e o código tem de ser aplicado antes de pagar.",
         "inviteCodeFailed": "Não foi possível aplicar o código. Tenta outra vez."
     },
+    "invoiceNote": {
+        "title": "Nota fixa nas faturas",
+        "subtitle": "Opcional",
+        "help": "Este texto é acrescentado às observações de todos os documentos que esta ligação emitir, a seguir às menções legais obrigatórias. Serve para o regime de IVA, um número de licença ou uma referência legal que tenha de constar sempre.",
+        "placeholder": "ex.: Regime de IVA de caixa",
+        "limitHint": "Se o espaço acabar, é esta nota que é cortada, nunca a menção legal."
+    },
     "taxRegistrations": {
         "title": "Registos fiscais",
         "subtitle": "O que esta empresa está registada para fazer",

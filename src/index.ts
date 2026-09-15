@@ -3333,7 +3333,9 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
         // hunting for an invoice that exists.
         summary: `Retries esgotadas em ${sourceQueue} (${topic}) para ${orderLabel}${clientName ? ` — ${clientName}` : ""}. ${
           topic.toLowerCase().includes("refund") ? "Nota de crédito NÃO foi emitida." : "Encomenda NÃO foi facturada."
-        }${lastError ? ` Último erro do destino: ${lastError.message.slice(0, 200)}` : ""}`.slice(0, 500),
+        }${lastError
+          ? ` ${lastError.approximate ? "Erro recente desta conta (pode ser de outra venda)" : "Último erro do destino"}: ${lastError.message.slice(0, 200)}`
+          : ""}`.slice(0, 500),
         detail: {
           sourceQueue, topic, orderRef, clientName, externalId, eventId, shopDomain,
           message: lastError?.message,
@@ -3371,7 +3373,13 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
         sourceKind: body?.sourceKind ?? (sourceQueue === "stripeeventsqueue" ? "stripe" : "shopify"),
         destinationKind: body?.destinationKind ?? null,
         actor: "dlq",
-        summary: `As tentativas de processar ${topic} para ${orderLabel} esgotaram-se sem que o destino chegasse a aceitar o documento. Nenhum erro do destino ficou registado — a falha foi de transporte (rede, timeout ou indisponibilidade), não uma recusa.`,
+        // Says what is known and stops there. The old wording concluded "a
+        // falha foi de transporte (rede, timeout ou indisponibilidade), não uma
+        // recusa" from nothing but an empty lookup — and on 14/09/2026 the
+        // destination had in fact refused eleven times, in writing, in `logs`.
+        // The lookup simply could not see it. An absent error is an absent
+        // error; it is not evidence of what went wrong.
+        summary: `As tentativas de processar ${topic} para ${orderLabel} esgotaram-se sem que o destino chegasse a aceitar o documento. Não foi possível apurar o erro do destino — ver os registos desta ligação para a causa.`,
         detail: { sourceQueue, topic, eventId },
       });
     }

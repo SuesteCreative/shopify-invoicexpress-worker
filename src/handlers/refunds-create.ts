@@ -352,6 +352,30 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           }
         }
 
+        // A credit note can never be worth more than the document it credits,
+        // and InvoiceXpress enforces that at FINALIZE, not at create — so
+        // without this the note is created, refused on the way to becoming
+        // fiscal, and the retry creates another. Estrela left ELEVEN drafts
+        // that way on 2026-09-14, one every six minutes.
+        //
+        // It is a real mismatch and not a rounding one: the sale was invoiced
+        // exempt (M05, 89.49 €) while Shopify refunded tax-inclusive (85.00 +
+        // 18.07 = 103.07 €). Crediting 103.07 against an 89.49 € invoice is
+        // wrong whichever of the two documents turns out to be at fault, so it
+        // stops here, says both numbers, and leaves the decision to a human.
+        const ownerTotal = Number((ixInvoice?.data as any)?.total);
+        if (Number.isFinite(ownerTotal) && ownerTotal > 0) {
+          const creditTotal = ixBuilder.computeIxExpectedTotal(items as any);
+          if (creditTotal - ownerTotal > 0.01) {
+            throw new Error(
+              `[Shopify→IX credit note #${credit.refundId}] credit exceeds the invoice it credits: `
+              + `credit=${creditTotal.toFixed(2)} invoice=${ownerTotal.toFixed(2)} (doc ${invoice.invoice_id}). `
+              + `Refund is tax-inclusive while the invoice was issued exempt, or the invoice is understated. `
+              + `Nothing was created.`,
+            );
+          }
+        }
+
         const requireTaxExemption = items.some(item =>
           typeof item.tax === "number" ? item.tax === 0 : item.tax.value === 0
         );
@@ -416,6 +440,29 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           if (cnProblem && !isAlreadyFinalizedIxError(cnProblem)) {
             const detail = JSON.stringify(cnProblem).slice(0, 500);
             console.error(`[Rioko] Credit note ${creditNoteId} created but not finalized: ${detail}`);
+
+            // Take the draft back out before giving up. A credit note that
+            // never finalized is not a fiscal document, but it IS a row in the
+            // merchant's InvoiceXpress account, and the queue is about to retry
+            // and make another one. Leaving them is how Estrela accumulated
+            // eleven identical drafts against a single refund.
+            //
+            // Best-effort on purpose: if the delete fails there is nothing more
+            // this can do, and the finalize error is the one worth reporting.
+            // `changeState` to "deleted" is how a draft is withdrawn here —
+            // there is no REST delete for a document (see IxDestination.deleteDraft).
+            try {
+              const { error: cnDeleteError } = await IxApi.v2.changeState.post({
+                body: { type: "credit_note", id: Number(creditNoteId), state: "deleted" },
+                headers: ixHeaders,
+              });
+              if (cnDeleteError) {
+                console.error(`[Rioko] Could not remove unfinalized credit note ${creditNoteId}: ${JSON.stringify(cnDeleteError).slice(0, 300)}`);
+              }
+            } catch (deleteError) {
+              console.error(`[Rioko] Could not remove unfinalized credit note ${creditNoteId}: ${deleteError}`);
+            }
+
             throw new Error(`InvoiceXpress finalize failed for credit note ${creditNoteId}: ${detail}`);
           }
         }

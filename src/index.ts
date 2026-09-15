@@ -47,7 +47,7 @@ import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./
 import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
 import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection, applyConnectionEmailPref, connectionLabelOf } from "./services/connection-context";
-import { stampInvoicePaymentIntent } from "./services/stripe";
+import { stampInvoicePaymentIntent, listStripeInvoices } from "./services/stripe";
 import { resolveStripeAuth, livemodeMatches } from "./services/stripe-auth";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
@@ -2271,6 +2271,49 @@ app.post("/admin/billing/paused-notices", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to run paused-subscription notices");
+  }
+})
+
+/**
+ * Admin: the merchant's Stripe invoices in a window, each with the PaymentIntent
+ * that paid it. Read-only.
+ *
+ * Every other Stripe read here takes an id, because that is what invoicing a
+ * payment needs. Reconciling a merchant's DOCUMENTS against their Stripe account
+ * needs the other direction: an invoicing app writes the invoice NUMBER on the
+ * document ("#stripe_5W7EWHOS-2233"), and without this there was no way to turn
+ * that number back into a payment. Measured on Hyrox Training Portugal,
+ * 15/09/2026: 1.050 of 1.491 sales had a compatible document that could not be
+ * tied to them for exactly this reason.
+ *
+ *   GET /admin/stripe/invoices?user_id=…&from=2026-07-01&to=2026-09-16&limit=2000
+ */
+app.get("/admin/stripe/invoices", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const userId = c.req.query("user_id");
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  if (!userId || !from || !to) return c.json({ error: "Missing user_id, from or to" }, 400);
+  const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 1000), 1), 5000);
+  try {
+    const row: any = await c.env.DB.prepare(
+      `SELECT source_kind, source_config_json FROM connections
+         WHERE user_id = ? AND source_kind IN ('stripe', 'stripe_connect') AND status = 'active'
+         ORDER BY updated_at DESC LIMIT 1`,
+    ).bind(userId).first();
+    if (!row?.source_config_json) return c.json({ error: "No active Stripe connection for this user" }, 404);
+
+    // Connect reads use the platform key plus the Stripe-Account header; a legacy
+    // connection uses its own restricted key. One resolver, same as every other
+    // Stripe read in the worker.
+    const auth = resolveStripeAuth(c.env, JSON.parse(row.source_config_json));
+    if (!auth) return c.json({ error: "No usable Stripe credential on this connection" }, 400);
+
+    const { invoices, truncated } = await listStripeInvoices(auth.apiKey, from, to, limit, auth.connectAccount);
+    return c.json({ source_kind: row.source_kind, from, to, count: invoices.length, truncated, invoices });
+  } catch (e) {
+    return errorResponse(c, e, "Failed to list Stripe invoices");
   }
 })
 

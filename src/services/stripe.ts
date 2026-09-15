@@ -75,6 +75,96 @@ export async function listStripePaymentIntents(
   return out;
 }
 
+/** One invoice, flattened to what reconciling documents against Stripe needs. */
+export interface StripeInvoiceRow {
+  number: string | null;
+  id: string;
+  payment_intent: string | null;
+  status: string | null;
+  created: string;
+  total: number;
+  amount_paid: number;
+  currency: string;
+  customer: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_tax_id: string | null;
+}
+
+export function toStripeInvoiceRow(inv: any): StripeInvoiceRow {
+  const taxIds = Array.isArray(inv?.customer_tax_ids) ? inv.customer_tax_ids : [];
+  const firstTax = taxIds.find((t: any) => t?.value);
+  return {
+    number: inv?.number ?? null,
+    id: String(inv?.id ?? ""),
+    payment_intent: pickInvoicePaymentIntent(inv),
+    status: inv?.status ?? null,
+    created: new Date(Number(inv?.created ?? 0) * 1000).toISOString(),
+    total: Number(inv?.total ?? 0) / 100,
+    amount_paid: Number(inv?.amount_paid ?? 0) / 100,
+    currency: String(inv?.currency ?? "").toUpperCase(),
+    customer: typeof inv?.customer === "string" ? inv.customer : (inv?.customer?.id ?? null),
+    customer_name: inv?.customer_name ?? null,
+    customer_email: inv?.customer_email ?? null,
+    customer_tax_id: firstTax?.value ?? null,
+  };
+}
+
+/**
+ * The invoices in a window, each with the PaymentIntent that paid it.
+ *
+ * Why this direction exists at all: every other Stripe read in the worker takes
+ * an id, because that is what invoicing a payment needs. Reconciling a
+ * merchant's DOCUMENTS against their Stripe account needs the opposite — an
+ * invoicing app writes the invoice NUMBER on the document ("#stripe_5W7EWHOS-2233")
+ * and nothing here could turn a number back into a payment.
+ *
+ * `payments` is expanded on the list itself so `pickInvoicePaymentIntent` can
+ * read the 2025+ shape without a second request per invoice.
+ *
+ * Reports `truncated` instead of quietly stopping at the cap. The function
+ * above does the opposite — its `while (out.length < limit)` drops the OLDEST
+ * page, because Stripe lists newest first — and a short list that looks complete
+ * is how a reconciliation concludes a document is missing when it was only
+ * never read. Measured 15/09/2026: one window returned 544 sales of 1491.
+ */
+export async function listStripeInvoices(
+  apiKey: string,
+  fromIso: string,
+  toIso: string,
+  limit: number,
+  stripeAccount?: string | null,
+): Promise<{ invoices: StripeInvoiceRow[]; truncated: boolean }> {
+  const fromUnix = Math.floor(new Date(fromIso).getTime() / 1000);
+  const toUnix = Math.floor(new Date(toIso).getTime() / 1000);
+  const out: StripeInvoiceRow[] = [];
+  let startingAfter: string | null = null;
+  let moreOnServer = false;
+
+  while (out.length < limit) {
+    const query = new URLSearchParams();
+    query.set("created[gte]", String(fromUnix));
+    query.set("created[lte]", String(toUnix));
+    query.set("limit", "100");
+    query.set("expand[]", "data.payments");
+    if (startingAfter) query.set("starting_after", startingAfter);
+
+    const res = await stripeFetch("invoices", apiKey, { stripeAccount, query });
+    if (!res.ok) {
+      throw new Error(`Stripe invoices.list ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+    const body: any = await res.json();
+    const page: any[] = body.data ?? [];
+    for (const inv of page) out.push(toStripeInvoiceRow(inv));
+    moreOnServer = !!body.has_more;
+    if (!moreOnServer || page.length === 0) break;
+    startingAfter = page[page.length - 1]?.id ?? null;
+    if (!startingAfter) break;
+  }
+
+  return { invoices: out.slice(0, limit), truncated: out.length >= limit && moreOnServer };
+}
+
 /**
  * The PaymentIntent that actually paid a Stripe invoice, or null when no
  * PaymentIntent did.

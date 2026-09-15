@@ -163,13 +163,22 @@ export async function linkSubscriptionToConnection(opts: {
         console.warn("[link-subscription] customer identity fill failed:", e?.message ?? e);
     }
 
-    // Release any connection paused pending payment + stamp the invoice cutoff.
+    // Release THIS connection, paused pending payment, and stamp its cutoff.
+    //
+    // It used to be `WHERE user_id = ?` alone, so one subscription released every
+    // paused connection of the account and stamped its own start date on every
+    // active one. A merchant who deliberately had one integration suspended had
+    // it put back on the air by paying for a different one — and an integration
+    // back on the air issues documents.
+    //
+    // `connectionKey` was already in scope here; it just was not used.
     try {
         const subStart = isoFromUnix((sub as any).start_date);
+        const [source, destination] = connectionKey.split(":");
         await db.prepare(
             `UPDATE connections SET status='active', invoice_cutoff = COALESCE(invoice_cutoff, ?), updated_at=CURRENT_TIMESTAMP
-             WHERE user_id = ? AND status = 'paused'`
-        ).bind(subStart, userId).run();
+             WHERE user_id = ? AND source_kind = ? AND destination_kind = ? AND status = 'paused'`
+        ).bind(subStart, userId, source, destination).run();
         // Linking a subscription by hand is also the moment we learn when the
         // client actually started paying — so an already-active connection that
         // never had a cutoff gets this subscription's start instead of keeping
@@ -177,8 +186,8 @@ export async function linkSubscriptionToConnection(opts: {
         // date; the panel can still override it afterwards.
         await db.prepare(
             `UPDATE connections SET invoice_cutoff = COALESCE(invoice_cutoff, ?), updated_at=CURRENT_TIMESTAMP
-             WHERE user_id = ? AND status = 'active'`
-        ).bind(subStart, userId).run();
+             WHERE user_id = ? AND source_kind = ? AND destination_kind = ? AND status = 'active'`
+        ).bind(subStart, userId, source, destination).run();
     } catch (e: any) {
         console.warn("[link-subscription] connection activate failed:", e?.message ?? e);
     }

@@ -66,15 +66,51 @@ function isRiokoUserId(id: string | null | undefined): id is string {
 async function activatePausedConnections(
     db: D1Database, userId: string, cutoffIso: string | null, connectionKey: string,
 ) {
-    // Deliberately account-wide, unlike the gate. Releasing a pause is not what
-    // lets a pipe invoice — the gate is asked per connection on every document,
-    // and refuses one nobody paid for whatever this row says. Narrowing it here
-    // would only risk the opposite failure: a merchant who has paid and stays
-    // paused because the key resolved a shade differently.
-    await db.prepare(
-        `UPDATE connections SET status='active', invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
-         WHERE user_id=? AND status='paused'`
-    ).bind(cutoffIso, userId).run();
+    // Scoped to the connection that was paid for, with an account-wide net.
+    //
+    // This was account-wide on purpose, reasoned as: releasing a pause is not
+    // what lets a pipe invoice, because the gate is asked per connection on
+    // every document. That holds only while SUBSCRIPTION_PER_CONNECTION is on.
+    // With it off the gate asks about the ACCOUNT, so a paid Stripe Connect
+    // subscription put the merchant's deliberately suspended legacy connection
+    // back on the air — and a connection on the air issues documents.
+    //
+    // The risk that reasoning was protecting against is real and kept: a
+    // merchant who has paid must never stay paused because the key resolved a
+    // shade differently. So when the resolved key names no connection this
+    // account actually has, the old account-wide release still runs.
+    const [releaseSrc, releaseDest] = connectionKey.split(":");
+    const scoped = releaseSrc && releaseDest
+        ? await db.prepare(
+            `UPDATE connections SET status='active', invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
+             WHERE user_id=? AND status='paused' AND source_kind=? AND destination_kind=?`
+        ).bind(cutoffIso, userId, releaseSrc, releaseDest).run()
+        : null;
+
+    // `changes` is 0 when this account has no paused connection under that key —
+    // either because nothing was paused (fine) or because the key does not match
+    // any row (the case the net exists for). Both are answered the same way, and
+    // an UPDATE that matches nothing costs nothing.
+    if (!scoped || Number((scoped as any)?.meta?.changes ?? 0) === 0) {
+        const stillPaused: any = await db.prepare(
+            "SELECT COUNT(*) AS n FROM connections WHERE user_id=? AND status='paused'"
+        ).bind(userId).first();
+        if (Number(stillPaused?.n ?? 0) > 0) {
+            const known: any = await db.prepare(
+                "SELECT COUNT(*) AS n FROM connections WHERE user_id=? AND source_kind=? AND destination_kind=?"
+            ).bind(userId, releaseSrc ?? "", releaseDest ?? "").first();
+            // Only when the key names nothing this account has. A key that DOES
+            // name a real connection has had its say above, and the merchant's
+            // other integrations are none of this payment's business.
+            if (Number(known?.n ?? 0) === 0) {
+                console.warn(`[stripe-webhook] ${userId}: connection_key ${connectionKey} matches no connection; releasing every paused one`);
+                await db.prepare(
+                    `UPDATE connections SET status='active', invoice_cutoff=?, updated_at=CURRENT_TIMESTAMP
+                     WHERE user_id=? AND status='paused'`
+                ).bind(cutoffIso, userId).run();
+            }
+        }
+    }
 
     // A connection built AFTER the payment is never 'paused' — the wizard
     // activates it on the spot — so the branch above never touched it and its
@@ -133,16 +169,39 @@ async function resolveConnectionKey(db: D1Database, userId: string, sub: Stripe.
         if (existing?.connection_key) return existing.connection_key;
     }
 
-    // Same rule the migration used: the connection the account set up first is
-    // the one an unattributed subscription was bought for.
+    // Same rule the migration used — the connection the account set up first —
+    // with one refinement: an ACTIVE connection beats an older one that is not.
+    //
+    // Only a genuinely new, metadata-less subscription reaches here (the two
+    // branches above answer for everything already attributed), so this changes
+    // no existing row. It matters because the oldest connection of an account
+    // that migrated to Stripe Connect is the retired legacy one: the payment was
+    // filed against `stripe:invoicexpress`, and with SUBSCRIPTION_PER_CONNECTION
+    // on the gate then looked for `stripe_connect:invoicexpress`, found nothing,
+    // and refused to invoice a merchant who had just paid.
     const conn: any = await db.prepare(
-        "SELECT source_kind, destination_kind FROM connections WHERE user_id = ? ORDER BY created_at ASC LIMIT 1"
+        `SELECT source_kind, destination_kind, created_at FROM connections
+          WHERE user_id = ?
+          ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at ASC
+          LIMIT 1`
     ).bind(userId).first();
     const shop: any = await db.prepare(
         "SELECT created_at FROM integrations WHERE user_id = ? AND shopify_domain IS NOT NULL AND shopify_domain <> '' LIMIT 1"
     ).bind(userId).first();
-    if (shop && shopIsOldest(shop.created_at, conn?.created_at)) return DEFAULT_CONNECTION_KEY;
-    if (conn) return `${conn.source_kind}:${conn.destination_kind}`;
+    // Attribution by guess is money moving on an assumption, so it says so.
+    // Without this line a payment filed against the wrong connection leaves no
+    // trace of having been a guess at all, and the first symptom is the gate
+    // refusing to invoice a merchant who paid.
+    if (shop && shopIsOldest(shop.created_at, conn?.created_at)) {
+        console.warn(`[stripe-webhook] ${userId}: subscription ${sub?.id ?? "?"} names no connection; attributing to ${DEFAULT_CONNECTION_KEY} (oldest is the shop)`);
+        return DEFAULT_CONNECTION_KEY;
+    }
+    if (conn) {
+        const guessed = `${conn.source_kind}:${conn.destination_kind}`;
+        console.warn(`[stripe-webhook] ${userId}: subscription ${sub?.id ?? "?"} names no connection; attributing to ${guessed}`);
+        return guessed;
+    }
+    console.warn(`[stripe-webhook] ${userId}: subscription ${sub?.id ?? "?"} names no connection and the account has none; attributing to ${DEFAULT_CONNECTION_KEY}`);
     return DEFAULT_CONNECTION_KEY;
 }
 

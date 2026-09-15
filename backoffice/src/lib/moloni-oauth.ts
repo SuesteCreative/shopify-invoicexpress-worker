@@ -63,10 +63,25 @@ export async function findPendingMoloniConnection(
         .prepare(`SELECT id, source_kind, destination_config_json, source_config_json FROM connections
                    WHERE user_id = ? AND destination_kind = 'moloni'
                      AND oauth_state IS NOT NULL AND oauth_state_expires_at > ?
-                   ORDER BY updated_at DESC LIMIT 1`)
+                   ORDER BY updated_at DESC LIMIT 2`)
         .bind(targetUserId, now)
-        .first();
-    return (pending as MoloniConnectionRow) ?? null;
+        .all();
+
+    const rows = (pending?.results ?? []) as MoloniConnectionRow[];
+    // Two round trips in flight at once is genuinely ambiguous, and the wrong
+    // answer here writes a Moloni access and refresh token pair onto a
+    // connection the merchant was not authorising — which then files that
+    // integration's documents into another company. "The most recent wins" is a
+    // fine tiebreak between a live attempt and a stale one; it is not a way to
+    // choose between two live ones.
+    //
+    // Refusing costs the merchant a retry. Guessing costs a document in the
+    // wrong company, and nothing would say so.
+    if (rows.length > 1) {
+        console.warn(`[moloni-oauth] ${targetUserId}: ${rows.length} Moloni authorisations pending at once and Moloni echoed no state; refusing to choose`);
+        return null;
+    }
+    return rows[0] ?? null;
 }
 
 export type MoloniExchange = { ok: true } | { ok: false; detail: string };

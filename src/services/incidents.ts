@@ -69,9 +69,25 @@ export function bucketKeyFor(input: ReportIncidentInput, now: Date): string {
   const granularity = input.bucket ?? "hourly";
   const iso = now.toISOString();
   const bucketPart = granularity === "daily" ? iso.slice(0, 10) : iso.slice(0, 13); // YYYY-MM-DD or YYYY-MM-DD-HH (T as sep)
+  // The CONNECTION, because an account is not an integration.
+  //
+  // Without it, a `destination_reject` on `stripe → invoicexpress` and one on
+  // `stripe_connect → moloni` in the same hour were ONE incident: occurrences
+  // went to 2, the summary was overwritten by whichever arrived second, and
+  // `notified_at` was already set so no second email went out. The merchant was
+  // told about one integration failing and never heard that the other had too —
+  // and the incident they did read carried the first one's connection label,
+  // which points the operator at the wrong pipe.
+  //
+  // `connection_label` rather than `connection_id`: it is what the callers
+  // already pass and what the email already prints, and the column almost
+  // nobody fills would have made this a no-op for most of them. An absent label
+  // leaves the key exactly as it was, so nothing regroups for a caller that
+  // names no connection.
+  const connectionPart = input.connection_label ? `:${input.connection_label}` : "";
   // `dedup_key` splits the time bucket per subject — see ReportIncidentInput.
   const subjectPart = input.dedup_key ? `:${input.dedup_key}` : "";
-  return `${userPart}:${input.kind}:${bucketPart}${subjectPart}`;
+  return `${userPart}:${input.kind}${connectionPart}:${bucketPart}${subjectPart}`;
 }
 
 /**

@@ -46,7 +46,7 @@ import { runConnectionHealthCheck } from "./services/connection-health";
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
-import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection, applyConnectionEmailPref } from "./services/connection-context";
+import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection, applyConnectionEmailPref, connectionLabelOf } from "./services/connection-context";
 import { stampInvoicePaymentIntent } from "./services/stripe";
 import { resolveStripeAuth, livemodeMatches } from "./services/stripe-auth";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
@@ -3388,7 +3388,18 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
           messageBody: JSON.stringify(body).slice(0, 1000),
         },
         affected_ids: [externalId],
-        connection_label: sourceQueue === "stripeeventsqueue" ? "stripe → invoicexpress" : "shopify → invoicexpress",
+        // From the MESSAGE, not from the queue's name. The queue only says which
+        // family of source this was; the message carries the actual pair, which
+        // is what `document_events` already reads a few lines below. Deriving it
+        // from the queue told a Stripe Connect → Moloni merchant that their
+        // "stripe → invoicexpress" pipe had failed — the loudest email the
+        // platform sends, naming an integration they do not have. It is also the
+        // incident's bucket dimension now, so two integrations failing in the
+        // same hour stop collapsing into one alert.
+        connection_label: connectionLabelOf(
+          body?.sourceKind ?? (sourceQueue === "stripeeventsqueue" ? "stripe" : "shopify"),
+          body?.destinationKind ?? "invoicexpress",
+        ),
         merchant_name: shopDomain ?? undefined,
         order_ref: orderRef,
         client_name: clientName,

@@ -198,7 +198,17 @@ export async function runSubscriptionPausedNotices(
        FROM users u
        LEFT JOIN subscriptions s
               ON s.user_id = u.id
-             AND s.connection_key = (SELECT MIN(x.connection_key) FROM subscriptions x WHERE x.user_id = u.id)
+             -- The account's most recently touched subscription, not the one
+             -- whose key sorts first. MIN(connection_key) put "stripe:" ahead
+             -- of "stripe_connect:" on every account that had both (":" is 0x3A,
+             -- "_" is 0x5F), so the name, email and status in this notice always
+             -- described the retired legacy integration. The decision to email
+             -- at all is the NOT EXISTS below and does not change; this only
+             -- decides which row's details the merchant reads.
+             AND s.connection_key = (SELECT x.connection_key FROM subscriptions x
+                                      WHERE x.user_id = u.id
+                                      ORDER BY x.updated_at DESC, x.connection_key ASC
+                                      LIMIT 1)
       WHERE COALESCE(u.role, 'user') NOT IN ('superadmin', 'hiperadmin')
         AND NOT EXISTS (
               SELECT 1 FROM subscriptions v

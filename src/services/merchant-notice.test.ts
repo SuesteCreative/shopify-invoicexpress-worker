@@ -89,6 +89,36 @@ describe("incident dedup bucket", () => {
     expect(bucketKeyFor(base, at("2026-08-06T14:05:00Z")))
       .toBe(bucketKeyFor(base, at("2026-08-06T14:47:00Z")));
   });
+
+  it("separates two integrations of the same account", () => {
+    // One account, two integrations, both failing in the same hour. Sharing a
+    // bucket made them ONE incident: occurrences went to 2, the summary was
+    // overwritten by whichever landed second, and `notified_at` was already set
+    // so no second email went out. The merchant heard about one pipe and never
+    // about the other — and the alert they did read named the wrong one.
+    const failing = (label: string): any => ({
+      user_id: "u1", kind: "destination_reject", severity: "critical",
+      summary: "", connection_label: label,
+    });
+    expect(bucketKeyFor(failing("stripe → invoicexpress"), at("2026-08-06T14:05:00Z")))
+      .not.toBe(bucketKeyFor(failing("stripe_connect → moloni"), at("2026-08-06T14:20:00Z")));
+  });
+
+  it("still groups an outage within ONE integration", () => {
+    const same = (): any => ({
+      user_id: "u1", kind: "auth_failure_destination", severity: "critical",
+      summary: "", connection_label: "stripe_connect → moloni",
+    });
+    expect(bucketKeyFor(same(), at("2026-08-06T14:05:00Z")))
+      .toBe(bucketKeyFor(same(), at("2026-08-06T14:47:00Z")));
+  });
+
+  it("groups exactly as before when no connection is named", () => {
+    // Most callers pass no label, and their buckets must not move: a regrouping
+    // here would re-open incidents a merchant has already been emailed about.
+    const base: any = { user_id: "u1", kind: "auth_failure_destination", severity: "critical", summary: "" };
+    expect(bucketKeyFor(base, at("2026-08-06T14:05:00Z"))).toBe("u1:auth_failure_destination:2026-08-06T14");
+  });
 });
 
 describe("refund on a draft", () => {

@@ -405,6 +405,17 @@ export interface LastEmissionError {
   http_status?: number;
   source: "document_events" | "logs";
   at: string;
+  /**
+   * True when the error could only be tied to the MERCHANT, not to this sale.
+   *
+   * A refund's failure log carries the credit note's id in the message and an
+   * empty payload, so nothing in the row holds the order id the dead-letter
+   * consumer is working from. Quoting the merchant's most recent refusal is
+   * still far better than the silence that got reported as a transport failure
+   * — but it may belong to a different sale, and whoever reads it has to be
+   * told that rather than left to assume.
+   */
+  approximate?: boolean;
 }
 
 /**
@@ -459,19 +470,52 @@ export async function lookupLastEmissionError(
   try {
     const scope = opts.shopifyDomain ?? opts.userId;
     if (!scope) return null;
+    // Two filters here used to guarantee a miss for every refund.
+    //
+    // `response LIKE '%IX create failed%'` matches a phrase the code does not
+    // write: the real ones are "InvoiceXpress credit create failed",
+    // "InvoiceXpress finalize failed" and "Moloni credit create failed". And
+    // the refund path calls saveLog with an EMPTY payload, so requiring the id
+    // to appear there excluded the rows even when the phrase matched.
+    //
+    // The cost of missing was not a blank field: the DLQ reads a null here as
+    // "the destination never answered" and reports a transport failure, so
+    // eleven refused credit notes were filed as network trouble for a day. The
+    // id is now accepted from either column, and the phrase match covers what
+    // is actually logged, still scoped to the one merchant.
     const row = await env.DB.prepare(
       `SELECT response, created_at FROM logs
         WHERE ${opts.shopifyDomain ? "shopify_domain = ?" : "user_id = ?"}
           AND status >= 400
-          AND response LIKE '%IX create failed%'
-          AND payload LIKE ?
+          AND (response LIKE '%create failed%' OR response LIKE '%finalize failed%')
+          AND (payload LIKE ? OR response LIKE ?)
         ORDER BY created_at DESC LIMIT 1`,
-    ).bind(scope, `%${externalId}%`).first<{ response: string; created_at: string }>();
+    ).bind(scope, `%${externalId}%`, `%${externalId}%`).first<{ response: string; created_at: string }>();
 
     if (row?.response) {
       const parsed = safeParse(String(row.response));
       const message = (typeof parsed === "string" ? parsed : String(row.response)).slice(0, 1500);
       return { message, source: "logs", at: String(row.created_at) };
+    }
+
+    // Nothing carried the id. Rather than report silence — which the caller
+    // reads as "the destination never answered" — take this merchant's most
+    // recent refusal from the same day and mark it as what it is: the right
+    // account, probably this sale, not proven to be.
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const nearby = await env.DB.prepare(
+      `SELECT response, created_at FROM logs
+        WHERE ${opts.shopifyDomain ? "shopify_domain = ?" : "user_id = ?"}
+          AND status >= 400
+          AND (response LIKE '%create failed%' OR response LIKE '%finalize failed%')
+          AND created_at >= ?
+        ORDER BY created_at DESC LIMIT 1`,
+    ).bind(scope, dayAgo).first<{ response: string; created_at: string }>();
+
+    if (nearby?.response) {
+      const parsed = safeParse(String(nearby.response));
+      const message = (typeof parsed === "string" ? parsed : String(nearby.response)).slice(0, 1500);
+      return { message, source: "logs", at: String(nearby.created_at), approximate: true };
     }
   } catch (e) {
     console.warn("[document-log] logs fallback lookup failed:", e);

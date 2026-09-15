@@ -1151,7 +1151,7 @@ async function resolveOrCreateCustomer(
       city: (billing?.city ?? "").slice(0, 50),
       zip_code: (billing?.zip ?? "").slice(0, 20),
       country_id: countryId,
-      email: (order.customer?.email ?? "").slice(0, 200),
+      email: moloniEmail(order.customer?.email),
       phone: ((order.customer as { phone?: string | null } | undefined)?.phone ?? billing?.phone ?? "").toString().slice(0, 50),
       maturity_date_id: 0,
       payment_day: 0,
@@ -1169,6 +1169,29 @@ async function resolveOrCreateCustomer(
     throw new Error(`Moloni create failed: customer insert returned no id — ${safeErrorJson(inserted)}`);
   }
   return Number(customerId);
+}
+
+/**
+ * The buyer's email as Moloni will accept it, or nothing.
+ *
+ * Moloni validates the email on the customer record and refuses the WHOLE
+ * insert over a malformed one (`["3 email"]`), so a typo in a field that only
+ * matters for mailing the PDF blocked a fiscal document. Measured on Escola Lá
+ * Fora (15/09/2026): a Paperform buyer's address arrived with sixteen digits
+ * glued onto the domain, and a 198,17 € sale could not be invoiced at all.
+ *
+ * An address that does not look like one is dropped, loudly. The document is
+ * still issued; only the email delivery is lost, which is the cheaper failure.
+ */
+export function moloniEmail(raw: unknown): string {
+  const email = String(raw ?? "").trim();
+  if (!email) return "";
+  const valid = /^[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24}$/.test(email);
+  if (!valid || email.length > 200) {
+    console.warn("[Moloni] buyer email is malformed — issuing the document without it");
+    return "";
+  }
+  return email;
 }
 
 // Moloni rejects invoice lines without a valid `product_id` (returns the terse

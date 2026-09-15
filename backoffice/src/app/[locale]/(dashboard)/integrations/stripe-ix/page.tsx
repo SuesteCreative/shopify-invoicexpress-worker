@@ -89,7 +89,7 @@ export default function StripeIXIntegration() {
 
         Promise.all([
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
-            fetch("/api/integrations/stripe-source").then(r => r.json()).catch(() => ({}))
+            fetch("/api/integrations/stripe-source?source_kind=stripe&destination_kind=invoicexpress").then(r => r.json()).catch(() => ({}))
         ]).then(([integ, stripe]: any) => {
             if (integ._user_name) setDbUserName(integ._user_name);
             if (integ.shopify_domain) setShopifyDomain(integ.shopify_domain);
@@ -210,7 +210,7 @@ export default function StripeIXIntegration() {
             const instRes = await fetch("/api/integrations/stripe-source/install-webhook", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ restricted_key: restrictedKey.trim() })
+                body: JSON.stringify({ restricted_key: restrictedKey.trim(), destination_kind: "invoicexpress" })
             });
             const instData: any = await instRes.json().catch(() => ({}));
             if (!instRes.ok) {
@@ -259,7 +259,7 @@ export default function StripeIXIntegration() {
         setSaving(true);
         try {
             if (ixSequenceName.trim()) {
-                const seqRes = await fetch("/api/integrations/sequences-user");
+                const seqRes = await fetch("/api/integrations/sequences-user?source_kind=stripe");
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
                     const wanted = ixSequenceName.trim().toLowerCase();

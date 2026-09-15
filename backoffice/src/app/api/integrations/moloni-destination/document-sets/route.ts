@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { callWorker } from "@/lib/worker";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -25,8 +26,11 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const rawSource = url.searchParams.get("source_kind") ?? "stripe";
-    const sourceKind = rawSource === "shopify" ? "shopify" : "stripe";
+    // Same collapse as its sibling: `stripe_connect` and `lodgify` both became
+    // `stripe`, so the series shown belonged to another integration.
+    const rawSource = url.searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "stripe");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const row: any = await db.prepare(
         `SELECT destination_config_json FROM connections

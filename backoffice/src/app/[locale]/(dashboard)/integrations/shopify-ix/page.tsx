@@ -212,7 +212,7 @@ export default function ShopifyIXIntegration() {
         setSaving(true);
         try {
             if (ixSequenceName.trim()) {
-                const seqRes = await fetch("/api/integrations/sequences-user");
+                const seqRes = await fetch("/api/integrations/sequences-user?source_kind=shopify");
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
                     const wanted = ixSequenceName.trim().toLowerCase();
@@ -267,7 +267,7 @@ export default function ShopifyIXIntegration() {
         setSaving(true);
         try {
             if (ixSequenceName.trim()) {
-                const seqRes = await fetch("/api/integrations/sequences-user");
+                const seqRes = await fetch("/api/integrations/sequences-user?source_kind=shopify");
                 if (seqRes.ok) {
                     const seqs = await seqRes.json() as any[];
                     const wanted = ixSequenceName.trim().toLowerCase();

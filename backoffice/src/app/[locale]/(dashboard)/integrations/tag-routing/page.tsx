@@ -75,7 +75,7 @@ export default function TagRoutingPage() {
         try {
             const endpoint = isMoloni
                 ? `/api/integrations/document-sets-user?source_kind=${sourceKind}`
-                : "/api/integrations/sequences-user";
+                : `/api/integrations/sequences-user?source_kind=${sourceKind}`;
             const res = await fetch(endpoint);
             if (!res.ok) return;
             const data = await res.json() as Sequence[];

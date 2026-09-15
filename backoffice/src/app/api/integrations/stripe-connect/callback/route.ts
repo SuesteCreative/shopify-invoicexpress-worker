@@ -49,13 +49,26 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return backToWizard("error", "Database binding missing");
 
+    // Found BY the state, not by "the first stripe_connect row of this user".
+    //
+    // The state is what identifies the authorisation in flight — `/start` wrote
+    // it onto one specific connection. Reading `LIMIT 1` instead meant an
+    // account running `stripe_connect → invoicexpress` alongside
+    // `stripe_connect → moloni` could have the row without the state returned,
+    // and the merchant was told "Pedido inválido ou expirado" over an
+    // authorisation that was perfectly valid — on a row they could not see and
+    // had no way to pick.
     const row: any = await db
         .prepare(`SELECT id, oauth_state, oauth_state_expires_at, source_config_json
-                    FROM connections WHERE user_id = ? AND source_kind = 'stripe_connect' LIMIT 1`)
-        .bind(authResult.targetUserId)
+                    FROM connections
+                   WHERE user_id = ? AND source_kind = 'stripe_connect' AND oauth_state = ?
+                   LIMIT 1`)
+        .bind(authResult.targetUserId, state)
         .first();
 
-    if (!row) return backToWizard("error", "Ligação não encontrada. Recomece o passo do Stripe.");
+    // Same message for "no such connection" and "no such state": which of the
+    // two it was is not something a caller gets to learn.
+    if (!row) return backToWizard("error", "Pedido inválido ou expirado. Recomece o passo do Stripe.");
 
     let startedOn: Record<string, any> = {};
     try { startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {}; } catch { startedOn = {}; }

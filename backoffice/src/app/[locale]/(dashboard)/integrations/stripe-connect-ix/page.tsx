@@ -107,8 +107,8 @@ export default function StripeConnectIxIntegration() {
     const load = useCallback(async () => {
         const [integ, connect, source] = await Promise.all([
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
-            fetch("/api/integrations/stripe-connect").then(r => r.json()).catch(() => ({})),
-            fetch(`/api/integrations/stripe-source?source_kind=${SOURCE_KIND}`).then(r => r.json()).catch(() => ({})),
+            fetch(`/api/integrations/stripe-connect?destination_kind=${DESTINATION_KIND}`).then(r => r.json()).catch(() => ({})),
+            fetch(`/api/integrations/stripe-source?source_kind=${SOURCE_KIND}&destination_kind=${DESTINATION_KIND}`).then(r => r.json()).catch(() => ({})),
         ]) as any[];
 
         if (integ?._viewer_role) setUserRole(integ._viewer_role);
@@ -199,7 +199,7 @@ export default function StripeConnectIxIntegration() {
         if (!confirm(t("disconnectConfirm"))) return;
         setSaving(true);
         try {
-            await fetch("/api/integrations/stripe-connect", { method: "DELETE" });
+            await fetch(`/api/integrations/stripe-connect?destination_kind=${DESTINATION_KIND}`, { method: "DELETE" });
             await load();
         } finally {
             setSaving(false);

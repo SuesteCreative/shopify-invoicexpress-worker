@@ -191,7 +191,7 @@ export default function ConnectMoloniOnboarding({ invite }: { invite?: string })
 
         const [profile, connect, moloni, sub] = await Promise.all([
             fetch("/api/user/profile").then(r => (r.ok ? r.json() : null)).catch(() => null),
-            fetch("/api/integrations/stripe-connect").then(r => r.json()).catch(() => ({})),
+            fetch("/api/integrations/stripe-connect?destination_kind=moloni").then(r => r.json()).catch(() => ({})),
             fetch(`/api/integrations/moloni-destination?source_kind=${SOURCE_KIND}`).then(r => r.json()).catch(() => ({})),
             fetch(`/api/billing/subscription?connection_key=${encodeURIComponent(CONNECTION_KEY)}`).then(r => r.json()).catch(() => ({})),
         ]) as any[];

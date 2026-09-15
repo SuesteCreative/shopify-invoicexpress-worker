@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { listIxSequences } from "@/lib/ix-sequences";
+import { isSourceKind, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -27,8 +28,16 @@ export async function GET(request: NextRequest) {
     // answered with an empty list either way, and keeps doing so.
     // `source_kind` only picks between two InvoiceXpress connections on one
     // account; absent, the most recently updated one answers.
-    const sequences = await listIxSequences(
-        db, targetUserId, request.nextUrl.searchParams.get("source_kind") ?? undefined,
-    );
+    //
+    // A NAMED kind still has to be one we know. A typo does not fail the lookup
+    // — it just loses the `(source_kind = ?)` preference and answers with some
+    // other connection's series — and a series picker that quietly lists the
+    // wrong integration's series is how a rule gets saved against one.
+    const rawSource = request.nextUrl.searchParams.get("source_kind");
+    if (rawSource && !isSourceKind(rawSource)) {
+        return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
+    }
+
+    const sequences = await listIxSequences(db, targetUserId, rawSource ?? undefined);
     return NextResponse.json(sequences ?? []);
 }

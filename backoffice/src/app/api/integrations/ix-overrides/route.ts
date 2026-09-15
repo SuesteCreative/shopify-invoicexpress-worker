@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -44,7 +45,9 @@ export async function GET(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const url = new URL(request.url);
-    const sourceKind = url.searchParams.get("source_kind") ?? "shopify";
+    const rawSource = url.searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "shopify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -62,7 +65,7 @@ export async function GET(request: NextRequest) {
 }
 
 type PostBody = {
-    source_kind?: "shopify" | "stripe";
+    source_kind?: string;
     source_reference?: string;
     tax_rate?: number | string | null;
     vat_inclusion?: "inc" | "exc" | "" | null;
@@ -76,7 +79,10 @@ export async function POST(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const body = await request.json() as PostBody;
-    const sourceKind = body.source_kind === "stripe" ? "stripe" : "shopify";
+    // `body.source_kind === "stripe" ? "stripe" : "shopify"` wrote a Stripe
+    // Connect, Lodgify or EuPago override onto the account's SHOPIFY products.
+    const sourceKind = sourceKindOrNull(body.source_kind, "shopify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
     const sourceReference = (body.source_reference ?? "").trim();
     if (!sourceReference) return NextResponse.json({ error: "source_reference required" }, { status: 400 });
 
@@ -138,7 +144,9 @@ export async function DELETE(request: NextRequest) {
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
     const sourceReference = url.searchParams.get("source_reference");
-    const sourceKind = url.searchParams.get("source_kind") ?? "shopify";
+    const rawSource = url.searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "shopify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

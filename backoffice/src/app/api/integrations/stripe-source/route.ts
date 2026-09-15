@@ -6,6 +6,7 @@ import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredent
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
 import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
+import { destinationKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -25,9 +26,17 @@ export const runtime = "edge";
  * every query here rather than a literal.
  */
 
-/** Only the two Stripe kinds, and `stripe` unless asked otherwise. */
-function sourceKindOf(value: unknown): "stripe" | "stripe_connect" {
-    return value === "stripe_connect" ? "stripe_connect" : "stripe";
+/**
+ * Only the two Stripe kinds, and `stripe` unless asked otherwise.
+ *
+ * Named-but-not-Stripe is null, not `stripe`. A typo or a copied fetch from
+ * another wizard used to write the legacy row without complaint, which is the
+ * one outcome this route's own header says must never happen.
+ */
+function sourceKindOf(value: unknown): "stripe" | "stripe_connect" | null {
+    if (value === undefined || value === null || value === "") return "stripe";
+    if (value === "stripe" || value === "stripe_connect") return value;
+    return null;
 }
 async function resolveTargetUser(request: NextRequest) {
     const { userId } = await auth();
@@ -52,11 +61,35 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const sourceKind = sourceKindOf(new URL(request.url).searchParams.get("source_kind"));
-    const row: any = await db
-        .prepare("SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at FROM connections WHERE user_id = ? AND source_kind = ? LIMIT 1")
-        .bind(auth.targetUserId, sourceKind)
-        .first();
+    const params = new URL(request.url).searchParams;
+    const rawSource = params.get("source_kind");
+    const sourceKind = sourceKindOf(rawSource);
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
+
+    // The destination is part of a connection's identity, and the POST below
+    // upserts on the full triple. Reading without it meant GET and POST could
+    // address DIFFERENT rows of the same account: a merchant running
+    // `stripe → invoicexpress` alongside `stripe → moloni` had one wizard shown
+    // the other's status, fiscal identity and credential presence, with no
+    // ORDER BY to even make it consistent between two loads.
+    //
+    // Absent keeps the old shape for callers that predate the parameter, but
+    // oldest-first rather than whatever SQLite hands back.
+    const rawDestination = params.get("destination_kind");
+    const destinationKind = destinationKindOrNull(rawDestination, null as any);
+    if (rawDestination && !destinationKind) {
+        return NextResponse.json({ error: `Unknown destination_kind ${JSON.stringify(rawDestination)}` }, { status: 400 });
+    }
+
+    const row: any = destinationKind
+        ? await db
+            .prepare("SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at FROM connections WHERE user_id = ? AND source_kind = ? AND destination_kind = ? LIMIT 1")
+            .bind(auth.targetUserId, sourceKind, destinationKind)
+            .first()
+        : await db
+            .prepare("SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at FROM connections WHERE user_id = ? AND source_kind = ? ORDER BY created_at ASC LIMIT 1")
+            .bind(auth.targetUserId, sourceKind)
+            .first();
 
     if (!row) return NextResponse.json({ connection: null });
 
@@ -102,12 +135,21 @@ export async function POST(request: NextRequest) {
     };
 
     const sourceKind = sourceKindOf(body.source_kind);
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
     // Only the legacy flow types an account id. On Connect the OAuth callback
     // writes it, and a settings save must neither carry it nor overwrite it.
     if (sourceKind === "stripe" && (!body.stripe_account_id || typeof body.stripe_account_id !== "string")) {
         return NextResponse.json({ error: "Missing stripe_account_id" }, { status: 400 });
     }
-    const destinationKind = body.destination_kind === "moloni" ? "moloni" : "invoicexpress";
+    // `=== "moloni" ? "moloni" : "invoicexpress"` is the same collapse as the
+    // source side, on the destination. The Stripe→Vendus wizard states
+    // `destination_kind: "vendus"` and had it rewritten to `invoicexpress`, so
+    // its source credentials were upserted onto a `stripe:invoicexpress` row
+    // that names a destination the merchant never configured.
+    const destinationKind = destinationKindOrNull(body.destination_kind, "invoicexpress");
+    if (!destinationKind) {
+        return NextResponse.json({ error: `Unknown destination_kind ${JSON.stringify(body.destination_kind)}` }, { status: 400 });
+    }
     // NULL means "whatever the row already says". Every caller here is partial.
     //
     // This used to claim the invoice-settings step posts no status at all. It

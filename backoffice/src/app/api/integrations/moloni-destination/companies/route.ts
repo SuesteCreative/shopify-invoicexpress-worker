@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { callWorker } from "@/lib/worker";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -21,8 +22,12 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const rawSource = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
-    const sourceKind = ["shopify", "stripe", "lodgify"].includes(rawSource) ? rawSource : "stripe";
+    // The parent route learned `stripe_connect`; these three siblings did not,
+    // so a Connect merchant's company list was read with the credentials of a
+    // different Moloni connection of the same account.
+    const rawSource = new URL(request.url).searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "stripe");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const row: any = await db.prepare(
         `SELECT destination_config_json FROM connections

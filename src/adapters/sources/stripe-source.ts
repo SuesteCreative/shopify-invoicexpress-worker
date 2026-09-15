@@ -401,11 +401,20 @@ export function stripeToNormalized(event: any): Normalized | null {
   const obj = event?.data?.object;
   if (!obj) return null;
 
-  // The document reference for EVERY Stripe shape. Built from the sale's stable
-  // id, never from `order_number` — Stripe payloads have no order number, so the
-  // shapes below hardcode 0 and `saleReference(0)` would label every payment in
-  // the account "Order #0" (see stripeStableId).
-  const invoiceReference = saleReference(stripeStableId(event));
+  // The ONE id this sale is known by, whichever of its events we are looking at.
+  //
+  // Both references on the document are built from it, and they have to be: the
+  // destinations write `our_reference` from `invoice_reference` and
+  // `your_reference` from `order.reference`, so letting the second one keep the
+  // event's own id puts two different names for one sale on the same document.
+  // Measured on Escola Lá Fora (14/09/2026): a charge-triggered sale was filed as
+  // `Order #pi_3UFbMr…` and `ch_3UFbMr…` at once, which is exactly the pair the
+  // cross-system duplicate check searches for and cannot find.
+  const stableId = stripeStableId(event);
+  // Built from the sale's stable id, never from `order_number` — Stripe payloads
+  // have no order number, so the shapes below hardcode 0 and `saleReference(0)`
+  // would label every payment in the account "Order #0".
+  const invoiceReference = saleReference(stableId);
 
   // Four shapes we handle today: Checkout Session (preferred trigger when the
   // buyer used Stripe Checkout because the payload carries custom_fields +
@@ -607,7 +616,11 @@ export function stripeToNormalized(event: any): Normalized | null {
     return {
       order: {
         id: Number((inv.number || inv.id).toString().replace(/\D/g, "").slice(-12)) || 0,
-        reference: inv.id,
+        // The stable id, not `inv.id`: an invoice paid by card IS the payment
+        // intent's sale, and the two references on the document must name it the
+        // same way. An invoice settled outside Stripe has no payment intent and
+        // keeps its own id, which is right — it is the only record of that sale.
+        reference: stableId,
         order_number: Number((inv.number || "0").toString().replace(/\D/g, "")) || 0,
         // Deliberately the stable id, not `order_number` above: an unnumbered
         // Stripe invoice degrades that to 0 (same trap as the other shapes), and
@@ -729,7 +742,9 @@ export function stripeToNormalized(event: any): Normalized | null {
   return {
     order: {
       id: chCustomerStableId,
-      reference: ch.id,
+      // The PaymentIntent, not the charge's own id — same sale, same name on
+      // both references of the document.
+      reference: stableId,
       order_number: 0,
       // The PI, not ch.id: a charge and its PaymentIntent describe one sale and
       // must land on one document reference (see stripeStableId).

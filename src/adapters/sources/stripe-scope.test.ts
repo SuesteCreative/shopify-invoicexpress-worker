@@ -9,7 +9,7 @@
  * of the first one.
  */
 import { describe, it, expect } from "vitest";
-import { StripeSource, parseScopeSkipKeys, scopeSkipHit } from "./stripe-source";
+import { StripeSource, parseScopeSkipKeys, scopeSkipHit, stripeToNormalized } from "./stripe-source";
 import { crossSystemReferences, saleReference } from "../../services/document-references";
 
 const KEYS = ["submission_id"];
@@ -95,5 +95,40 @@ describe("crossSystemReferences", () => {
   it("leaves credit-note and cancel references alone", () => {
     expect(crossSystemReferences("OrderRefund #re_1abc")).toEqual([]);
     expect(crossSystemReferences("OrderCancel #pi_1abc")).toEqual([]);
+  });
+});
+
+describe("both references name the same sale", () => {
+  const ref = (event: any) => {
+    const n = stripeToNormalized(event)!;
+    return { your: n.order.reference, our: n.order.invoice_reference };
+  };
+
+  it("files a charge under its PaymentIntent, not its own id", () => {
+    // The pair that broke it: `Order #pi_3UFbMr…` on one field and `ch_3UFbMr…`
+    // on the other, for one 30,70 € sale on 14/09/2026 — so the cross-system
+    // duplicate check searched for a reference the document did not carry.
+    expect(ref({
+      type: "charge.succeeded",
+      data: { object: { id: "ch_3UFbMrBp3wyQk8MN2QdLYIGX", payment_intent: "pi_3UFbMrBp3wyQk8MN2lW80tee", amount: 3070, status: "succeeded" } },
+    })).toEqual({ your: "pi_3UFbMrBp3wyQk8MN2lW80tee", our: "Order #pi_3UFbMrBp3wyQk8MN2lW80tee" });
+  });
+
+  it("keeps the charge's own id when there is no PaymentIntent behind it", () => {
+    expect(ref({ type: "charge.succeeded", data: { object: { id: "ch_solo", amount: 100, status: "succeeded" } } }))
+      .toEqual({ your: "ch_solo", our: "Order #ch_solo" });
+  });
+
+  it("files a Stripe invoice paid by card under the PaymentIntent", () => {
+    expect(ref({
+      type: "invoice.paid",
+      data: { object: { id: "in_1", amount_paid: 5000, status: "paid", lines: { data: [] },
+        payments: { data: [{ status: "paid", payment: { type: "payment_intent", payment_intent: "pi_inv" } }] } } },
+    })).toEqual({ your: "pi_inv", our: "Order #pi_inv" });
+  });
+
+  it("leaves an invoice settled outside Stripe under its own id", () => {
+    expect(ref({ type: "invoice.paid", data: { object: { id: "in_oob", amount_paid: 5000, status: "paid", paid_out_of_band: true, lines: { data: [] } } } }))
+      .toEqual({ your: "in_oob", our: "Order #in_oob" });
   });
 });

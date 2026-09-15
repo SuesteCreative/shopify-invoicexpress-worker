@@ -126,7 +126,7 @@ ${RIOKO_DOMAIN_KNOWLEDGE}
 ## Como diagnosticar por tipo (kind)
 - reconcile_drift: usa totals (paid/expected/drift) + as linhas e a regra do IVA incluído/effectiveRate;
   nomeia o SKU em causa e a correção (override tax_rate/vat_inclusion ou definição de impostos da loja).
-- destination_reject / queue_retry_exhausted: interpreta error_message — permanente (4xx) vs transitório
+- destination_reject / queue_retry_exhausted / auto_heal_failed: interpreta error_message — permanente (4xx) vs transitório
   (5xx/502/timeout) vs autenticação (401/token). Quando http_status vier preenchido, é o estado HTTP REAL
   devolvido pelo destino: prefere-o a qualquer número que apareça dentro do texto do erro. A sua ausência
   significa que o destino nunca chegou a responder (falha de transporte), não que a resposta foi 200.

@@ -342,7 +342,8 @@ export async function runDocumentVerifySweep(
       await reportIncident(env, {
         user_id: null,
         severity: "error",
-        kind: "queue_retry_exhausted",
+        // D1 lost the writes; no webhook was retried, so it is not a retry kind.
+        kind: "document_log_write_lost",
         bucket: "daily",
         summary: `O registo de documentos perdeu ${lost} escrita(s) — o histórico desta janela está incompleto.`,
         detail: {

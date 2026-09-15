@@ -91,7 +91,7 @@ export function bucketKeyFor(input: ReportIncidentInput, now: Date): string {
   // `connectionLabelOf`, which prettifies (`Stripe → InvoiceXpress`). Keying on
   // the string as given would make those two DIFFERENT buckets for the same
   // connection — and `queue_retry_exhausted`, which is critical and reported
-  // from eight places in both spellings, would raise two alerts for one failure.
+  // from several places in both spellings, would raise two alerts for one failure.
   // `prettyConnectionLabel` looks its tokens up in lowercase, so it is
   // idempotent and both spellings land on the same key.
   const connectionPart = input.connection_label ? `:${prettyConnectionLabel(input.connection_label)}` : "";
@@ -134,10 +134,18 @@ export async function reportIncident(env: Env, input: ReportIncidentInput): Prom
               > (CASE incidents.severity WHEN 'critical' THEN 4 WHEN 'error' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END)
            THEN excluded.severity ELSE incidents.severity END,
          detail_json = COALESCE(excluded.detail_json, incidents.detail_json),
+         -- The UNION of both lists, never the first reporter's alone. Keeping
+         -- the first meant a bucket named one sale while its detail described
+         -- another: WHM's 13h destination_reject (15/09/2026) listed
+         -- pi_3UFvliLX… with pi_3UFwnHLX…'s error. Now that an incident closes
+         -- on its sales' evidence, that would close a bucket on the first sale
+         -- while a second one in it is still unbilled.
          affected_ids_json = CASE
            WHEN excluded.affected_ids_json IS NULL THEN incidents.affected_ids_json
            WHEN incidents.affected_ids_json IS NULL THEN excluded.affected_ids_json
-           ELSE incidents.affected_ids_json
+           ELSE (SELECT json_group_array(value) FROM (
+                   SELECT value FROM json_each(incidents.affected_ids_json)
+                   UNION SELECT value FROM json_each(excluded.affected_ids_json)))
          END,
          status = CASE WHEN incidents.status = 'resolved' THEN 'open' ELSE incidents.status END,
          resolved_at = CASE WHEN incidents.status = 'resolved' THEN NULL ELSE incidents.resolved_at END
@@ -633,9 +641,11 @@ function parseEmailList(s: string | undefined): string[] {
  * about noise; whether the table tells the truth is not, so this runs on its
  * own and unconditionally.
  *
- * `auto_resolved`, never `resolved`: a human closing something is a different
- * fact from a thing that went quiet, and reportIncident's ON CONFLICT reopens
- * only the human kind.
+ * `auto_resolved` when it closes on silence: a thing that went quiet is a
+ * different fact from a thing proven done, and reportIncident's ON CONFLICT
+ * reopens only `resolved`. A close on evidence writes `resolved`
+ * (resolveIncidentsOnEvidence), so a recurrence in that bucket reopens it and
+ * it is judged again.
  */
 /**
  * Can this reference be looked up in the order tables at all?
@@ -657,6 +667,211 @@ export function isVerifiableOrderRef(ref: string): boolean {
   // The underscore in the body is not optional: a real Checkout Session reads
   // `cs_live_b1gteTEq…`, so `[A-Za-z0-9]` after the prefix rejects every one.
   return /^\d{10,}$/.test(ref) || /^(pi|in|cs)_[A-Za-z0-9_]{8,}$/.test(ref);
+}
+
+/** What a sale's own records say about it. See incidentVerdict. */
+export interface SaleEvidence {
+  /** A document is recorded for the sale (processed_orders, a hand match, a Lodgify partial). */
+  invoiced: boolean;
+  /** Parked as a draft for a human (`hold_reason`). */
+  held: boolean;
+  /** Certified: a `finalized` event, or a read-back that found the document final. */
+  finalized: boolean;
+  /** The stored route or the connection asks for certified documents, so a draft is not done. */
+  expectsFinalize: boolean;
+  /** A credit note on this invoice reached `issued` at or after the incident's last failure. */
+  creditIssuedSince: boolean;
+  /** A credit note on this invoice is still `issuing`. */
+  creditInFlight: boolean;
+}
+
+export type IncidentVerdict = "settled" | "unsettled" | "unverifiable";
+
+/**
+ * Has the thing this incident is about since happened?
+ *
+ * Why this exists: on 15/09/2026 WHM's `invoice.paid` retried finalize on two
+ * documents that were already certified. The retries raised two critical
+ * `queue_retry_exhausted` and three `destination_reject`, and the account's
+ * pill stayed red until the next 08:00 run although both sales were invoiced
+ * and final. Nothing closes an incident when the records already settle it;
+ * this is the rule that lets something do so.
+ *
+ * Three answers, because "no" and "cannot tell" must never be confused. An
+ * unsettled incident stays open until a document exists; an unverifiable one
+ * stays on the 24h silence clock.
+ *
+ * - A sale (`created`, `paid`, no topic) is settled when its document exists,
+ *   is not held, and is certified, unless the connection does not certify.
+ *   Certified matters on `created` too: Stripe and EuPago finalize in the same
+ *   run, and the row is written before the finalize call, so a finalize that
+ *   failed leaves a row AND a draft. The old "a row exists" check closed those.
+ * - A refund is settled by its credit note, never by the sale's invoice, which
+ *   of course exists. The old check closed refund incidents with no credit note.
+ * - Every id must be settled: one unbilled sale keeps a merged bucket open.
+ */
+export function incidentVerdict(
+  inc: { kind: string; topic: string | null; ids: string[] },
+  evidence: Map<string, SaleEvidence>,
+): IncidentVerdict {
+  if (!(INVOICE_FAILURE_KINDS as string[]).includes(inc.kind)) return "unverifiable";
+  // The checkable ids decide. An evt_ or "unknown" id next to a real sale says
+  // nothing about that sale, and sending the whole bucket to the silence clock
+  // because of it would close an unbilled sale after 24h (review, 15/09/2026).
+  const ids = inc.ids.filter(isVerifiableOrderRef);
+  if (ids.length === 0) return "unverifiable";
+  const refund = /refund/i.test(inc.topic ?? "");
+  for (const id of ids) {
+    const e = evidence.get(id);
+    if (!e?.invoiced || e.held) return "unsettled";
+    if (refund ? (!e.creditIssuedSince || e.creditInFlight) : (e.expectsFinalize && !e.finalized)) return "unsettled";
+  }
+  return "settled";
+}
+
+/**
+ * Read the evidence for a set of sales. Non-secret columns only: the config
+ * blobs hold credentials, so they are read through json_extract, one flag each,
+ * and never selected whole.
+ *
+ * `finalized` also accepts the verify sweep's read-back (`verified`/`drift` with
+ * `state: finalized`), because the admin and sweep finalize pass writes no
+ * `finalized` event. Without it, a Shopify order the 04:00 sweep healed and
+ * certified would read as a draft for ever. A certified document never goes
+ * back to draft, so an old read-back is still true.
+ *
+ * Known limits: run-in holds and test-mode connections keep drafts on purpose
+ * but read as "expects finalize", so their incidents stay open for a human;
+ * `finalized` events are purged after 90 days; a legacy row with a NULL
+ * user_id misses the config join and the invoice row alone is enough.
+ */
+async function loadSaleEvidence(env: Env, ids: string[], sinceIso: string): Promise<Map<string, SaleEvidence>> {
+  const out = new Map<string, SaleEvidence>();
+  // 90 ids plus the date: D1 refuses a statement with more than 100 bound variables.
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    const rows = ((await env.DB.prepare(
+      `SELECT po.id,
+              po.hold_reason IS NOT NULL AS held,
+              EXISTS (SELECT 1 FROM document_events d
+                       WHERE d.external_id = po.id AND d.invoice_id = po.invoice_id
+                         AND (d.event = 'finalized'
+                              OR (d.event IN ('verified', 'drift')
+                                  AND CASE WHEN json_valid(d.detail_json) THEN json_extract(d.detail_json, '$.state') END = 'finalized'))) AS finalized,
+              COALESCE(
+                CASE WHEN json_valid(po.routed_json) THEN json_extract(po.routed_json, '$.finalize') END,
+                CASE WHEN json_valid(c.destination_config_json) THEN json_extract(c.destination_config_json, '$.auto_finalize') END,
+                -- MAX over the account's shops: when any of them certifies, a
+                -- draft reads as not done. Wrong that way keeps an alarm open;
+                -- wrong the other way would close a draft.
+                (SELECT MAX(i.auto_finalize) FROM integrations i WHERE i.user_id = po.user_id),
+                0) IN (1, 'true') AS expects_finalize,
+              EXISTS (SELECT 1 FROM credit_notes n
+                       WHERE n.invoice_id = po.invoice_id AND n.scope IN (po.user_id, po.shopify_domain)
+                         AND n.state = 'issued' AND n.updated_at >= ?) AS credit_issued_since,
+              EXISTS (SELECT 1 FROM credit_notes n
+                       WHERE n.invoice_id = po.invoice_id AND n.scope IN (po.user_id, po.shopify_domain)
+                         AND n.state = 'issuing') AS credit_in_flight
+         FROM processed_orders po
+         LEFT JOIN connections c
+           ON c.user_id = po.user_id AND c.source_kind = po.source_kind AND c.destination_kind = po.destination_kind
+        WHERE po.invoice_id IS NOT NULL AND po.id IN (${chunk.map(() => "?").join(",")})`
+    ).bind(sinceIso, ...chunk).all()).results ?? []) as any[];
+    for (const r of rows) {
+      out.set(String(r.id), {
+        invoiced: true, held: !!r.held, finalized: !!r.finalized, expectsFinalize: !!r.expects_finalize,
+        creditIssuedSince: !!r.credit_issued_since, creditInFlight: !!r.credit_in_flight,
+      });
+    }
+  }
+  // A hand match or a Lodgify partial has no processed_orders document to
+  // inspect; the mapping itself is the whole record, as it is for the digest.
+  let missing = ids.filter((id) => !out.has(id));
+  if (missing.length) {
+    for (const id of await new AppStorage(env).getInvoicedOrderIdsAnySource(missing)) {
+      out.set(id, { invoiced: true, held: false, finalized: true, expectsFinalize: false, creditIssuedSince: false, creditInFlight: false });
+    }
+  }
+  // Settled by a person or by the ledger, with no document of ours to read. A
+  // sale marked "não necessária" owes no document and no credit note; a Shopify
+  // refund incident is keyed by the REFUND id, which only the credit-note
+  // ledger knows. Without these both stayed red until closed by hand (review,
+  // 15/09/2026). 45 ids twice: under D1's 100 bound variables.
+  missing = ids.filter((id) => !out.has(id));
+  for (let i = 0; i < missing.length; i += 45) {
+    const chunk = missing.slice(i, i + 45);
+    const ph = chunk.map(() => "?").join(",");
+    const rows = ((await env.DB.prepare(
+      `SELECT order_id AS id FROM reconciliation_decision WHERE UPPER(decision) = 'NOT_NEEDED' AND order_id IN (${ph})
+       UNION
+       SELECT refund_id AS id FROM credit_notes WHERE state = 'issued' AND refund_id IN (${ph})`
+    ).bind(...chunk, ...chunk).all()).results ?? []) as any[];
+    for (const r of rows) {
+      out.set(String(r.id), { invoiced: true, held: false, finalized: true, expectsFinalize: false, creditIssuedSince: true, creditInFlight: false });
+    }
+  }
+  return out;
+}
+
+/**
+ * Close every open or acknowledged invoice-failure incident its records settle
+ * (incidentVerdict), as `resolved`. Returns how many it closed.
+ *
+ * Runs from the half-hourly cron and at the start of the 08:00 auto-resolve, so a pill
+ * backed by evidence clears within half an hour. Acknowledged incidents count
+ * too: the pill reads them, and an acknowledged sale that has since been
+ * invoiced is as over as an open one.
+ *
+ * The UPDATE compares the id list it judged, so a sale added to the bucket
+ * after the SELECT keeps it open for the next pass.
+ *
+ * Deliberately not done here: an evidence check before reportIncident emails,
+ * a hook on pipeline success, per-document dedup keys, and a `resolved_by`
+ * column, so an evidence close and a human close still look the same.
+ */
+export async function resolveIncidentsOnEvidence(
+  env: Env,
+  scope: { bucketKey?: string; userId?: string | null; externalIds?: string[] } = {},
+): Promise<number> {
+  const where = ["status IN ('open','acknowledged')", `kind IN (${INVOICE_FAILURE_KINDS.map(() => "?").join(",")})`];
+  const binds: unknown[] = [...INVOICE_FAILURE_KINDS];
+  if (scope.bucketKey) { where.push("bucket_key = ?"); binds.push(scope.bucketKey); }
+  if (scope.userId) { where.push("user_id = ?"); binds.push(scope.userId); }
+  const rows = ((await env.DB.prepare(
+    `SELECT id, kind, last_seen_at, affected_ids_json,
+            CASE WHEN json_valid(detail_json) THEN json_extract(detail_json, '$.topic') END AS topic
+       FROM incidents WHERE ${where.join(" AND ")}`
+  ).bind(...binds).all()).results ?? []) as any[];
+
+  // Filtered here rather than bound, so a long id list can never cross D1's
+  // 100-variable limit.
+  const wanted = scope.externalIds?.length ? new Set(scope.externalIds.map(String)) : null;
+  const nowIso = new Date().toISOString();
+  let closed = 0;
+  // ponytail: one evidence read per incident; batch across incidents if the open backlog reaches the hundreds.
+  for (const r of rows) {
+    const inc = { kind: String(r.kind), topic: typeof r.topic === "string" ? r.topic : null, ids: parseAffectedIds(r.affected_ids_json) };
+    if (wanted && !inc.ids.some((id) => wanted.has(id))) continue;
+    // Nothing to read for an alarm that can never verify: the 24h clock owns it.
+    if (incidentVerdict(inc, new Map()) === "unverifiable") continue;
+    try {
+      // Since the LAST failure, not the first: a bucket reopened by a second
+      // refund of the same sale must not close on the first refund's credit
+      // note (review, 15/09/2026). A retry that succeeds always issues after
+      // the failure it follows.
+      const evidence = await loadSaleEvidence(env, inc.ids.filter(isVerifiableOrderRef), String(r.last_seen_at ?? ""));
+      if (incidentVerdict(inc, evidence) !== "settled") continue;
+      const res = await env.DB.prepare(
+        `UPDATE incidents SET status = 'resolved', resolved_at = ?
+          WHERE id = ? AND status IN ('open','acknowledged') AND affected_ids_json = ?`
+      ).bind(nowIso, r.id, r.affected_ids_json).run();
+      closed += (res as any)?.meta?.changes ?? 0;
+    } catch (e: any) {
+      // One unreadable incident must not stop the rest from being judged.
+      console.warn(`[incidents] evidence check failed for ${r.id}: ${e?.message ?? e}`);
+    }
+  }
+  return closed;
 }
 
 export async function autoResolveStaleIncidents(
@@ -687,55 +902,37 @@ export async function autoResolveStaleIncidents(
   try {
     // EVERY open one, not only the quiet ones. Waiting 24h to ask "is it
     // invoiced yet?" meant an order the healer fixed at 09:05 stayed red until
-    // the next night — the incident table was right about the failure and wrong
-    // about the present, and every reader inherited that: the digest, the
-    // merchant email, and the fleet page's new failure pill. The verification
-    // itself is unchanged and so is its rule, that a document existing is the
-    // only thing that closes one of these.
-    const stale = await env.DB.prepare(
-      `SELECT id, affected_ids_json, last_seen_at FROM incidents
+    // the next night. And on evidence, not on "a row exists": that closed a
+    // refund incident because the SALE was invoiced, and a finalize failure
+    // because the draft's row was there (see incidentVerdict).
+    autoResolved += await resolveIncidentsOnEvidence(env);
+
+    // What is still open is either unsettled or cannot be verified at all.
+    const open = await env.DB.prepare(
+      `SELECT id, kind, affected_ids_json, last_seen_at FROM incidents
         WHERE status = 'open' AND kind IN (${kindPh})`
     ).bind(...INVOICE_FAILURE_KINDS).all();
 
-    for (const row of ((stale.results ?? []) as any[])) {
-      let ids: string[] = [];
-      try {
-        ids = (JSON.parse(row.affected_ids_json || "[]") as unknown[])
-          .map(String).filter(isVerifiableOrderRef);
-      } catch { /* malformed: nothing to verify against */ }
-
-      // Nothing checkable (a refund reference, a Lodgify booking, an empty list)
-      // falls back to the old behaviour rather than staying open forever — and
-      // that fallback stays on the clock. Closing an unverifiable alarm the
-      // moment it is raised would delete the alarm, not the problem.
-      if (ids.length === 0 && String(row.last_seen_at ?? "") >= cutoffIso) {
+    for (const row of ((open.results ?? []) as any[])) {
+      const inc = { kind: String(row.kind), topic: null, ids: parseAffectedIds(row.affected_ids_json) };
+      // Checkable and still open means the records say it is not done. Only
+      // the evidence closes it, never the clock.
+      if (incidentVerdict(inc, new Map()) !== "unverifiable") {
         keptUnbilled++;
         continue;
       }
-      if (ids.length === 0) {
-        await env.DB.prepare(
-          "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE id = ?"
-        ).bind(nowIso, row.id).run();
-        autoResolved++;
+      // Nothing checkable (a Lodgify booking, an evt_ id, an empty list) falls
+      // back to the silence clock rather than staying open for
+      // ever, and stays on it. Closing an unverifiable alarm the moment it is
+      // raised would delete the alarm, not the problem.
+      if (String(row.last_seen_at ?? "") >= cutoffIso) {
+        keptUnbilled++;
         continue;
       }
-
-      // The same answer the healer and the paused notice use. Hand-rolling the
-      // three-table UNION here asked processed_orders for an `order_id` column
-      // it does not have (the order id IS the primary key `id`), so the moment
-      // the regex above stopped filtering everything out, this threw — and the
-      // catch below is outside the loop, so one bad row would have skipped the
-      // verification for every remaining incident. One function, one truth.
-      const invoiced = await new AppStorage(env).getInvoicedOrderIdsAnySource(ids);
-
-      if (ids.every((id) => invoiced.has(id))) {
-        await env.DB.prepare(
-          "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE id = ?"
-        ).bind(nowIso, row.id).run();
-        autoResolved++;
-      } else {
-        keptUnbilled++;
-      }
+      await env.DB.prepare(
+        "UPDATE incidents SET status = 'auto_resolved', resolved_at = ? WHERE id = ? AND status = 'open'"
+      ).bind(nowIso, row.id).run();
+      autoResolved++;
     }
   } catch (e: any) {
     // Never let the verification break the housekeeping it guards.
@@ -827,6 +1024,10 @@ export const INVOICE_FAILURE_KINDS: IncidentKind[] = [
   "currency_not_supported",
   "reconcile_drift",
   "subscription_inactive",
+  // Sales a nightly recovery still could not bill. runIncidentDrivenHeal reads
+  // this list for the Shopify ids to re-attempt, so it must stay here.
+  "auto_heal_failed",
+  "lodgify_bookings_uninvoiced",
 ];
 
 /** Failure kinds that mean "an order did NOT get invoiced". These fire an
@@ -842,6 +1043,10 @@ const REALTIME_OPS_ALERT_KINDS = new Set<IncidentKind>([
   // the reconcile guard (never ship a wrong total) — alert immediately so it's
   // fixed/handled, not left unbilled until Friday.
   "reconcile_drift",
+  // Both were raised as `queue_retry_exhausted` at severity error, and this
+  // list is what emailed them in real time. Renamed, they keep that email.
+  "auto_heal_failed",
+  "document_log_write_lost",
 ]);
 
 // Order-level kinds eligible for advisory AI triage in the real-time alert email.
@@ -854,6 +1059,8 @@ const AI_TRIAGE_ORDER_KINDS = new Set<IncidentKind>([
   "queue_retry_exhausted",
   "nif_invalid",
   "currency_not_supported",
+  // Carries the per-sale reasons in detail.message, like the retry it replaces.
+  "auto_heal_failed",
 ]);
 
 /** Only surface incidents seen within this window; older misses are noise. */

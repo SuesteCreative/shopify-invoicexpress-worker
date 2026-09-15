@@ -72,7 +72,27 @@ export type IncidentKind =
   // Raised by the nightly connection health check, not by a payment, which is
   // the point — it fires on the day the pipe breaks, including the day it is
   // set up wrong, and not on the day the first sale happens to arrive.
-  | "connection_unconfigured";
+  | "connection_unconfigured"
+  // The five below used to be raised as `queue_retry_exhausted`, which tells the
+  // reader a webhook was retried to death. None of them is that, and the wrong
+  // name sent triage looking for a retry loop that never existed (Pleasant
+  // Venture's stalled sweep and Escola Lá Fora's heal, 15/09/2026).
+  //
+  // No shop has completed a reconciliation pass within RECON_SWEEP_STALE_HOURS.
+  // OPS-ONLY. Nothing was retried; the sweep simply never reached the shop.
+  | "reconcile_sweep_stale"
+  // A nightly recovery (the Shopify sweep or the Stripe heal) tried to issue
+  // missing documents and could not. The sales are still unbilled.
+  | "auto_heal_failed"
+  // document_events writes failed in D1, so the log for that window is
+  // incomplete. OPS-ONLY: the documents themselves are untouched.
+  | "document_log_write_lost"
+  // A verified webhook could not be put on the queue. The source got a 500 and
+  // redelivers, so one of these is usually self-healing. OPS-ONLY.
+  | "queue_enqueue_failed"
+  // Paid Lodgify bookings past the 48h grace with no document. A condition, not
+  // a retry: those bookings were never attempted.
+  | "lodgify_bookings_uninvoiced";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -1337,6 +1357,126 @@ export function tplConnectionUnconfigured(input: IncidentTemplateInput): Rendere
   };
 }
 
+/** OPS-ONLY. A shop the nightly reconciliation sweep has not finished in time. */
+export function tplReconcileSweepStale(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph(T("O varrimento nocturno de reconciliação não completou nenhuma passagem para esta loja dentro do prazo. Enquanto assim estiver, as faturas em falta desta loja não estão a ser recuperadas.", "The nightly reconciliation sweep has not completed a pass for this shop within the expected window. While that lasts, this shop's missing invoices are not being recovered."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("O orçamento de tempo do varrimento esgota-se antes de chegar a esta loja, ou a leitura das encomendas na Shopify está a falhar.", "The sweep's time budget runs out before it reaches this shop, or reading the orders from Shopify is failing."), P().error)}
+    ${stepsList([
+      T("Ver sweep_state desta loja: last_status e last_completed_at dizem onde parou.", "Check sweep_state for this shop: last_status and last_completed_at say where it stopped."),
+      T("Correr npm run audit:shopify para saber se há encomendas por facturar.", "Run npm run audit:shopify to find out whether any orders are unbilled."),
+      T("Se o orçamento não chega, correr o varrimento só para esta loja a partir do Dev Mode.", "If the budget is not enough, run the sweep for this shop alone from Dev Mode."),
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: T("[Rioko 2.0] Varrimento de reconciliação parado", "[Rioko 2.0] Reconciliation sweep stalled"),
+    html: shell({
+      title: T("Varrimento de reconciliação parado", "Reconciliation sweep stalled"),
+      preheader: T("Faturas em falta desta loja não estão a ser recuperadas.", "This shop's missing invoices are not being recovered."),
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
+/** A nightly recovery (Shopify sweep or Stripe heal) that could not issue. */
+export function tplAutoHealFailed(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph(T("A recuperação nocturna tentou emitir documentos em falta e não conseguiu. Estas vendas continuam por facturar.", "The nightly recovery tried to issue missing documents and could not. These sales are still unbilled."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("O mesmo motivo que travou a emissão original: dados da venda, configuração da ligação ou recusa do destino. O detalhe abaixo traz o motivo de cada venda.", "The same reason that stopped the original issue: the sale's data, the connection's configuration or a refusal from the destination. The detail below carries the reason for each sale."), P().error)}
+    ${aiDiagnosisBlock(input.aiDiagnosis, input.aiSuggestedFix)}
+    ${stepsList([
+      T("Ler o motivo de cada venda no detalhe abaixo.", "Read the reason for each sale in the detail below."),
+      T("Corrigir a causa (configuração, dados ou credenciais) e reemitir a partir do Dev Mode.", "Fix the cause (configuration, data or credentials) and re-issue from Dev Mode."),
+      T("A próxima passagem nocturna volta a tentar as vendas que continuarem em falta.", "The next nightly pass tries again for every sale that is still missing."),
+    ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: T("[Rioko 2.0] Recuperação automática não emitiu", "[Rioko 2.0] Nightly recovery could not invoice"),
+    html: shell({
+      title: T("Recuperação automática não emitiu", "Nightly recovery could not invoice"),
+      preheader: T("Vendas continuam por facturar depois da recuperação.", "Sales are still unbilled after the recovery."),
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
+/** OPS-ONLY. document_events writes that D1 did not take. */
+export function tplDocumentLogWriteLost(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph(T("Algumas escritas no registo de documentos falharam no D1. Os documentos não foram afectados: o que falta é o histórico desta janela.", "Some writes to the document log failed in D1. The documents themselves were not affected: what is missing is the history for this window."))}
+    ${calloutBox(T("Porque é que isto importa", "Why this matters"), T("A conferência nocturna e a linha do tempo de cada venda lêem este registo. Com linhas em falta, uma divergência pode passar sem ser vista.", "The nightly verification and each sale's timeline read this log. With rows missing, a drift can go unseen."), P().error)}
+    ${stepsList([
+      T("Ver no detalhe abaixo quantas escritas se perderam e em que janela.", "Check in the detail below how many writes were lost and in which window."),
+      T("Confirmar na consola do D1 se houve erros ou limites atingidos nesse período.", "Confirm in the D1 console whether there were errors or limits hit in that period."),
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: T("[Rioko 2.0] Registo de documentos incompleto", "[Rioko 2.0] Document log incomplete"),
+    html: shell({
+      title: T("Registo de documentos incompleto", "Document log incomplete"),
+      preheader: T("Os documentos estão bem; o histórico desta janela não.", "The documents are fine; this window's history is not."),
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
+/** OPS-ONLY. A verified webhook the queue would not take; the source redelivers. */
+export function tplQueueEnqueueFailed(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph(T("Um webhook verificado chegou, mas não foi possível colocá-lo na fila. Respondemos 500, por isso a origem volta a enviá-lo.", "A verified webhook arrived, but it could not be put on the queue. We answered 500, so the source will send it again."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("Cloudflare Queues indisponível ou com limite atingido. Uma falha isolada resolve-se com a reentrega; várias seguidas apontam para a plataforma.", "Cloudflare Queues unavailable or at a limit. A single failure is fixed by the redelivery; several in a row point at the platform."), P().critical)}
+    ${stepsList([
+      T("Confirmar na origem (Stripe → Developers → Webhooks) que o evento foi reentregue com sucesso.", "Confirm at the source (Stripe → Developers → Webhooks) that the event was redelivered successfully."),
+      T("Se as falhas se repetirem, ver o estado do Cloudflare Queues e os logs do worker.", "If the failures repeat, check the Cloudflare Queues status and the worker logs."),
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: T("[Rioko 2.0] Webhook não entrou na fila", "[Rioko 2.0] Webhook could not be queued"),
+    html: shell({
+      title: T("Webhook não entrou na fila", "Webhook could not be queued"),
+      preheader: T("A origem vai reenviar; confirmar que passou.", "The source will resend; confirm it went through."),
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
+/** Paid Lodgify bookings past the grace period that never got a document. */
+export function tplLodgifyBookingsUninvoiced(input: IncidentTemplateInput): RenderedTemplate {
+  const body = `
+    ${paragraph(T("Há reservas Lodgify pagas há mais de 48 horas sem documento emitido. Não houve recusa do destino: estas reservas nunca chegaram a ser facturadas.", "There are Lodgify bookings paid more than 48 hours ago with no document issued. The destination refused nothing: these bookings were never invoiced at all."))}
+    ${calloutBox(T("Causa provável", "Likely cause"), T("O poll da Lodgify não está a correr para esta ligação, a ligação está incompleta, ou as reservas ficaram fora da regra de facturação.", "The Lodgify poll is not running for this connection, the connection is incomplete, or the bookings fell outside the invoicing rule."), P().critical)}
+    ${stepsList([
+      T("Ver no detalhe abaixo quantas reservas são, a mais antiga e o valor.", "Check in the detail below how many bookings there are, the oldest and the value."),
+      T("Confirmar que o poll da Lodgify corre sem erros para esta ligação.", "Confirm the Lodgify poll runs without errors for this connection."),
+      T("Facturar as reservas em falta a partir do Dev Mode.", "Invoice the missing bookings from Dev Mode."),
+    ])}
+    ${affectedIdsBlock(input.affectedIds)}
+    ${detailBlock(input.detail)}
+  `;
+  return {
+    subject: T("[Rioko 2.0] Reservas Lodgify pagas por facturar", "[Rioko 2.0] Paid Lodgify bookings not invoiced"),
+    html: shell({
+      title: T("Reservas Lodgify pagas por facturar", "Paid Lodgify bookings not invoiced"),
+      preheader: T("Reservas pagas há mais de 48 horas sem documento.", "Bookings paid over 48 hours ago with no document."),
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTemplateInput): RenderedTemplate {
   switch (kind) {
     case "document_drift": return tplDocumentDrift(input);
@@ -1360,6 +1500,11 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "lodgify_relay_down": return tplLodgifyRelayDown(input);
     case "worker_build_failed": return tplWorkerBuildFailed(input);
     case "connection_unconfigured": return tplConnectionUnconfigured(input);
+    case "reconcile_sweep_stale": return tplReconcileSweepStale(input);
+    case "auto_heal_failed": return tplAutoHealFailed(input);
+    case "document_log_write_lost": return tplDocumentLogWriteLost(input);
+    case "queue_enqueue_failed": return tplQueueEnqueueFailed(input);
+    case "lodgify_bookings_uninvoiced": return tplLodgifyBookingsUninvoiced(input);
   }
 }
 

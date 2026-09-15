@@ -137,6 +137,58 @@ export interface StripeBackfillOptions {
   to?: string;
 }
 
+/**
+ * Payments the pipeline declined as not Rioko's to invoice (StripeSource.scopeBlocker).
+ *
+ * That skip writes a `skipped:scope:…` document event and no processed_orders
+ * row, so the landed-check below read every one as a silent skip. Escola Lá Fora
+ * (15/09/2026) got "11 payment(s) could not be auto-invoiced" for payments its
+ * own backoffice invoices, and would have got it again every night.
+ *
+ * The prefix, not the exact key: rows before 8ddf598 carry no topic segment.
+ * Fails toward the old verdict: if the lookup throws, nothing is settled.
+ */
+async function scopeSkippedIds(env: Env, userId: string, ids: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const CHUNK = 90; // + user_id, under D1's 100 bound variables
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    try {
+      const res = await env.DB.prepare(
+        `SELECT DISTINCT external_id FROM document_events
+          WHERE user_id = ? AND event = 'skipped' AND dedup_key LIKE 'skipped:scope:%'
+            AND external_id IN (${chunk.map(() => "?").join(",")})`,
+      ).bind(userId, ...chunk).all();
+      for (const row of (res.results ?? []) as any[]) out.add(String(row.external_id));
+    } catch (e: any) {
+      console.error(`[StripeBackfill] scope-skip lookup failed, reporting those payments as unbilled: ${e?.message ?? e}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * The verdict on every payment the pipeline returned from without throwing: a
+ * document landed (created), the sale is not ours (skipped, settled), or it is
+ * STILL unbilled (error, which is what makes the nightly heal escalate).
+ */
+export function settleClaimed(
+  results: Array<{ external_id: string; status: string; message: string }>,
+  landed: Set<string>,
+  notOurs: Set<string>,
+): void {
+  for (const r of results) {
+    if (r.status !== "created" || landed.has(r.external_id)) continue;
+    if (notOurs.has(r.external_id)) {
+      r.status = "skipped";
+      r.message = "Out of scope: the merchant's other system invoices this sale — no document owed";
+    } else {
+      r.status = "error";
+      r.message = "Pipeline finished without issuing a document (silent skip) — payment is STILL unbilled";
+    }
+  }
+}
+
 export async function processStripeBackfill(
   env: Env,
   config: IRequestConfig,
@@ -237,12 +289,8 @@ export async function processStripeBackfill(
   const claimed = results.filter(r => r.status === "created").map(r => r.external_id);
   if (claimed.length > 0) {
     const landed = await appStorage.getResolvedOrderIds(claimed, `u:${config.user_id}`);
-    for (const r of results) {
-      if (r.status === "created" && !landed.has(r.external_id)) {
-        r.status = "error";
-        r.message = "Pipeline finished without issuing a document (silent skip) — payment is STILL unbilled";
-      }
-    }
+    const notOurs = await scopeSkippedIds(env, config.user_id, claimed.filter(id => !landed.has(id)));
+    settleClaimed(results, landed, notOurs);
   }
 
   const summary = {
@@ -250,7 +298,7 @@ export async function processStripeBackfill(
     dry_run: dryRun,
     total: results.length,
     success: results.filter(r => r.status === "created").length,
-    skipped: pis.length - fresh.length,
+    skipped: pis.length - fresh.length + results.filter(r => r.status === "skipped").length,
     errors: results.filter(r => r.status === "error").length,
     would_create: results.filter(r => r.status === "dry_run").length,
     from: effectiveFrom,

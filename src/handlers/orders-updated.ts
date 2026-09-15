@@ -8,6 +8,7 @@ import { makeViesChecker } from "../ix/vies";
 import { loadProductOverrides } from "../services/product-overrides";
 import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
 import { parseStoredRoute, applyRouteToIxConfig } from "../services/tag-routing";
+import { checkSubscriptionGate } from "../services/subscription-gate";
 
 export async function handleOrderUpdated(env: Env, config: IRequestConfig, webhookId: string | null, order: any) {
   const webhookTopic = "orders/updated";
@@ -45,6 +46,18 @@ export async function handleOrderUpdated(env: Env, config: IRequestConfig, webho
     const invoice = await appStorage.getInvoiceByOrderId(String(normalizedOrderResponse.normalized.order.id));
 
     if (!invoice || !invoice.invoice_id) {
+      // An order the subscription gate refused at orders/created has no invoice
+      // by design, and never will while the gate refuses. Throwing sent it six
+      // times round the queue and raised a critical queue_retry_exhausted on top
+      // of the subscription_inactive incident that already records it: seven of
+      // them for Artway Lda, 13-15/09/2026.
+      const gate = await checkSubscriptionGate(env, config, { source: "shopify", destination: "invoicexpress" });
+      if (!gate.allowed) {
+        console.log(`[Rioko] Update for gate-blocked order ${orderId} (${gate.reason}) — nothing to update`);
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId }), response: `Blocked: ${gate.reason} — no invoice to update`, status: 402 });
+        return;
+      }
       throw new Error(`Invoice not found by order.id=${normalizedOrderResponse.normalized.order.id}`);
     }
 

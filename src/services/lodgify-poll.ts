@@ -962,7 +962,8 @@ async function reportLodgifyBacklog(
       await reportIncident(env, {
         user_id: userId,
         severity: "critical",
-        kind: "queue_retry_exhausted",
+        // A condition, not a retry: these bookings were never attempted.
+        kind: "lodgify_bookings_uninvoiced",
         summary: `${n} reserva(s) Lodgify pagas continuam por facturar (mais antiga: ${String(row?.oldest ?? "?").slice(0, 10)}).`,
         detail: {
           uninvoiced: n, oldest: row?.oldest, value: row?.value,

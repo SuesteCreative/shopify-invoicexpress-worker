@@ -4,7 +4,7 @@ import { redactIncident } from "./anthropic";
 /**
  * `redactIncident` is the only thing that leaves the worker for the triage
  * model, and it is a whitelist — which is why the diagnostics read as vague for
- * so long. Six of the eight producers of `queue_retry_exhausted` never set
+ * so long. Six of the eight places that raised `queue_retry_exhausted` then never set
  * `detail.message`, the one free-text field the whitelist copies, so the model
  * was handed a kind and a connection label and correctly answered that it had
  * nothing to work with.

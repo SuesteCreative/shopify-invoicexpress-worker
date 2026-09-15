@@ -25,6 +25,8 @@ const listActiveConnections = vi.fn();
 const getMerchantDisplayNames = vi.fn();
 const processStripeBackfill = vi.fn();
 const resolveConnectionContext = vi.fn();
+const checkSubscriptionGate = vi.fn();
+const reportIncident = vi.fn();
 
 vi.mock("../storage", () => ({
   AppStorage: class {
@@ -34,8 +36,8 @@ vi.mock("../storage", () => ({
 }));
 vi.mock("./admin-stripe", () => ({ processStripeBackfill: (...a: any[]) => processStripeBackfill(...a) }));
 vi.mock("./admin", () => ({ processOrders: vi.fn() }));
-vi.mock("../services/incidents", () => ({ reportIncident: vi.fn(), INVOICE_FAILURE_KINDS: new Set() }));
-vi.mock("../services/subscription-gate", () => ({ checkSubscriptionGate: vi.fn() }));
+vi.mock("../services/incidents", () => ({ reportIncident: (...a: any[]) => reportIncident(...a), INVOICE_FAILURE_KINDS: new Set() }));
+vi.mock("../services/subscription-gate", () => ({ checkSubscriptionGate: (...a: any[]) => checkSubscriptionGate(...a) }));
 vi.mock("../services/email", () => ({ sendEmail: vi.fn() }));
 vi.mock("../services/connection-context", () => ({
   resolveConnectionContext: (...a: any[]) => resolveConnectionContext(...a),
@@ -50,7 +52,10 @@ beforeEach(() => {
   getMerchantDisplayNames.mockReset();
   processStripeBackfill.mockReset();
   resolveConnectionContext.mockReset();
+  checkSubscriptionGate.mockReset();
+  reportIncident.mockReset();
 
+  checkSubscriptionGate.mockResolvedValue({ allowed: true });
   listActiveConnections.mockResolvedValue([
     { user_id: "user_WHM", source_kind: "stripe", destination_kind: "invoicexpress", created_at: "2026-09-08T14:49:59.950Z", invoice_cutoff: null },
   ]);
@@ -94,5 +99,37 @@ describe("runStripeHeal — the config it heals with", () => {
 
     expect(processStripeBackfill).toHaveBeenCalledTimes(1);
     expect(processStripeBackfill.mock.calls[0][1]).toMatchObject({ user_id: "user_WHM", shopify_domain: null });
+  });
+});
+
+describe("runStripeHeal — what it escalates", () => {
+  beforeEach(() => {
+    resolveConnectionContext.mockResolvedValue({ ok: true, ctx: { config: { user_id: "user_WHM" } } });
+  });
+
+  it("leaves a connection the paywall refuses alone, and says nothing about it", async () => {
+    checkSubscriptionGate.mockResolvedValue({ allowed: false, reason: "no_subscription for stripe:invoicexpress" });
+
+    const result = await runStripeHeal(env, {});
+
+    expect(processStripeBackfill).not.toHaveBeenCalled();
+    expect(reportIncident).not.toHaveBeenCalled();
+    expect(result.totals.connectionsSkipped).toBe(1);
+  });
+
+  it("names each unbilled payment, so the incident closes on its document and not on silence", async () => {
+    // Diogo Acabado (15/09/2026): a heal incident with no ids was auto-resolved
+    // after 24h while pi_3UEruPLRr9ut1iRi0AseOQaa was still unbilled.
+    processStripeBackfill.mockResolvedValue({
+      success: 0, skipped: 0, errors: 1,
+      results: [{ external_id: "pi_3UEruPLRr9ut1iRi0AseOQaa", status: "error", message: "Moloni: company not found" }],
+    });
+
+    await runStripeHeal(env, {});
+
+    expect(reportIncident.mock.calls[0][1]).toMatchObject({
+      kind: "auto_heal_failed",
+      affected_ids: ["pi_3UEruPLRr9ut1iRi0AseOQaa"],
+    });
   });
 });

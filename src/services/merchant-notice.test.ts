@@ -116,7 +116,7 @@ describe("incident dedup bucket", () => {
   it("treats the two spellings of one connection as one bucket", () => {
     // Most callers pass the raw identifiers; a handful go through
     // `connectionLabelOf`, which prettifies. `queue_retry_exhausted` is critical
-    // and is reported from eight places in BOTH spellings — keyed as written,
+    // and is reported from several places in BOTH spellings — keyed as written,
     // one Stripe failure reaching two of them would raise two alerts.
     const failing = (label: string): any => ({
       user_id: "u1", kind: "queue_retry_exhausted", severity: "critical",

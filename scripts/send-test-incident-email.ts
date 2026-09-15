@@ -27,6 +27,11 @@ const KINDS: IncidentKind[] = [
   "subscription_inactive",
   "queue_retry_exhausted",
   "webhook_invalid_signature",
+  "reconcile_sweep_stale",
+  "auto_heal_failed",
+  "document_log_write_lost",
+  "queue_enqueue_failed",
+  "lodgify_bookings_uninvoiced",
 ];
 
 async function main() {

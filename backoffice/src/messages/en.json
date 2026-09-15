@@ -1776,7 +1776,11 @@
             },
             "lodgifyOtaInvoiceOn": {
                 "label": "Invoice OTA stays on",
-                "help": "Whether an OTA booking is invoiced on arrival or on departure."
+                "help": "When a booking with no payment recorded is invoiced: on arrival or departure (OTA only), or as soon as it reaches Lodgify (booking, any channel)."
+            },
+            "lodgifySplitTaxes": {
+                "label": "Tourist tax on an exempt line",
+                "help": "Puts the tourist tax Lodgify adds to the stay on a 0% line with the connection's exemption code. Without that breakdown the booking is not invoiced."
             }
         }
     },

@@ -94,6 +94,7 @@ export const FISCAL_CONFIG_KEYS = [
   // Lodgify-specific behaviour, stored on the destination blob
   "lodgify_extras_vat_rate",
   "lodgify_ota_invoice_on",
+  "lodgify_split_taxes",
 ] as const;
 
 export type FiscalConfigKey = typeof FISCAL_CONFIG_KEYS[number];

@@ -117,23 +117,31 @@ export function isBookingFullyCollected(item: any, policy?: OtaPolicy): boolean 
 /**
  * Per-connection escape hatch for merchants whose money never reaches Lodgify.
  *
- * `on` names the moment an OTA stay counts as collected. Absent = the default
+ * `on` names the moment a booking counts as collected. Absent = the default
  * everywhere: nothing but recorded money bills anything.
+ *
+ * `departure` / `arrival` wait for the stay, and only for an OTA stay with no
+ * money on it. `booking` waits for nothing: a confirmed booking is billed the
+ * moment it exists in Lodgify, whatever the channel and whatever has been paid.
+ * That is how a merchant who invoices on reservation works: Farracemota asked
+ * for exactly this on 15/09/2026, having marked none of 302 bookings as paid.
+ * A booking cancelled afterwards has its draft deleted by the poll; a finalized
+ * document raises `booking_cancelled_after_invoice` for a credit note.
  */
 export interface OtaPolicy {
-  on: "departure" | "arrival";
+  on: "departure" | "arrival" | "booking";
 }
 
 /**
  * Read the policy off a connection's destination config, so every gate reaches
  * the same verdict from the same stored value.
  *
- * `lodgify_ota_invoice_on`: "departure" | "arrival". Anything else — including
- * absent, which is every connection but the one that asked — means off.
+ * `lodgify_ota_invoice_on`: "departure" | "arrival" | "booking". Anything else —
+ * including absent, which is every connection but the ones that asked — means off.
  */
 export function otaPolicyFrom(destinationConfig: Record<string, any> | undefined | null): OtaPolicy | undefined {
   const on = String(destinationConfig?.lodgify_ota_invoice_on ?? "").toLowerCase();
-  if (on === "departure" || on === "arrival") return { on };
+  if (on === "departure" || on === "arrival" || on === "booking") return { on };
   return undefined;
 }
 
@@ -172,10 +180,15 @@ export function isOtaChannel(source: unknown): boolean {
  */
 export function isOtaStayCollected(item: any, policy?: OtaPolicy, today?: string): boolean {
   if (!policy) return false;
-  if (!isOtaChannel(item?.source)) return false;
 
   const total = cents(firstNum(item?.total_amount, item?.total) ?? 0);
   if (total <= 0) return false;
+
+  // Billed on reservation: no channel, no payment and no date to wait for.
+  // Everything below is the stay-date policies only.
+  if (policy.on === "booking") return true;
+
+  if (!isOtaChannel(item?.source)) return false;
 
   const paid = cents(firstNum(item?.amount_paid, item?.total_paid) ?? 0);
   const due = bookingAmountDue(item);
@@ -192,6 +205,7 @@ export function isOtaStayCollected(item: any, policy?: OtaPolicy, today?: string
 /** SQL counterpart of `isOtaStayCollected`, for the mirror's columns (alias `b`). */
 export function otaStayCollectedSqlPredicate(policy?: OtaPolicy): string | null {
   if (!policy) return null;
+  if (policy.on === "booking") return `(COALESCE(b.total_amount, 0) > 0)`;
   const dateCol = policy.on === "arrival"
     ? `NULLIF(b.arrival, '')`
     : `COALESCE(NULLIF(b.departure, ''), NULLIF(b.arrival, ''))`;
@@ -369,17 +383,38 @@ export function parseBookingSubtotals(raw: unknown): BookingSubtotals | null {
   const num = (v: unknown): number => firstNum(v) ?? 0;
   const fees = num(o.fees);
   const addons = num(o.addons);
+  const taxes = num(o.taxes);
   // A breakdown with nothing outside the stay is not worth acting on: the single
   // line it produces is the one we already make.
-  if (round2(fees + addons) <= 0.01) return null;
+  if (round2(fees + addons + taxes) <= 0.01) return null;
   return {
     stay: firstNum(o.stay),
     fees: round2(fees),
     addons: round2(addons),
     promotions: round2(num(o.promotions)),
-    taxes: round2(num(o.taxes)),
+    taxes: round2(taxes),
     vat: round2(num(o.vat)),
   };
+}
+
+/**
+ * The part of the total that is tax Lodgify adds on top of the stay (the
+ * municipal tourist tax), or 0 when the booking carries none.
+ *
+ * Null when the breakdown does not add up to the total being billed: then which
+ * part is the tax is unknown, and a guess puts VAT on the wrong base. Same sum
+ * as `splitStayAndExtras`, promotions included.
+ */
+export function touristTaxGross(grossTotal: number, subtotals: BookingSubtotals | null): number | null {
+  if (!subtotals || subtotals.taxes <= 0.01) return 0;
+  if (!Number.isFinite(grossTotal) || subtotals.taxes >= grossTotal) return null;
+  if (subtotals.stay != null) {
+    const parts = round2(
+      subtotals.stay + subtotals.promotions + subtotals.fees + subtotals.addons + subtotals.taxes + subtotals.vat,
+    );
+    if (Math.abs(parts - round2(grossTotal)) > 0.02) return null;
+  }
+  return subtotals.taxes;
 }
 
 /**

@@ -1776,7 +1776,11 @@
             },
             "lodgifyOtaInvoiceOn": {
                 "label": "Faturar estadias OTA",
-                "help": "Se uma reserva de OTA é faturada na chegada ou na partida."
+                "help": "Quando se fatura uma reserva sem pagamento registado: na chegada ou na partida (só OTA), ou logo que entra no Lodgify (booking, qualquer canal)."
+            },
+            "lodgifySplitTaxes": {
+                "label": "Taxa turística em linha isenta",
+                "help": "Separa a taxa turística que o Lodgify soma à estadia numa linha a 0% com o código de isenção da ligação. Sem essa decomposição, a reserva não é faturada."
             }
         }
     },

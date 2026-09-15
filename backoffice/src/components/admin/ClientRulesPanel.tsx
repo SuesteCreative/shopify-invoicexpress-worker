@@ -167,7 +167,8 @@ const CONNECTION_FIELDS: Record<string, FieldDef[]> = {
   ],
   lodgify: [
     { key: "lodgify_extras_vat_rate", kind: "number", i18n: "lodgifyExtrasVatRate" },
-    { key: "lodgify_ota_invoice_on", kind: "select", i18n: "lodgifyOtaInvoiceOn", options: ["arrival", "departure"] },
+    { key: "lodgify_ota_invoice_on", kind: "select", i18n: "lodgifyOtaInvoiceOn", options: ["arrival", "departure", "booking"] },
+    { key: "lodgify_split_taxes", kind: "bool", i18n: "lodgifySplitTaxes" },
   ],
 };
 

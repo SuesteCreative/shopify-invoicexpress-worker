@@ -191,4 +191,22 @@ describe("sendIxDocumentEmail", () => {
     const r = await sendIxDocumentEmail(cfg(), 1);
     expect(r).toMatchObject({ sent: false, reason: "no_recipient" });
   });
+
+  it("sends a credit note through the credit_notes collection", async () => {
+    getDoc.mockResolvedValue(doc({ date: ptDate(0) }));
+    const r = await sendIxDocumentEmail(cfg(), 9, { collection: "credit_notes" });
+    expect(r).toMatchObject({ sent: true });
+    expect(postEmail.mock.calls[0][0].query).toEqual({ type: "credit_notes" });
+  });
+
+  // The refund path posted its email on its own, outside this gate. Replaying
+  // refunds from April–August for four shops with ix_send_email on would have
+  // mailed every one of those buyers today. A credit note issued today for an
+  // old refund is judged by the refund, not by the date on the note.
+  it("never mails a credit note for an old refund, even though the note is dated today", async () => {
+    getDoc.mockResolvedValue(doc({ date: ptDate(0) }));
+    const r = await sendIxDocumentEmail(cfg(), 9, { collection: "credit_notes", saleDate: "2026-05-09" });
+    expect(r).toMatchObject({ sent: false, reason: "backlog" });
+    expect(postEmail).not.toHaveBeenCalled();
+  });
 });

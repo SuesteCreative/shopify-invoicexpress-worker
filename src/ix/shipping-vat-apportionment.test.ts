@@ -149,3 +149,26 @@ describe("shipping VAT is only charged on the part Shopify taxed", () => {
     expect(trace.filter(t => t.kind === "shipping")).toHaveLength(2);
   });
 });
+
+describe("a shipping line removed by an order edit is not billed", () => {
+  // Estrela #1292: the buyer switched from "BATCH - Spain" (2,49 €) to "BATCH -
+  // Espanha Ilhas" (4,95 €) and paid the difference by hand. Shopify keeps the
+  // old line in `shipping_lines` with `is_removed: true`; the invoice billed both
+  // and came out 2,49 € above what was collected.
+  it("leaves the replaced method off the invoice", () => {
+    const raw = mixedRateOrder([{ rate: 0.23, price: "0.92" }]);
+    raw.taxes_included = true;
+    raw.total_price = "69.95";
+    raw.total_tax = "13.07";
+    raw.line_items = [{ title: "LUNA Birthstone Necklace", price: "65.00", quantity: 1, tax_lines: [{ rate: 0.23, price: "12.15" }] }];
+    raw.shipping_lines = [
+      { id: 1, title: "BATCH - Spain", price: "2.49", is_removed: true, tax_lines: [{ rate: 0.23, price: "0.46" }] },
+      { id: 2, title: "BATCH - Espanha Ilhas", price: "4.95", is_removed: false, tax_lines: [{ rate: 0.23, price: "0.92" }] },
+    ];
+    const builder = new IxBuilder(shopConfig({ vat_included: 1 }));
+    const items = builder.buildInvoiceItemsFromRaw(raw) as any[];
+    expect(items.some(i => String(i.name).includes("BATCH - Spain"))).toBe(false);
+    expect(items.some(i => String(i.name).includes("Espanha Ilhas"))).toBe(true);
+    expect(builder.computeIxExpectedTotal(items)).toBeCloseTo(69.95, 2);
+  });
+});

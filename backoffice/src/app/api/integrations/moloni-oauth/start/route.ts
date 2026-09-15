@@ -1,6 +1,5 @@
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
-import { RIOKO_CONFIG } from "@/lib/config";
 import { getStripeEnvOptional } from "@/lib/stripe";
 import { newOAuthState } from "@/lib/oauth-state";
 import { isStripeConnectEnabled, resolveTargetUser } from "@/lib/stripe-connect";
@@ -13,22 +12,21 @@ export const runtime = "edge";
 /** Moloni's consent page. Not on api.moloni.pt — that host only mints tokens. */
 const MOLONI_AUTHORIZE_URL = "https://www.moloni.pt/ac/root/oauth/";
 
-/**
- * The connections Moloni OAuth v2 is offered to, and no others.
- *
- * Which authentication a Moloni connection uses is decided by the door it came
- * in through, not by how new it is: Stripe Connect (since the flow existed) and
- * the public Lodgify onboarding (added later) authorise by OAuth; the dashboard
- * wizards for stripe, lodgify and shopify → Moloni use the password grant, by
- * decision of 10/09/2026.
- *
- * Deliberately not exported — a Next route file may only export its handlers
- * and route config, and anything else fails the build.
- */
-const MOLONI_OAUTH_SOURCES = ["stripe_connect", "lodgify"] as const;
+/** What to tell a merchant who reached the Moloni step before the source step. */
+const CONNECT_SOURCE_FIRST: Record<string, string> = {
+    stripe: "Ligue primeiro o Stripe.",
+    stripe_connect: "Ligue primeiro o Stripe.",
+    lodgify: "Ligue primeiro o Lodgify.",
+    eupago: "Ligue primeiro o EuPago.",
+};
 
 /**
  * Saves the merchant's Moloni developer credentials and returns the consent URL.
+ *
+ * Every Moloni connection authorises here, whichever door it came in through —
+ * decision of 15/09/2026, replacing the 10/09 one that kept the dashboard wizards
+ * on a username and password. The password grant survives only for the
+ * connections that already had it; nothing here creates a new one.
  *
  * The credentials are still typed by hand because Moloni's documentation
  * describes the redirect flow for plugins installed on many sites but never
@@ -47,26 +45,18 @@ export async function POST(request: NextRequest) {
         return_locale?: string;
     };
 
-    // Which of the merchant's connections is being authorised. It used to be
-    // hardcoded to stripe_connect, which is why Lodgify could never reach
-    // Moloni: the row exists, the flow just refused to look at it. Absent still
-    // means stripe_connect, so every link already sent out keeps working.
+    // Which of the merchant's connections is being authorised. Absent means
+    // stripe_connect, so every link already sent out keeps working.
     //
-    // A NAMED kind has to be one of the two this flow serves. It has been wrong
-    // in both directions. "lodgify or else stripe_connect" left every other
-    // value pointing at the Connect row, so a request naming `stripe` wrote that
-    // merchant's Moloni client id, client secret and single-use `oauth_state`
-    // onto a connection they had not asked to authorise. The fix for that then
-    // accepted ANY known kind, which quietly opened OAuth to the three dashboard
-    // wizards the 10/09 decision keeps on the password grant. Neither collapsed
-    // nor widened: refused.
+    // A NAMED kind has to be one we know. This gate has been wrong three ways:
+    // "lodgify or else stripe_connect" wrote a request naming `stripe` onto the
+    // Connect row; the fix for that accepted any known kind while the decision
+    // still kept three wizards on the password grant; and pinning it to two kinds
+    // turned out to be the opposite of where the product was going. Every Moloni
+    // connection authorises by OAuth now, so the only thing to refuse is a kind
+    // that does not exist.
     const sourceKind = sourceKindOrNull(body.source_kind, "stripe_connect");
     if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
-    if (!(MOLONI_OAUTH_SOURCES as readonly string[]).includes(sourceKind)) {
-        return NextResponse.json({
-            error: `Moloni OAuth is not offered for ${sourceKind} → moloni; that connection uses the Moloni username and password`,
-        }, { status: 400 });
-    }
 
     // The kill switch belongs to Stripe Connect, not to Moloni. Flipping Connect
     // off must not take a Lodgify merchant's invoicing with it.
@@ -78,45 +68,109 @@ export async function POST(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const row: any = await db
+    const selectRow = () => db
         .prepare(`SELECT id, destination_config_json FROM connections
                    WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`)
         .bind(authResult.targetUserId, sourceKind)
         .first();
+
+    let row: any = await selectRow();
+    if (!row && sourceKind === "shopify") {
+        // Shopify keeps its own credentials on the account's legacy row, so no
+        // source step ever creates a `connections` row for this pair — and there
+        // is nothing to authorise without one. The Stripe and Lodgify wizards
+        // create theirs when the source is saved, which is why they still 404.
+        const created = new Date().toISOString();
+        await db.prepare(
+            `INSERT INTO connections (id, user_id, source_kind, destination_kind, status, created_at, updated_at)
+             VALUES (?, ?, 'shopify', 'moloni', 'draft', ?, ?)
+             ON CONFLICT(user_id, source_kind, destination_kind) DO NOTHING`
+        ).bind(crypto.randomUUID(), authResult.targetUserId, created, created).run();
+        row = await selectRow();
+    }
     if (!row) {
-        return NextResponse.json({
-            error: sourceKind === "lodgify" ? "Ligue primeiro o Lodgify." : "Ligue primeiro o Stripe.",
-        }, { status: 404 });
+        return NextResponse.json({ error: CONNECT_SOURCE_FIRST[sourceKind] ?? "Ligue primeiro a origem." }, { status: 404 });
     }
 
     const stored = row.destination_config_json ? JSON.parse(row.destination_config_json) : {};
-    const clientId = (body.client_id ?? "").trim() || stored.moloni_client_id
-        || getStripeEnvOptional("MOLONI_APP_CLIENT_ID");
-    const clientSecret = (body.client_secret ?? "").trim() || stored.moloni_client_secret
-        || getStripeEnvOptional("MOLONI_APP_CLIENT_SECRET");
 
-    if (!clientId || !clientSecret) {
+    // A second Moloni connection starts from the account's first.
+    //
+    // Same Moloni account means the same developer app, so the merchant is not
+    // made to go and find a Client Secret that Moloni only ever shows once. The
+    // APP is all that is borrowed: this connection still goes through its own
+    // consent screen and holds its own token pair — tokens are never read from a
+    // sibling, because a refresh token rotates on every use and two connections
+    // sharing one would kill each other. Its fiscal settings are its own too, the
+    // rule InvoiceXpress already follows (one account, two connections, two
+    // different séries on 15/09/2026).
+    const typedId = (body.client_id ?? "").trim();
+    const typedSecret = (body.client_secret ?? "").trim();
+    const needSibling = !(typedId || stored.moloni_client_id)
+        || !(typedSecret || stored.moloni_client_secret)
+        || !(body.environment || stored.moloni_environment);
+    const sibling: any = needSibling
+        ? await db.prepare(
+            `SELECT json_extract(destination_config_json, '$.moloni_client_id')     AS client_id,
+                    json_extract(destination_config_json, '$.moloni_client_secret') AS client_secret,
+                    json_extract(destination_config_json, '$.moloni_environment')   AS environment
+               FROM connections
+              WHERE user_id = ? AND destination_kind = 'moloni' AND source_kind <> ?
+                AND json_extract(destination_config_json, '$.moloni_client_id') IS NOT NULL
+                AND json_extract(destination_config_json, '$.moloni_client_secret') IS NOT NULL
+              ORDER BY updated_at DESC LIMIT 1`
+        ).bind(authResult.targetUserId, sourceKind).first()
+        : null;
+
+    // Both halves from the same place. An id typed on this page with a secret
+    // borrowed from a sibling would pair two different apps.
+    const fromTyped = typedId && typedSecret ? { id: typedId, secret: typedSecret } : null;
+    const fromStored = stored.moloni_client_id && (typedSecret || stored.moloni_client_secret)
+        ? { id: typedId || stored.moloni_client_id, secret: typedSecret || stored.moloni_client_secret }
+        : null;
+    const fromSibling = sibling?.client_id && sibling?.client_secret && (!typedId || typedId === sibling.client_id)
+        ? { id: String(sibling.client_id), secret: typedSecret || String(sibling.client_secret) }
+        : null;
+    const fromEnv = getStripeEnvOptional("MOLONI_APP_CLIENT_ID") && getStripeEnvOptional("MOLONI_APP_CLIENT_SECRET")
+        ? { id: getStripeEnvOptional("MOLONI_APP_CLIENT_ID")!, secret: getStripeEnvOptional("MOLONI_APP_CLIENT_SECRET")! }
+        : null;
+    const app = fromTyped ?? fromStored ?? fromSibling ?? fromEnv;
+
+    if (!app) {
         return NextResponse.json({ error: "Faltam o Developer ID e o Client Secret do Moloni." }, { status: 400 });
     }
+    const clientId = app.id;
+    const clientSecret = app.secret;
 
     const { state, expiresAt } = newOAuthState();
     const now = new Date().toISOString();
-    const patch: Record<string, any> = {
-        moloni_auth_mode: "oauth",
-        moloni_client_id: clientId,
-        moloni_client_secret: clientSecret,
-        // Cleared here so a re-authorisation after a failure does not leave the
-        // old complaint on screen.
-        moloni_oauth_error: null,
-    };
-    if (body.environment === "sandbox" || body.environment === "production") {
-        patch.moloni_environment = body.environment;
+
+    // A connection still invoicing on a password keeps invoicing on it until
+    // Moloni has actually handed back a token pair.
+    //
+    // The worker reads `moloni_auth_mode` alone to decide how to authenticate.
+    // Writing it here, before the consent screen, would switch a working
+    // connection to a token that does not exist yet: a merchant who pressed
+    // "Mudar para OAuth" and closed the tab, or was refused by Moloni, would
+    // stop being invoiced with nothing on screen to say so. The new app waits
+    // in `moloni_pending_*` instead, and the callback promotes it only once the
+    // exchange has succeeded.
+    const fromPassword = !!stored.moloni_password && !stored.moloni_refresh_token;
+    const patch: Record<string, any> = fromPassword
+        ? { moloni_pending_client_id: clientId, moloni_pending_client_secret: clientSecret }
+        : { moloni_auth_mode: "oauth", moloni_client_id: clientId, moloni_client_secret: clientSecret };
+    // Cleared here so a re-authorisation after a failure does not leave the old
+    // complaint on screen.
+    patch.moloni_oauth_error = null;
+    const environment = body.environment === "sandbox" || body.environment === "production"
+        ? body.environment
+        : (stored.moloni_environment ? undefined : sibling?.environment);
+    if (environment === "sandbox" || environment === "production") {
+        patch[fromPassword ? "moloni_pending_environment" : "moloni_environment"] = environment;
     }
 
-    // Where the callback puts the merchant down. The Stripe flow writes this
-    // when it starts, so Moloni-only flows (Lodgify) had nothing to read and
-    // every merchant came back on the Stripe wizard. A slug through the fixed
-    // map in oauth-return, never a path from the request.
+    // Where the callback puts the merchant down. A slug through the fixed map in
+    // oauth-return, never a path from the request.
     const returnSlug = normalizeReturnSlug(body.return_slug);
     const sourcePatch = returnSlug
         ? JSON.stringify({ return_slug: returnSlug, return_locale: body.return_locale === "en" ? "en" : "pt" })

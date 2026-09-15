@@ -3802,5 +3802,14 @@
         "help": {
             "body": "Alguma dúvida? Escreva para"
         }
+    },
+    "moloniOAuthStep": {
+        "legacyTitle": "Ligado com utilizador e password",
+        "legacyBody": "Esta ligação foi configurada antes do OAuth e continua a faturar normalmente. Pode mudar para OAuth quando quiser; a partir daí a password deixa de ser usada.",
+        "migrate": "Mudar para OAuth",
+        "migrateBody": "Antes de autorizar, altere o Redirect URI da sua aplicação Moloni para o URL abaixo. Enquanto a autorização não estiver concluída, a ligação continua a usar a password.",
+        "siblingApp": "Vamos usar a mesma aplicação Moloni da sua outra integração. Confirme o Developer ID e carregue em autorizar.",
+        "authorizeFirst": "Autorize o Moloni antes de ativar.",
+        "back": "Voltar"
     }
 }

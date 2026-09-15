@@ -2,8 +2,8 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
-import { callWorker } from "@/lib/worker";
 import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
+import { listMoloniCompanies, listMoloniDocumentSets, moloniConnectionToken } from "@/lib/moloni-token";
 
 export const runtime = "edge";
 
@@ -14,6 +14,15 @@ async function resolveTargetUser(request: NextRequest) {
     return { userId, targetUserId };
 }
 
+/**
+ * Resolves a company name and a document-set name to their Moloni ids, for one
+ * connection.
+ *
+ * Authenticates the way the connection does — see `moloniConnectionToken`. It
+ * used to demand a username and a password and send them through a worker proxy
+ * that only knows that grant, so for every OAuth connection it answered
+ * "credentials incomplete".
+ */
 export async function POST(request: NextRequest) {
     try {
         const authResult = await resolveTargetUser(request);
@@ -35,88 +44,26 @@ export async function POST(request: NextRequest) {
         const db = (env as any).DB;
         if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-        // `=== "shopify" ? "shopify" : "stripe"` collapsed BOTH `stripe_connect`
-        // and `lodgify` onto the restricted-key Stripe connection.
         const sourceKind = sourceKindOrNull(body.source_kind, "stripe");
         if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
 
-        const row: any = await db.prepare(
-            `SELECT destination_config_json FROM connections
-             WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`
-        ).bind(authResult.targetUserId, sourceKind).first();
+        const conn = await moloniConnectionToken(db, authResult.targetUserId, sourceKind);
+        if (!conn.ok) return NextResponse.json({ error: conn.error }, { status: conn.status });
 
-        if (!row?.destination_config_json) {
-            return NextResponse.json({ error: "Moloni credentials not found — save Step 2 first." }, { status: 404 });
-        }
-
-        let cfg: any;
-        try { cfg = JSON.parse(row.destination_config_json); } catch {
-            return NextResponse.json({ error: "Stored Moloni config is corrupted — re-save Step 2." }, { status: 500 });
-        }
-
-        if (!cfg.moloni_client_id || !cfg.moloni_client_secret || !cfg.moloni_username || !cfg.moloni_password) {
-            return NextResponse.json({ error: "Moloni credentials incomplete — re-save Step 2 with all fields." }, { status: 400 });
-        }
-
-        // Credentials forwarded to the Worker proxy (field names the Worker expects).
-        const creds = {
-            client_id: String(cfg.moloni_client_id),
-            client_secret: String(cfg.moloni_client_secret),
-            username: String(cfg.moloni_username),
-            password: String(cfg.moloni_password),
-            environment: cfg.moloni_environment ?? "production",
-        };
-
-        // Step 1: fetch companies via Worker (AbortSignal.timeout is supported in CF Workers,
-        // not in Next.js edge runtime — this is why we proxy through the Worker).
-        // callWorker carries the admin key the proxy requires.
-        const companiesRes = await callWorker("/moloni-proxy/companies", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(creds),
-        });
-        const companiesData: any = await companiesRes.json().catch(() => ({}));
-        if (!companiesRes.ok) {
-            return NextResponse.json(
-                { error: companiesData?.error ?? `Moloni company lookup failed (Worker ${companiesRes.status})` },
-                { status: 502 },
-            );
-        }
-
-        const companies: Array<{ id: string; name: string }> = Array.isArray(companiesData?.companies)
-            ? companiesData.companies
-            : [];
-
-        const company = companies.find(c => c.name.toLowerCase() === companyName.toLowerCase());
+        const companies = await listMoloniCompanies(conn.cfg, conn.token);
+        const company = companies.find((c) => c.name.toLowerCase() === companyName.toLowerCase());
         if (!company) {
-            const names = companies.map(c => `"${c.name}"`).join(", ");
+            const names = companies.map((c) => `"${c.name}"`).join(", ");
             return NextResponse.json(
                 { error: `Company "${companyName}" not found. Available: ${names || "(none)"}` },
                 { status: 404 },
             );
         }
 
-        // Step 2: fetch document sets via Worker.
-        const dsRes = await callWorker("/moloni-proxy/document-sets", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...creds, company_id: company.id }),
-        });
-        const dsData: any = await dsRes.json().catch(() => ({}));
-        if (!dsRes.ok) {
-            return NextResponse.json(
-                { error: dsData?.error ?? `Moloni document-set lookup failed (Worker ${dsRes.status})` },
-                { status: 502 },
-            );
-        }
-
-        const documentSets: Array<{ id: string; name: string }> = Array.isArray(dsData?.documentSets)
-            ? dsData.documentSets
-            : [];
-
-        const documentSet = documentSets.find(d => d.name.toLowerCase() === documentSetName.toLowerCase());
+        const documentSets = await listMoloniDocumentSets(conn.cfg, conn.token, company.id);
+        const documentSet = documentSets.find((d) => d.name.toLowerCase() === documentSetName.toLowerCase());
         if (!documentSet) {
-            const names = documentSets.map(d => `"${d.name}"`).join(", ");
+            const names = documentSets.map((d) => `"${d.name}"`).join(", ");
             return NextResponse.json(
                 { error: `Document set "${documentSetName}" not found. Available: ${names || "(none)"}` },
                 { status: 404 },

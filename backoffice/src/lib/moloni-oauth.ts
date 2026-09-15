@@ -122,13 +122,17 @@ export async function exchangeMoloniCode(
     redirectUri: string,
 ): Promise<MoloniExchange> {
     const cfg = row.destination_config_json ? JSON.parse(row.destination_config_json) : {};
-    const clientId = cfg.moloni_client_id;
-    const clientSecret = cfg.moloni_client_secret;
+    // A connection moving off a password keeps its old app in place until this
+    // exchange succeeds — see the start route — so the app being authorised is
+    // the pending one when there is one.
+    const clientId = cfg.moloni_pending_client_id ?? cfg.moloni_client_id;
+    const clientSecret = cfg.moloni_pending_client_secret ?? cfg.moloni_client_secret;
+    const environment = cfg.moloni_pending_environment ?? cfg.moloni_environment;
     if (!clientId || !clientSecret) {
         return { ok: false, detail: "Faltam as credenciais da aplicação Moloni. Recomece o passo do Moloni." };
     }
 
-    const baseUrl = cfg.moloni_environment === "sandbox"
+    const baseUrl = environment === "sandbox"
         ? "https://apidemo.moloni.pt/v1"
         : "https://api.moloni.pt/v1";
 
@@ -173,6 +177,16 @@ export async function exchangeMoloniCode(
     ).bind(
         JSON.stringify({
             moloni_auth_mode: "oauth",
+            moloni_client_id: clientId,
+            moloni_client_secret: clientSecret,
+            ...(environment ? { moloni_environment: environment } : {}),
+            moloni_pending_client_id: null,
+            moloni_pending_client_secret: null,
+            moloni_pending_environment: null,
+            // The password grant is over for this connection. Kept, it would be a
+            // live Moloni login sitting in a row that nothing reads any more.
+            moloni_username: null,
+            moloni_password: null,
             moloni_access_token: accessToken,
             moloni_refresh_token: refreshToken,
             moloni_token_expires_at: new Date(now + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000).toISOString(),

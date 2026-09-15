@@ -130,7 +130,40 @@ export async function GET(request: NextRequest) {
         .bind(authResult.targetUserId, sourceKind)
         .first();
 
-    if (!row) return NextResponse.json({ connection: null });
+    // What a second Moloni connection may start from: the account's first.
+    //
+    // The same Moloni account means the same developer app and, most of the time,
+    // the same company — so those are offered back for the wizard to prefill, and
+    // nothing else. The Client Secret travels as a presence flag only; the start
+    // route reads the value server-side. Tokens are never offered: this connection
+    // authorises on its own, because a refresh token rotates on every use and two
+    // connections sharing one would kill each other. The fiscal settings are never
+    // offered either — they are this connection's own decisions, the rule
+    // InvoiceXpress already follows with two connections in one account filing into
+    // two different séries.
+    const sibling: any = await db
+        .prepare(
+            `SELECT json_extract(destination_config_json, '$.moloni_client_id')                AS moloni_client_id,
+                    json_extract(destination_config_json, '$.moloni_client_secret') IS NOT NULL AS has_client_secret,
+                    json_extract(destination_config_json, '$.moloni_environment')              AS moloni_environment,
+                    json_extract(destination_config_json, '$.moloni_company_name')             AS moloni_company_name
+               FROM connections
+              WHERE user_id = ? AND destination_kind = 'moloni' AND source_kind <> ?
+                AND json_extract(destination_config_json, '$.moloni_client_id') IS NOT NULL
+              ORDER BY updated_at DESC LIMIT 1`
+        )
+        .bind(authResult.targetUserId, sourceKind)
+        .first();
+    const siblingDefaults = sibling
+        ? {
+            moloni_client_id: sibling.moloni_client_id ?? null,
+            has_client_secret: !!sibling.has_client_secret,
+            moloni_environment: sibling.moloni_environment ?? "production",
+            moloni_company_name: sibling.moloni_company_name ?? null,
+        }
+        : null;
+
+    if (!row) return NextResponse.json({ connection: null, sibling_defaults: siblingDefaults });
 
     const cfg = row.destination_config_json ? JSON.parse(row.destination_config_json) : {};
     return NextResponse.json({
@@ -142,6 +175,7 @@ export async function GET(request: NextRequest) {
             created_at: row.created_at,
             updated_at: row.updated_at,
         },
+        sibling_defaults: siblingDefaults,
     });
 }
 
@@ -179,6 +213,18 @@ export async function POST(request: NextRequest) {
     const previousCfg = existing?.destination_config_json ? JSON.parse(existing.destination_config_json) : {};
     if (!["draft", "active", "paused", "error"].includes(body.status || "") && existing?.status) {
         status = existing.status;
+    }
+
+    // Every new Moloni connection authorises by OAuth (15/09/2026), from any door.
+    // No wizard sends a username or a password any more, but a tab opened before
+    // the deploy still would, and so would anything calling this route by hand —
+    // so the rule is held here, where they all write through. A connection that
+    // already runs on a password may still have it corrected.
+    if ((body.moloni_username || body.moloni_password) && !previousCfg.moloni_password) {
+        return NextResponse.json(
+            { error: "As novas ligações ao Moloni autorizam por OAuth. Recarregue a página e use o botão de autorizar." },
+            { status: 400 },
+        );
     }
 
     const merged = {

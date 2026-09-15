@@ -157,3 +157,93 @@ export function missingMoloniCredentials(cfg: Record<string, any>): string | nul
     if (!cfg.moloni_username || !cfg.moloni_password) return "Moloni credentials incomplete";
     return null;
 }
+
+export type MoloniConnectionToken =
+    | { ok: true; cfg: Record<string, any>; token: string }
+    | { ok: false; status: number; error: string };
+
+/**
+ * One connection's stored Moloni config, and a token to call Moloni with.
+ *
+ * Every route that reads from Moloni needs exactly this, and four of them used to
+ * do it by hand: pull the username and password out of the row and either run a
+ * password grant or post them to a worker proxy that only knows that grant. Since
+ * 15/09/2026 every new Moloni connection authorises by OAuth and has no password
+ * at all, so each of those routes could only fail for it — the tag-routing page
+ * was already showing a Stripe Connect merchant an empty list of séries.
+ *
+ * This asks the connection how it authenticates instead of assuming. The nine
+ * connections that still use a username and password keep working unchanged.
+ */
+export async function moloniConnectionToken(
+    db: D1Database,
+    userId: string,
+    sourceKind: string,
+): Promise<MoloniConnectionToken> {
+    const row: any = await db.prepare(
+        `SELECT destination_config_json FROM connections
+          WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`
+    ).bind(userId, sourceKind).first();
+    if (!row?.destination_config_json) {
+        return { ok: false, status: 404, error: "Ligação Moloni não encontrada. Autorize o Moloni primeiro." };
+    }
+
+    let cfg: Record<string, any>;
+    try { cfg = JSON.parse(row.destination_config_json); } catch {
+        return { ok: false, status: 500, error: "A configuração Moloni guardada está corrompida." };
+    }
+
+    const missing = missingMoloniCredentials(cfg);
+    if (missing) return { ok: false, status: 400, error: missing };
+
+    try {
+        const token = await getMoloniAccessToken({ db, userId, sourceKind, destinationKind: "moloni", cfg });
+        return { ok: true, cfg, token };
+    } catch (e: any) {
+        // A refused refresh token is the merchant's to fix. 502 would send them
+        // looking for an outage instead of the authorise button.
+        const status = e?.name === "MoloniReauthRequired" ? 400 : 502;
+        return { ok: false, status, error: `Moloni: ${e?.message ?? e}` };
+    }
+}
+
+export interface MoloniNamedId {
+    id: number;
+    name: string;
+}
+
+/** The companies this token can see. `companies/getAll` wants a POST with no body. */
+export async function listMoloniCompanies(cfg: Record<string, any>, token: string): Promise<MoloniNamedId[]> {
+    const res = await fetch(
+        `${moloniBaseUrl(cfg)}/companies/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
+        { method: "POST", headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) throw new Error(`Moloni companies lookup failed (${res.status})`);
+    const data: unknown = await res.json().catch(() => null);
+    if (!Array.isArray(data)) return [];
+    return data
+        .map((c: any) => ({ id: Number(c.company_id ?? c.id ?? 0), name: String(c.name ?? c.company_name ?? "") }))
+        .filter((c) => c.id > 0 && c.name);
+}
+
+/** One company's document sets. `documentSets/getAll` ignores a form body; it wants JSON. */
+export async function listMoloniDocumentSets(
+    cfg: Record<string, any>,
+    token: string,
+    companyId: number,
+): Promise<MoloniNamedId[]> {
+    const res = await fetch(
+        `${moloniBaseUrl(cfg)}/documentSets/getAll/?access_token=${encodeURIComponent(token)}&json=true`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ company_id: companyId }),
+        },
+    );
+    if (!res.ok) throw new Error(`Moloni document-set lookup failed (${res.status})`);
+    const data: unknown = await res.json().catch(() => null);
+    if (!Array.isArray(data)) return [];
+    return data
+        .map((d: any) => ({ id: Number(d.document_set_id ?? d.id ?? 0), name: String(d.name ?? d.document_set_name ?? "") }))
+        .filter((d) => d.id > 0 && d.name);
+}

@@ -21,6 +21,15 @@ export const RETURN_SLUG_ONBOARDING_LODGIFY_IX = "onboarding-lodgify-ix";
 export const RETURN_SLUG_ONBOARDING_LODGIFY_MOLONI = "onboarding-lodgify-moloni";
 /** The operator-side helper, where the Shopify OAuth round trip is driven from. */
 export const RETURN_SLUG_HELPER_SHOPIFY = "helper-shopify";
+/**
+ * The dashboard wizards for the Moloni pairs that used to take a username and a
+ * password. Since 15/09/2026 every new Moloni connection authorises by OAuth,
+ * and without a slug of their own the callback put a Lodgify or Shopify merchant
+ * down on the Stripe Connect wizard.
+ */
+export const RETURN_SLUG_WIZARD_STRIPE_MOLONI = "wizard-stripe-moloni";
+export const RETURN_SLUG_WIZARD_LODGIFY_MOLONI = "wizard-lodgify-moloni";
+export const RETURN_SLUG_WIZARD_SHOPIFY_MOLONI = "wizard-shopify-moloni";
 
 const RETURN_PATHS: Record<string, string> = {
     [RETURN_SLUG_WIZARD]: "/integrations/stripe-connect-moloni",
@@ -33,6 +42,9 @@ const RETURN_PATHS: Record<string, string> = {
     // these paths are all locale-prefixed, and both routes render the same panel
     // behind the same admin check.
     [RETURN_SLUG_HELPER_SHOPIFY]: "/onboarding-helper",
+    [RETURN_SLUG_WIZARD_STRIPE_MOLONI]: "/integrations/stripe-moloni",
+    [RETURN_SLUG_WIZARD_LODGIFY_MOLONI]: "/integrations/lodgify-moloni",
+    [RETURN_SLUG_WIZARD_SHOPIFY_MOLONI]: "/integrations/shopify-moloni",
 };
 
 /** The slug as it may be stored, or undefined when it is not one we know. */

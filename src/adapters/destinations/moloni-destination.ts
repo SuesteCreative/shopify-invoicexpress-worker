@@ -901,11 +901,58 @@ async function fetchMoloniProductTax(
   return result;
 }
 
-// True when the merchant explicitly mapped this line's reference to a Moloni
-// product (so the product's own tax rule wins over the source-derived rate).
+/**
+ * The Moloni product the merchant mapped this line to, by reference OR by the
+ * line's own description.
+ *
+ * The reference alone is not always a key. A bare Stripe PaymentIntent — a
+ * Payment Link, a booking plugin, a card taken at the counter — carries no
+ * price, so `stripeToNormalized` synthesizes ONE line with `sku = pi.id`, which
+ * is unique per sale. `fetchRicherTaxSource` exists to trade that shape for the
+ * Stripe invoice behind it, but it only grafts lines that carry tax, so an
+ * account with no Stripe Tax never gets a price id at all. Measured on Hyrox
+ * Training Portugal, 15/09/2026: six sales, six references `pi_…`, and six
+ * throwaway Moloni products created one per sale.
+ *
+ * What DOES arrive on every shape is the description, and it is the merchant's
+ * own text — "Consulta de Nutrição - Inicial" is a nutrition consultation,
+ * exempt under art. 9.º, and their Moloni catalogue already says so. So a
+ * mapping row may name either, and the reference is tried first because it is
+ * the more specific of the two.
+ *
+ * Nothing here decides tax. It only finds the product; the product's own rule
+ * drives the line, exactly as a reference-keyed mapping always has.
+ *
+ * ponytail: linear scan for the case-insensitive pass. A merchant has a handful
+ * of mappings and an order a handful of lines. Upgrade path is a lowercased
+ * index built once in buildAdapterCtx, the day either side gets big.
+ */
+export function mappedProductId(
+  mappings: Map<string, number> | undefined,
+  item: Normalized["order"]["items"][number],
+): number | null {
+  if (!mappings || mappings.size === 0) return null;
+  const ok = (v: unknown) => v != null && Number.isFinite(Number(v)) && Number(v) > 0;
+
+  const byReference = mappings.get(deriveProductReference(item));
+  if (ok(byReference)) return Number(byReference);
+
+  const title = String(item.title ?? "").trim();
+  if (!title) return null;
+  const exact = mappings.get(title);
+  if (ok(exact)) return Number(exact);
+
+  const wanted = title.toLowerCase();
+  for (const [key, value] of mappings) {
+    if (key.trim().toLowerCase() === wanted && ok(value)) return Number(value);
+  }
+  return null;
+}
+
+// True when the merchant explicitly mapped this line to a Moloni product (so
+// the product's own tax rule wins over the source-derived rate).
 function isReferenceMapped(ctx: AdapterCtx, item: Normalized["order"]["items"][number]): boolean {
-  const pid = ctx.productMappings?.get(deriveProductReference(item));
-  return pid != null && Number.isFinite(pid) && Number(pid) > 0;
+  return mappedProductId(ctx.productMappings, item) != null;
 }
 
 // ── Multi-currency ────────────────────────────────────────────────────────────
@@ -1253,9 +1300,12 @@ async function ensureMoloniProduct(
 //
 // Resolution order per reference:
 //   1. Explicit user mapping from `ctx.productMappings` (set via the
-//      /integrations/moloni-mappings backoffice page). For these we ALSO read
-//      the Moloni product's own tax rule (via /products/getOne/) so the mapped
-//      product's VAT drives the line — this is how mixed-rate invoices work.
+//      /integrations/moloni-mappings backoffice page), matched on the reference
+//      or on the line's description — see mappedProductId. For these we ALSO
+//      read the Moloni product's own tax rule (via /products/getOne/) so the
+//      mapped product's VAT drives the line — this is how mixed-rate invoices
+//      work, and how an exempt service keeps its article when the source sends
+//      no tax at all.
 //   2. find-or-create on Moloni's product catalog via ensureMoloniProduct,
 //      using the source-derived rate.
 async function resolveProducts(
@@ -1265,19 +1315,22 @@ async function resolveProducts(
   taxRateFor: (item: Normalized["order"]["items"][number]) => number,
   explicitMappings?: Map<string, number>,
 ): Promise<Map<string, ResolvedProduct>> {
-  const byReference = new Map<string, { name: string; taxRate: number }>();
+  const byReference = new Map<string, { name: string; taxRate: number; mapped: number | null }>();
   for (const item of items) {
     const ref = deriveProductReference(item);
     if (!byReference.has(ref)) {
-      byReference.set(ref, { name: deriveProductName(item), taxRate: taxRateFor(item) });
+      byReference.set(ref, {
+        name: deriveProductName(item),
+        taxRate: taxRateFor(item),
+        mapped: mappedProductId(explicitMappings, item),
+      });
     }
   }
   const resolved = new Map<string, ResolvedProduct>();
   for (const [reference, meta] of byReference) {
-    const mapped = explicitMappings?.get(reference);
-    if (mapped && Number.isFinite(mapped) && mapped > 0) {
-      const tax = await fetchMoloniProductTax(cfg, token, Number(mapped));
-      resolved.set(reference, { product_id: Number(mapped), mapped: true, taxes: tax.taxes, exemption_reason: tax.exemption_reason });
+    if (meta.mapped != null) {
+      const tax = await fetchMoloniProductTax(cfg, token, meta.mapped);
+      resolved.set(reference, { product_id: meta.mapped, mapped: true, taxes: tax.taxes, exemption_reason: tax.exemption_reason });
       continue;
     }
     const pid = await ensureMoloniProduct(cfg, token, reference, meta.name, meta.taxRate);

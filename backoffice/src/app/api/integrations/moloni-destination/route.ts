@@ -274,9 +274,17 @@ export async function POST(request: NextRequest) {
         // pins a specific Moloni tax rule (e.g. Overbuilding's 6% = 2297419); losing
         // it would drop line VAT resolution back to the rate-matcher.
         moloni_default_tax_id: previousCfg.moloni_default_tax_id,
-        exemption_reason: typeof body.exemption_reason === "string" && body.exemption_reason.trim()
-            ? body.exemption_reason.trim()
-            : (previousCfg.exemption_reason ?? "M01"),
+        // NEVER invented. This used to fall back to "M01", and thirteen wizards
+        // plus this route then agreed that a merchant who said nothing had
+        // declared art. 16.º n.º 6 — a code the destination stamps on every
+        // zero-rated line. Combined with an empty `default_vat_rate` (Stripe
+        // sends no tax breakdown on a PaymentIntent, so the fallback is what
+        // reaches the document) that produced 69 € gym memberships invoiced at
+        // 0 % under M01: Hyrox Training Portugal, six fatura-recibo, 15/09/2026.
+        // The guard below is what replaces the default.
+        exemption_reason: typeof body.exemption_reason === "string"
+            ? (body.exemption_reason.trim() || undefined)
+            : previousCfg.exemption_reason,
         // The tax REGISTRATIONS. Same discipline as send_email above: absent
         // keeps whatever is stored and NEVER flips one on, because turning one on
         // changes the VAT on every future document and, through the nightly heal,
@@ -317,6 +325,35 @@ export async function POST(request: NextRequest) {
     // means exempt, and a null is how that reaches json_patch.
     if (body.default_vat_rate === "" || body.default_vat_rate === null) {
         destinationConfig.default_vat_rate = null;
+    }
+
+    /**
+     * A connection must say what VAT its sales carry: a rate, or an exemption.
+     *
+     * Neither is not a configuration, it is a gap, and it is the one that makes
+     * the worst documents this codebase can produce. The destination reads
+     * `default_vat_rate` whenever the payment carries no tax of its own, which
+     * for Stripe is nearly every payment; with no rate it treats the line as
+     * exempt and asks for a code. So "nothing stated" came out as 0 % under
+     * whatever code was lying around — and nothing downstream caught it, because
+     * the tax probe reads a present code as a declaration and answers `exempt`.
+     *
+     * Checked against production before adding: of the 15 active connections,
+     * zero are in this state, so no merchant is locked out of editing their own
+     * settings by a rule written after they onboarded.
+     *
+     * Here rather than in the wizard because there are thirteen wizards, each
+     * with its own copy of this form, and this route is what all of them write
+     * through.
+     */
+    const statedRate = Number(destinationConfig.default_vat_rate);
+    const statedExemption = String(destinationConfig.exemption_reason ?? "").trim();
+    if (!(Number.isFinite(statedRate) && statedRate > 0) && !statedExemption) {
+        return NextResponse.json({
+            error: "Falta declarar o IVA desta ligação: ou uma taxa por defeito (ex.: 23), "
+                + "ou a razão de isenção da actividade. Sem uma das duas, os documentos saem "
+                + "a 0% com um código de isenção que ninguém escolheu.",
+        }, { status: 400 });
     }
 
     const id = crypto.randomUUID();

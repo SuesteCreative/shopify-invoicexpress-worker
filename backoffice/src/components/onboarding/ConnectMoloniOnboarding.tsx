@@ -177,7 +177,10 @@ export default function ConnectMoloniOnboarding({ invite }: { invite?: string })
     const [autoFinalize, setAutoFinalize] = useState(false);
     const [sendEmail, setSendEmail] = useState(false);
     const [defaultVatRate, setDefaultVatRate] = useState("");
-    const [exemptionReason, setExemptionReason] = useState("M01");
+    // Born empty, not on M01. A pre-filled code is indistinguishable from a
+    // chosen one — to the merchant, to the operator reading the connection, and
+    // to the tax probe that decides whether to raise anything.
+    const [exemptionReason, setExemptionReason] = useState("");
 
     const [busy, setBusy] = useState<"stripe" | "moloni" | "settings" | null>(null);
     const [stripeError, setStripeError] = useState("");
@@ -374,6 +377,26 @@ export default function ConnectMoloniOnboarding({ invite }: { invite?: string })
     const saveSettings = async () => {
         if (!companyName.trim()) {
             setSettingsError(tSet("errorSettingsRequired"));
+            return;
+        }
+        /**
+         * Neither a rate nor an exemption is not a choice, it is a gap — and it
+         * is the one that produced the worst documents this wizard has made.
+         *
+         * Stripe hands most connections a payment with no VAT breakdown at all,
+         * so the destination falls back to this rate; with none stated it uses
+         * 0 % and stamps whatever exemption code is here. Measured on Hyrox
+         * Training Portugal, 15/09/2026: six fatura-recibo at 0 % carrying M01,
+         * on 69 € gym memberships that are plainly 23 %. The merchant had left
+         * the rate empty and the exemption on the value it was born with, and
+         * nothing anywhere said that was a decision.
+         *
+         * It is not caught downstream either: the tax probe reads a present
+         * exemption code as a declaration, so "no tax at source, code M01" came
+         * back `exempt` — consistent, and silent.
+         */
+        if (defaultVatRate.trim() === "" && !exemptionReason) {
+            setSettingsError(tSet("errorVatUndeclared"));
             return;
         }
         setBusy("settings");
@@ -766,6 +789,7 @@ export default function ConnectMoloniOnboarding({ invite }: { invite?: string })
 
                 <Field label={tSet("exemptionTitle")} hint={tSet("exemptionDesc")}>
                     <select className={INPUT_CLASS} value={exemptionReason} onChange={e => setExemptionReason(e.target.value)}>
+                        <option value="">{tSet("exemptionNone")}</option>
                         {VAT_EXEMPTION_OPTIONS.map(o => (
                             <option key={o.value} value={o.value}>{o.value} · {o.label}</option>
                         ))}

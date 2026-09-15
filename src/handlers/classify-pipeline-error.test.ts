@@ -95,6 +95,14 @@ describe("classifyPipelineError — an InvoiceXpress validation refusal is perma
     expect(got.severity).toBe("critical");
   });
 
+  it("stops retrying a credit note against a document that is, or was, a draft", () => {
+    // 50xbtj-vv #1070/#1071, 15/09/2026: the invoices were drafts later deleted.
+    const got = classifyPipelineError(new Error(
+      'InvoiceXpress credit create failed for refund 1188256416128: {"error":{"message":"Owner document must not be in draft"}}',
+    ));
+    expect(got.permanent).toBe(true);
+  });
+
   it("leaves a destination that is merely down with its full retry budget", () => {
     const got = classifyPipelineError(new Error(
       'InvoiceXpress credit create failed for refund 1: {"error":{"message":"Bad Gateway upstream"}}',

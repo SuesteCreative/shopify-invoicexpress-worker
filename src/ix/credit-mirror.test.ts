@@ -331,6 +331,59 @@ describe("it refuses rather than approximate", () => {
   });
 });
 
+describe("money refunded against no article is credited in proportion", () => {
+  // Pedro's rule for Stripe, Lodgify and EuPago (15/09/2026): every invoice line,
+  // each at its own VAT rate, reduced in the refunded share.
+  const plan = (over: Partial<Parameters<typeof planRefundCredit>[0]> & { refundAmount: number }) =>
+    planRefundCredit({
+      ...base,
+      cashRefund: "proportional",
+      refund: { refundId: "re_partial", amount: over.refundAmount, lineItems: [] },
+      ...over,
+    });
+
+  it("credits half of a one-line subscription as that line at half its value", () => {
+    const line: MirrorLine = { quantity: 1, name: "Plano Plus", unit_price: 81.3, tax: { name: "IVA23", value: 23 } };
+    const p = plan({ docTotal: 100, docItems: [line], sources: [], refundAmount: 50 });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.basis).toBe("proportional");
+    expect(p.items).toHaveLength(1);
+    expect(p.items[0].name).toBe("Plano Plus");
+    expect(rateOf(p.items[0].tax)).toBe(23);
+    expect(p.total).toBe(50);
+  });
+
+  it("keeps the invoice's VAT split when the invoice has two rates", () => {
+    const p = plan({ refundAmount: 28.5 });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.items.map(i => rateOf(i.tax))).toEqual([6, 23]);
+    const gross = (l: MirrorLine) => Math.round(l.unit_price * l.quantity * (1 - (l.discount ?? 0) / 100) * (1 + rateOf(l.tax) / 100) * 100) / 100;
+    expect(gross(p.items[0])).toBeCloseTo(21, 1);
+    expect(gross(p.items[1])).toBeCloseTo(7.5, 1);
+    expect(p.total).toBe(28.5);
+  });
+
+  it("lands odd amounts on the cent", () => {
+    for (const amount of [0.01, 1.99, 13.37, 33.33, 56.99]) {
+      const p = plan({ refundAmount: amount });
+      expect(p.ok, `refund ${amount}`).toBe(true);
+      if (p.ok) expect(p.total).toBe(amount);
+    }
+  });
+
+  it("still refuses a proportional refund that does not fit what is left of the invoice", () => {
+    const p = plan({ refundAmount: 28.5, alreadyCredited: 40 });
+    expect(p.ok).toBe(false);
+  });
+
+  it("is off unless asked for — the Shopify rule still refuses", () => {
+    const p = planRefundCredit({ ...base, refund: { refundId: "x", amount: 28.5, lineItems: [] } });
+    expect(p.ok).toBe(false);
+  });
+});
+
 describe("mirrorItemsFromIxDocument", () => {
   it("keeps a line discount, which is part of what the line is worth", () => {
     const { items, gross } = mirrorItemsFromIxDocument({

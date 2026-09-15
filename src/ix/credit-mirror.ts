@@ -41,7 +41,7 @@ export interface MirrorLine {
 export type LineSource = { kind: "line" | "shipping"; id: number | null };
 
 export type MirrorPlan =
-  | { ok: true; items: MirrorLine[]; total: number; basis: "document" | "lines" | "shipping" }
+  | { ok: true; items: MirrorLine[]; total: number; basis: "document" | "lines" | "shipping" | "proportional" }
   // `nothingToCredit`: the refund leaves the invoiced sale exactly as it was, so
   // there is no credit note to issue and nobody to alert — distinct from a
   // refund that cannot be mirrored, which a person has to look at.
@@ -200,6 +200,58 @@ export function alignProductLines(
 }
 
 /**
+ * Every line of the invoice, scaled by the share of the sale that was refunded.
+ *
+ * For money given back with no article attached — 50 € of a 100 € subscription.
+ * Pedro's rule (15/09/2026): the credit note repeats ALL the invoice's lines,
+ * each at its own VAT rate, reduced in the same proportion. The VAT then comes
+ * back split exactly as the invoice charged it, instead of the whole refund
+ * being attributed to one rate picked for it.
+ *
+ * Each line keeps its name, quantity and rate; its net value is scaled. The unit
+ * price is ceiled to the cent and the sub-cent residue carried as a positive
+ * discount percentage — the same device the invoice builder uses, because IX
+ * stores unit prices at two decimals and honours only a percentage discount.
+ * The cent that per-line rounding leaves over is absorbed on the largest line.
+ * Returns null when the total cannot be landed on the target to the cent.
+ */
+export function proportionalMirror(docItems: MirrorLine[], ratio: number, targetGross: number): MirrorLine[] | null {
+  if (!(ratio > 0) || ratio > 1 + 1e-9) return null;
+  const ceil2 = (n: number) => Math.ceil(n * 100 - 1e-9) / 100;
+  const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+  const withDiscount = (line: MirrorLine, discount: number): MirrorLine => {
+    const { discount: _previous, ...rest } = line;
+    return discount > 0 ? { ...rest, discount } : rest;
+  };
+
+  const out: MirrorLine[] = [];
+  for (const line of docItems) {
+    const qty = Number(line.quantity) || 1;
+    const originalNet = Number(line.unit_price) * qty * (1 - Number(line.discount ?? 0) / 100);
+    const targetNet = originalNet * ratio;
+    if (!(targetNet > 0.00001)) continue;
+    const unit = ceil2(targetNet / qty);
+    const discount = round4(Math.max(0, (1 - targetNet / (unit * qty)) * 100));
+    out.push(withDiscount({ ...line, quantity: qty, unit_price: unit }, discount));
+  }
+  if (out.length === 0) return null;
+
+  const target = round2(targetGross);
+  let total = ixExpectedTotals(out).gross;
+  const residual = round2(target - total);
+  if (Math.abs(residual) > 0.005) {
+    const idx = out.reduce((best, l, i) => (lineGross(l) > lineGross(out[best]) ? i : best), 0);
+    const l = out[idx];
+    const wantNet = (lineGross(l) + residual) / (1 + rateOf(l.tax) / 100);
+    const discount = round4((1 - wantNet / (Number(l.unit_price) * Number(l.quantity))) * 100);
+    if (discount < 0) return null;
+    out[idx] = withDiscount(l, discount);
+    total = ixExpectedTotals(out).gross;
+  }
+  return Math.abs(total - target) <= 0.01 ? out : null;
+}
+
+/**
  * The credit note for one refund, mirrored off the invoice — or a refusal.
  *
  * The owner's rule, which this implements:
@@ -239,6 +291,13 @@ export function planRefundCredit(input: {
   orderCurrentTotal?: number | null;
   /** The rebuild of the order through the invoice builder, index-aligned with `sources`. */
   rebuilt?: MirrorLine[];
+  /**
+   * What to do with money refunded against no article and no shipping.
+   * "refuse" (default) raises it for a person — the Shopify→IX rule.
+   * "proportional" credits every invoice line in the refunded share — the rule
+   * for Stripe, Lodgify and EuPago, whose refunds carry no articles at all.
+   */
+  cashRefund?: "refuse" | "proportional";
 }): MirrorPlan {
   const { docTotal, docItems, sources, refund, rawRefund, taxesIncluded, alreadyCredited } = input;
   const current = input.orderCurrentTotal != null && Number.isFinite(input.orderCurrentTotal)
@@ -270,7 +329,11 @@ export function planRefundCredit(input: {
 
   // The whole document, refunded in full and credited in full. No mapping to
   // Shopify at all, so this is right even for an invoice edited after issue.
-  if (Math.abs(money - docTotal) <= 0.01 && alreadyCredited <= 0.005) {
+  //
+  // Exact to the cent: both sides ARE cents. A tolerance of one cent here once
+  // read a 56,99 € refund on a 57,00 € invoice as a full refund and credited
+  // 57,00 € — a cent more than the buyer got back.
+  if (Math.abs(money - docTotal) < 0.005 && alreadyCredited <= 0.005) {
     const total = ixExpectedTotals(docItems).gross;
     if (Math.abs(total - money) > 0.01) {
       return { ok: false, reason: `o espelho da fatura dá ${total.toFixed(2)} € e o reembolso foi de ${money.toFixed(2)} €`, detail };
@@ -370,16 +433,29 @@ export function planRefundCredit(input: {
     items.push(...shipLines);
   }
 
+  let proportional = false;
   if (items.length === 0) {
-    if (money > 0.005) {
+    if (money > 0.005 && input.cashRefund === "proportional") {
+      const scaled = proportionalMirror(docItems, money / docTotal, money);
+      if (!scaled) {
+        return {
+          ok: false,
+          reason: `não consigo repartir ${money.toFixed(2)} € pelas linhas da fatura de ${docTotal.toFixed(2)} € ao cêntimo`,
+          detail,
+        };
+      }
+      items.push(...scaled);
+      proportional = true;
+    } else if (money > 0.005) {
       return {
         ok: false,
         reason: `o reembolso de ${money.toFixed(2)} € não devolve nenhum artigo nem portes `
           + `— é dinheiro devolvido à parte e não há linha da fatura que o espelhe`,
         detail,
       };
+    } else {
+      return { ok: false, nothingToCredit: true, reason: `o reembolso não devolve artigos, portes nem dinheiro — não há nada para creditar`, detail };
     }
-    return { ok: false, nothingToCredit: true, reason: `o reembolso não devolve artigos, portes nem dinheiro — não há nada para creditar`, detail };
   }
 
   const total = ixExpectedTotals(items).gross;
@@ -387,7 +463,11 @@ export function planRefundCredit(input: {
   // Money that moved has to be exactly the lines that left. Money that did NOT
   // move is a cancellation, or a refund settled outside Shopify: the lines left
   // the sale all the same, and are credited all the same.
-  if (money > 0.005 && Math.abs(total - money) > 0.01) {
+  //
+  // Never MORE than was refunded, not even by a cent; at most one cent less,
+  // which is the rule the invoices already follow when a total cannot be
+  // expressed exactly at two decimals.
+  if (money > 0.005 && (total - money > 0.005 || money - total > 0.015)) {
     return {
       ok: false,
       reason: `o espelho das linhas devolvidas dá ${total.toFixed(2)} € e foram reembolsados ${money.toFixed(2)} €`,
@@ -400,7 +480,7 @@ export function planRefundCredit(input: {
   // invoice total, so it let three 15 € notes through on a 57 € invoice and
   // refused the fourth. Counting the notes already issued is what turns that
   // into one note instead of three.
-  if (total - remaining > 0.01) {
+  if (total - remaining > 0.005) {
     return {
       ok: false,
       reason: alreadyCredited > 0.005
@@ -423,5 +503,10 @@ export function planRefundCredit(input: {
     };
   }
 
-  return { ok: true, items, total, basis: shippingGross > 0.005 && returned.length === 0 ? "shipping" : "lines" };
+  return {
+    ok: true,
+    items,
+    total,
+    basis: proportional ? "proportional" : (shippingGross > 0.005 && returned.length === 0 ? "shipping" : "lines"),
+  };
 }

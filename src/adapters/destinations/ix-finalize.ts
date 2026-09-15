@@ -89,7 +89,11 @@ export function isIxValidationRefusal(error: unknown): boolean {
     s.includes("nao pode estar em branco") ||
     s.includes("can't be blank") ||
     s.includes("is invalid") ||
-    s.includes("validation_error")
+    s.includes("validation_error") ||
+    // A credit note against a document that is a draft, or was deleted as one.
+    s.includes("must not be in draft") ||
+    s.includes("não pode estar em rascunho") ||
+    s.includes("nao pode estar em rascunho")
   );
 }
 

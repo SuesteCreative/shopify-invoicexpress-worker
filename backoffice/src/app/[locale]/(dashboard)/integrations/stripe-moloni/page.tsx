@@ -146,6 +146,11 @@ export default function StripeMoloniIntegration() {
                 setUsername(String(cfg.moloni_username ?? ""));
                 setHasSavedPassword(!!cfg.has_password);
                 setMoloniAuthorized(!!cfg.moloni_authorized);
+                // Why the last authorisation did not go through, from the row —
+                // not just the flash in the URL, which a reload throws away. A
+                // merchant who authorised the wrong Moloni account would
+                // otherwise come back to a page that looks perfectly normal.
+                if (cfg.moloni_oauth_error) setMoloniError(String(cfg.moloni_oauth_error));
                 setCompanyId(cfg.moloni_company_id != null ? String(cfg.moloni_company_id) : "");
                 setDocumentSetId(cfg.moloni_document_set_id != null ? String(cfg.moloni_document_set_id) : "");
                 setCompanyName(cfg.moloni_company_name ? String(cfg.moloni_company_name) : "");
@@ -508,6 +513,7 @@ export default function StripeMoloniIntegration() {
                         authorized={moloniAuthorized}
                         legacyPassword={legacyPassword}
                         sibling={siblingDefaults}
+                        resumeMigration={!!moloniResult}
                         onError={setMoloniError}
                         onBack={() => setStep(1)}
                         onContinue={() => setStep(3)}

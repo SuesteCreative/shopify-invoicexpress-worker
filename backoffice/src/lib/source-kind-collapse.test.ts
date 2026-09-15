@@ -199,6 +199,10 @@ describe("every Moloni connection authorises by OAuth, and no route assumes a pa
         // token that did not exist yet, and a merchant who closed the consent tab
         // silently stopped being invoiced.
         expect(startRoute).toMatch(/moloni_pending_client_id/);
+        // And it writes its nonce in the connection's own config, never in the
+        // `oauth_state` COLUMN — which on a `stripe_connect → moloni` row is the
+        // Stripe Connect round trip's, on the very same row.
+        expect(startRoute).not.toMatch(/oauth_state\s*=\s*\?/);
         expect(startRoute).toMatch(/stored\.moloni_password/);
         // The promotion belongs to the exchange, which only runs once Moloni has
         // handed back a token pair.

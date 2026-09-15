@@ -1,4 +1,3 @@
-import { RIOKO_CONFIG } from "./config";
 import { listMoloniCompanies, type MoloniNamedId } from "./moloni-token";
 
 /**
@@ -19,12 +18,9 @@ import { listMoloniCompanies, type MoloniNamedId } from "./moloni-token";
  * CSRF guard.
  */
 
-export const MOLONI_CALLBACK_PATH = "/api/integrations/moloni-oauth/callback";
-
-/** The one URL a merchant registers in their Moloni developer app. */
-export function moloniCallbackUri(): string {
-    return `${RIOKO_CONFIG.appUrl}${MOLONI_CALLBACK_PATH}`;
-}
+// Re-exported so the server callers keep one import. The definition lives in
+// `moloni-callback` because the wizard step is a browser component.
+export { MOLONI_CALLBACK_PATH, moloniCallbackUri } from "./moloni-callback";
 
 const REFRESH_TOKEN_TTL_DAYS = 14;
 
@@ -62,9 +58,15 @@ export async function findPendingMoloniConnection(
 ): Promise<MoloniConnectionRow | null> {
     const now = new Date().toISOString();
     if (state) {
+        // The Moloni nonce, from this connection's own config — NOT the
+        // `oauth_state` column, which belongs to the Stripe Connect round trip
+        // and lives on the very same row for a `stripe_connect → moloni`
+        // connection. Read from there, a Stripe nonce could name the row.
         const byState = await db
             .prepare(`SELECT id, source_kind, destination_config_json, source_config_json FROM connections
-                       WHERE user_id = ? AND oauth_state = ? AND oauth_state_expires_at > ?
+                       WHERE user_id = ? AND destination_kind = 'moloni'
+                         AND json_extract(destination_config_json, '$.moloni_oauth_state') = ?
+                         AND json_extract(destination_config_json, '$.moloni_oauth_state_expires_at') > ?
                        LIMIT 1`)
             .bind(targetUserId, state, now)
             .first();
@@ -109,20 +111,26 @@ export async function findPendingMoloniConnection(
 export type MoloniExchange = { ok: true } | { ok: false; detail: string };
 
 /**
- * A migration that must not go through: record why, touch nothing else.
+ * A round trip that ended in nothing: record why, touch nothing else.
  *
- * The round trip is over either way, so the pending marker is cleared — left
- * standing it would make the merchant's next attempt read as ambiguous. The
- * password, the app and the auth mode stay exactly as they were.
+ * Refused by Moloni, or refused here because the authorised account is not the
+ * one this connection invoices into. Either way the flight is over, so the
+ * pending marker goes — left standing it would make the merchant's next attempt
+ * read as ambiguous. The credential, the app and the auth mode stay as they are.
  */
-async function refuseMigration(db: any, id: string, detail: string): Promise<MoloniExchange> {
+export async function recordMoloniFailure(db: any, id: string, detail: string): Promise<MoloniExchange> {
     await db.prepare(
         `UPDATE connections
             SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
-                oauth_state = NULL, oauth_state_expires_at = NULL, updated_at = ?
+                updated_at = ?
           WHERE id = ?`
     ).bind(
-        JSON.stringify({ moloni_oauth_error: detail.slice(0, 300), moloni_oauth_pending_at: null }),
+        JSON.stringify({
+            moloni_oauth_error: detail.slice(0, 300),
+            moloni_oauth_pending_at: null,
+            moloni_oauth_state: null,
+            moloni_oauth_state_expires_at: null,
+        }),
         new Date().toISOString(), id,
     ).run();
     return { ok: false, detail };
@@ -198,30 +206,50 @@ export async function exchangeMoloniCode(
     //
     // Fails closed: anything short of a match leaves the connection exactly as it
     // is, still invoicing on its password.
-    const migrating = !!cfg.moloni_password && !cfg.moloni_refresh_token;
+    // Checked for ANY connection that names a company, not only one coming off a
+    // password: a connection already invoicing into a company is re-pointed by a
+    // re-authorisation just as completely, and the wrong account is just as
+    // silent. A connection that names none has nothing to compare against — its
+    // company is picked from this account in the settings step.
     const wantedId = Number(cfg.moloni_company_id ?? 0);
     const wantedName = String(cfg.moloni_company_name ?? "").trim().toLowerCase();
-    if (migrating && (wantedId || wantedName)) {
+    if (wantedId || wantedName) {
         let seen: MoloniNamedId[];
         try {
             seen = await listMoloniCompanies({ moloni_environment: environment }, accessToken);
         } catch (e: any) {
-            return refuseMigration(db, row.id, `Não foi possível confirmar no Moloni a empresa desta ligação: ${e?.message ?? e}. Nada foi alterado; tente autorizar outra vez.`);
+            return recordMoloniFailure(db, row.id, `Não foi possível confirmar no Moloni a empresa desta ligação: ${e?.message ?? e}. Nada foi alterado; tente autorizar outra vez.`);
+        }
+        // An empty list is not an answer. Moloni replies 200 with an error body
+        // for a token it dislikes, which reads here as "no companies" — and
+        // telling a merchant their own account cannot see their own company
+        // sends them to support with a question nobody can answer.
+        if (seen.length === 0) {
+            return recordMoloniFailure(db, row.id, "O Moloni não devolveu nenhuma empresa para a conta autorizada, por isso não foi possível confirmar esta ligação. Nada foi alterado; tente autorizar outra vez.");
         }
         const match = seen.some((c) => (wantedId
             ? c.id === wantedId
             : c.name.trim().toLowerCase() === wantedName));
         if (!match) {
-            return refuseMigration(db, row.id, `A conta Moloni autorizada não tem acesso a "${cfg.moloni_company_name || wantedId}". A ligação continua a facturar como estava — autorize com a conta Moloni dessa empresa.`);
+            return recordMoloniFailure(db, row.id, `A conta Moloni autorizada não tem acesso a "${cfg.moloni_company_name || wantedId}". A ligação continua a facturar como estava — autorize com a conta Moloni dessa empresa.`);
         }
     }
 
     const now = Date.now();
     const expiresIn = Number(body?.expires_in ?? 3600);
     await db.prepare(
+        // A connection parked in `error` comes back.
+        //
+        // `error` is where a refused refresh puts a Moloni connection, and every
+        // worker lookup filters on `status = 'active'` — so re-authorising fixed
+        // the credential and changed nothing: the merchant kept not being
+        // invoiced, and the only way back was the pause/resume toggle. A merchant
+        // who has just been through the consent screen has proved the credential,
+        // which is exactly what that error was about. Any other status is left
+        // alone: paused is a decision, draft is an unfinished wizard.
         `UPDATE connections
             SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
-                oauth_state = NULL, oauth_state_expires_at = NULL,
+                status = CASE WHEN status = 'error' THEN 'active' ELSE status END,
                 last_token_refresh_at = ?, updated_at = ?
           WHERE id = ?`
     ).bind(
@@ -246,6 +274,8 @@ export async function exchangeMoloniCode(
             // connection looking in flight for the rest of its fifteen minutes
             // and make the next authorisation on the account read as ambiguous.
             moloni_oauth_pending_at: null,
+            moloni_oauth_state: null,
+            moloni_oauth_state_expires_at: null,
         }),
         new Date(now).toISOString(), new Date(now).toISOString(), row.id,
     ).run();

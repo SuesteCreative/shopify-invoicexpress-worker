@@ -2,7 +2,7 @@ import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
 import { saleReference } from "../../services/document-references";
 import { parseMetadataMap, applyMetadataMap, applyMetadataVatRate } from "./metadata-map";
-import { parseLineSplit, splitStripePayment } from "./stripe-line-split";
+import { parseLineSplit, splitStripePayment, undecomposedLine } from "./stripe-line-split";
 import { pickInvoicePaymentIntent } from "../../services/stripe";
 import { ctxStripeAuth } from "../../services/stripe-auth";
 
@@ -1632,7 +1632,12 @@ export class StripeSource implements SourceAdapter {
     const items = normalized.order.items ?? [];
     if (split && items.length === 1 && !carriesTax(normalized)) {
       const totalCents = Math.round(Number(normalized.order.total) * 100);
-      const lines = splitStripePayment(totalCents, String(items[0].title ?? ""), split);
+      const titulo = String(items[0].title ?? "");
+      const solved = splitStripePayment(totalCents, titulo, split);
+      // A payment whose arithmetic does not solve is still invoiced — as one
+      // line, under the connection's own article, rather than under the Stripe
+      // id the synthetic line carries. See undecomposedLine.
+      const lines = solved ?? [undecomposedLine(totalCents, titulo, split)];
       if (lines) {
         normalized.order.items = lines.map((l, idx) => {
           // NET unit price plus the tax it carries — the same pair the Checkout
@@ -1662,10 +1667,9 @@ export class StripeSource implements SourceAdapter {
         });
         console.log(`[Stripe] ${normalized.order.reference}: split into ${lines.length} line(s) — `
           + lines.map((l) => `${l.sku} ${(l.grossCents / 100).toFixed(2)}@${l.rate}%`).join(", "));
-      } else {
-        // Not a failure: a sale whose arithmetic does not reproduce the charged
-        // total keeps its single line, which is what it would have had anyway.
-        console.warn(`[Stripe] ${normalized.order.reference}: line split did not reconcile with ${(totalCents / 100).toFixed(2)} — left as one line`);
+      }
+      if (!solved) {
+        console.warn(`[Stripe] ${normalized.order.reference}: line split did not reconcile with ${(totalCents / 100).toFixed(2)} — issued as one line on ${split.base.sku}`);
       }
     }
 

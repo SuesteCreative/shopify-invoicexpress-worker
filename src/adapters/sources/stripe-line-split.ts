@@ -301,3 +301,21 @@ export function splitStripePayment(
   if (lines.reduce((s, l) => s + l.grossCents, 0) !== totalCents) return null;
   return lines.length ? lines : null;
 }
+
+/**
+ * The whole payment as ONE line, under the connection's own treatment.
+ *
+ * For when the arithmetic could not be solved: the sale still has to be
+ * invoiced, and the alternative — leaving the source's synthetic line untouched
+ * — carries the Stripe payment id as the product reference, so the destination
+ * mints a catalogue entry per payment. Escola Lá Fora's previous connector did
+ * exactly that and left dozens of articles named after single charges.
+ *
+ * The rate still comes from the classifier, so a payment that is entirely food
+ * keeps its 13 % even when the items could not be priced apart.
+ */
+export function undecomposedLine(totalCents: number, description: string, cfg: LineSplitConfig): SplitLine {
+  const label = String(description ?? "").trim() || "Serviço";
+  const t = treatmentFor(label, cfg);
+  return { title: bareLabel(label, cfg), sku: t.sku, rate: t.rate, grossCents: totalCents, qty: 1 };
+}

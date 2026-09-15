@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  parseLineSplit, parseDescriptionItems, solveBases, splitStripePayment,
+  parseLineSplit, parseDescriptionItems, solveBases, splitStripePayment, undecomposedLine,
 } from "./stripe-line-split";
 import { StripeSource } from "./stripe-source";
 
@@ -234,5 +234,30 @@ describe("the line keeps the option's whole name", () => {
       "Refeições Férias Lá Fora Lisboa/Almada 2025/2026 - 5 dias",
       "Taxa",
     ]);
+  });
+});
+
+describe("a payment that cannot be solved still lands on the right article", () => {
+  it("uses the connection's own article, never the Stripe id", async () => {
+    // Two of eighty documents in the first real batch fell back to the source's
+    // synthetic line, whose SKU is the payment id — so Moloni minted an article
+    // called `pi_3S6Hih…`. The previous connector left dozens of those.
+    // Two options the recipe does not price: underdetermined, so the solver
+    // refuses and the fallback has to carry the line.
+    const desc = "Inverno Lá Fora - Semana A (x1), Semana B (x1)";
+    const event = {
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_naoResolve", status: "succeeded", amount_received: 5295, currency: "eur", created: 1, description: desc } },
+    };
+    const normalized = await new StripeSource().toNormalized(event, { config: { stripe_line_split: RECIPE } } as any);
+    const items = normalized!.order.items as any[];
+    expect(items).toHaveLength(1);
+    expect(items[0].sku).toBe("ELF-UNI");
+    expect(items[0].unit_price).toBeCloseTo(52.95, 2);
+  });
+
+  it("keeps the intermediate rate when the whole payment is food", () => {
+    const line = undecomposedLine(4085, "Refeições Estoril - alguma coisa nova (x1)", cfg);
+    expect(line).toMatchObject({ sku: "ELF-REF", rate: 13, grossCents: 4085 });
   });
 });

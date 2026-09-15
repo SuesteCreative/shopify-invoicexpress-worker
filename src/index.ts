@@ -58,7 +58,7 @@ import { processBuildEventBatch } from "./handlers/build-events";
 import {
   connectionCapabilities, backfillConnection, reemitConnection,
   deleteConnectionDraft, creditConnectionDocument, finalizeConnectionDrafts,
-  setConnectionInvoiceCutoff,
+  setConnectionInvoiceCutoff, previewConnectionRefundCredit,
 } from "./handlers/admin-connection";
 import type { FinalizeDateStrategy } from "./adapters/types";
 import { delay } from "./utils";
@@ -2081,6 +2081,33 @@ app.post("/admin/connection/issue-credit-note", async (c) => {
     return c.json(result, result.status === "error" ? 422 : 200);
   } catch (e) {
     return errorResponse(c, e, "Credit note failed");
+  }
+})
+
+// What the pipeline would credit for a refund, posting nothing — run before a
+// failed refund is replayed. `amount` is the money refunded, as the source
+// refunded it; `converted` + `sale_total` only for a sale invoiced in another
+// currency than it was paid in.
+app.post("/admin/connection/preview-refund-credit", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<ConnectionRouteBody & { refund_id?: string; amount?: number; sale_total?: number; converted?: boolean }>();
+  const resolved = await resolveRouteConnection(c, body);
+  if ("error" in resolved) return resolved.error;
+  if (!body.external_id || !body.refund_id || !(Number(body.amount) > 0)) {
+    return c.json({ error: "Missing external_id, refund_id or amount" }, 400);
+  }
+  try {
+    const result = await previewConnectionRefundCredit(c.env, resolved.ctx, {
+      externalId: body.external_id,
+      refundId: body.refund_id,
+      amount: Number(body.amount),
+      saleTotal: body.sale_total ?? null,
+      converted: !!body.converted,
+    });
+    return c.json(result, result.status === "error" ? 422 : 200);
+  } catch (e) {
+    return errorResponse(c, e, "Refund credit preview failed");
   }
 })
 

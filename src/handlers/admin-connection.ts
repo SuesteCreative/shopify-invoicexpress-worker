@@ -7,7 +7,8 @@ import type { SourceRecordRef } from "../adapters/recovery/types";
 import type { ConnectionContext } from "../services/connection-context";
 import { listUserConnections } from "../services/connection-context";
 import { buildAdapterCtx } from "../services/adapter-ctx";
-import { cancelReference, cancelReferenceCandidates } from "../services/document-references";
+import { cancelReference, cancelReferenceCandidates, refundReference } from "../services/document-references";
+import { applyTagRoute, parseStoredRoute } from "../services/tag-routing";
 import { runAdapterPipeline } from "./generic-pipeline";
 import { takeBackLodgifyDocuments, type TakeBackMode } from "./lodgify-billing";
 import { sendDevModeEmail } from "./notify";
@@ -640,6 +641,62 @@ async function resolveDocument(
   const issued = await storage.getInvoiceByOrderId(record.externalId);
   if (!issued?.invoice_id) return { error: `Não há documento registado para ${record.label}` };
   return { externalId: record.externalId, invoiceId: String(issued.invoice_id), orderNumber: record.orderNumber };
+}
+
+// ── Refund credit preview ────────────────────────────────────────────────────
+
+/**
+ * The credit note the pipeline WOULD issue for a refund, without issuing it.
+ *
+ * Runs the destination's own read and the mirror planner inside the worker —
+ * the only place a Moloni token may be refreshed, since refreshing rotates it —
+ * and posts nothing. For checking a refund against its document before a failed
+ * one is replayed.
+ */
+export async function previewConnectionRefundCredit(
+  env: Env,
+  conn: ConnectionContext,
+  input: { externalId: string; refundId: string; amount: number; saleTotal?: number | null; converted?: boolean },
+) {
+  const storage = storageFor(env, conn);
+  const lookup = await resolveDocument(env, conn, storage, input.externalId);
+  if ("error" in lookup) return { status: "error" as const, error: lookup.error };
+
+  const scope = conn.config.user_id || conn.config.shopify_domain || "";
+  const alreadyCredited = await storage.creditedTotalForInvoice(scope, lookup.invoiceId);
+  if (alreadyCredited == null) {
+    return { status: "error" as const, error: "Não consegui ler o registo de notas de crédito" };
+  }
+
+  // Where the pipeline would send it: the route the document was issued under.
+  let ctx = await ctxFor(env, conn);
+  const route = parseStoredRoute((await storage.getInvoiceByOrderId(lookup.externalId))?.routed_json);
+  if (route) ctx = applyTagRoute(ctx, conn.destination, route);
+
+  try {
+    // What the pipeline asks first. On Moloni the lookup matches drafts too, so a
+    // stray draft from an older failed attempt shows up here before any replay.
+    const dest = getDestinationAdapter(conn.destination);
+    const existing = dest.findByReference ? await dest.findByReference(refundReference(input.refundId), ctx) : null;
+    const result = await dest.issueCredit(lookup.invoiceId, {
+      refundId: input.refundId,
+      grossAmount: input.amount,
+      saleTotal: input.saleTotal ?? null,
+      converted: !!input.converted,
+      alreadyCredited,
+    }, ctx, { dryRun: true });
+    return {
+      status: "success" as const,
+      external_id: lookup.externalId,
+      invoice_id: lookup.invoiceId,
+      already_credited: alreadyCredited,
+      // The pipeline skips a refund whose reference already names a document.
+      existing_document_id: existing?.id ?? null,
+      result,
+    };
+  } catch (e: any) {
+    return { status: "error" as const, error: String(e?.message ?? e) };
+  }
 }
 
 // ── Finalize drafts ──────────────────────────────────────────────────────────

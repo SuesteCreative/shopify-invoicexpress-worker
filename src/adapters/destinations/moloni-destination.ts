@@ -12,6 +12,8 @@ import type {
   SettleOutcome,
   SettleDocSnapshot,
 } from "../types";
+import { planRefundCredit, refundInDocumentMoney, documentNotCreditable, type MirrorLine } from "../../ix/credit-mirror";
+import { ixExpectedTotals } from "../../ix/create-invoice";
 import type { Normalized } from "../../api/normalize-shopify";
 import { validatePTNIF } from "../../ix/nif";
 import { reconcileTotalOrThrow, receiptDelta } from "../reconcile";
@@ -55,7 +57,7 @@ type MoloniTaxLine = {
   cumulative: 0 | 1;
 };
 
-type MoloniProductLine = {
+export type MoloniProductLine = {
   product_id?: number;
   // Credit-note lines only: the document_product_id of the ORIGINAL invoice line
   // this line credits. Moloni's creditNotes/insert REQUIRES it (fails with
@@ -1398,20 +1400,6 @@ function formatPtYmd(ymd: string): string {
 // series minimum Moloni reports (the closest allowed date) and stamp the real
 // transaction date in the notes — the correct fiscal practice for issuing today
 // a document for a past payment. Returns the (possibly re-dated) insert result.
-// Fetch the source document's line items so a credit note can carry the
-// required per-line `related_id` (= each original line's document_product_id).
-// The id may be an invoice OR an invoice_receipt (tag-routing / the client's
-// document_type), so try the configured type first, then the other. Returns []
-// when neither endpoint has it (deleted / wrong id).
-interface MoloniBaseLine {
-  product_id?: number;
-  document_product_id?: number;
-  /** First tax rule on the original line — reused so a cash-only credit note
-   * (Stripe refund) mirrors the source document's VAT instead of going exempt. */
-  tax_id?: number;
-  tax_value?: number;
-}
-
 /**
  * Read a document back, whichever endpoint family it happens to live under.
  *
@@ -1509,6 +1497,7 @@ async function insertClosedCreditNote(
   token: string,
   payload: Record<string, unknown>,
   associated: Array<{ associated_id: number; value: number }>,
+  opts: { expectedTotal?: number } = {},
 ): Promise<string> {
   const inserted = await moloniCall<{ document_id?: number }>(
     cfg, token, "/creditNotes/insert/",
@@ -1520,12 +1509,45 @@ async function insertClosedCreditNote(
     throw new Error(`Moloni credit create failed: insert returned no document_id — ${safeErrorJson(inserted)}`);
   }
 
+  // Everything that can be wrong is checked while this is still a draft: a draft
+  // can be deleted, and a closed credit note cannot even be annulled through the
+  // API. A draft that fails is taken back so a retry cannot put a twin beside it;
+  // one that cannot be taken back is named on the error, for the ledger.
+  const discard = async (why: string, refusal: boolean): Promise<never> => {
+    const gone = await moloniCall(cfg, token, "/creditNotes/delete/", { document_id: Number(creditId) }, "delete")
+      .then(() => true, () => false);
+    const err: any = new Error(
+      `Moloni credit create failed: ${why} — the draft credit note ${creditId} `
+      + (gone ? "was deleted" : "could NOT be deleted"),
+    );
+    if (!gone) err.strandedCreditId = String(creditId);
+    if (refusal) err.refusal = true;
+    throw err;
+  };
+
+  // Moloni does its own arithmetic. The credit note has to come out at what was
+  // planned: never above what was refunded, at most a cent below it.
+  if (opts.expectedTotal != null) {
+    const draft = await moloniCall<any>(cfg, token, "/documents/getOne/", { document_id: Number(creditId) }, "lookup")
+      .catch(() => null);
+    const held = moloniDocTotal(draft);
+    if (held == null) {
+      await discard("could not read the draft back to check its total", false);
+    } else if (held - opts.expectedTotal > 0.005 || opts.expectedTotal - held > 0.015) {
+      await discard(`Moloni totals it at ${held.toFixed(2)} and it was planned at ${opts.expectedTotal.toFixed(2)}`, true);
+    }
+  }
+
   // Resend the link at the close; without it the close drops what insert took.
-  await moloniCall(
-    cfg, token, "/creditNotes/update/",
-    { document_id: Number(creditId), status: 1, associated_documents: associated },
-    "credit create",
-  );
+  try {
+    await moloniCall(
+      cfg, token, "/creditNotes/update/",
+      { document_id: Number(creditId), status: 1, associated_documents: associated },
+      "credit create",
+    );
+  } catch (e) {
+    await discard(`the close was refused (${String((e as Error)?.message ?? e)})`, false);
+  }
 
   const read = await moloniCall<any>(cfg, token, "/documents/getOne/", { document_id: Number(creditId) }, "lookup");
   const linked = Array.isArray(read?.associated_documents) && read.associated_documents.length > 0;
@@ -1540,21 +1562,103 @@ async function insertClosedCreditNote(
   return String(creditId);
 }
 
-// The source document's line items, for the per-line `related_id` a credit note
-// requires and for the cash-delta VAT rate.
-async function fetchMoloniDocLines(
-  cfg: MoloniCfg,
-  token: string,
-  documentId: string | number,
-): Promise<MoloniBaseLine[]> {
-  const found = await fetchMoloniDocument(cfg, token, documentId);
-  if (!found || !Array.isArray(found.doc.products)) return [];
-  return (found.doc.products as any[]).map((p) => ({
-    product_id: p?.product_id,
-    document_product_id: p?.document_product_id,
-    tax_id: p?.taxes?.[0]?.tax_id,
-    tax_value: p?.taxes?.[0]?.value != null ? Number(p.taxes[0].value) : undefined,
+/** Moloni's numeric `status`: 0 rascunho, 1 fechado, 2 anulado. */
+function moloniDocumentState(status: unknown): "draft" | "finalized" | "canceled" {
+  const s = Number(status ?? 0);
+  return s === 0 ? "draft" : s === 2 ? "canceled" : "finalized";
+}
+
+/**
+ * The credit note for a refund, mirrored off a Moloni document's own lines.
+ *
+ * Every line of the document comes back with its own product, its own tax rule
+ * and the `related_id` that ties it to the line it credits: all of them for a
+ * full refund, all of them in the refunded share for a partial one. What this
+ * replaces sent a placeholder "Rioko Refund Delta" product at the highest rate
+ * on the document, related to whichever line came first — and Moloni refused
+ * MY VAN's refund credit notes from 06/08 onwards.
+ *
+ * Pure, so it can be tested and previewed: the caller reads the document and
+ * posts the result.
+ */
+export function planMoloniRefundCredit(
+  doc: any,
+  refund: NormalizedRefund,
+  exemptionReason: string,
+):
+  | { ok: true; products: MoloniProductLine[]; total: number; basis: string }
+  | { ok: false; reason: string; nothingToCredit?: boolean; detail?: Record<string, unknown> } {
+  const id = String(doc?.document_id ?? "?");
+  const lines: any[] = Array.isArray(doc?.products) ? doc.products : [];
+  if (lines.length === 0) return { ok: false, reason: `o documento ${id} não tem linhas para espelhar` };
+  for (const p of lines) {
+    if (Array.isArray(p?.taxes) && p.taxes.length > 1) {
+      return { ok: false, reason: `a linha "${p?.name ?? "?"}" do documento ${id} tem mais do que um imposto — não sei espelhá-la` };
+    }
+    if (!(Number(p?.product_id) > 0) || !(Number(p?.document_product_id) > 0)) {
+      return { ok: false, reason: `a linha "${p?.name ?? "?"}" do documento ${id} não tem produto ou identificador de linha — o Moloni exige os dois` };
+    }
+  }
+
+  const docItems: MirrorLine[] = lines.map((p, i) => ({
+    quantity: Number(p.qty ?? 1),
+    name: String(p.name ?? "Artigo"),
+    unit_price: Number(p.price ?? 0),
+    tax: { name: "IVA", value: Number(p.taxes?.[0]?.value ?? 0) },
+    ...(Number(p.discount ?? 0) > 0 ? { discount: Number(p.discount) } : {}),
+    docIndex: i,
   }));
+
+  // A header discount or a retention moves the document's total without touching
+  // its lines, and then no mirror of the lines can undo it.
+  const docTotal = moloniDocTotal(doc) ?? NaN;
+  const rebuilt = ixExpectedTotals(docItems).gross;
+  if (Number.isFinite(docTotal) && Math.abs(rebuilt - docTotal) > 0.02 + 0.01 * lines.length) {
+    return {
+      ok: false,
+      reason: `as linhas do documento ${id} dão ${rebuilt.toFixed(2)} € e o documento tem ${docTotal.toFixed(2)} € — `
+        + `não espelho um documento que não consigo reconstruir`,
+    };
+  }
+
+  const plan = planRefundCredit({
+    docTotal,
+    docItems,
+    sources: [],
+    refund: { refundId: refund.refundId, amount: refundInDocumentMoney(refund, docTotal), lineItems: [] },
+    rawRefund: null,
+    taxesIncluded: false,
+    alreadyCredited: refund.alreadyCredited,
+    cashRefund: "proportional",
+  });
+  if (!plan.ok) return plan;
+
+  const products = plan.items.map((l, k): MoloniProductLine => {
+    const p = lines[l.docIndex ?? -1];
+    const line: MoloniProductLine = {
+      product_id: Number(p.product_id),
+      related_id: Number(p.document_product_id),
+      name: String(p.name ?? "Artigo").slice(0, 200),
+      qty: l.quantity,
+      price: l.unit_price,
+      discount: Number(l.discount ?? 0),
+      order: k + 1,
+    };
+    if (Array.isArray(p.taxes) && p.taxes.length > 0) {
+      line.taxes = p.taxes.map((t: any, ti: number) => ({
+        tax_id: Number(t.tax_id),
+        value: Number(t.value ?? 0),
+        order: ti + 1,
+        cumulative: Number(t.cumulative ?? 0) ? 1 : 0,
+      }));
+    } else {
+      // A 0% line carries the document's own exemption before the connection's.
+      line.exemption_reason = String(p.exemption_reason ?? "").trim() || exemptionReason;
+    }
+    return line;
+  });
+
+  return { ok: true, products, total: plan.total, basis: plan.basis };
 }
 
 /**
@@ -1946,12 +2050,11 @@ export class MoloniDestination implements DestinationAdapter {
    * failure is a no-op rather than an error.
    */
   /**
-   * Read a document back. Moloni's `status` is numeric: 0 = rascunho, 1 = fechado
-   * (per its API docs), and a closed document can be neither updated nor deleted.
+   * Read a document back. Moloni's `status` is numeric: 0 = rascunho, 1 = fechado,
+   * 2 = anulado, and a closed document can be neither updated nor deleted.
    *
-   * Moloni has no "canceled" state of its own — a closed document is undone with
-   * a credit note, so `finalized` and `canceled` do not need telling apart here
-   * the way they do on InvoiceXpress.
+   * An annulled document reads as `canceled`. Taking it for `finalized` offered it
+   * a credit note — crediting something that no longer stands.
    */
   async getDocument(invoiceId: string, ctx: AdapterCtx): Promise<DestinationDocument | null> {
     const cfg = await getMoloniCfg(ctx);
@@ -1962,7 +2065,7 @@ export class MoloniDestination implements DestinationAdapter {
     const d = found.doc;
     return {
       id: String(d.document_id),
-      state: Number(d.status ?? 0) === 0 ? "draft" : "finalized",
+      state: moloniDocumentState(d.status),
       date: typeof d.date === "string" ? d.date.slice(0, 10) : null,
       total: moloniDocTotal(d),
       reference: d.our_reference != null ? String(d.our_reference) : null,
@@ -2044,8 +2147,12 @@ export class MoloniDestination implements DestinationAdapter {
 
     const source = await fetchMoloniDocument(cfg, token, invoiceId);
     if (!source) throw new Error(`Moloni document ${invoiceId} not found — nothing to credit`);
-    if (Number(source.doc.status ?? 0) === 0) {
+    const sourceState = moloniDocumentState(source.doc.status);
+    if (sourceState === "draft") {
       throw new Error(`Document ${invoiceId} is still a draft. Delete it instead of crediting it.`);
+    }
+    if (sourceState === "canceled") {
+      throw new Error(`Document ${invoiceId} is already annulled — nothing left to credit.`);
     }
 
     const baseLines: any[] = Array.isArray(source.doc.products) ? source.doc.products : [];
@@ -2597,158 +2704,62 @@ export class MoloniDestination implements DestinationAdapter {
     };
   }
 
+  /**
+   * Credit a refund by mirroring the Moloni document's own lines — see
+   * planMoloniRefundCredit and src/ix/credit-mirror.ts.
+   */
   async issueCredit(
     invoiceId: string,
     refund: NormalizedRefund,
-    normalized: Normalized,
     ctx: AdapterCtx,
+    opts: { dryRun?: boolean } = {},
   ): Promise<DestinationCreditResult> {
     const cfg = await getMoloniCfg(ctx);
     const token = await getAccessToken(cfg);
 
-    // Build refund lines from the items actually being refunded.
-    const refundItems = normalized.order.items.filter((it) => refund.itemsIds.includes(it.id));
-    const subset: Normalized = {
-      ...normalized,
-      order: { ...normalized.order, items: refundItems },
-    };
+    // Strict: a Moloni that did not answer is not a document that does not
+    // exist, and "does not exist" closes the refund for good.
+    const found = await fetchMoloniDocumentStrict(cfg, token, invoiceId);
+    if (!found) return documentNotCreditable(invoiceId, "deleted");
+    const state = moloniDocumentState(found.doc.status);
+    if (state !== "finalized") return documentNotCreditable(invoiceId, state);
 
-    // Resolve rate→tax_id only for UNMAPPED refunded lines. Mapped lines carry
-    // the Moloni product's own taxes[] (the cash-delta line reuses a line rate).
-    await ensureTaxIdsByRate(
-      cfg, token,
-      refundItems.filter((it) => !isReferenceMapped(ctx, it)).map((it) => taxRateForItem(it, ctx)),
-    );
-
-    // Source document's lines — needed BOTH for the required per-line related_id
-    // and for the cash-delta VAT rate (below). Fetched once here.
-    const [customerId, resolved, exchange, baseLines] = await Promise.all([
-      resolveOrCreateCustomer(cfg, token, normalized),
-      resolveProducts(cfg, token, refundItems, (it) => taxRateForItem(it, ctx), ctx.productMappings),
-      resolveMoloniExchange(cfg, token, normalized.order.currency),
-      fetchMoloniDocLines(cfg, token, invoiceId),
-    ]);
-    const baseRate = baseLines[0]?.tax_value ?? null;
-    const baseTaxId = baseLines[0]?.tax_id ?? null;
-
-    const products = buildMoloniLineItems(subset, ctx, resolved, cfg);
-
-    // Free-form refund delta when Shopify reports an amount beyond the line
-    // items (e.g. partial cash refund). Mirrors IX adapter's behaviour.
-    if (refund.amountToRefund > 0) {
-      // Reuse the highest line rate for the cash delta. Track the line itself so
-      // we can reuse its resolved tax_id — a mapped product's tax_id may not be
-      // in the rate→id table.
-      const maxTaxLine = products.reduce<MoloniProductLine | null>((acc, p) => {
-        const t = p.taxes?.[0]?.value ?? 0;
-        const accV = acc?.taxes?.[0]?.value ?? 0;
-        return t > accV ? p : acc;
-      }, null);
-      const lineTax = maxTaxLine?.taxes?.[0]?.value ?? 0;
-      // Cash-ONLY refund (Stripe: no refund line items) has no line rate — take it
-      // from the ORIGINAL document so the credit note carries its VAT (e.g. 23%)
-      // instead of going out exempt. With real refund lines (Shopify) keep theirs.
-      const rate = lineTax > 0 ? lineTax : (baseRate && baseRate > 0 ? baseRate : 0);
-      const factor = rate > 0 ? 1 + rate / 100 : 1;
-      const netUnit = Math.round((refund.amountToRefund / factor) * 10000) / 10000;
-      const order = products.length + 1;
-      // Cash-only refund delta has no source product. Ensure a synthetic
-      // RIOKO-PLACEHOLDER product exists and reference it here. Resolve the rate
-      // first so product creation doesn't throw when it came from a mapping.
-      if (rate > 0) await ensureTaxIdsByRate(cfg, token, [rate]);
-      const fallbackPid = await ensureMoloniProduct(
-        cfg, token, FALLBACK_PLACEHOLDER_REFERENCE, "Rioko Refund Delta", rate,
-      );
-      const line: MoloniProductLine = {
-        product_id: fallbackPid,
-        name: `Refund amount (#${refund.refundId})`.slice(0, 200),
-        summary: `Refund amount of ${refund.amountToRefund}`,
-        qty: 1,
-        price: netUnit,
-        discount: 0,
-        order,
-      };
-      if (rate > 0) {
-        const tid = (lineTax > 0 ? maxTaxLine?.taxes?.[0]?.tax_id : baseTaxId) ?? pickTaxId(cfg, rate);
-        line.taxes = [{ tax_id: tid, value: rate, order: 1, cumulative: 0 }];
-      } else {
-        line.exemption_reason = resolveExemptionReason(ctx);
-      }
-      products.push(line);
+    const planned = planMoloniRefundCredit(found.doc, refund, resolveExemptionReason(ctx));
+    if (!planned.ok) {
+      return { status: "refused", reason: planned.reason, nothingToCredit: planned.nothingToCredit, detail: planned.detail };
     }
 
-    if (products.length === 0) {
-      throw new Error("Moloni credit create failed: no line items derived from refund");
-    }
-
-    // Source-of-truth guard (parity with createDraft and the IX refund path):
-    // the credit-note gross MUST equal the amount actually refunded. issueCredit
-    // historically had NO reconcile, so a mis-derived line (e.g. an inflated
-    // cash-delta) would silently ship a fiscally-wrong credit note. Abort on
-    // >1¢ drift → the queue retries / DLQ raises an incident instead.
-    if (refund.grossAmount != null && refund.grossAmount > 0) {
-      reconcileTotalOrThrow(
-        refund.grossAmount,
-        products.map((p) => ({
-          name: p.name,
-          quantity: Number(p.qty),
-          unit_price: Number(p.price),
-          tax_rate: Number(p.taxes?.[0]?.value ?? 0),
-          discount_percent: Number(p.discount ?? 0),
-        })),
-        { context: `→Moloni credit OrderRefund#${refund.refundId}` },
-      );
-    }
-
-    // Stamp the required per-line related_id (= the source invoice line's
-    // document_product_id). Match each credit line to the base line by
-    // product_id; the free-form cash-delta line (placeholder product) and any
-    // unmatched line fall back to the first base line — Moloni only needs a
-    // valid document_product_id from the associated document, not an exact map.
-    // (baseLines was fetched once above, reused here.)
-    const relatedByProduct = new Map<number, number>();
-    for (const bl of baseLines) {
-      if (bl?.product_id != null && bl?.document_product_id != null && !relatedByProduct.has(Number(bl.product_id))) {
-        relatedByProduct.set(Number(bl.product_id), Number(bl.document_product_id));
-      }
-    }
-    const fallbackRelated = baseLines[0]?.document_product_id != null ? Number(baseLines[0].document_product_id) : undefined;
-    for (const p of products) {
-      p.related_id = (p.product_id != null ? relatedByProduct.get(Number(p.product_id)) : undefined) ?? fallbackRelated;
-    }
-    if (products.some((p) => p.related_id == null)) {
-      throw new Error(`Moloni credit create failed: could not resolve related_id from source document ${invoiceId} (deleted or has no lines)`);
-    }
-
-    const exemptionReason = resolveExemptionReason(ctx);
-    const needsExemption = products.some((p) => !p.taxes || p.taxes.length === 0);
-
+    const associated = [{ associated_id: Number(invoiceId), value: planned.total }];
+    const notes = moloniNotes(customNoteOf(ctx));
+    const exchangeCurrencyId = Number(found.doc.exchange_currency_id ?? 0);
     const payload: Record<string, unknown> = {
       document_set_id: cfg.documentSetId,
-      customer_id: customerId,
+      customer_id: Number(found.doc.customer_id),
       date: todayYmd(),
       expiration_date: todayYmd(),
       our_reference: refundReference(refund.refundId),
-      products,
-      status: 0,
-      // Moloni links credit notes back to the source document via
-      // `associated_documents`. document_type_id is left untyped so Moloni
-      // resolves from the parent's set.
-      associated_documents: [{
-        associated_id: Number(invoiceId),
-        value: refund.amountToRefund > 0 ? refund.amountToRefund : products.reduce((acc, p) => acc + p.qty * p.price, 0),
-      }],
-      ...(needsExemption ? { exemption_reason: exemptionReason } : {}),
-      // Mirror the source document's currency on the credit note.
-      ...(exchange ? { exchange_currency_id: exchange.currencyId, exchange_rate: exchange.rate } : {}),
+      ...(notes ? { notes } : {}),
+      products: planned.products,
+      ...(planned.products.some((p) => !p.taxes || p.taxes.length === 0)
+        ? { exemption_reason: resolveExemptionReason(ctx) }
+        : {}),
+      // In the currency of the document it credits, not the one the refund came in.
+      ...(exchangeCurrencyId > 0
+        ? { exchange_currency_id: exchangeCurrencyId, exchange_rate: Number(found.doc.exchange_rate ?? 0) }
+        : {}),
     };
 
-    const creditId = await insertClosedCreditNote(cfg, token, payload, [{
-      associated_id: Number(invoiceId),
-      value: refund.amountToRefund > 0 ? refund.amountToRefund : products.reduce((acc, p) => acc + p.qty * p.price, 0),
-    }]);
+    if (opts.dryRun) {
+      return {
+        status: "preview",
+        total: planned.total,
+        basis: planned.basis,
+        payload: { ...payload, associated_documents: associated },
+      };
+    }
 
-    return { creditId };
+    const creditId = await insertClosedCreditNote(cfg, token, payload, associated, { expectedTotal: planned.total });
+    return { status: "issued", creditId, total: planned.total };
   }
 
   async emailDocument(invoiceId: string, ctx: AdapterCtx): Promise<void> {

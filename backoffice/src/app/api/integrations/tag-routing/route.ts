@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { listIxSequences, findSequenceByName, sequenceIdForDocType } from "@/lib/ix-sequences";
+import { sourceKindOrNull, destinationKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -68,8 +69,16 @@ export async function GET(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const url = new URL(request.url);
-    const sourceKind = url.searchParams.get("source_kind") ?? "shopify";
-    const destinationKind = url.searchParams.get("destination_kind") ?? "invoicexpress";
+    // A named kind has to be one we know. These reads do not collapse, so the
+    // collapse guard never saw them — but an unrecognised kind still silently
+    // answers with an empty list instead of saying the caller is wrong, and the
+    // rule this file's siblings follow is 400.
+    const rawSource = url.searchParams.get("source_kind");
+    const rawDestination = url.searchParams.get("destination_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "shopify");
+    const destinationKind = destinationKindOrNull(rawDestination, "invoicexpress");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
+    if (!destinationKind) return NextResponse.json({ error: `Unknown destination_kind ${JSON.stringify(rawDestination)}` }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

@@ -6,6 +6,7 @@ import { RIOKO_CONFIG } from "@/lib/config";
 import { readConnectionFiscal, fiscalPatchFrom, ixCredentialPatchFrom, ixCredentialsOnConnection, ixAccountNameOnConnection } from "@/lib/connection-fiscal";
 import { callWorkerJson } from "@/lib/worker";
 import { missingDestinationCredentials } from "@/lib/destination-credentials";
+import { destinationKindOrNull } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -57,7 +58,9 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const destinationKindParam = new URL(request.url).searchParams.get("destination_kind") ?? "invoicexpress";
+    const rawDestinationParam = new URL(request.url).searchParams.get("destination_kind");
+    const destinationKindParam = destinationKindOrNull(rawDestinationParam, "invoicexpress");
+    if (!destinationKindParam) return NextResponse.json({ error: `Unknown destination_kind ${JSON.stringify(rawDestinationParam)}` }, { status: 400 });
 
     const row: any = await db.prepare(
         `SELECT id, status, source_config_json, destination_config_json, destination_kind, created_at, updated_at
@@ -264,7 +267,9 @@ export async function DELETE(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const destinationKind = new URL(request.url).searchParams.get("destination_kind") ?? "invoicexpress";
+    const rawDestination = new URL(request.url).searchParams.get("destination_kind");
+    const destinationKind = destinationKindOrNull(rawDestination, "invoicexpress");
+    if (!destinationKind) return NextResponse.json({ error: `Unknown destination_kind ${JSON.stringify(rawDestination)}` }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

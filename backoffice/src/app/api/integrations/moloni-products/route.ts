@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { getMoloniAccessToken, missingMoloniCredentials, moloniBaseUrl } from "@/lib/moloni-token";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -50,7 +51,13 @@ export async function GET(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const url = new URL(request.url);
-    const sourceKind = url.searchParams.get("source_kind") ?? "shopify";
+    // A named kind has to be one we know. These reads do not collapse, so the
+    // collapse guard never saw them — but an unrecognised kind still silently
+    // answers with an empty list instead of saying the caller is wrong, and the
+    // rule this file's siblings follow is 400.
+    const rawSource = url.searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "shopify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
     const search = url.searchParams.get("search")?.trim();
     const offset = Number(url.searchParams.get("offset") ?? "0");
     const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 200);

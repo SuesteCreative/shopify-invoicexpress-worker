@@ -31,7 +31,7 @@ import { runNewsletterBroadcast } from "./services/newsletter";
 import { probeConnectionTax, runStripeTaxProbeSweep } from "./services/stripe-tax-probe";
 import { runRunInNotices } from "./services/run-in-notice";
 import { renderRunInPage, handleRunInAnswer } from "./handlers/run-in";
-import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts, externalIdFromEvent } from "./handlers/admin-stripe";
+import { processStripeBackfill, reemitStripeOrder, deleteStripeDraft, issueStripeCreditNote, finalizeStripeDrafts, externalIdFromEvent, loadStripeConnectionFull } from "./handlers/admin-stripe";
 import { sendEmail as sendEmailDirect } from "./services/email";
 import {
   getReconciliation,
@@ -46,7 +46,7 @@ import { runConnectionHealthCheck } from "./services/connection-health";
 import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./handlers/reconciliation-sweep";
 import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
-import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection, applyConnectionEmailPref } from "./services/connection-context";
+import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection, applyConnectionEmailPref, connectionLabelOf } from "./services/connection-context";
 import { stampInvoicePaymentIntent } from "./services/stripe";
 import { resolveStripeAuth, livemodeMatches } from "./services/stripe-auth";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
@@ -760,7 +760,11 @@ app.get("/admin/stripe/webhooks", async (c) => {
   const userId = c.req.query("userId");
   if (!userId) return c.json({ error: "Missing userId" }, 400);
   const conn = await resolveStripeConnection(c.env, userId);
-  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+  if (!conn) return c.json({ error: "No Stripe connection with usable credentials for this user" }, 404);
+  // Endpoints live on the merchant's own Stripe account, which is a thing only
+  // the restricted-key integration has. Say that, rather than 404 as if the
+  // connection were missing.
+  if (!conn.restrictedKey) return c.json({ error: "Stripe Connect merchants are served by the platform's webhook endpoint; there is none on their own account to list" }, 400);
   try {
     const endpoints = await listWebhookEndpoints(conn.restrictedKey);
     return c.json({ connection_id: conn.connectionId, stored_endpoint_id: conn.webhookEndpointId, endpoints });
@@ -776,7 +780,8 @@ app.post("/admin/stripe/webhooks/reenable", async (c) => {
   const { userId, endpoint_id } = await c.req.json<{ userId: string; endpoint_id: string }>();
   if (!userId || !endpoint_id) return c.json({ error: "Missing userId or endpoint_id" }, 400);
   const conn = await resolveStripeConnection(c.env, userId);
-  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+  if (!conn) return c.json({ error: "No Stripe connection with usable credentials for this user" }, 404);
+  if (!conn.restrictedKey) return c.json({ error: "Stripe Connect merchants are served by the platform's webhook endpoint; there is none on their own account to re-enable" }, 400);
   try {
     const endpoint = await reenableWebhookEndpoint(conn.restrictedKey, endpoint_id);
     return c.json({ ok: true, endpoint });
@@ -792,7 +797,8 @@ app.post("/admin/stripe/webhooks/delete", async (c) => {
   const { userId, endpoint_id } = await c.req.json<{ userId: string; endpoint_id: string }>();
   if (!userId || !endpoint_id) return c.json({ error: "Missing userId or endpoint_id" }, 400);
   const conn = await resolveStripeConnection(c.env, userId);
-  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+  if (!conn) return c.json({ error: "No Stripe connection with usable credentials for this user" }, 404);
+  if (!conn.restrictedKey) return c.json({ error: "Stripe Connect merchants are served by the platform's webhook endpoint; there is none on their own account to delete" }, 400);
   try {
     const result = await deleteWebhookEndpoint(conn.restrictedKey, endpoint_id);
     return c.json({ ok: true, ...result });
@@ -807,18 +813,21 @@ app.post("/admin/stripe/webhooks/delete", async (c) => {
 app.post("/admin/stripe/replay", async (c) => {
   const unauth = await requireAdminAuth(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ userId: string; event_id?: string; type?: string; from?: number; to?: number; limit?: number }>();
+  const body = await c.req.json<{ userId: string; event_id?: string; type?: string; from?: number; to?: number; limit?: number; destination_kind?: string }>();
   if (!body.userId) return c.json({ error: "Missing userId" }, 400);
-  const conn = await resolveStripeConnection(c.env, body.userId);
-  if (!conn) return c.json({ error: "No Stripe connection with a restricted_key for this user" }, 404);
+  // The destination is stamped on the queue message below, so an account running
+  // two Stripe connections into different destinations needs a way to say which
+  // one is being replayed instead of having it picked for them.
+  const conn = await resolveStripeConnection(c.env, body.userId, body.destination_kind);
+  if (!conn) return c.json({ error: "No Stripe connection with usable credentials for this user" }, 404);
 
   try {
     let events: any[];
     if (body.event_id) {
-      events = [await getStripeEvent(conn.restrictedKey, body.event_id)];
+      events = [await getStripeEvent(conn.auth, body.event_id)];
     } else {
       const types = body.type ? [body.type] : ["payment_intent.succeeded", "charge.succeeded", "charge.refunded", "checkout.session.completed"];
-      events = await listStripeEvents(conn.restrictedKey, { types, from: body.from, to: body.to, limit: body.limit });
+      events = await listStripeEvents(conn.auth, { types, from: body.from, to: body.to, limit: body.limit });
     }
 
     const appStorage = new AppStorage(c.env);
@@ -830,7 +839,12 @@ app.post("/admin/stripe/replay", async (c) => {
       // Reset dedup so the success-defense re-marks cleanly; the consumer's
       // processed_orders idempotency still blocks a duplicate invoice.
       await appStorage.resetWebhookInfo(event.id, `stripe/${canonical}`);
-      await c.env.STRIPE_QUEUE.send({ topic: canonical, eventId: event.id, userId: body.userId, body: event, destinationKind: conn.destinationKind ?? undefined } satisfies StripeQueueMessage);
+      // `sourceKind` MUST travel with the message. The consumer defaults an
+      // absent one to "stripe", which is right for the restricted-key webhook
+      // route (it never stamps one) and wrong for everything else: a Connect
+      // merchant's replayed payment was resolved against the legacy connection,
+      // with its destination, its series and no run-in hold.
+      await c.env.STRIPE_QUEUE.send({ topic: canonical, eventId: event.id, userId: body.userId, body: event, sourceKind: conn.sourceKind, destinationKind: conn.destinationKind ?? undefined } satisfies StripeQueueMessage);
       queued.push(event.id);
     }
     return c.json({ ok: true, queued_count: queued.length, queued, skipped });
@@ -2129,22 +2143,28 @@ app.post("/admin/connection/invoice-cutoff", async (c) => {
  * shared connection context synthesizes the missing legacy row and projects the
  * connection's own auto_finalize/send_email onto it.
  *
- * `pick_latest` mirrors the LIMIT 1 the Stripe handlers already use when a user
- * somehow has more than one Stripe connection.
+ * The connection is chosen by `loadStripeConnectionFull` and by nothing else,
+ * because this route and the handler it calls used to choose SEPARATELY — this
+ * one by trying `stripe` then `stripe_connect`, the handler by its own ORDER BY —
+ * and the two could land on different rows for the same merchant. That mattered
+ * more than it looks: `projectConnectionBehaviour` only overwrites the keys the
+ * second blob actually states, so `auto_finalize`, `ix_send_email`, the standing
+ * invoice note and the seven 0037 flags of connection A survived into a document
+ * issued by connection B.
+ *
+ * One resolver, then, and this asks it for the destination too — the config is
+ * projected from the SAME pair the handler is about to write with.
  */
 async function loadConfigForUser(c: Context<{ Bindings: Env }>, userId: string) {
-  // Both Stripe connection kinds. Hardcoding "stripe" made every admin recovery
-  // route — backfill, re-emit, credit note, finalize — answer "no connection"
-  // for a merchant on Stripe Connect, whose connection is perfectly healthy.
-  // `stripe` is tried first so a merchant who has both keeps the row these
-  // routes have always resolved for them.
-  for (const source of ["stripe", "stripe_connect"] as const) {
-    const resolved = await resolveConnectionContext(c.env, {
-      userId, source, onAmbiguous: "pick_latest",
-    });
-    if (resolved.ok) return resolved.ctx.config;
-  }
-  return null;
+  const conn = await loadStripeConnectionFull(c.env, userId);
+  if (!conn) return null;
+  const resolved = await resolveConnectionContext(c.env, {
+    userId,
+    source: conn.sourceKind,
+    destination: conn.destinationKind as any,
+    onAmbiguous: "pick_latest",
+  });
+  return resolved.ok ? resolved.ctx.config : null;
 }
 
 app.post("/admin/stripe/backfill", async (c) => {
@@ -3371,7 +3391,18 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
           messageBody: JSON.stringify(body).slice(0, 1000),
         },
         affected_ids: [externalId],
-        connection_label: sourceQueue === "stripeeventsqueue" ? "stripe → invoicexpress" : "shopify → invoicexpress",
+        // From the MESSAGE, not from the queue's name. The queue only says which
+        // family of source this was; the message carries the actual pair, which
+        // is what `document_events` already reads a few lines below. Deriving it
+        // from the queue told a Stripe Connect → Moloni merchant that their
+        // "stripe → invoicexpress" pipe had failed — the loudest email the
+        // platform sends, naming an integration they do not have. It is also the
+        // incident's bucket dimension now, so two integrations failing in the
+        // same hour stop collapsing into one alert.
+        connection_label: connectionLabelOf(
+          body?.sourceKind ?? (sourceQueue === "stripeeventsqueue" ? "stripe" : "shopify"),
+          body?.destinationKind ?? "invoicexpress",
+        ),
         merchant_name: shopDomain ?? undefined,
         order_ref: orderRef,
         client_name: clientName,

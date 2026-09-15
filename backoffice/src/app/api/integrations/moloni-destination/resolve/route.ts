@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { callWorker } from "@/lib/worker";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -34,8 +35,10 @@ export async function POST(request: NextRequest) {
         const db = (env as any).DB;
         if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-        const rawSource = body.source_kind ?? "stripe";
-        const sourceKind = rawSource === "shopify" ? "shopify" : "stripe";
+        // `=== "shopify" ? "shopify" : "stripe"` collapsed BOTH `stripe_connect`
+        // and `lodgify` onto the restricted-key Stripe connection.
+        const sourceKind = sourceKindOrNull(body.source_kind, "stripe");
+        if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
 
         const row: any = await db.prepare(
             `SELECT destination_config_json FROM connections

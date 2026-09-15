@@ -195,11 +195,20 @@ export async function runDocumentVerifySweep(
   }
   result.candidates = candidates.length;
 
-  // Group by merchant so credentials, product mappings and tag rules are
-  // resolved once per connection instead of once per document.
+  // Group by CONNECTION, not by merchant.
+  //
+  // Each candidate already carries the `source_kind` and `destination_kind` the
+  // document was issued under — `document_events` is the one log that records
+  // them, which is why the rollback plan picked it as the reliable way to tell
+  // two connections apart. Grouping by merchant threw that away and then asked
+  // for "a connection for this user", `pick_latest`, which is `updated_at DESC`:
+  // whichever connection had been saved most recently. A document issued by
+  // `stripe_connect → moloni` was then read back with `stripe → invoicexpress`
+  // credentials, and came out either unreadable or — worse — as a drift, an
+  // incident telling the merchant their document does not match itself.
   const byScope = new Map<string, Candidate[]>();
   for (const c of candidates) {
-    const key = c.shopifyDomain ?? c.userId ?? "unknown";
+    const key = `${c.shopifyDomain ?? c.userId ?? "unknown"}|${c.sourceKind ?? ""}|${c.destinationKind ?? ""}`;
     const list = byScope.get(key) ?? [];
     list.push(c);
     byScope.set(key, list);
@@ -215,14 +224,37 @@ export async function runDocumentVerifySweep(
     }
 
     const first = group[0];
+    // The pair the document was issued under, when the row states one. Rows
+    // written before `document_events` carried the pair state neither, and those
+    // keep the old behaviour: ask for the merchant and take the latest.
+    // `shop` short-circuits `resolveConnectionContext` to legacy
+    // Shopify→InvoiceXpress and DISCARDS the source and destination asked for
+    // below. So it may only be offered for a document that pair actually issued:
+    // the shop domain is stamped on rows that have nothing to do with the shop,
+    // and a `shopify → moloni` document handed over with it would be read back
+    // through the InvoiceXpress adapter.
+    const isLegacyShopifyPair =
+      (!first.sourceKind || first.sourceKind === "shopify")
+      && (!first.destinationKind || first.destinationKind === "invoicexpress");
+
     const resolved = await resolveConnectionContext(env, {
-      shop: first.shopifyDomain,
+      shop: isLegacyShopifyPair ? first.shopifyDomain : null,
       userId: first.userId,
+      source: (first.sourceKind as any) ?? undefined,
+      destination: (first.destinationKind as any) ?? undefined,
       onAmbiguous: "pick_latest",
     });
     if (!resolved.ok) {
       result.contextsFailed++;
-      console.warn(`[DocVerify] no connection context for ${scopeKey} — ${group.length} document(s) left unverified`);
+      // Naming the pair is what makes this legible. A document whose connection
+      // was since paused, deleted or pointed at another destination has no
+      // active connection to be read back through — it is not verified, and the
+      // difference between "not verified" and "verified fine" has to be visible
+      // rather than inferred from a counter.
+      console.warn(
+        `[DocVerify] no active connection for ${first.sourceKind ?? "?"}→${first.destinationKind ?? "?"}`
+        + ` (${scopeKey}) — ${group.length} document(s) left unverified`,
+      );
       continue;
     }
 

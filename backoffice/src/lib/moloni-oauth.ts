@@ -27,6 +27,16 @@ export function moloniCallbackUri(): string {
 
 const REFRESH_TOKEN_TTL_DAYS = 14;
 
+/**
+ * How long a Moloni round trip counts as in flight.
+ *
+ * Matches the fifteen minutes the shared OAuth state has always used. The
+ * marker lives on the connection rather than in that column, so it needs its own
+ * expiry: a merchant who starts an authorisation and closes the tab must not
+ * leave the account looking busy forever.
+ */
+const PENDING_TTL_MS = 15 * 60 * 1000;
+
 export type MoloniConnectionRow = {
     id: string;
     /** Whose connection this is: the callback's kill-switch check needs it. */
@@ -38,11 +48,11 @@ export type MoloniConnectionRow = {
 /**
  * The connection this code belongs to.
  *
- * `state` names it outright when Moloni echoes the parameter back. When it does
- * not, the merchant's own pending authorisation is the answer: the start route
- * writes a state with a fifteen minute life on the row it is about to send them
- * away from, so a row still holding a live one is a round trip in flight. The
- * most recent wins, which is the one they just started.
+ * `state` names it outright when Moloni echoes the parameter back. It does not,
+ * in practice — so what actually answers is the marker the start route writes on
+ * the row it is about to send the merchant away from, and which it clears on
+ * that account's other Moloni connections first. One in flight at a time, by
+ * construction.
  */
 export async function findPendingMoloniConnection(
     db: any,
@@ -59,14 +69,40 @@ export async function findPendingMoloniConnection(
             .first();
         if (byState) return byState as MoloniConnectionRow;
     }
+    // `moloni_oauth_pending_at`, not the shared `oauth_state` column.
+    //
+    // That column is the Stripe Connect round trip's too, and on a
+    // `stripe_connect → moloni` connection both flows write it to the SAME row.
+    // Reading it here counted a Stripe authorisation in flight as a Moloni one,
+    // which with the guard below turned somebody else's round trip into a hard
+    // refusal of this one.
+    //
+    // The start route clears this marker on the account's other Moloni
+    // connections before setting its own, so there is only ever one in flight
+    // and the guard below is a net rather than a normal outcome.
+    const cutoff = new Date(Date.now() - PENDING_TTL_MS).toISOString();
     const pending = await db
         .prepare(`SELECT id, source_kind, destination_config_json, source_config_json FROM connections
                    WHERE user_id = ? AND destination_kind = 'moloni'
-                     AND oauth_state IS NOT NULL AND oauth_state_expires_at > ?
-                   ORDER BY updated_at DESC LIMIT 1`)
-        .bind(targetUserId, now)
-        .first();
-    return (pending as MoloniConnectionRow) ?? null;
+                     AND json_extract(destination_config_json, '$.moloni_oauth_pending_at') > ?
+                   ORDER BY json_extract(destination_config_json, '$.moloni_oauth_pending_at') DESC
+                   LIMIT 2`)
+        .bind(targetUserId, cutoff)
+        .all();
+
+    const rows = (pending?.results ?? []) as MoloniConnectionRow[];
+    // Two in flight at once is genuinely ambiguous, and the wrong answer writes
+    // a Moloni access and refresh token pair onto a connection the merchant was
+    // not authorising — which then files that integration's documents into
+    // another company.
+    //
+    // Refusing costs the merchant a retry. Guessing costs a document in the
+    // wrong company, and nothing would say so.
+    if (rows.length > 1) {
+        console.warn(`[moloni-oauth] ${targetUserId}: ${rows.length} Moloni authorisations pending at once and Moloni echoed no state; refusing to choose`);
+        return null;
+    }
+    return rows[0] ?? null;
 }
 
 export type MoloniExchange = { ok: true } | { ok: false; detail: string };
@@ -142,6 +178,10 @@ export async function exchangeMoloniCode(
             moloni_token_expires_at: new Date(now + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000).toISOString(),
             moloni_refresh_expires_at: new Date(now + REFRESH_TOKEN_TTL_DAYS * 86_400_000).toISOString(),
             moloni_oauth_error: null,
+            // The round trip is over. Left standing, it would keep this
+            // connection looking in flight for the rest of its fifteen minutes
+            // and make the next authorisation on the account read as ambiguous.
+            moloni_oauth_pending_at: null,
         }),
         new Date(now).toISOString(), new Date(now).toISOString(), row.id,
     ).run();

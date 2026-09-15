@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -40,7 +41,9 @@ export async function GET(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const url = new URL(request.url);
-    const sourceKind = url.searchParams.get("source_kind") ?? "shopify";
+    const rawSource = url.searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "shopify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -58,7 +61,7 @@ export async function GET(request: NextRequest) {
 }
 
 type PostBody = {
-    source_kind?: "shopify" | "stripe" | "stripe_connect";
+    source_kind?: string;
     source_reference?: string;
     destination_product_id?: number | string;
     destination_reference?: string;
@@ -71,14 +74,15 @@ export async function POST(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const body = await request.json() as PostBody;
-    // Unknown values still fall back to "shopify", the behaviour every existing
-    // caller relies on. "stripe_connect" is spelled out because a mapping stored
-    // under the wrong kind is a mapping the pipeline never finds — the line then
-    // silently falls back to find-or-create by reference against a product that
-    // may carry a different VAT rate.
-    const sourceKind = body.source_kind === "stripe" ? "stripe"
-        : body.source_kind === "stripe_connect" ? "stripe_connect"
-        : "shopify";
+    // Every kind stays itself. The chain this replaces spelled out `stripe` and
+    // `stripe_connect` and sent everything else to "shopify" — which took
+    // `lodgify` and `eupago` with it, and those have live Moloni merchants. The
+    // comment that stood here said exactly what it costs: a mapping stored under
+    // the wrong kind is a mapping the pipeline never finds, so the line falls
+    // back to find-or-create by reference against a product that may carry a
+    // different VAT rate.
+    const sourceKind = sourceKindOrNull(body.source_kind, "shopify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
     const sourceReference = (body.source_reference ?? "").trim();
     const destProductId = Number(body.destination_product_id);
 
@@ -125,7 +129,9 @@ export async function DELETE(request: NextRequest) {
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
     const sourceReference = url.searchParams.get("source_reference");
-    const sourceKind = url.searchParams.get("source_kind") ?? "shopify";
+    const rawSource = url.searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "shopify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

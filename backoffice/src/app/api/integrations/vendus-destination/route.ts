@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -54,7 +55,12 @@ export async function GET(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const sourceKind = (new URL(request.url).searchParams.get("source_kind") ?? "stripe") === "shopify" ? "shopify" : "stripe";
+    // `=== "shopify" ? "shopify" : "stripe"` is why the Lodgify→Vendus wizard —
+    // which sends `source_kind: "lodgify"` — read, wrote and deleted the
+    // `stripe:vendus` connection of the same account.
+    const rawSource = new URL(request.url).searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "stripe");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -88,7 +94,8 @@ export async function POST(request: NextRequest) {
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const body = await request.json() as VendusBody;
-    const sourceKind = body.source_kind === "shopify" ? "shopify" : "stripe";
+    const sourceKind = sourceKindOrNull(body.source_kind, "stripe");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
 
     const status = ["draft", "active", "paused", "error"].includes(body.status || "") ? body.status! : "draft";
 
@@ -148,7 +155,10 @@ export async function DELETE(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const sourceKind = (new URL(request.url).searchParams.get("source_kind") ?? "stripe") === "shopify" ? "shopify" : "stripe";
+    // A DELETE that guessed the kind deleted a connection the caller never named.
+    const rawSource = new URL(request.url).searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSource, "stripe");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

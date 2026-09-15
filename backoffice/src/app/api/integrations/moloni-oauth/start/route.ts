@@ -6,6 +6,7 @@ import { newOAuthState } from "@/lib/oauth-state";
 import { isStripeConnectEnabled, resolveTargetUser } from "@/lib/stripe-connect";
 import { moloniCallbackUri } from "@/lib/moloni-oauth";
 import { normalizeReturnSlug } from "@/lib/oauth-return";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -36,7 +37,14 @@ export async function POST(request: NextRequest) {
     // hardcoded to stripe_connect, which is why Lodgify could never reach
     // Moloni: the row exists, the flow just refused to look at it. Absent still
     // means stripe_connect, so every link already sent out keeps working.
-    const sourceKind = body.source_kind === "lodgify" ? "lodgify" : "stripe_connect";
+    //
+    // A NAMED kind now has to be one we know. Widening it to "lodgify or else
+    // stripe_connect" left every other value pointing at the Connect row, so a
+    // request naming `stripe` wrote that merchant's Moloni client id, client
+    // secret and single-use `oauth_state` onto a connection they had not asked
+    // to authorise — and the state is what the callback matches on.
+    const sourceKind = sourceKindOrNull(body.source_kind, "stripe_connect");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
 
     // The kill switch belongs to Stripe Connect, not to Moloni. Flipping Connect
     // off must not take a Lodgify merchant's invoicing with it.
@@ -91,6 +99,31 @@ export async function POST(request: NextRequest) {
     const sourcePatch = returnSlug
         ? JSON.stringify({ return_slug: returnSlug, return_locale: body.return_locale === "en" ? "en" : "pt" })
         : null;
+
+    // One Moloni round trip in flight at a time, for this account.
+    //
+    // Moloni does not echo the `state` parameter back, so the callback cannot be
+    // told which connection a code belongs to — it has to find the row whose
+    // authorisation is in flight. With two in flight there is no honest answer,
+    // and starting a second one left the first standing for its full fifteen
+    // minutes: pressing "autorizar" again refreshed one and left the other, so
+    // retrying — which is exactly what the error message tells the merchant to
+    // do — could not get them out of it.
+    //
+    // The marker is `moloni_oauth_pending_at`, in this connection's own
+    // destination config, NOT the shared `oauth_state` column. That column is
+    // also the Stripe Connect round trip's, on the very same row for a
+    // `stripe_connect → moloni` connection, so clearing it to disambiguate one
+    // flow would silently break the other.
+    await db.prepare(
+        `UPDATE connections
+            SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
+                updated_at = ?
+          WHERE user_id = ? AND destination_kind = 'moloni' AND id <> ?
+            AND json_extract(destination_config_json, '$.moloni_oauth_pending_at') IS NOT NULL`
+    ).bind(JSON.stringify({ moloni_oauth_pending_at: null }), now, authResult.targetUserId, row.id).run();
+
+    patch.moloni_oauth_pending_at = now;
 
     await db.prepare(
         `UPDATE connections

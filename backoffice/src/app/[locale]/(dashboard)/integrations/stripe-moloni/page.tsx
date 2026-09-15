@@ -110,7 +110,7 @@ export default function StripeMoloniIntegration() {
 
         Promise.all([
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
-            fetch("/api/integrations/stripe-source").then(r => r.json()).catch(() => ({})),
+            fetch("/api/integrations/stripe-source?source_kind=stripe&destination_kind=moloni").then(r => r.json()).catch(() => ({})),
             fetch("/api/integrations/moloni-destination?source_kind=stripe").then(r => r.json()).catch(() => ({})),
         ]).then(([integ, stripe, moloni]: any) => {
             if (integ?._viewer_role) setUserRole(integ._viewer_role);
@@ -205,7 +205,7 @@ export default function StripeMoloniIntegration() {
             const instRes = await fetch("/api/integrations/stripe-source/install-webhook", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ restricted_key: restrictedKey.trim() })
+                body: JSON.stringify({ restricted_key: restrictedKey.trim(), destination_kind: "moloni" })
             });
             const instData: any = await instRes.json().catch(() => ({}));
             if (!instRes.ok) {

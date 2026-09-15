@@ -25,6 +25,46 @@ export function isDestinationKind(v: unknown): v is DestinationKind {
     return typeof v === "string" && (DESTINATION_KINDS as readonly string[]).includes(v);
 }
 
+/**
+ * The source kind a request names — or null when it names one we do not know.
+ *
+ * Routes used to normalize with a ternary chain that ended in a fallback:
+ * `raw === "shopify" ? "shopify" : "stripe"`. That reads like a default and
+ * behaves like a redirect. A request naming `lodgify` or `stripe_connect` did
+ * not fail — it silently addressed a DIFFERENT connection of the same account,
+ * and then read from it, wrote to it, or deleted it. Measured across seven
+ * routes: the Lodgify→Vendus wizard stored its API key on the `stripe:vendus`
+ * connection, and the tag-routing page asked for a Stripe Connect merchant's
+ * series and was shown the Lodgify connection's.
+ *
+ * Absent still means the route's historical default, because a caller that
+ * names nothing is a caller that predates the parameter. Present-and-unknown is
+ * a caller bug, and the answer to a caller bug is 400, not another account's
+ * connection.
+ */
+export function sourceKindOrNull(raw: unknown, whenAbsent: SourceKind): SourceKind | null {
+    if (raw === undefined || raw === null || raw === "") return whenAbsent;
+    return isSourceKind(raw) ? raw : null;
+}
+
+/** The 400 body every caller of `sourceKindOrNull` answers an unknown kind with. */
+export function unknownSourceKindError(raw: unknown): string {
+    return `Unknown source_kind ${JSON.stringify(raw)} — must be one of: ${SOURCE_KINDS.join(", ")}`;
+}
+
+/**
+ * The destination half of the same rule, for the same reason.
+ *
+ * `body.destination_kind === "moloni" ? "moloni" : "invoicexpress"` rewrote the
+ * Stripe→Vendus wizard's stated destination to InvoiceXpress, so its source
+ * credentials landed on a connection naming a destination the merchant never
+ * configured.
+ */
+export function destinationKindOrNull(raw: unknown, whenAbsent: DestinationKind): DestinationKind | null {
+    if (raw === undefined || raw === null || raw === "") return whenAbsent;
+    return isDestinationKind(raw) ? raw : null;
+}
+
 const LABELS: Record<string, string> = {
     shopify: "Shopify",
     // "Legacy" is the merchant-facing name for the original integration: the one

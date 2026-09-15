@@ -64,7 +64,7 @@ export default function StripeVendusIntegration() {
 
         Promise.all([
             fetch("/api/integrations").then(r => r.json()).catch(() => ({})),
-            fetch("/api/integrations/stripe-source").then(r => r.json()).catch(() => ({})),
+            fetch("/api/integrations/stripe-source?source_kind=stripe&destination_kind=vendus").then(r => r.json()).catch(() => ({})),
             fetch("/api/integrations/vendus-destination?source_kind=stripe").then(r => r.json()).catch(() => ({})),
         ]).then(([integ, stripe, vendus]: any) => {
             if (integ?._viewer_role) setUserRole(integ._viewer_role);
@@ -135,7 +135,7 @@ export default function StripeVendusIntegration() {
             const instRes = await fetch("/api/integrations/stripe-source/install-webhook", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ restricted_key: restrictedKey.trim() })
+                body: JSON.stringify({ restricted_key: restrictedKey.trim(), destination_kind: "vendus" })
             });
             const instData: any = await instRes.json().catch(() => ({}));
             if (!instRes.ok) {

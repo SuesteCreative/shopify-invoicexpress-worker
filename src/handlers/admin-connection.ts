@@ -197,7 +197,8 @@ export async function setConnectionInvoiceCutoff(
 function externalIdDescriptor(source: string) {
   switch (source) {
     case "shopify": return { kind: "order_number", label: "Nº da encomenda", placeholder: "1234" };
-    case "stripe": return { kind: "stripe_id", label: "ID Stripe", placeholder: "pi_3Tp…" };
+    case "stripe":
+    case "stripe_connect": return { kind: "stripe_id", label: "ID Stripe", placeholder: "pi_3Tp…" };
     case "lodgify": return { kind: "booking_id", label: "ID da reserva", placeholder: "4429" };
     default: return { kind: "external_id", label: "ID externo", placeholder: "" };
   }
@@ -808,6 +809,12 @@ export async function finalizeConnectionDrafts(env: Env, conn: ConnectionContext
  * Worded per source because only the source knows what to call the transaction,
  * and Portuguese contracts the article differently for each ("à encomenda", "ao
  * pagamento").
+ *
+ * A payment is a payment whichever Stripe credential fetched it, so both kinds
+ * get the same sentence. Leaving `stripe_connect` in the `default` meant a
+ * certified document went out with no justification for a date that is not the
+ * date it was issued — and this is the run-in path, so it was the FIRST
+ * documents a Connect merchant ever issued that were missing it.
  */
 function transactionNote(source: string, externalId: string, orderNumber: number | null | undefined, originalDate: string): string | null {
   const when = formatPtDate(originalDate);
@@ -815,6 +822,7 @@ function transactionNote(source: string, externalId: string, orderNumber: number
     case "shopify":
       return orderNumber != null ? `Fatura referente à encomenda #${orderNumber} de ${when}` : null;
     case "stripe":
+    case "stripe_connect":
       return `Fatura referente ao pagamento Stripe ${externalId} de ${when}`;
     case "lodgify":
       return `Fatura referente à reserva LOD-${externalId} de ${when}`;

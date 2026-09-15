@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
 import { RIOKO_CONFIG } from "@/lib/config";
+import { destinationKindOrNull } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -49,17 +50,32 @@ export async function POST(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const body = await request.json().catch(() => ({})) as { restricted_key?: string };
+    const body = await request.json().catch(() => ({})) as { restricted_key?: string; destination_kind?: string };
     const restrictedKey = (body.restricted_key || "").trim();
     if (!restrictedKey) return NextResponse.json({ error: "Missing restricted_key" }, { status: 400 });
+
+    // Which of the account's Stripe connections this endpoint belongs to.
+    //
+    // `source_kind = 'stripe' LIMIT 1` with no destination filter picked the
+    // first row SQLite offered. A merchant running Stripe→InvoiceXpress and
+    // Stripe→Moloni installed the webhook from one wizard and had the signing
+    // secret written onto whichever row came back — leaving the connection they
+    // were actually configuring without one, and silently.
+    //
+    // Only `stripe`: Stripe Connect merchants are served by the platform's own
+    // endpoint and have nothing to install on their account.
+    const destinationKind = destinationKindOrNull(body.destination_kind, "invoicexpress");
+    if (!destinationKind) {
+        return NextResponse.json({ error: `Unknown destination_kind ${JSON.stringify(body.destination_kind)}` }, { status: 400 });
+    }
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
     const row: any = await db
-        .prepare("SELECT id, source_config_json FROM connections WHERE user_id = ? AND source_kind = 'stripe' LIMIT 1")
-        .bind(authResult.targetUserId)
+        .prepare("SELECT id, source_config_json FROM connections WHERE user_id = ? AND source_kind = 'stripe' AND destination_kind = ? LIMIT 1")
+        .bind(authResult.targetUserId, destinationKind)
         .first();
 
     if (!row) return NextResponse.json({ error: "No Stripe connection found. Save Stripe credentials first." }, { status: 404 });

@@ -6,8 +6,8 @@ import { useState, useEffect, useMemo } from "react";
 import { Loader2, AlertTriangle, Search, ArrowLeft, Trash2, Plus, Pencil, Save, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { useSearchParams } from "next/navigation";
-import { kindLabel } from "@/lib/connection-kinds";
+import { useSearchParams, notFound } from "next/navigation";
+import { kindLabel, sourceKindOrNull } from "@/lib/connection-kinds";
 
 type SourceProduct = {
     source_reference: string;
@@ -36,8 +36,18 @@ const EXEMPTION_PRESETS = ["", "M01", "M07", "M11", "M16", "M40", "M99"];
 export default function IxOverridesPage() {
     const t = useTranslations("ixOverrides");
     const searchParams = useSearchParams();
-    const rawSource = searchParams?.get("source_kind") ?? "shopify";
-    const sourceKind = (["shopify", "stripe", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "lodgify" | "eupago";
+    // The URL names the connection. A kind this page does not recognise is a
+    // broken link, not a reason to show the merchant somebody else's data: the
+    // whitelist here quietly answered "shopify" for anything it had not been
+    // told about, and it had not been told about stripe_connect. The API route
+    // refuses an unknown kind with a 400 — but only if the page lets one reach it.
+    const rawSource = searchParams?.get("source_kind");
+    const maybeSource = sourceKindOrNull(rawSource, "shopify");
+
+    // An unrecognised kind in the URL is a broken link. Rendering anyway is
+    // how a merchant ends up reading — and editing — another integration.
+    if (!maybeSource) notFound();
+    const sourceKind = maybeSource;
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");

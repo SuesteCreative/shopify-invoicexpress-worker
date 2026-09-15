@@ -5,6 +5,7 @@ import { resolveAccountUser } from "@/lib/account";
 import { probeConnectionTaxInBackground } from "@/lib/stripe-connect";
 import { STATUS_UPSERT_SQL } from "@/lib/connection-lifecycle";
 import { MAX_CUSTOM_INVOICE_NOTE } from "@/lib/connection-fiscal";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -98,25 +99,24 @@ function redactConfig(cfg: Record<string, unknown>) {
 /**
  * Which connection a Moloni settings write belongs to.
  *
- * Unknown values still collapse to "stripe", which is the behaviour every caller
- * has relied on since this route was written. The only thing that changed is
- * that "stripe_connect" is now a value of its own — without it, the new wizard's
- * settings would be written straight onto an existing Stripe→Moloni customer's
- * live connection, which is the one row this project must not touch.
+ * Was a local ternary chain ending in "stripe". It grew `stripe_connect` when
+ * that wizard shipped — without it the new wizard's settings went straight onto
+ * an existing Stripe→Moloni customer's live connection — but it never grew
+ * `eupago`, and an unknown value still collapsed rather than failing. It is now
+ * the shared rule, so the next source kind arrives here without anyone
+ * remembering to come and add it.
  */
-function normalizeSourceKind(raw: string | null | undefined): string {
-    if (raw === "shopify") return "shopify";
-    if (raw === "lodgify") return "lodgify";
-    if (raw === "stripe_connect") return "stripe_connect";
-    return "stripe";
+function normalizeSourceKind(raw: string | null | undefined): string | null {
+    return sourceKindOrNull(raw, "stripe");
 }
 
 export async function GET(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const rawSrc = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
+    const rawSrc = new URL(request.url).searchParams.get("source_kind");
     const sourceKind = normalizeSourceKind(rawSrc);
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSrc) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
@@ -151,10 +151,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json() as MoloniBody;
 
-    // lodgify must stay "lodgify" so the Lodgify webhook handler finds the
-    // destination config in the same row as the source config. All other
-    // non-shopify sources collapse to "stripe".
+    // Every source kind stays itself. `lodgify` has to, so the Lodgify webhook
+    // handler finds the destination config in the same row as the source config
+    // — and the same is true of every other kind, which is why the collapse to
+    // "stripe" was never safe for any of them.
     const sourceKind = normalizeSourceKind(body.source_kind);
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
     // Resolved AFTER the existing row is read (below), because the default for a
     // connection that already exists is the status it already has. Defaulting to
     // "draft" took a live connection off the air every time someone saved a
@@ -352,8 +354,9 @@ export async function DELETE(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
-    const rawSrc2 = new URL(request.url).searchParams.get("source_kind") ?? "stripe";
+    const rawSrc2 = new URL(request.url).searchParams.get("source_kind");
     const sourceKind = normalizeSourceKind(rawSrc2);
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSrc2) }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;

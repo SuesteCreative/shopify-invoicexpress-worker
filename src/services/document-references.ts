@@ -123,9 +123,16 @@ export function cancelReference(_source: SourceKind, key: string | number): stri
  * alone: documents credited before the conventions were unified carry the old
  * `StripeCancel <id>` form, and a lookup that misses one issues a second credit
  * note against an already-credited invoice.
+ *
+ * BOTH Stripe kinds, because `issueStripeCreditNote` writes `StripeCancel <id>`
+ * for both — it is one code path and the reference does not depend on the kind.
+ * Listing it for `stripe` alone meant a Connect credit note was written under a
+ * spelling the next idempotency check did not look for, so the same invoice
+ * could be credited twice; and a merchant migrated from a restricted key to
+ * Connect stopped being able to find their own historical credit notes.
  */
 export function cancelReferenceCandidates(source: SourceKind, key: string | number): string[] {
   const refs = [cancelReference(source, key)];
-  if (source === "stripe") refs.push(`StripeCancel ${key}`);
+  if (source === "stripe" || source === "stripe_connect") refs.push(`StripeCancel ${key}`);
   return refs;
 }

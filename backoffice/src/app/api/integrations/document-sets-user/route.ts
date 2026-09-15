@@ -2,6 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
+import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -24,8 +25,15 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    const rawSrc = new URL(request.url).searchParams.get("source_kind") ?? "lodgify";
-    const sourceKind = ["shopify", "stripe", "lodgify"].includes(rawSrc) ? rawSrc : "lodgify";
+    // The whitelist here had no `stripe_connect`, and the fallback was
+    // "lodgify". The tag-routing page asks with `source_kind=stripe_connect`, so
+    // a Stripe Connect merchant building a tag rule was shown the document sets
+    // of their LODGIFY connection — read with that connection's Moloni
+    // credentials — and could save a rule naming a series that belongs to
+    // another integration.
+    const rawSrc = new URL(request.url).searchParams.get("source_kind");
+    const sourceKind = sourceKindOrNull(rawSrc, "lodgify");
+    if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSrc) }, { status: 400 });
 
     const row: any = await db
         .prepare(

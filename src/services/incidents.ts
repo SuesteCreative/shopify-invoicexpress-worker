@@ -10,6 +10,7 @@ import { getCompanyRulesNotes } from "./company-rules";
 import { redactSecrets, redactDeep } from "./redact";
 import { isInactiveAccount } from "./inactive-accounts";
 import { resolveAccountIdentity, type AccountIdentity } from "./account-label";
+import { prettyConnectionLabel } from "./platform-names";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -69,9 +70,34 @@ export function bucketKeyFor(input: ReportIncidentInput, now: Date): string {
   const granularity = input.bucket ?? "hourly";
   const iso = now.toISOString();
   const bucketPart = granularity === "daily" ? iso.slice(0, 10) : iso.slice(0, 13); // YYYY-MM-DD or YYYY-MM-DD-HH (T as sep)
+  // The CONNECTION, because an account is not an integration.
+  //
+  // Without it, a `destination_reject` on `stripe → invoicexpress` and one on
+  // `stripe_connect → moloni` in the same hour were ONE incident: occurrences
+  // went to 2, the summary was overwritten by whichever arrived second, and
+  // `notified_at` was already set so no second email went out. The merchant was
+  // told about one integration failing and never heard that the other had too —
+  // and the incident they did read carried the first one's connection label,
+  // which points the operator at the wrong pipe.
+  //
+  // `connection_label` rather than `connection_id`: it is what the callers
+  // already pass and what the email already prints, and the column almost
+  // nobody fills would have made this a no-op for most of them. An absent label
+  // leaves the key exactly as it was, so nothing regroups for a caller that
+  // names no connection.
+  //
+  // SPELLED, because the callers do not agree on how to write it. Most pass the
+  // raw identifiers (`stripe → invoicexpress`); a handful go through
+  // `connectionLabelOf`, which prettifies (`Stripe → InvoiceXpress`). Keying on
+  // the string as given would make those two DIFFERENT buckets for the same
+  // connection — and `queue_retry_exhausted`, which is critical and reported
+  // from eight places in both spellings, would raise two alerts for one failure.
+  // `prettyConnectionLabel` looks its tokens up in lowercase, so it is
+  // idempotent and both spellings land on the same key.
+  const connectionPart = input.connection_label ? `:${prettyConnectionLabel(input.connection_label)}` : "";
   // `dedup_key` splits the time bucket per subject — see ReportIncidentInput.
   const subjectPart = input.dedup_key ? `:${input.dedup_key}` : "";
-  return `${userPart}:${input.kind}:${bucketPart}${subjectPart}`;
+  return `${userPart}:${input.kind}${connectionPart}:${bucketPart}${subjectPart}`;
 }
 
 /**

@@ -6,8 +6,8 @@ import { useState, useEffect, useMemo } from "react";
 import { Loader2, Check, AlertTriangle, ChevronRight, Search, ArrowLeft, Link2, Unlink, Sparkles } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { useSearchParams } from "next/navigation";
-import { kindLabel } from "@/lib/connection-kinds";
+import { useSearchParams, notFound } from "next/navigation";
+import { kindLabel, sourceKindOrNull } from "@/lib/connection-kinds";
 
 type SourceProduct = {
     source_reference: string;
@@ -39,8 +39,18 @@ type Mapping = {
 export default function MoloniMappingsPage() {
     const t = useTranslations("moloniMappings");
     const searchParams = useSearchParams();
-    const rawSource = searchParams?.get("source_kind") ?? "shopify";
-    const sourceKind = (["shopify", "stripe", "stripe_connect", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "stripe_connect" | "lodgify" | "eupago";
+    // The URL names the connection. A kind this page does not recognise is a
+    // broken link, not a reason to show the merchant somebody else's data: the
+    // whitelist here quietly answered "shopify" for anything it had not been
+    // told about, and it had not been told about stripe_connect. The API route
+    // refuses an unknown kind with a 400 — but only if the page lets one reach it.
+    const rawSource = searchParams?.get("source_kind");
+    const maybeSource = sourceKindOrNull(rawSource, "shopify");
+
+    // An unrecognised kind in the URL is a broken link. Rendering anyway is
+    // how a merchant ends up reading — and editing — another integration.
+    if (!maybeSource) notFound();
+    const sourceKind = maybeSource;
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<string | null>(null); // source_reference being saved

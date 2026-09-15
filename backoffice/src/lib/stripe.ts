@@ -147,10 +147,19 @@ export function pickSubscription(rows: SubscriptionRow[], connectionKey: string)
  * The account's oldest integration — a Shopify shop older than any connection
  * wins over them, same rule as migration 0044 and the Stripe webhook, so all
  * three agree on which connection an unattributed subscription belongs to.
+ *
+ * With one refinement, applied to the webhook at the same time so the three keep
+ * agreeing: an ACTIVE connection beats an older one that is not. The oldest
+ * connection of an account that moved from a restricted key to Stripe Connect is
+ * the retired legacy row, and pricing a generic checkout against it charges for
+ * a pair the merchant no longer runs.
  */
 export async function primaryConnectionKey(db: D1Database, userId: string): Promise<string> {
     const conn: any = await db.prepare(
-        "SELECT source_kind, destination_kind, created_at FROM connections WHERE user_id = ? ORDER BY created_at ASC LIMIT 1"
+        `SELECT source_kind, destination_kind, created_at FROM connections
+          WHERE user_id = ?
+          ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at ASC
+          LIMIT 1`
     ).bind(userId).first();
     const shop: any = await db.prepare(
         "SELECT created_at FROM integrations WHERE user_id = ? AND shopify_domain IS NOT NULL AND shopify_domain <> '' LIMIT 1"

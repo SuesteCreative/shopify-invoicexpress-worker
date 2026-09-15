@@ -51,12 +51,28 @@ type StripeSourceKind = "stripe" | "stripe_connect";
 // merchant as having no Stripe connection at all. The ORDER BY keeps `stripe`
 // first, so a user who only has the restricted-key connection gets the identical
 // row this query has always returned.
-async function loadStripeConnectionFull(env: Env, userId: string): Promise<StripeConnFull | null> {
+//
+// ACTIVE ONLY, and that is the whole point of the status filter. A connection
+// that is not active is not facturing, so it has no business deciding what a
+// recovery route does — and an abandoned `stripe` wizard, left in `draft` with a
+// restricted key still in it, is exactly the row that used to win. The merchant
+// then read "no Stripe credentials on connection" over a perfectly healthy
+// Stripe Connect connection, and every recovery route that DID find credentials
+// ran with `source = "stripe"`: the wrong destination, the wrong series, and —
+// because `runInHoldsFinalize` only holds `stripe_connect` — no run-in hold, so
+// a new merchant's first sale certified instead of waiting in draft.
+//
+// This is also the ONLY place a Stripe recovery connection is chosen. Callers
+// must not resolve one of their own: two resolutions of the same user drifted
+// apart, and the flags of connection A then decided connection B's document.
+// ponytail: still picks for the operator when a merchant has two ACTIVE Stripe
+// connections. It says so in the log; give it the pair when the console can name one.
+export async function loadStripeConnectionFull(env: Env, userId: string): Promise<StripeConnFull | null> {
   const res = await env.DB.prepare(
     `SELECT source_kind, destination_kind, source_config_json, destination_config_json, invoice_cutoff, created_at
        FROM connections
-      WHERE user_id = ? AND source_kind IN ('stripe', 'stripe_connect')
-      ORDER BY CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END`
+      WHERE user_id = ? AND source_kind IN ('stripe', 'stripe_connect') AND status = 'active'
+      ORDER BY CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END, updated_at DESC`
   ).bind(userId).all();
 
   const parse = (s: string | null): Record<string, any> | undefined => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
@@ -84,7 +100,17 @@ async function loadStripeConnectionFull(env: Env, userId: string): Promise<Strip
   // while pointing at the wrong row. Among rows that CAN authenticate, `stripe`
   // still wins, so a merchant with two working connections keeps the one these
   // routes have always resolved for them.
-  return rows.find((r) => r.auth) ?? rows[0];
+  const chosen = rows.find((r) => r.auth) ?? rows[0];
+
+  // Two live Stripe connections is a real configuration, and picking between
+  // them is a guess. Say which one was picked, so an operator reading the logs
+  // after a surprising document can see the choice that was made for them.
+  if (rows.length > 1) {
+    console.warn(
+      `[Stripe] ${userId} has ${rows.length} active Stripe connections (${rows.map((r) => `${r.sourceKind}→${r.destinationKind}`).join(", ")}); recovery picked ${chosen.sourceKind}→${chosen.destinationKind}`,
+    );
+  }
+  return chosen;
 }
 
 // The externalId the pipeline dedups on for a given event payload.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { stripeToNormalized, stripeStableId } from "./stripe-source";
-import { documentReference } from "../../services/document-references";
+import { documentReference, cancelReferenceCandidates } from "../../services/document-references";
 
 // The reference is the ONLY cross-system idempotency key we have: before issuing
 // anything the pipeline asks the destination "do you already hold a document with
@@ -89,5 +89,31 @@ describe("Stripe document reference", () => {
     });
     expect(ref(mk("in_A"))).not.toBe(ref(mk("in_B")));
     expect(ref(mk("in_A"))).not.toBe("Order #0");
+  });
+});
+
+describe("the references a cancel credit note is looked up under", () => {
+  // `issueStripeCreditNote` writes `StripeCancel <id>` for BOTH Stripe kinds —
+  // one code path, and the spelling does not depend on the kind. The lookup list
+  // named only `stripe`, so a Connect credit note was filed under a reference
+  // the next idempotency check did not search for: run it twice and the merchant
+  // holds two credit notes against one invoice. A merchant migrated from a
+  // restricted key to Connect also lost sight of their own history.
+
+  it("includes the written spelling for both Stripe kinds", () => {
+    for (const source of ["stripe", "stripe_connect"] as const) {
+      expect(cancelReferenceCandidates(source, "pi_3Tp")).toContain("StripeCancel pi_3Tp");
+    }
+  });
+
+  it("leads with the unified spelling, whichever kind asked", () => {
+    for (const source of ["stripe", "stripe_connect"] as const) {
+      expect(cancelReferenceCandidates(source, "pi_3Tp")[0]).toBe("OrderCancel #pi_3Tp");
+    }
+  });
+
+  it("does not offer the Stripe spelling to a source that never wrote one", () => {
+    expect(cancelReferenceCandidates("lodgify", 4429)).toEqual(["OrderCancel #4429"]);
+    expect(cancelReferenceCandidates("shopify", 1234)).toEqual(["OrderCancel #1234"]);
   });
 });

@@ -2,7 +2,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest, NextResponse } from "next/server";
 import { RIOKO_CONFIG } from "@/lib/config";
 import { isStripeConnectEnabled, resolveTargetUser } from "@/lib/stripe-connect";
-import { exchangeMoloniCode, findPendingMoloniConnection, moloniCallbackUri } from "@/lib/moloni-oauth";
+import { exchangeMoloniCode, findPendingMoloniConnection, moloniCallbackUri, recordMoloniFailure } from "@/lib/moloni-oauth";
 import { resolveReturnPath, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 
 export const runtime = "edge";
@@ -49,8 +49,16 @@ export async function GET(request: NextRequest) {
         returnPath = resolveReturnPath(startedOn.return_slug, startedOn.return_locale);
     }
 
-    if (error) return backToWizard("denied", params.get("error_description") ?? error);
-    if (!code) return backToWizard("error", "O Moloni não devolveu o código de autorização");
+    // A refusal ends the round trip too. Left in flight, the row stayed "busy"
+    // for its full fifteen minutes, and a second attempt on another connection
+    // of the same account read as two at once — which is refused outright.
+    if (error || !code) {
+        const detail = error
+            ? (params.get("error_description") ?? error)
+            : "O Moloni não devolveu o código de autorização";
+        if (row) await recordMoloniFailure(db, row.id, detail);
+        return backToWizard(error ? "denied" : "error", detail);
+    }
 
     if (!row) {
         // Says what is actually true. It used to say the authorisation had

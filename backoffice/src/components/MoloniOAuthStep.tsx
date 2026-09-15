@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, Copy, Info, KeyRound, Link2, Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { moloniCallbackUri } from "@/lib/moloni-oauth";
+import { moloniCallbackUri } from "@/lib/moloni-callback";
 
 /** What `/api/integrations/moloni-destination` offers from the account's other Moloni connection. */
 export interface MoloniSiblingDefaults {
@@ -40,6 +40,7 @@ export default function MoloniOAuthStep({
     authorized,
     legacyPassword,
     sibling,
+    resumeMigration,
     onError,
     onBack,
     onContinue,
@@ -58,6 +59,13 @@ export default function MoloniOAuthStep({
     authorized: boolean;
     legacyPassword: boolean;
     sibling: MoloniSiblingDefaults | null;
+    /**
+     * The merchant is coming back from Moloni. The form has to be open: pressing
+     * "Mudar para OAuth" is browser state, and the authorisation leaves the page
+     * entirely — so a legacy connection whose authorisation was refused came back
+     * to the red message with the form collapsed and no button to try again.
+     */
+    resumeMigration?: boolean;
     onError: (message: string) => void;
     onBack?: () => void;
     onContinue?: () => void;
@@ -68,8 +76,9 @@ export default function MoloniOAuthStep({
 
     const [connecting, setConnecting] = useState(false);
     const [copied, setCopied] = useState(false);
-    // A password connection only shows the OAuth form once the merchant asks for it.
-    const [migrating, setMigrating] = useState(false);
+    // A password connection only shows the OAuth form once the merchant asks for
+    // it, or when the merchant is on the way back from Moloni.
+    const [migrating, setMigrating] = useState(!!resumeMigration);
 
     const redirectUri = moloniCallbackUri();
 
@@ -103,14 +112,17 @@ export default function MoloniOAuthStep({
             const json: any = await res.json().catch(() => ({}));
             if (!res.ok || !json.authorize_url) {
                 onError(json.error ?? `HTTP ${res.status}`);
+                setConnecting(false);
                 return;
             }
             // Full-page navigation, not a popup: the consent screen has to be
-            // unmistakably Moloni's own page.
+            // unmistakably Moloni's own page. The button stays disabled through
+            // it: cleared here, it came back to life while the browser was still
+            // leaving, and a second press started a second round trip — which is
+            // the state the callback refuses to choose between.
             window.location.href = json.authorize_url;
         } catch (e: any) {
             onError(e?.message ?? "Unknown error");
-        } finally {
             setConnecting(false);
         }
     };

@@ -4,6 +4,7 @@ import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
 import type { AdapterCtx } from "../adapters/types";
 import { getMoloniCfg, getAccessToken, moloniCall } from "../adapters/destinations/moloni-destination";
+import { createMoloniTokenProvider, isMoloniOAuthConfig } from "../services/moloni-oauth";
 import { stripeFetch } from "../services/stripe";
 import { scoreHeuristicMatch } from "./reconciliation-score";
 import { mapWithConcurrency } from "../services/concurrency";
@@ -552,8 +553,35 @@ async function fetchStripeReconOrders(env: Env, ctx: ReconContext, from: string,
 // page Moloni's docs once, build a { pi_id → document_id } index, and cache it
 // in KV so subsequent page loads don't re-page Moloni. Rioko's OWN invoices
 // already live in processed_orders, so this only fills the historical gap.
-async function buildStripeMoloniRefIndex(ctx: ReconContext, fromYmd: string): Promise<Record<string, string>> {
-  const ctxLike = { apiKey: "", config: ctx.config, destinationConfig: ctx.destinationConfig } as AdapterCtx;
+/**
+ * The adapter context reconciliation reads Moloni with.
+ *
+ * Hand-rolled here rather than through `buildAdapterCtx`, which needs a whole
+ * pipeline run — but it must still carry the token provider. Without it,
+ * `readMoloniCfg` looks for a username and a password, which an OAuth connection
+ * does not have and a migrated one no longer has: it threw, every caller
+ * swallowed the throw, and the page came back with "detalhe indisponível" on
+ * every row, no credits, and an empty reference index. Silently, with no
+ * incident, for exactly the connections this product is moving everyone to.
+ */
+function moloniReconCtx(env: Env, ctx: ReconContext): AdapterCtx {
+  return {
+    apiKey: "",
+    config: ctx.config,
+    destinationConfig: ctx.destinationConfig,
+    moloniToken: isMoloniOAuthConfig(ctx.destinationConfig) && ctx.userId
+      ? (createMoloniTokenProvider(env, {
+          userId: ctx.userId,
+          source: ctx.source,
+          destination: ctx.destination,
+          destinationConfig: ctx.destinationConfig,
+        }) ?? undefined)
+      : undefined,
+  } as AdapterCtx;
+}
+
+async function buildStripeMoloniRefIndex(env: Env, ctx: ReconContext, fromYmd: string): Promise<Record<string, string>> {
+  const ctxLike = moloniReconCtx(env, ctx);
   const cfg = await getMoloniCfg(ctxLike);
   const token = await getAccessToken(cfg);
   const index: Record<string, string> = {};
@@ -596,7 +624,7 @@ async function getStripeMoloniRefIndex(env: Env, ctx: ReconContext, fromYmd: str
   } catch { /* treat as miss */ }
   let index: Record<string, string> = {};
   try {
-    index = await buildStripeMoloniRefIndex(ctx, fromYmd);
+    index = await buildStripeMoloniRefIndex(env, ctx, fromYmd);
   } catch (e) {
     console.error("[Recon] Stripe→Moloni ref index build failed:", e);
     return new Map();
@@ -825,8 +853,8 @@ async function fetchIxByReference(config: IRequestConfig, ref: string, deadline?
 
 // Moloni invoice metadata. Reuses the destination adapter's OAuth + call layer.
 // cfg/token are resolved lazily once per run and memoized across the fetches.
-function makeMoloniMetaFetcher(ctx: ReconContext): MetaFetcher {
-  const ctxLike = { apiKey: "", config: ctx.config, destinationConfig: ctx.destinationConfig } as AdapterCtx;
+function makeMoloniMetaFetcher(env: Env, ctx: ReconContext): MetaFetcher {
+  const ctxLike = moloniReconCtx(env, ctx);
   const docType = String(ctx.destinationConfig?.moloni_document_type ?? "invoice").toLowerCase();
   // Tag-routing can emit EITHER an invoice or an invoice_receipt (and any
   // series), so a stored document_id may live under either endpoint. Try the
@@ -1057,9 +1085,9 @@ function makeIxMetaFetcher(ctx: ReconContext): MetaFetcher {
   };
 }
 
-function getMetaFetcher(ctx: ReconContext): MetaFetcher {
+function getMetaFetcher(env: Env, ctx: ReconContext): MetaFetcher {
   switch (ctx.destination) {
-    case "moloni": return makeMoloniMetaFetcher(ctx);
+    case "moloni": return makeMoloniMetaFetcher(env, ctx);
     case "invoicexpress": return makeIxMetaFetcher(ctx);
     default:
       // Vendus/others: no meta fetcher yet — treat every invoice as detail-unavailable.
@@ -1105,7 +1133,7 @@ export async function getReconciliation(
   opts: { skipRefCache?: boolean } = {},
 ) {
   const appStorage = new AppStorage(env, ctx.scope, ctx.userId);
-  const meta = getMetaFetcher(ctx);
+  const meta = getMetaFetcher(env, ctx);
   /** How much of the recovery pass actually ran. See `summary.recovery_*`. */
   const recovery = { probed: 0, found: 0, unknown: 0, remaining: 0 };
 

@@ -86,6 +86,10 @@ export default function ShopifyMoloniIntegration() {
                         setUsername(String(cfg.moloni_username ?? ""));
                         setHasSavedPassword(!!cfg.has_password);
                         setMoloniAuthorized(!!cfg.moloni_authorized);
+                        // Why the last authorisation did not go through, from the
+                        // row — not just the flash in the URL, which a reload
+                        // throws away.
+                        if (cfg.moloni_oauth_error) setMoloniError(String(cfg.moloni_oauth_error));
                         setCompanyName(String(cfg.moloni_company_name ?? ""));
                         setDocumentSetName(String(cfg.moloni_document_set_name ?? ""));
                         setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
@@ -230,6 +234,7 @@ export default function ShopifyMoloniIntegration() {
                     authorized={moloniAuthorized}
                     legacyPassword={legacyPassword}
                     sibling={siblingDefaults}
+                    resumeMigration={!!moloniResult}
                     onError={setMoloniError}
                 />
                 {moloniError && (
@@ -288,7 +293,7 @@ export default function ShopifyMoloniIntegration() {
                 </button>
                 <button
                     type="button"
-                    disabled={saving || !shopifyConnected || !moloniReady}
+                    disabled={saving || !shopifyConnected || !moloniReady || !companyName.trim()}
                     onClick={() => save("active")}
                     className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 w-full sm:w-auto"
                 >

@@ -121,6 +121,45 @@ describe("a connection migrating from a password to OAuth", () => {
     });
 });
 
+describe("a connection that is already on OAuth", () => {
+    it("is not re-pointed at an account that cannot see its company", async () => {
+        // Re-authorising is how a merchant fixes an expired token, and it lands
+        // on whichever Moloni account the browser is logged into. A connection
+        // invoicing into a company is as badly hurt by the wrong one as a
+        // migrating connection is.
+        stubMoloni([{ company_id: 9, name: "Outra Empresa" }]);
+        const db = fakeDb();
+        const row = {
+            id: "conn-3",
+            destination_config_json: JSON.stringify({
+                moloni_client_id: "111", moloni_client_secret: "s",
+                moloni_auth_mode: "oauth", moloni_refresh_token: "old-rt",
+                moloni_company_id: 7, moloni_company_name: "Empresa Exemplo",
+            }),
+        };
+
+        expect((await exchangeMoloniCode(db as any, row, "code", "https://app/callback")).ok).toBe(false);
+        expect(db.patch()).not.toHaveProperty("moloni_refresh_token");
+    });
+
+    it("comes back out of error when the merchant re-authorises", async () => {
+        // Every worker lookup filters on status = 'active'; a connection parked
+        // in error by a refused refresh invoices nothing until something moves it.
+        stubMoloni([{ company_id: 7, name: "Empresa Exemplo" }]);
+        const db = fakeDb();
+        const row = {
+            id: "conn-4",
+            destination_config_json: JSON.stringify({
+                moloni_client_id: "111", moloni_client_secret: "s", moloni_company_id: 7,
+                moloni_auth_mode: "oauth", moloni_refresh_token: "old-rt",
+            }),
+        };
+
+        expect(await exchangeMoloniCode(db as any, row, "code", "https://app/callback")).toEqual({ ok: true });
+        expect(db.writes[db.writes.length - 1].sql).toMatch(/status = CASE WHEN status = 'error' THEN 'active'/);
+    });
+});
+
 describe("a connection that never had a password", () => {
     it("is authorised without any company check", async () => {
         // Nothing to protect and nothing to compare against: a new connection has

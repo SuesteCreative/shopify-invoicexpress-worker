@@ -125,7 +125,13 @@ export async function POST(request: NextRequest) {
     // Both halves from the same place. An id typed on this page with a secret
     // borrowed from a sibling would pair two different apps.
     const fromTyped = typedId && typedSecret ? { id: typedId, secret: typedSecret } : null;
+    // The same rule on this side, and it is the one that actually bit: the
+    // wizard lets a merchant authorise with the secret box empty whenever one is
+    // stored, so a Developer ID typed over the one on screen paired a NEW app
+    // with the OLD app's secret. Moloni refuses that pair, and the same two
+    // fields are what every later token refresh is signed with.
     const fromStored = stored.moloni_client_id && (typedSecret || stored.moloni_client_secret)
+        && (!typedId || typedId === String(stored.moloni_client_id))
         ? { id: typedId || stored.moloni_client_id, secret: typedSecret || stored.moloni_client_secret }
         : null;
     const fromSibling = sibling?.client_id && sibling?.client_secret && (!typedId || typedId === sibling.client_id)
@@ -137,7 +143,12 @@ export async function POST(request: NextRequest) {
     const app = fromTyped ?? fromStored ?? fromSibling ?? fromEnv;
 
     if (!app) {
-        return NextResponse.json({ error: "Faltam o Developer ID e o Client Secret do Moloni." }, { status: 400 });
+        const changedId = !!typedId && !!stored.moloni_client_id && typedId !== String(stored.moloni_client_id);
+        return NextResponse.json({
+            error: changedId
+                ? "Mudou o Developer ID: cole também o Client Secret dessa aplicação Moloni. O segredo guardado pertence à aplicação anterior."
+                : "Faltam o Developer ID e o Client Secret do Moloni.",
+        }, { status: 400 });
     }
     const clientId = app.id;
     const clientSecret = app.secret;
@@ -145,18 +156,22 @@ export async function POST(request: NextRequest) {
     const { state, expiresAt } = newOAuthState();
     const now = new Date().toISOString();
 
-    // A connection still invoicing on a password keeps invoicing on it until
-    // Moloni has actually handed back a token pair.
+    // A connection that is invoicing right now keeps invoicing on what it has
+    // until Moloni hands back a token pair.
     //
-    // The worker reads `moloni_auth_mode` alone to decide how to authenticate.
-    // Writing it here, before the consent screen, would switch a working
-    // connection to a token that does not exist yet: a merchant who pressed
-    // "Mudar para OAuth" and closed the tab, or was refused by Moloni, would
-    // stop being invoiced with nothing on screen to say so. The new app waits
-    // in `moloni_pending_*` instead, and the callback promotes it only once the
-    // exchange has succeeded.
-    const fromPassword = !!stored.moloni_password && !stored.moloni_refresh_token;
-    const patch: Record<string, any> = fromPassword
+    // Whatever authenticates it today — a password, or a refresh token from an
+    // earlier authorisation — is what the worker uses on the next document, and
+    // this request has proved nothing yet. Written straight in, the new app
+    // replaces a working one the moment the merchant presses the button: a
+    // re-authorisation abandoned at the consent screen left the row holding a
+    // client secret, or an environment toggled to sandbox, that its live token
+    // pair does not match, and invoicing stopped with nothing on screen. So the
+    // new app waits in `moloni_pending_*`, and the exchange promotes it.
+    //
+    // A connection with no working credential has nothing to protect, and needs
+    // `moloni_auth_mode` set so activation knows it is an OAuth connection.
+    const hasLiveCredential = !!stored.moloni_refresh_token || !!stored.moloni_password;
+    const patch: Record<string, any> = hasLiveCredential
         ? { moloni_pending_client_id: clientId, moloni_pending_client_secret: clientSecret }
         : { moloni_auth_mode: "oauth", moloni_client_id: clientId, moloni_client_secret: clientSecret };
     // Cleared here so a re-authorisation after a failure does not leave the old
@@ -166,7 +181,7 @@ export async function POST(request: NextRequest) {
         ? body.environment
         : (stored.moloni_environment ? undefined : sibling?.environment);
     if (environment === "sandbox" || environment === "production") {
-        patch[fromPassword ? "moloni_pending_environment" : "moloni_environment"] = environment;
+        patch[hasLiveCredential ? "moloni_pending_environment" : "moloni_environment"] = environment;
     }
 
     // Where the callback puts the merchant down. A slug through the fixed map in
@@ -200,15 +215,26 @@ export async function POST(request: NextRequest) {
     ).bind(JSON.stringify({ moloni_oauth_pending_at: null }), now, authResult.targetUserId, row.id).run();
 
     patch.moloni_oauth_pending_at = now;
+    // The nonce goes in the blob as well, for the same reason the marker does.
+    //
+    // It used to be written to the `oauth_state` COLUMN, which on a
+    // `stripe_connect → moloni` row is the Stripe Connect round trip's own CSRF
+    // nonce — same row, one column. A merchant who started the Stripe step and
+    // did the Moloni step before coming back had their Stripe state overwritten
+    // here, and nulled again when the Moloni code was exchanged: Stripe's
+    // callback then found no row for its state and refused an authorisation
+    // that was perfectly valid. Two flows, two nonces, no shared column.
+    patch.moloni_oauth_state = state;
+    patch.moloni_oauth_state_expires_at = expiresAt;
 
     await db.prepare(
         `UPDATE connections
             SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
                 source_config_json = CASE WHEN ? IS NULL THEN source_config_json
                     ELSE json_patch(COALESCE(source_config_json, '{}'), ?) END,
-                oauth_state = ?, oauth_state_expires_at = ?, updated_at = ?
+                updated_at = ?
           WHERE id = ?`
-    ).bind(JSON.stringify(patch), sourcePatch, sourcePatch, state, expiresAt, now, row.id).run();
+    ).bind(JSON.stringify(patch), sourcePatch, sourcePatch, now, row.id).run();
 
     // The same URL for every merchant and every connection: a Moloni developer
     // app holds exactly one callback, so a URL that changed per connection was a

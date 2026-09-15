@@ -61,6 +61,39 @@ export function isAlreadyFinalizedIxError(error: unknown): boolean {
 }
 
 /**
+ * IX refused the CONTENT of the document, and will refuse it identically for ever.
+ *
+ * These are field validations — a missing exemption reason, a credit note worth
+ * more than what it credits, a blank required field. No amount of retrying moves
+ * them, and retrying is not free: on 2026-09-14 one refund InvoiceXpress would
+ * never accept ("Razão de isenção deve ter uma opção selecionada") went round the
+ * queue 42 times in an hour, and each pass created another credit note for the
+ * OTHER refund on the same order. 22 documents out of one refusal.
+ *
+ * Deliberately phrase-matched and deliberately narrow: a 502, a timeout or a
+ * proxy falling over under load matches none of these and keeps its full retry
+ * budget, which is the behaviour that must not regress.
+ */
+export function isIxValidationRefusal(error: unknown): boolean {
+  const s = JSON.stringify(error ?? "").toLowerCase();
+  return (
+    s.includes("razão de isenção") ||
+    s.includes("razao de isencao") ||
+    s.includes("deve ter uma opção selecionada") ||
+    s.includes("deve ter uma opcao selecionada") ||
+    s.includes("não pode ser superior") ||
+    s.includes("nao pode ser superior") ||
+    s.includes("can't be greater") ||
+    s.includes("cannot be greater") ||
+    s.includes("não pode estar em branco") ||
+    s.includes("nao pode estar em branco") ||
+    s.includes("can't be blank") ||
+    s.includes("is invalid") ||
+    s.includes("validation_error")
+  );
+}
+
+/**
  * IX refused the document's DATE, not the document. Two shapes matter:
  * "Vencimento deve ser igual ou posterior à data do documento" (the due date is
  * behind the issue date) and the series' chronology rule, which IX words as

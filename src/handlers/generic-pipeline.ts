@@ -18,6 +18,7 @@ import { logDocumentEvent, explainPlatformError } from "../services/document-log
 import { connectionLabelOf } from "../services/connection-context";
 import { runInHoldsFinalize } from "../services/run-in";
 import { httpStatusOf } from "../services/platform-error";
+import { isIxValidationRefusal } from "../adapters/destinations/ix-finalize";
 import { extractPtNif, simplifiedInvoiceBlocker, SIMPLIFIED_INVOICE_MAX_TOTAL } from "../adapters/destinations/moloni-destination";
 import { forcedDocTypeForSettlement } from "../services/lodgify-amounts";
 
@@ -106,7 +107,7 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
     if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("autenticação") || msg.includes("auth")) {
       return { kind: "auth_failure_destination", severity: "critical", permanent: true };
     }
-    if (looksPermanent4xx(msg)) {
+    if (looksPermanent4xx(msg) || isIxValidationRefusal(msg)) {
       return { kind: "destination_reject", severity: "critical", permanent: true };
     }
     // Could be Moloni 5xx or transient destination outage — let the queue retry.
@@ -118,7 +119,12 @@ export function classifyPipelineError(err: any): { kind: IncidentKind; severity:
     || (msg.includes("moloni") && msg.includes("finalize"))
     || (msg.includes("vendus") && msg.includes("finalize"))
   ) {
-    if (looksPermanent4xx(msg)) {
+    // A field validation is not a 4xx we can see: the proxy forwards IX's own
+    // wording inside a 200 envelope, so the status never reaches the message.
+    // Without this, "O total não pode ser superior ao total dos documentos
+    // relacionados" — a refusal that is identical on every attempt — kept the
+    // full ten-retry budget, and every attempt left another draft behind.
+    if (looksPermanent4xx(msg) || isIxValidationRefusal(msg)) {
       return { kind: "destination_reject", severity: "critical", permanent: true };
     }
     return { kind: "destination_reject", severity: "error", permanent: false };

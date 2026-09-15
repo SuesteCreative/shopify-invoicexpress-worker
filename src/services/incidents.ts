@@ -236,6 +236,10 @@ const MERCHANT_ACTIONABLE_KINDS = new Set<IncidentKind>([
   // possible; the merchant edits or deletes the draft. Money has already gone
   // back to the buyer, so this should not wait for the Friday digest.
   "credit_note_on_draft",
+  // A refund that no credit note can mirror. Same reasoning as the line above:
+  // the buyer already has the money back, and until someone issues the document
+  // by hand the invoice overstates what was sold.
+  "credit_note_not_mirrored",
   // An active connection that cannot reach its destination. Only the merchant
   // holds the credential, nothing else in the system will ever notice (there is
   // no document to reject), and every day it stays unnoticed is a day of sales

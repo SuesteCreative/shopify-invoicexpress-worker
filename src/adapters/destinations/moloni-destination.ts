@@ -1489,6 +1489,57 @@ function moloniDocTotal(doc: any): number | null {
   return Number.isFinite(total) && total !== 0 ? total : null;
 }
 
+/**
+ * Insert a credit note, close it, and never leave one that names no document.
+ *
+ * Moloni accepts `associated_documents` on the insert and does not keep it
+ * through the separate close. Measured on Hyrox Training Portugal, 15/09/2026:
+ * NC M 45 and NC M 46 came out with the right amounts, the right VAT, and an
+ * empty association, while all 20 credit notes the merchant already had carry
+ * one — 16 of them over a fatura-recibo, so the document type is not the cause.
+ *
+ * A credit note that names nothing is not a regularization: article 78.º of the
+ * CIVA works off the document being rectified. So the association is sent AGAIN
+ * on the close, the result is read back, and a credit note that still has none
+ * is annulled and the call fails. Better a loud failure than a certified
+ * document that looks like it undid something and proves nothing.
+ */
+async function insertClosedCreditNote(
+  cfg: MoloniCfg,
+  token: string,
+  payload: Record<string, unknown>,
+  associated: Array<{ associated_id: number; value: number }>,
+): Promise<string> {
+  const inserted = await moloniCall<{ document_id?: number }>(
+    cfg, token, "/creditNotes/insert/",
+    { ...payload, status: 0, associated_documents: associated },
+    "credit create",
+  );
+  const creditId = inserted?.document_id;
+  if (!creditId) {
+    throw new Error(`Moloni credit create failed: insert returned no document_id — ${safeErrorJson(inserted)}`);
+  }
+
+  // Resend the link at the close; without it the close drops what insert took.
+  await moloniCall(
+    cfg, token, "/creditNotes/update/",
+    { document_id: Number(creditId), status: 1, associated_documents: associated },
+    "credit create",
+  );
+
+  const read = await moloniCall<any>(cfg, token, "/documents/getOne/", { document_id: Number(creditId) }, "lookup");
+  const linked = Array.isArray(read?.associated_documents) && read.associated_documents.length > 0;
+  if (!linked) {
+    await moloniCall(cfg, token, "/creditNotes/update/", { document_id: Number(creditId), status: 2 }, "credit create")
+      .catch(() => { /* annulling is best effort; the throw below is what matters */ });
+    throw new Error(
+      `Moloni credit create failed: credit note ${creditId} would not keep its link to document `
+      + `${associated.map((a) => a.associated_id).join(", ")}. It was annulled rather than left unlinked.`,
+    );
+  }
+  return String(creditId);
+}
+
 // The source document's line items, for the per-line `related_id` a credit note
 // requires and for the cash-delta VAT rate.
 async function fetchMoloniDocLines(
@@ -2058,16 +2109,9 @@ export class MoloniDestination implements DestinationAdapter {
       return { creditId: "", number: null, alreadyExisted: false, preview: payload };
     }
 
-    const inserted = await moloniCall<{ document_id?: number }>(
-      cfg, token, "/creditNotes/insert/", payload, "credit create",
-    );
-    const creditId = inserted?.document_id;
-    if (!creditId) throw new Error(`Moloni credit create returned no document_id for ${invoiceId}`);
+    const creditId = await insertClosedCreditNote(cfg, token, payload, [{ associated_id: Number(invoiceId), value: gross }]);
 
-    // Close it: an open credit note has not undone anything.
-    await moloniCall(cfg, token, "/creditNotes/update/", { document_id: Number(creditId), status: 1 }, "finalize");
-
-    return { creditId: String(creditId), number: null, alreadyExisted: false };
+    return { creditId, number: null, alreadyExisted: false };
   }
 
   async prepareFinalizeBatch(
@@ -2699,22 +2743,12 @@ export class MoloniDestination implements DestinationAdapter {
       ...(exchange ? { exchange_currency_id: exchange.currencyId, exchange_rate: exchange.rate } : {}),
     };
 
-    const inserted = await moloniCall<{ document_id?: number }>(
-      cfg, token, "/creditNotes/insert/", payload, "credit create",
-    );
-    const creditId = inserted?.document_id;
-    if (!creditId) {
-      throw new Error(`Moloni credit create failed: insert returned no document_id — ${safeErrorJson(inserted)}`);
-    }
+    const creditId = await insertClosedCreditNote(cfg, token, payload, [{
+      associated_id: Number(invoiceId),
+      value: refund.amountToRefund > 0 ? refund.amountToRefund : products.reduce((acc, p) => acc + p.qty * p.price, 0),
+    }]);
 
-    // Close the credit note immediately so it is fiscally valid, matching IX.
-    await moloniCall(
-      cfg, token, "/creditNotes/update/",
-      { document_id: Number(creditId), status: 1 },
-      "credit create",
-    );
-
-    return { creditId: String(creditId) };
+    return { creditId };
   }
 
   async emailDocument(invoiceId: string, ctx: AdapterCtx): Promise<void> {

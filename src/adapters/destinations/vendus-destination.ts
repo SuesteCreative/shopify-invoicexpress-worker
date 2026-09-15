@@ -6,6 +6,7 @@ import type {
   NormalizedRefund,
 } from "../types";
 import type { Normalized } from "../../api/normalize-shopify";
+import { planRefundCredit, refundInDocumentMoney, documentNotCreditable, type MirrorLine } from "../../ix/credit-mirror";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { refundReference, documentReference } from "../../services/document-references";
 import { platformError } from "../../services/platform-error";
@@ -324,23 +325,70 @@ function extractDocId(data: unknown): string | null {
   return id !== undefined && id !== null ? String(id) : null;
 }
 
-// Find the 1-based row index of the refund item inside the original document.
-// Matches first by `reference` (SKU), then by `title`.
-function findOriginalRow(
-  originalItems: NonNullable<VendusDocumentResponse["items"]>,
-  refundItem: Normalized["order"]["items"][number],
-): number | null {
-  const sku = refundItem.sku?.trim();
-  if (sku) {
-    const idx = originalItems.findIndex(it => (it.reference ?? "").trim() === sku);
-    if (idx >= 0) return idx + 1;
+/**
+ * The credit note for a refund, mirrored off a Vendus document's own rows.
+ *
+ * Vendus prices are VAT-inclusive, and each row carries the tax CODE its register
+ * maps to a rate — NOR, INT and RED are different rates on the mainland, in
+ * Madeira and in the Azores. So the mirror works on the gross price and hands
+ * each row's code back unchanged: the rate never has to be known, so it can
+ * never be guessed. What this replaces sent an amount-only refund as an exempt
+ * ISE line, declaring the refund of a taxed sale tax-free.
+ *
+ * UNVERIFIED like the rest of this adapter: the rows are assumed to read back
+ * under their POST field names. No Vendus connection is live.
+ */
+function planVendusRefundCredit(
+  original: VendusDocumentResponse,
+  refund: NormalizedRefund,
+):
+  | { ok: true; items: VendusItem[]; total: number; basis: string }
+  | { ok: false; reason: string; nothingToCredit?: boolean; detail?: Record<string, unknown> } {
+  const rows = original.items ?? [];
+  if (rows.length === 0) return { ok: false, reason: `o documento ${original.number} não tem linhas para espelhar` };
+  if (rows.some((row) => !row.tax_id)) {
+    return { ok: false, reason: `uma linha do documento ${original.number} não traz o código de IVA — não o adivinho` };
   }
-  const wanted = lineTitle(refundItem).trim();
-  if (wanted) {
-    const idx = originalItems.findIndex(it => (it.title ?? "").trim() === wanted);
-    if (idx >= 0) return idx + 1;
-  }
-  return null;
+
+  const docItems: MirrorLine[] = rows.map((row, i) => {
+    const qty = Number(row.qty ?? 1) || 1;
+    const price = Number(row.gross_price ?? 0);
+    const percent = Number(row.discount_percentage ?? 0);
+    const amount = Number(row.discount_amount ?? 0);
+    const discount = percent > 0 ? percent : amount > 0 && price > 0 ? (amount / (price * qty)) * 100 : 0;
+    return { quantity: qty, name: String(row.title ?? ""), unit_price: price, tax: 0, ...(discount > 0 ? { discount } : {}), docIndex: i };
+  });
+
+  const docTotal = Number(original.amount_gross);
+  const plan = planRefundCredit({
+    docTotal,
+    docItems,
+    sources: [],
+    refund: { refundId: refund.refundId, amount: refundInDocumentMoney(refund, docTotal), lineItems: [] },
+    rawRefund: null,
+    taxesIncluded: true,
+    alreadyCredited: refund.alreadyCredited,
+    cashRefund: "proportional",
+  });
+  if (!plan.ok) return plan;
+
+  const items = plan.items.map((line): VendusItem => {
+    const index = line.docIndex ?? 0;
+    const row = rows[index];
+    return {
+      qty: line.quantity,
+      title: String(row.title ?? "").slice(0, 200),
+      gross_price: line.unit_price,
+      tax_id: row.tax_id as VendusItem["tax_id"],
+      ...(row.tax_exemption ? { tax_exemption: String(row.tax_exemption) } : {}),
+      ...(line.discount ? { discount_percentage: line.discount } : {}),
+      ...(row.reference ? { reference: String(row.reference) } : {}),
+      type_id: (row.type_id as VendusItem["type_id"]) ?? "P",
+      stock_control: 0,
+      reference_document: { document_number: String(original.number), document_row: index + 1 },
+    };
+  });
+  return { ok: true, items, total: plan.total, basis: plan.basis };
 }
 
 export class VendusDestination implements DestinationAdapter {
@@ -471,57 +519,30 @@ export class VendusDestination implements DestinationAdapter {
   async issueCredit(
     invoiceId: string,
     refund: NormalizedRefund,
-    normalized: Normalized,
     ctx: AdapterCtx,
+    opts: { dryRun?: boolean } = {},
   ): Promise<DestinationCreditResult> {
     const cfg = readVendusConfig(ctx);
 
-    // Fetch the original to obtain `number` and `items[]` row positions.
+    // The original: its number, its client and its rows are what the credit note
+    // mirrors — never the order rebuilt from the source.
     const get = await vendusFetch<VendusDocumentResponse | { data: VendusDocumentResponse }>(
       cfg, "GET", `/documents/${encodeURIComponent(invoiceId)}/`,
     );
+    if (get.status === 404) return documentNotCreditable(invoiceId, "deleted");
     if (!get.ok || !get.data) {
       throw platformError(`Vendus credit create failed: cannot fetch original ${invoiceId}: status=${get.status} body=${get.raw.slice(0, 500)}`, get.status);
     }
     const original = extractDoc(get.data);
-    const originalNumber = original?.number;
-    const originalItems = original?.items ?? [];
-    if (!originalNumber) {
+    if (!original?.number) {
       throw new Error(`Vendus credit create failed: original document has no number. id=${invoiceId}`);
     }
+    // "A" is Vendus's cancelled status (see the file header).
+    if (String(original.status ?? "") === "A") return documentNotCreditable(invoiceId, "canceled");
 
-    const client = buildClient(normalized);
-    const refundItems = normalized.order.items.filter(it => refund.itemsIds.includes(it.id));
-
-    const items: VendusItem[] = [];
-    for (const refundItem of refundItems) {
-      const line = buildItem(refundItem, cfg);
-      const row = findOriginalRow(originalItems, refundItem);
-      if (row === null) {
-        throw new Error(
-          `Vendus credit create failed: cannot map refund item to original row. ` +
-          `original=${originalNumber} sku=${refundItem.sku ?? ""} title=${lineTitle(refundItem)}`,
-        );
-      }
-      line.reference_document = { document_number: originalNumber, document_row: row };
-      items.push(line);
-    }
-
-    // Amount-only refunds: attach to row 1 as a single adjustment line.
-    // UNVERIFIED — confirm whether Vendus accepts an NC item whose monetary
-    // value exceeds the referenced original row. If it rejects, the coordinator
-    // must split into per-row credits.
-    if (refund.amountToRefund > 0 && items.length === 0) {
-      items.push({
-        qty: 1,
-        title: `Refund amount (#${refund.refundId})`,
-        gross_price: refund.amountToRefund,
-        tax_id: "ISE",
-        tax_exemption: cfg.ix_exemption_reason ?? "M40",
-        type_id: "O",
-        stock_control: 0,
-        reference_document: { document_number: originalNumber, document_row: 1 },
-      });
+    const planned = planVendusRefundCredit(original, refund);
+    if (!planned.ok) {
+      return { status: "refused", reason: planned.reason, nothingToCredit: planned.nothingToCredit, detail: planned.detail };
     }
 
     const body: Record<string, unknown> = {
@@ -529,11 +550,13 @@ export class VendusDestination implements DestinationAdapter {
       mode: "normal",
       date: new Date().toISOString().slice(0, 10),
       reference: refundReference(refund.refundId),
-      client,
-      items,
+      client: original.client ?? { name: "Consumidor final" },
+      items: planned.items,
     };
     if (cfg.vendus_register_id !== undefined) body.register_id = cfg.vendus_register_id;
     if (cfg.vendus_series_id !== undefined) body.serie = cfg.vendus_series_id;
+
+    if (opts.dryRun) return { status: "preview", total: planned.total, basis: planned.basis, payload: body };
 
     const { ok, status, data, raw } = await vendusFetch<VendusDocumentResponse | { data: VendusDocumentResponse }>(
       cfg, "POST", "/documents/", body,
@@ -545,7 +568,7 @@ export class VendusDestination implements DestinationAdapter {
     if (!creditId) {
       throw new Error(`Vendus credit create failed: no id returned. body=${raw.slice(0, 500)}`);
     }
-    return { creditId };
+    return { status: "issued", creditId, total: planned.total };
   }
 
   async emailDocument(invoiceId: string, ctx: AdapterCtx): Promise<void> {

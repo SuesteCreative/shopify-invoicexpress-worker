@@ -1,3 +1,4 @@
+import type { DestinationCreditResult } from "../adapters/types";
 import { ixExpectedTotals } from "./create-invoice";
 
 /**
@@ -31,6 +32,13 @@ export interface MirrorLine {
   unit_price: number;
   tax: MirrorTax;
   discount?: number;
+  /**
+   * Which line of the source document this one mirrors, for a destination whose
+   * own line carries more than a MirrorLine can hold — Moloni's product and
+   * `related_id`, Vendus's row number. Survives the planner; never set on the
+   * lines sent to InvoiceXpress.
+   */
+  docIndex?: number;
 }
 
 /**
@@ -123,6 +131,59 @@ export function mirrorItemsFromIxDocument(inv: any): { items: MirrorLine[]; gros
   }
 
   return { items, gross: rebuilt.gross };
+}
+
+/**
+ * A refund measured in the money of the document it credits.
+ *
+ * A sale invoiced in the currency it was paid in: the refund as it came. A sale
+ * invoiced in another one — Stripe settled it in euros, or InvoiceXpress had it
+ * restated at the ECB rate — credits the refunded SHARE of the document instead.
+ * Converting the refund on its own, at another day's rate, would not add up to
+ * the invoice it undoes, and a full refund must credit that invoice exactly.
+ *
+ * NaN when the share cannot be worked out; the planner refuses NaN.
+ */
+export function refundInDocumentMoney(
+  refund: { grossAmount: number; saleTotal?: number | null; converted?: boolean },
+  docTotal: number,
+): number {
+  const gross = round2(Number(refund.grossAmount));
+  if (!refund.converted) return gross;
+  const sale = Number(refund.saleTotal);
+  if (!(sale > 0) || !Number.isFinite(docTotal)) return NaN;
+  if (Math.abs(gross - sale) < 0.005) return round2(docTotal);
+  return round2((docTotal * gross) / sale);
+}
+
+/**
+ * A document that is not certified has no credit note to receive.
+ *
+ * A draft is corrected or deleted; an annulled document has already been undone;
+ * a deleted one never was fiscal. Refused on the destination's own read, before
+ * anything is built — InvoiceXpress answers a credit note on a deleted draft with
+ * "Owner document must not be in draft", and the queue retried that for hours
+ * (50xbtj-vv #1070 and #1071, 15/09/2026).
+ */
+export function documentNotCreditable(
+  invoiceId: string,
+  state: "draft" | "canceled" | "deleted",
+): Extract<DestinationCreditResult, { status: "refused" }> {
+  if (state === "draft") {
+    return {
+      status: "refused",
+      documentState: state,
+      reason: `o documento ${invoiceId} ainda é um rascunho — um rascunho corrige-se ou apaga-se, não se credita`,
+    };
+  }
+  return {
+    status: "refused",
+    documentState: state,
+    nothingToCredit: true,
+    reason: state === "canceled"
+      ? `o documento ${invoiceId} está anulado — já não há nada para creditar`
+      : `o documento ${invoiceId} já não existe no destino — foi apagado, ou nunca chegou a ser fiscal`,
+  };
 }
 
 /** The builder has named every shipping line this way, in every version it has had. */
@@ -311,6 +372,10 @@ export function planRefundCredit(input: {
   // does not FAIL those checks — NaN compares false — it silently passes them.
   if (!Number.isFinite(docTotal) || docTotal <= 0) {
     return { ok: false, reason: `não consigo ler o total da fatura (${String(docTotal)}) — não credito sem saber quanto foi facturado`, detail };
+  }
+
+  if (!Number.isFinite(money)) {
+    return { ok: false, reason: `não consigo ler quanto foi reembolsado — não credito sem saber o valor`, detail };
   }
 
   // No money moved, and the invoice already says what the order is worth now:

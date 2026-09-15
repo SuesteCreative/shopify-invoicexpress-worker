@@ -218,10 +218,6 @@ export class LodgifySource implements SourceAdapter {
     // PT default: 6% IVA (alojamento local, Lista I Verba 2.17 CIVA).
     // Override via integrations.force_tax_rate for edge cases (e.g. rural turismo = 0%).
     const taxRate = ctx.config.force_tax_rate != null ? Number(ctx.config.force_tax_rate) : 6;
-    const netUnit = taxRate > 0
-      ? Math.round((grossTotal / (1 + taxRate / 100)) * 10000) / 10000
-      : grossTotal;
-
     // Enrich guest with full contact details (address, postal code, split name,
     // notes). The v2 booking object only carries name/email/phone/country_code;
     // the v1 reservation endpoint additionally exposes street_address, city,
@@ -484,19 +480,15 @@ export class LodgifySource implements SourceAdapter {
       invoice_reference: partial?.reference ?? null,
     };
 
-    // For declined bookings, build a credit entry covering the full paid amount.
-    // The pipeline's "refund" topic reads credits[] and calls issueCredit() per entry.
-    // amountToRefund = credit.amount - sum(line_items.subtotal) is the delta passed
-    // to issueCredit; we keep both equal so no extra delta line is added.
+    // A declined booking credits what was paid for it. The destination mirrors
+    // its own document against that amount (src/ix/credit-mirror.ts), so the
+    // full amount credits the document exactly as issued — lines, rates and all.
+    // This used to pass the NET, to dodge the "refund delta" line the old credit
+    // path built from the difference; that path is gone.
     const credits = isDeclined ? [{
       refund_id: orderNumeric,
-      amount: netUnit, // net so delta = 0; tax handled by Moloni product settings
-      line_items: [{
-        id: lineItems[0].id,
-        quantity: 1,
-        subtotal: netUnit,
-        total_tax: Math.round((grossTotal - netUnit) * 100) / 100,
-      }],
+      amount: grossTotal,
+      line_items: [],
     }] : [];
 
     return {

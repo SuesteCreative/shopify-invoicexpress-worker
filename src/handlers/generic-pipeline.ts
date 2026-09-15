@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import type { IRequestConfig, SourceKind, DestinationKind } from "../storage";
 import { AppStorage } from "../storage";
 import { getSourceAdapter, getDestinationAdapter } from "../adapters/registry";
-import type { AdapterCtx } from "../adapters/types";
+import type { AdapterCtx, DestinationCreditResult } from "../adapters/types";
 import { checkSubscriptionGate } from "../services/subscription-gate";
 import { isIntegrationPaused } from "../services/pause-gate";
 import { decideVat } from "../adapters/tax-rates";
@@ -887,30 +887,22 @@ async function runPipelineCore(
       const normalized = await sourceAdapter.toNormalized(body, ctx);
       if (!normalized) throw new Error(`[Pipeline] Failed to normalize ${logTopic} ${externalId}`);
 
-      // The credit note corrects a document whose lines were re-rated, so it
-      // has to be built from the same rates. Same call, same connection flag.
-      // The credit note corrects a document whose lines were re-rated, so it is
-      // built from the same decision — including the exemption code, which on
-      // this path used to be discarded and left the note carrying the
-      // connection's standing code instead of the invoice's.
-      ctx.vat = await decideVat(normalized, ctx, destination);
-
       const invoice = await appStorage.getInvoiceByOrderId(externalId);
       if (!invoice?.invoice_id) throw new Error(`[Pipeline] Invoice not found for refund of ${externalId}`);
+      const invoiceId = String(invoice.invoice_id);
+      const { orderRef, clientName } = describeOrder(body);
 
       // A credit note only corrects a FINALIZED document. A held draft has
-      // nothing to correct — the merchant edits or deletes it. See the same
-      // guard in refunds-create.ts, which also catches plain (unheld) drafts
-      // because it has the destination document in hand.
+      // nothing to correct — the merchant edits or deletes it. A plain draft is
+      // caught by the destination's own read of the document, below.
       if (invoice.hold_reason) {
-        const { orderRef, clientName } = describeOrder(body);
         await reportIncident(env, {
           user_id: config.user_id,
           severity: "warning",
           kind: "credit_note_on_draft",
-          dedup_key: String(invoice.invoice_id),
-          summary: `Reembolso em ${orderRef ?? externalId} não gerou nota de crédito porque o documento ${invoice.invoice_id} está em rascunho retido (${invoice.hold_reason}). Corrija ou apague o rascunho.`,
-          detail: { externalId, invoiceId: invoice.invoice_id, holdReason: invoice.hold_reason, source, destination },
+          dedup_key: invoiceId,
+          summary: `Reembolso em ${orderRef ?? externalId} não gerou nota de crédito porque o documento ${invoiceId} está em rascunho retido (${invoice.hold_reason}). Corrija ou apague o rascunho.`,
+          detail: { externalId, invoiceId, holdReason: invoice.hold_reason, source, destination },
           affected_ids: [externalId],
           connection_label: connectionLabel,
           order_ref: orderRef,
@@ -919,18 +911,18 @@ async function runPipelineCore(
         await logDocumentEvent(env, {
           externalId,
           event: "skipped",
-          dedupKey: `skipped:credit_held:${invoice.invoice_id}`,
-          invoiceId: invoice.invoice_id,
+          dedupKey: `skipped:credit_held:${invoiceId}`,
+          invoiceId,
           userId: config.user_id,
           shopifyDomain: config.shopify_domain,
           sourceKind: source,
           destinationKind: destination,
           actor: "pipeline",
-          summary: `Reembolso sem nota de crédito: o documento ${invoice.invoice_id} está em rascunho retido (${invoice.hold_reason}) e um rascunho corrige-se, não se credita.`,
-          detail: { invoiceId: invoice.invoice_id, holdReason: invoice.hold_reason },
+          summary: `Reembolso sem nota de crédito: o documento ${invoiceId} está em rascunho retido (${invoice.hold_reason}) e um rascunho corrige-se, não se credita.`,
+          detail: { invoiceId, holdReason: invoice.hold_reason },
         });
         if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
-        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: `Skipped credit note: held draft (${invoice.hold_reason})`, status: 200 });
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId }), response: `Skipped credit note: held draft (${invoice.hold_reason})`, status: 200 });
         return;
       }
 
@@ -941,45 +933,173 @@ async function runPipelineCore(
       const refundRoute = parseStoredRoute(invoice.routed_json);
       if (refundRoute) ctx = applyTagRoute(ctx, destination, refundRoute);
 
-      // Per-credit dedup: query the destination by the canonical credit-note
-      // reference. Without this, a re-delivered refund webhook would issue
-      // duplicate credit notes — a fiscal-document bug. Mirrors the legacy
-      // refunds-create.ts filter that checks existing credit notes first.
+      // One credit note per refund, decided by our own ledger — the one the
+      // Shopify path writes too (AppStorage.claimRefundCredit). This used to be
+      // decided by asking the destination for the reference, and a read that
+      // fails answers "none": that is how one Bikini Books refund became 22
+      // credit notes. Keyed per account, like the Shopify path, so the two paths
+      // see each other's notes against the same document.
+      const ledgerScope = config.user_id || config.shopify_domain || "";
+      // A sale invoiced in another money than it was paid in credits the refunded
+      // share of its document — see refundInDocumentMoney.
+      const paidAbroad = (normalized.order as any).paid_in_foreign_currency;
+      const converted = !!paidAbroad || String(normalized.order.currency ?? "EUR").toUpperCase() !== "EUR";
+      const saleTotal = Number(paidAbroad?.amount ?? normalized.order.total);
+
       let issuedCount = 0;
       let skippedCount = 0;
+      // Sequentially: two refunds of one sale are each measured against what the
+      // other has already taken off the document.
       for (const credit of normalized.credits) {
-        const reference = refundReference(credit.refund_id);
-        if (destAdapter.findByReference) {
-          const existing = await destAdapter.findByReference(reference, ctx);
+        const refundId = credit.refund_id;
+        const reference = refundReference(refundId);
+        const money = Math.round(Number(credit.amount) * 100) / 100;
+
+        const claim = await appStorage.claimRefundCredit(ledgerScope, refundId, invoiceId, money);
+        if (claim.status === "blocked") {
+          throw new Error(
+            `[Pipeline] Não consegui ler o registo de notas de crédito para o reembolso ${refundId} — não emito às cegas.`,
+          );
+        }
+        if (claim.status !== "won") {
+          skippedCount++;
+          continue;
+        }
+
+        // Refusing is an outcome, never a throw: a throw sends the refund back
+        // through the queue, and nothing about a refund that cannot be mirrored
+        // changes by trying again.
+        const refuse = async (reason: string, detail: Record<string, unknown> = {}, opts: { incident?: boolean } = {}) => {
+          console.warn(`[Pipeline] Refund ${refundId} on ${externalId}: ${reason}`);
+          await appStorage.markRefundCreditRefused(ledgerScope, refundId, reason);
+          if (opts.incident !== false) {
+            await reportIncident(env, {
+              user_id: config.user_id,
+              severity: "warning",
+              kind: "credit_note_not_mirrored",
+              dedup_key: String(refundId),
+              summary: `Reembolso de ${money.toFixed(2)} € em ${orderRef ?? externalId} sem nota de crédito: ${reason}. `
+                + `O documento ${invoiceId} tem de ser creditado à mão.`,
+              detail: { externalId, invoiceId, refundId: String(refundId), amount: money, source, destination, ...detail },
+              affected_ids: [externalId],
+              connection_label: connectionLabel,
+              order_ref: orderRef,
+              client_name: clientName,
+            });
+          }
+          await logDocumentEvent(env, {
+            externalId,
+            event: "skipped",
+            dedupKey: `skipped:credit_not_mirrored:${refundId}`,
+            invoiceId,
+            userId: config.user_id,
+            shopifyDomain: config.shopify_domain,
+            sourceKind: source,
+            destinationKind: destination,
+            actor: "pipeline",
+            summary: `Reembolso ${refundId} sem nota de crédito: ${reason}.`,
+            detail: { refundId: String(refundId), amount: money, reason },
+          });
+          skippedCount++;
+        };
+
+        let result: DestinationCreditResult;
+        try {
+          // A document already under this reference: issued by another route, or
+          // a draft an older attempt left behind — Moloni's lookup matches drafts
+          // too. Never a twin beside it, and never counted as credited on a
+          // lookup alone; the ledger records why, and nobody is paged for it.
+          const existing = destAdapter.findByReference ? await destAdapter.findByReference(reference, ctx) : null;
           if (existing) {
+            await refuse(
+              `já existe no destino o documento ${existing.id} com a referência ${reference}`,
+              { existingId: existing.id },
+              { incident: false },
+            );
+            continue;
+          }
+          const alreadyCredited = await appStorage.creditedTotalForInvoice(ledgerScope, invoiceId);
+          if (alreadyCredited == null) {
+            throw new Error(
+              `[Pipeline] Não consegui somar as notas de crédito já emitidas sobre ${invoiceId} — não emito sem saber quanto já foi creditado.`,
+            );
+          }
+          result = await destAdapter.issueCredit(invoiceId, { refundId, grossAmount: money, saleTotal, converted, alreadyCredited }, ctx);
+        } catch (e: any) {
+          const message = String(e?.message ?? e);
+          if (e?.strandedCreditId) {
+            // A draft is sitting at the destination. Naming it on the row is what
+            // stops the next delivery from putting a twin beside it.
+            await appStorage.noteRefundCreditDraft(
+              ledgerScope, refundId, e.strandedCreditId,
+              `rascunho ${e.strandedCreditId} não certificado e não removido: ${message}`,
+            );
+          } else if (e?.refusal === true || isIxValidationRefusal(message) || /validation errors/i.test(message)) {
+            // The destination refused the document itself, and will refuse it
+            // identically on every retry.
+            await refuse(`o destino recusou a nota de crédito: ${message.slice(0, 300)}`);
+            continue;
+          } else {
+            await appStorage.releaseRefundCredit(ledgerScope, refundId);
+          }
+          throw e;
+        }
+
+        if (result.status === "refused") {
+          if (result.documentState === "draft") {
+            // Not final: once the document is certified, a replay should credit
+            // it, so the row is given back rather than closed.
+            await appStorage.releaseRefundCredit(ledgerScope, refundId);
+            await reportIncident(env, {
+              user_id: config.user_id,
+              severity: "warning",
+              kind: "credit_note_on_draft",
+              dedup_key: invoiceId,
+              summary: `Reembolso em ${orderRef ?? externalId} não gerou nota de crédito porque o documento ${invoiceId} está em rascunho. Finalize-o ou apague-o.`,
+              detail: { externalId, invoiceId, refundId: String(refundId), amount: money, source, destination },
+              affected_ids: [externalId],
+              connection_label: connectionLabel,
+              order_ref: orderRef,
+              client_name: clientName,
+            });
+            await logDocumentEvent(env, {
+              externalId,
+              event: "skipped",
+              dedupKey: `skipped:credit_draft:${invoiceId}`,
+              invoiceId,
+              userId: config.user_id,
+              shopifyDomain: config.shopify_domain,
+              sourceKind: source,
+              destinationKind: destination,
+              actor: "pipeline",
+              summary: `Reembolso sem nota de crédito: o documento ${invoiceId} é um rascunho, e um rascunho corrige-se, não se credita.`,
+              detail: { invoiceId, refundId: String(refundId) },
+            });
             skippedCount++;
             continue;
           }
+          await refuse(result.reason, result.detail, { incident: !result.nothingToCredit });
+          continue;
         }
-        // GROSS sum (subtotal + tax) of the returned lines — the credit lines
-        // the adapter rebuilds already carry tax, so amountToRefund is only the
-        // non-line-item remainder (shipping / cash). Using the net subtotal left
-        // Σtax as a phantom extra line, over-crediting by the tax.
-        const sum = credit.line_items.reduce((acc, item) => acc + item.subtotal + (item.total_tax ?? 0), 0);
-        await destAdapter.issueCredit(invoice.invoice_id, {
-          refundId: credit.refund_id,
-          itemsIds: credit.line_items.map(li => li.id),
-          amountToRefund: credit.amount - sum,
-          grossAmount: credit.amount,
-        }, normalized, ctx);
+        if (result.status !== "issued") {
+          await appStorage.releaseRefundCredit(ledgerScope, refundId);
+          throw new Error(`[Pipeline] issueCredit answered "${result.status}" outside a dry run`);
+        }
+
+        await appStorage.markRefundCredited(ledgerScope, refundId, result.creditId, result.total);
         issuedCount++;
         await logDocumentEvent(env, {
           externalId,
           event: "credit_issued",
-          dedupKey: `credit_issued:${credit.refund_id}`,
-          invoiceId: invoice.invoice_id,
+          dedupKey: `credit_issued:${refundId}`,
+          invoiceId,
           userId: config.user_id,
           shopifyDomain: config.shopify_domain,
           sourceKind: source,
           destinationKind: destination,
           actor: "pipeline",
-          summary: `Nota de crédito emitida por ${Number(credit.amount).toFixed(2)} € sobre o documento ${invoice.invoice_id} (reembolso ${credit.refund_id}, referência ${reference}).`,
-          detail: { refundId: credit.refund_id, amount: credit.amount, reference },
+          summary: `Nota de crédito ${result.creditId} emitida por ${result.total.toFixed(2)} € sobre o documento ${invoiceId} (reembolso ${refundId}, referência ${reference}).`,
+          detail: { refundId, amount: result.total, refunded: money, creditId: result.creditId, reference },
         });
       }
 
@@ -988,7 +1108,7 @@ async function runPipelineCore(
         shopify_domain: config.shopify_domain,
         topic: logTopic,
         payload: JSON.stringify({ externalId, credits: normalized.credits.length, issued: issuedCount, skipped: skippedCount }),
-        response: skippedCount > 0 ? `Credit notes: ${issuedCount} issued, ${skippedCount} already existed` : "Credit notes issued",
+        response: skippedCount > 0 ? `Credit notes: ${issuedCount} issued, ${skippedCount} skipped` : "Credit notes issued",
         status: 200,
       });
       return;

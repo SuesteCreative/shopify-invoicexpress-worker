@@ -17,12 +17,12 @@ import { resolveIxSequenceId } from "../../ix/sequences";
 import { restateOrderInEur } from "../../ix/foreign-currency";
 import type { FiscalClassification } from "../../ix/fiscal-classification";
 import { createIxInvoiceWithFallback, ixExpectedTotals } from "../../ix/create-invoice";
-import { mirrorItemsFromIxDocument } from "../../ix/credit-mirror";
-import { prepareIxFinalizeBatch, finalizeIxDraft, type IxFinalizeBatch } from "./ix-finalize";
+import { mirrorItemsFromIxDocument, planRefundCredit, refundInDocumentMoney, documentNotCreditable } from "../../ix/credit-mirror";
+import { prepareIxFinalizeBatch, finalizeIxDraft, isAlreadyFinalizedIxError, type IxFinalizeBatch } from "./ix-finalize";
 import type { Normalized } from "../../api/normalize-shopify";
 import { IxApi } from "../../api/ix";
 import { findViaInvoiceXpress } from "../../services/ix-find-reference";
-import { IxBuilder, nifHoldReason, type IxCreditNote } from "../../ix/builder";
+import { IxBuilder, nifHoldReason } from "../../ix/builder";
 import { reconcileTotalOrThrow } from "../reconcile";
 import { sendIxDocumentEmail, describeIxEmailOutcome } from "../../services/ix-document-email";
 import { refundReference } from "../../services/document-references";
@@ -135,6 +135,59 @@ type IxDocType = typeof IX_DOC_TYPES[number];
 function ixDocType(ctx: AdapterCtx): IxDocType {
   const t = String(ctx.config.ix_document_type ?? "").toLowerCase();
   return (IX_DOC_TYPES as readonly string[]).includes(t) ? (t as IxDocType) : "invoice";
+}
+
+/**
+ * A credit note for a document, in the document's own terms: its client, the
+ * lines given, and the exemption code the document itself carries. Dated the day
+ * it is issued, not the day of the sale it undoes.
+ */
+function ixCreditNoteFor(
+  inv: any,
+  invoiceId: string,
+  items: any[],
+  ctx: AdapterCtx,
+  opts: { reference: string; reason?: string | null },
+): any {
+  // IX rejects a 0% line unless a razão de isenção travels with it. Prefer the
+  // code the document itself carries over the shop's configured default.
+  const requireTaxExemption = items.some((it: any) =>
+    Number(typeof it.tax === "number" ? it.tax : it.tax?.value ?? 0) === 0);
+
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    date: today,
+    due_date: today,
+    client: inv.client
+      ? {
+          ...(inv.client.id ? { id: Number(inv.client.id) } : {}),
+          name: String(inv.client.name ?? ""),
+          ...(inv.client.email ? { email: String(inv.client.email) } : {}),
+          ...(inv.client.fiscal_id ? { fiscal_id: String(inv.client.fiscal_id) } : {}),
+          ...(inv.client.address ? { address: String(inv.client.address) } : {}),
+          ...(inv.client.postal_code ? { postal_code: String(inv.client.postal_code) } : {}),
+          ...(inv.client.country ? { country: String(inv.client.country) } : {}),
+          ...(inv.client.city ? { city: String(inv.client.city) } : {}),
+        }
+      : { name: "" },
+    items,
+    reference: opts.reference,
+    // The reason for the credit first, the merchant's standing note after it.
+    // A credit note rectifies an invoice and is itself a document, so a fixed
+    // mention belongs on it; capped, or IX truncates it wherever it likes.
+    ...(() => {
+      const obs = [opts.reason, (ctx.config.custom_invoice_note ?? "").trim()]
+        .filter(Boolean).map(String).join(" | ").slice(0, 200);
+      return obs ? { observations: obs } : {};
+    })(),
+    // Same trap as the date PUT: IX reads an exemption back as `tax_exemption`
+    // and sometimes as "", which `??` would keep and the wire would then drop,
+    // leaving IX to stamp M99 on the credit note. See resolveExemptionCode.
+    tax_exemption_reason: requireTaxExemption
+      ? resolveExemptionCode(inv?.tax_exemption, ctx.config.ix_exemption_reason) ?? undefined
+      : undefined,
+    owner_invoice_id: Number(invoiceId),
+  };
 }
 
 export class InvoiceXpressDestination implements DestinationAdapter {
@@ -319,45 +372,7 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     const storedTotal = Number(inv.total);
     const rebuilt = { gross };
 
-    // IX rejects a 0% line unless a razão de isenção travels with it. Prefer the
-    // code the document itself carries over the shop's configured default.
-    const requireTaxExemption = items.some((it: any) => Number(it.tax?.value ?? 0) === 0);
-
-    const today = new Date().toISOString().slice(0, 10);
-    const creditNote: any = {
-      date: today,
-      due_date: today,
-      client: inv.client
-        ? {
-            ...(inv.client.id ? { id: Number(inv.client.id) } : {}),
-            name: String(inv.client.name ?? ""),
-            ...(inv.client.email ? { email: String(inv.client.email) } : {}),
-            ...(inv.client.fiscal_id ? { fiscal_id: String(inv.client.fiscal_id) } : {}),
-            ...(inv.client.address ? { address: String(inv.client.address) } : {}),
-            ...(inv.client.postal_code ? { postal_code: String(inv.client.postal_code) } : {}),
-            ...(inv.client.country ? { country: String(inv.client.country) } : {}),
-            ...(inv.client.city ? { city: String(inv.client.city) } : {}),
-          }
-        : { name: "" },
-      items,
-      reference: opts.reference,
-      // The reason for the credit first, the merchant's standing note after it.
-      // A credit note rectifies an invoice and is itself a document, so a fixed
-      // mention belongs on it; and this was the one `observations` in the repo
-      // with no cap at all, which IX would have truncated wherever it liked.
-      ...(() => {
-        const obs = [opts.reason, (ctx.config.custom_invoice_note ?? "").trim()]
-          .filter(Boolean).map(String).join(" | ").slice(0, 200);
-        return obs ? { observations: obs } : {};
-      })(),
-      // Same trap as the date PUT: IX reads an exemption back as `tax_exemption`
-      // and sometimes as "", which `??` would keep and the wire would then drop,
-      // leaving IX to stamp M99 on the credit note. See resolveExemptionCode.
-      tax_exemption_reason: requireTaxExemption
-        ? resolveExemptionCode(inv?.tax_exemption, ctx.config.ix_exemption_reason) ?? undefined
-        : undefined,
-      owner_invoice_id: Number(invoiceId),
-    };
+    const creditNote = ixCreditNoteFor(inv, invoiceId, items, ctx, { reference: opts.reference, reason: opts.reason });
 
     if (opts.dryRun) {
       // The totals go in the preview so a dry run can be checked against the
@@ -635,90 +650,62 @@ export class InvoiceXpressDestination implements DestinationAdapter {
     }
   }
 
-  async issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult> {
-    // Same reason as createDraft, and the same rate: a credit note has to undo
-    // the document in the currency that document was issued in. The residual
-    // amount travels outside the order, so it is converted with the factor the
-    // restatement reports rather than separately — two conversions of one sale
-    // do not have to agree, and a credit that does not match its invoice is
-    // worse than no credit at all.
-    const fx = await restateOrderInEur(normalized.order);
-    const amountToRefund = fx
-      ? Math.round(refund.amountToRefund * fx.factor * 100) / 100
-      : refund.amountToRefund;
+  /**
+   * Credit a refund by mirroring the document InvoiceXpress holds — see
+   * src/ix/credit-mirror.ts.
+   *
+   * A Stripe, Lodgify or EuPago refund names no article: it is an amount of
+   * money. A full one credits the document exactly as issued; a partial one
+   * credits every line of it, each at its own rate, in the refunded share. The
+   * lines are never rebuilt from the order — a credit note undoes the document,
+   * not the order as it reads today — and no "Refund amount" line is invented at
+   * the highest rate on the invoice to make a total come out.
+   */
+  async issueCredit(
+    invoiceId: string,
+    refund: NormalizedRefund,
+    ctx: AdapterCtx,
+    opts: { dryRun?: boolean } = {},
+  ): Promise<DestinationCreditResult> {
+    const headers = ixHeadersFromCtx(ctx);
 
-    const viesChecker = ctx.config.b2b_reverse_charge === 1 && ctx.viesChecker ? ctx.viesChecker : undefined;
-    const builder = new IxBuilder(ctx.config, viesChecker, ctx.productOverrides, ctx.rules);
-    const { invoice } = builder.createInvoiceFromNormalizedOrder(normalized);
+    const doc = await this.getDocument(invoiceId, ctx);
+    if (!doc) return documentNotCreditable(invoiceId, "deleted");
+    if (doc.state !== "finalized") return documentNotCreditable(invoiceId, doc.state);
+    const inv = doc.raw as any;
 
-    const refundItems = normalized.order.items.filter(item => refund.itemsIds.includes(item.id));
-    // Credit lines are built from filtered items, not from the raw order, so the
-    // "no ids means delivery" inference has to be asked for here. It is true of
-    // Shopify and of nothing else — and a Shopify order is exactly the one that
-    // carries a raw payload. Every other source has no shipping to recognise.
-    const items = builder.buildInvoiceItems(refundItems, { shippingFromIds: !!normalized.raw_order });
-
-    if (amountToRefund > 0) {
-      const taxes = invoice.items.map(i => i.tax);
-      const maxTax = taxes.reduce((a, b) =>
-        (typeof a === "number" ? a : a.value) >= (typeof b === "number" ? b : b.value) ? a : b
-      ) ?? 0;
-      const taxPercentage = (typeof maxTax === "number" ? maxTax : maxTax.value) / 100;
-
-      items.push({
-        quantity: 1,
-        tax: maxTax,
-        unit_price: amountToRefund / (1 + taxPercentage),
-        description: `Refund amount of ${amountToRefund}`,
-        name: `Refund amount (#${refund.refundId})`,
-      });
+    let docItems;
+    try {
+      docItems = mirrorItemsFromIxDocument(inv).items;
+    } catch (e: any) {
+      return { status: "refused", reason: String(e?.message ?? e) };
     }
 
-    const requireTaxExemption = items.some(i =>
-      typeof i.tax === "number" ? i.tax === 0 : i.tax.value === 0
-    );
-
-    // A credit note undoes a specific document, so it must be issued under the
-    // regime THAT document was issued under — not under whatever the shop is
-    // configured with today. Crediting a March export (M05) with today's M10
-    // declares a different exemption than the sale it reverses. Its siblings
-    // (creditFullDocument, refunds-create) already read the code off the
-    // document; this path read the config directly.
-    //
-    // Behind the same flag as the rest of the classification work, and
-    // best-effort: an unreadable document falls back to the configured code,
-    // which is exactly what this line did before.
-    let creditExemption: string | null | undefined = ctx.config.ix_exemption_reason;
-    if (requireTaxExemption && ctx.config.ix_derive_exemption === 1) {
-      try {
-        const original = await this.getDocument(invoiceId, ctx);
-        creditExemption = resolveExemptionCode(original?.exemption_code, ctx.config.ix_exemption_reason);
-      } catch (e: any) {
-        console.warn(`[IX] credit note ${invoiceId}: could not read the original's exemption code (${e?.message ?? e}) — using the configured one`);
-      }
+    const docTotal = Number(inv.total);
+    const plan = planRefundCredit({
+      docTotal,
+      docItems,
+      sources: [],
+      refund: { refundId: refund.refundId, amount: refundInDocumentMoney(refund, docTotal), lineItems: [] },
+      rawRefund: null,
+      taxesIncluded: false,
+      alreadyCredited: refund.alreadyCredited,
+      cashRefund: "proportional",
+    });
+    if (!plan.ok) {
+      return { status: "refused", reason: plan.reason, nothingToCredit: plan.nothingToCredit, detail: plan.detail };
     }
 
-    const creditNote: IxCreditNote = {
-      ...invoice,
-      items,
-      reference: refundReference(refund.refundId),
-      tax_exemption_reason: requireTaxExemption ? creditExemption ?? undefined : undefined,
-      owner_invoice_id: Number(invoiceId),
-    };
-    // The builder does not set a sequence_id today — createDraft adds it after
-    // the build — but this spreads a whole invoice payload, so the delete is
-    // there to keep a future build path from leaking the INVOICE id onto a
-    // credit note, which IX refuses outright ("A série não corresponde ao tipo
-    // de documento", measured against the sandbox 2026-09-04). Then put back
-    // the credit-note id of the same series, only for a
-    // connection that runs on named series deliberately — otherwise a merchant
-    // whose credit notes have always been numbered in the account default would
-    // silently start a different sequence.
-    delete (creditNote as any).sequence_id;
+    const creditNote = ixCreditNoteFor(inv, invoiceId, plan.items, ctx, { reference: refundReference(refund.refundId) });
+
+    // A connection that runs on named series deliberately issues the credit note
+    // in the credit-note sequence of the same series — IX refuses the invoice
+    // sequence id on a credit note ("A série não corresponde ao tipo de
+    // documento"). Otherwise the account default, as credit notes always were.
     if (ctx.config.ix_sequence_name && ctx.config.ix_require_series === 1) {
       const creditSequenceId = await resolveSequenceId(ctx, ctx.config.ix_sequence_name, "credit_note");
       if (creditSequenceId) {
-        (creditNote as any).sequence_id = creditSequenceId;
+        creditNote.sequence_id = creditSequenceId;
       } else {
         throw platformError(
           `A série "${ctx.config.ix_sequence_name}" não tem sequência de nota de crédito na conta InvoiceXpress. `
@@ -727,21 +714,18 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       }
     }
 
+    if (opts.dryRun) return { status: "preview", total: plan.total, basis: plan.basis, payload: creditNote };
+
     const { data, error, response } = await IxApi.v2.creditNotes.post({
-      headers: ixHeadersFromCtx(ctx),
+      headers,
       body: { credit_note: creditNote },
       query: { resolvers: "on_tax_fallback_search_tax_by_value" },
     });
-    // Envelope included so the REASON survives into the message. Without it a
-    // 200-with-`success:false` fell through to "credit returned no id", and
-    // classifyPipelineError keys on the message text — so a bad NIF stopped
-    // being recognisable as one.
+    // Envelope included so the REASON survives into the message:
+    // classifyPipelineError and the ledger both key on the message text.
     const creditProblem = error ?? ixEnvelopeError(data);
     if (creditProblem) {
-      throw platformError(
-        `InvoiceXpress credit create failed: ${JSON.stringify(creditProblem)}`,
-        response?.status,
-      );
+      throw platformError(`InvoiceXpress credit create failed: ${JSON.stringify(creditProblem)}`, response?.status);
     }
 
     const creditId = (data?.data as any)?.id
@@ -749,12 +733,29 @@ export class InvoiceXpressDestination implements DestinationAdapter {
       ?? (data?.data as any)?.creditNote?.id;
     if (!creditId) throw new Error("InvoiceXpress credit returned no id");
 
-    await IxApi.v2.changeState.post({
+    // This refusal used to be ignored, reporting an uncertified draft as an issued
+    // credit note. A draft IX will not certify is taken back, so a retry cannot
+    // put a twin beside it; one that cannot be taken back is named on the error,
+    // and the ledger holds the refund against it.
+    const { data: stateData, error: stateErr, response: stateRes } = await IxApi.v2.changeState.post({
       body: { type: "credit_note", id: Number(creditId), state: "finalized" },
-      headers: ixHeadersFromCtx(ctx),
+      headers,
     });
+    const stateProblem = stateErr ?? ixEnvelopeError(stateData);
+    if (stateProblem && !isAlreadyFinalizedIxError(stateProblem)) {
+      const withdrawn = await IxApi.v2.changeState.post({
+        body: { type: "credit_note", id: Number(creditId), state: "deleted" },
+        headers,
+      }).then(({ data: d, error: e }) => !(e ?? ixEnvelopeError(d)), () => false);
+      const err: any = platformError(
+        `InvoiceXpress finalize failed for credit note ${creditId}: ${JSON.stringify(stateProblem).slice(0, 500)}`,
+        stateRes?.status,
+      );
+      if (!withdrawn) err.strandedCreditId = String(creditId);
+      throw err;
+    }
 
-    return { creditId: String(creditId) };
+    return { status: "issued", creditId: String(creditId), total: plan.total };
   }
 
   async emailDocument(invoiceId: string, ctx: AdapterCtx, opts?: { holdReason?: string | null }): Promise<void> {

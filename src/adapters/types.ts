@@ -132,14 +132,22 @@ export interface SourceAdapter {
   scopeBlocker?(parsedBody: any, ctx: AdapterCtx): Promise<string | null>;
 }
 
+/**
+ * A refund as a destination needs it to credit a document: money, and what the
+ * document has already had taken off it. No articles — every source on the
+ * adapter path refunds an amount, and the credit note mirrors the document's own
+ * lines against it (src/ix/credit-mirror.ts).
+ */
 export interface NormalizedRefund {
   refundId: string | number;
-  itemsIds: Array<string | number>;
-  amountToRefund: number;
-  /** Total gross amount actually refunded (tax-inclusive). When present, the
-   *  destination reconciles the credit-note total against it and aborts on a
-   *  mismatch rather than shipping a mis-totalled fiscal document. */
-  grossAmount?: number;
+  /** Money given back, tax included, in the money the source refunded in. */
+  grossAmount: number;
+  /** The sale's total in that same money. Read only when `converted`. */
+  saleTotal?: number | null;
+  /** The document was issued in another money than the refund — see refundInDocumentMoney. */
+  converted?: boolean;
+  /** What earlier credit notes have already taken off the document, per the credit-note ledger. */
+  alreadyCredited: number;
 }
 
 export interface DestinationInvoiceCreateResult {
@@ -160,9 +168,23 @@ export interface DestinationInvoiceCreateResult {
   exemptionCode?: string | null;
 }
 
-export interface DestinationCreditResult {
-  creditId: string;
-}
+/**
+ * What became of one refund at the destination.
+ *
+ * `refused` is an outcome, not an error: the refund cannot be mirrored on the
+ * document, or the document cannot take a credit note at all, and retrying
+ * changes neither. `documentState` names the second case.
+ */
+export type DestinationCreditResult =
+  | { status: "issued"; creditId: string; total: number }
+  | { status: "preview"; total: number; basis: string; payload: unknown }
+  | {
+      status: "refused";
+      reason: string;
+      nothingToCredit?: boolean;
+      documentState?: "draft" | "canceled" | "deleted";
+      detail?: Record<string, unknown>;
+    };
 
 /**
  * Which fiscal operations this destination can perform. Declared, not inferred:
@@ -326,7 +348,14 @@ export interface DestinationAdapter {
   readonly capabilities: DestinationCapabilities;
   createDraft(normalized: Normalized, ctx: AdapterCtx): Promise<DestinationInvoiceCreateResult>;
   finalize(invoiceId: string, ctx: AdapterCtx): Promise<void>;
-  issueCredit(invoiceId: string, refund: NormalizedRefund, normalized: Normalized, ctx: AdapterCtx): Promise<DestinationCreditResult>;
+  /**
+   * Credit a refund against a certified document, mirroring the document's own
+   * lines. Throws only when the destination could not be asked, or refused for a
+   * reason a retry may fix; an error carrying `strandedCreditId` names a draft it
+   * created and could not take back. `dryRun` builds the credit note and posts
+   * nothing.
+   */
+  issueCredit(invoiceId: string, refund: NormalizedRefund, ctx: AdapterCtx, opts?: { dryRun?: boolean }): Promise<DestinationCreditResult>;
   /** Send the issued document to the buyer. Must not throw on a failed send —
    *  the invoice already exists, so a bounced email is a log line, not a reason
    *  to fail (and retry) the whole webhook. */

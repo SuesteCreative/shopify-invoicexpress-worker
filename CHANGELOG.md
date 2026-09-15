@@ -5,6 +5,77 @@ que gera `src/lib/version.ts` e `src/lib/changelog.generated.ts` — o rodapé d
 `/changelog` saem daqui. O comentário `<!-- release: sha -->` marca o último commit incluído na
 versão, e é o ponto de partida de `npm run release` para a versão seguinte.
 
+## ✨ Version 8.10.0 — One campaign, two versions, and the audience follows the version — September 15, 2026
+
+<!-- release: 8ddf598 -->
+
+### Para o comerciante
+
+- Uma venda que o seu outro sistema de facturação já emitiu deixa de
+- Um pagamento que junta serviço isento e taxa de processamento passa a sair
+
+### Novo
+
+- **newsletter** — one campaign, two versions, and the audience follows the version
+- **stripe** — stop invoicing the sales another system already invoices
+- **stripe** — let a connection take the line's name from the Stripe product
+- **stripe** — take one payment apart into the lines it was made of
+- **invoice-note** — the merchant can edit the standing note on their own invoices
+- **admin** — notes on a client's Regras fiscais tab, and an audit trail for them
+- **rules** — per-account rules, so a personalization stops costing a global flag
+- **admin** — the account wall — post what you know, instead of rewriting one box
+- **admin** — attachments on the account wall
+- **ix** — the Shopify path can name the regime per sale, like the adapter already did
+- **wizard** — the non-EU exemption code becomes a choice between two articles
+- **rules** — an account can say its NIF only ever arrives in a named field
+- **admin** — clear the credit-note drafts a refused finalize left behind
+
+### Corrigido
+
+- **email** — alert emails name the account instead of calling it "User"
+- **auth** — stop storing "User" as an account's name
+- **stripe** — let a connection read the buyer's address off the charge
+- **ix** — a blank customer address stops erasing the street
+- **stripe** — a split line's rate has to reach the document
+- **connections** — saving settings no longer takes a live integration off the air
+- **stripe-connect-ix** — tell the merchant whether the key they pasted works
+- **stripe** — an invoice paid outside Stripe stops being worth nothing
+- **notes** — the merchant's standing note reaches every document, and stops cutting the legal text
+- **ix** — a blank address layer no longer erases the street
+- **incidents** — stop closing unbilled invoice failures without verifying them
+- **ix** — a line worth nothing is not an exempt line
+- **build** — stop the blob SDK from breaking the worker's deploy
+- **ix** — every integration page offers the whole exemption table
+- **api** — tag routing accepts the source kind its own page links to
+- **integrations** — an upstream rejection is text, not an object
+- **wizards** — a step's provider mark reads as dark grey by day
+- **pipeline** — claim the sale on every source that names one
+- **vat** — the destination rounds a discount to the cent, so the line must too
+- **wizards** — credentials on the connection authorise the step they belong to
+- **connections** — read a connection's on/off switch as 1 as well as true
+- **admin** — a connection's own InvoiceXpress key counts as configured
+- **wizards** — an authorised step is green even while it is the open one
+- **admin** — the fleet page reports what is failing, not only what is filled in
+- **incidents** — a Stripe payment is a reference the verification can check
+- **stripe** — a document is dated the day the money arrived
+- **refunds** — a refused credit note stops leaving drafts behind, and says why
+- **stripe** — one sale, one name on both references of its document
+- **pipeline** — a sale that is not ours is not ours to credit either
+
+### Arquitectura
+
+- **wizards** — one rule decides whether InvoiceXpress is configured
+
+### Documentação
+
+- **changelog** — v8.9.0 — One language per client, for the screen and for the mail
+
+### Manutenção
+
+- **git** — ignore the two directories agents write into
+- **sql** — the arity net was reading half the file it was written for
+- install the backoffice dependencies too
+
 ## ✨ Version 8.9.0 — One language per client, for the screen and for the mail — September 14, 2026
 
 <!-- release: a2d6bf3 -->

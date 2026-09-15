@@ -20,6 +20,246 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+        "version": "8.10.0",
+        "emoji": "✨",
+        "title": "One campaign, two versions, and the audience follows the version",
+        "date": "September 15, 2026",
+        "commit": "8ddf598",
+        "highlight": false,
+        "body": [
+            {
+                "t": "h",
+                "text": "Para o comerciante"
+            },
+            {
+                "t": "li",
+                "text": "Uma venda que o seu outro sistema de facturação já emitiu deixa de"
+            },
+            {
+                "t": "li",
+                "text": "Um pagamento que junta serviço isento e taxa de processamento passa a sair"
+            },
+            {
+                "t": "h",
+                "text": "Novo"
+            },
+            {
+                "t": "li",
+                "text": "**newsletter** — one campaign, two versions, and the audience follows the version"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — stop invoicing the sales another system already invoices"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — let a connection take the line's name from the Stripe product"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — take one payment apart into the lines it was made of"
+            },
+            {
+                "t": "li",
+                "text": "**invoice-note** — the merchant can edit the standing note on their own invoices"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — notes on a client's Regras fiscais tab, and an audit trail for them"
+            },
+            {
+                "t": "li",
+                "text": "**rules** — per-account rules, so a personalization stops costing a global flag"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — the account wall — post what you know, instead of rewriting one box"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — attachments on the account wall"
+            },
+            {
+                "t": "li",
+                "text": "**ix** — the Shopify path can name the regime per sale, like the adapter already did"
+            },
+            {
+                "t": "li",
+                "text": "**wizard** — the non-EU exemption code becomes a choice between two articles"
+            },
+            {
+                "t": "li",
+                "text": "**rules** — an account can say its NIF only ever arrives in a named field"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — clear the credit-note drafts a refused finalize left behind"
+            },
+            {
+                "t": "h",
+                "text": "Corrigido"
+            },
+            {
+                "t": "li",
+                "text": "**email** — alert emails name the account instead of calling it \"User\""
+            },
+            {
+                "t": "li",
+                "text": "**auth** — stop storing \"User\" as an account's name"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — let a connection read the buyer's address off the charge"
+            },
+            {
+                "t": "li",
+                "text": "**ix** — a blank customer address stops erasing the street"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — a split line's rate has to reach the document"
+            },
+            {
+                "t": "li",
+                "text": "**connections** — saving settings no longer takes a live integration off the air"
+            },
+            {
+                "t": "li",
+                "text": "**stripe-connect-ix** — tell the merchant whether the key they pasted works"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — an invoice paid outside Stripe stops being worth nothing"
+            },
+            {
+                "t": "li",
+                "text": "**notes** — the merchant's standing note reaches every document, and stops cutting the legal text"
+            },
+            {
+                "t": "li",
+                "text": "**ix** — a blank address layer no longer erases the street"
+            },
+            {
+                "t": "li",
+                "text": "**incidents** — stop closing unbilled invoice failures without verifying them"
+            },
+            {
+                "t": "li",
+                "text": "**ix** — a line worth nothing is not an exempt line"
+            },
+            {
+                "t": "li",
+                "text": "**build** — stop the blob SDK from breaking the worker's deploy"
+            },
+            {
+                "t": "li",
+                "text": "**ix** — every integration page offers the whole exemption table"
+            },
+            {
+                "t": "li",
+                "text": "**api** — tag routing accepts the source kind its own page links to"
+            },
+            {
+                "t": "li",
+                "text": "**integrations** — an upstream rejection is text, not an object"
+            },
+            {
+                "t": "li",
+                "text": "**wizards** — a step's provider mark reads as dark grey by day"
+            },
+            {
+                "t": "li",
+                "text": "**pipeline** — claim the sale on every source that names one"
+            },
+            {
+                "t": "li",
+                "text": "**vat** — the destination rounds a discount to the cent, so the line must too"
+            },
+            {
+                "t": "li",
+                "text": "**wizards** — credentials on the connection authorise the step they belong to"
+            },
+            {
+                "t": "li",
+                "text": "**connections** — read a connection's on/off switch as 1 as well as true"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — a connection's own InvoiceXpress key counts as configured"
+            },
+            {
+                "t": "li",
+                "text": "**wizards** — an authorised step is green even while it is the open one"
+            },
+            {
+                "t": "li",
+                "text": "**admin** — the fleet page reports what is failing, not only what is filled in"
+            },
+            {
+                "t": "li",
+                "text": "**incidents** — a Stripe payment is a reference the verification can check"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — a document is dated the day the money arrived"
+            },
+            {
+                "t": "li",
+                "text": "**refunds** — a refused credit note stops leaving drafts behind, and says why"
+            },
+            {
+                "t": "li",
+                "text": "**stripe** — one sale, one name on both references of its document"
+            },
+            {
+                "t": "li",
+                "text": "**pipeline** — a sale that is not ours is not ours to credit either"
+            },
+            {
+                "t": "h",
+                "text": "Arquitectura"
+            },
+            {
+                "t": "li",
+                "text": "**wizards** — one rule decides whether InvoiceXpress is configured"
+            },
+            {
+                "t": "h",
+                "text": "Documentação"
+            },
+            {
+                "t": "li",
+                "text": "**changelog** — v8.9.0 — One language per client, for the screen and for the mail"
+            },
+            {
+                "t": "h",
+                "text": "Manutenção"
+            },
+            {
+                "t": "li",
+                "text": "**git** — ignore the two directories agents write into"
+            },
+            {
+                "t": "li",
+                "text": "**sql** — the arity net was reading half the file it was written for"
+            },
+            {
+                "t": "li",
+                "text": "install the backoffice dependencies too"
+            }
+        ],
+        "publicBody": [
+            {
+                "t": "li",
+                "text": "Uma venda que o seu outro sistema de facturação já emitiu deixa de"
+            },
+            {
+                "t": "li",
+                "text": "Um pagamento que junta serviço isento e taxa de processamento passa a sair"
+            }
+        ]
+    },
+    {
         "version": "8.9.0",
         "emoji": "✨",
         "title": "One language per client, for the screen and for the mail",

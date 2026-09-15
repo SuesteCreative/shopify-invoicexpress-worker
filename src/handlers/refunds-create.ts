@@ -7,6 +7,7 @@ import { IxBuilder, type IxCreditNote } from "../ix/builder";
 import { resolveExemptionCode } from "../ix/exemption";
 import { makeViesChecker } from "../ix/vies";
 import { isIntegrationPaused } from "../services/pause-gate";
+import { checkSubscriptionGate } from "../services/subscription-gate";
 import { loadProductOverrides } from "../services/product-overrides";
 import { reportIncident } from "../services/incidents";
 import { refundReference } from "../services/document-references";
@@ -98,6 +99,18 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           summary: `Devolução registada numa encomenda que nunca chegou a ser paga (${financialStatus}), por isso nunca foi facturada — não há documento para creditar. Nada a fazer.`,
           detail: { refundId: String(refund.id), financial_status: financialStatus },
         });
+        return;
+      }
+
+      // Nor is there one to credit on an order the subscription gate refused at
+      // orders/created: the same retry-then-critical noise as orders/updated,
+      // over an absence the subscription_inactive incident already records
+      // (Artway Lda, 13-15/09/2026).
+      const gate = await checkSubscriptionGate(env, config, { source: "shopify", destination: "invoicexpress" });
+      if (!gate.allowed) {
+        console.log(`[Rioko] Refund on gate-blocked order ${orderId} (${gate.reason}) — nothing to credit`);
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: webhookTopic, payload: JSON.stringify({ orderId, refundId: refund.id }), response: `Blocked: ${gate.reason} — no invoice to credit`, status: 402 });
         return;
       }
 

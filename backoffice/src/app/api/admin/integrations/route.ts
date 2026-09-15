@@ -172,7 +172,7 @@ export async function GET() {
         }
 
         /**
-         * The worst thing currently open against each account, and how many.
+         * The worst thing currently open against a row's account, and how many.
          *
          * Worst by severity, ties broken by recency: an operator scanning this
          * page needs the headline, and the incidents view is one click away for
@@ -186,22 +186,43 @@ export async function GET() {
             /** Whether the incident names this connection or only the account. */
             scope: "connection" | "account";
         }
-        const troubleByUser = new Map<string, Trouble>();
+        /**
+         * Kinds that only restate the paywall. Pleasant Venture's row went red on
+         * 2026-09-15 for `subscription_inactive` and a sweep-starvation alarm the
+         * gate itself caused, next to a payment column already saying BLOQUEADA.
+         */
+        const PAYWALL_KINDS = new Set(["subscription_inactive", "reconcile_sweep_stale"]);
+        const incidentsByUser = new Map<string, any[]>();
         for (const i of rows(incidentRows)) {
-            const prev = troubleByUser.get(i.user_id);
-            const worse = !prev
-                || (SEVERITY_RANK[i.severity] ?? 0) > (SEVERITY_RANK[prev.severity] ?? 0)
-                || ((SEVERITY_RANK[i.severity] ?? 0) === (SEVERITY_RANK[prev.severity] ?? 0)
-                    && String(i.last_seen_at ?? "") > String(prev.last_seen_at ?? ""));
-            troubleByUser.set(i.user_id, worse ? {
-                kind: i.kind,
-                severity: i.severity,
-                occurrences: Number(i.n ?? 0),
-                last_seen_at: i.last_seen_at ?? null,
-                kinds: (prev?.kinds ?? 0) + 1,
-                scope: i.connection_id ? "connection" : "account",
-            } : { ...prev, kinds: prev.kinds + 1 });
+            const list = incidentsByUser.get(i.user_id) ?? [];
+            list.push(i);
+            incidentsByUser.set(i.user_id, list);
         }
+        /** Per row, not per account: WHM holds a paying Stripe Connect pipe and a
+         *  blocked Shopify pipe, and only the blocked one may drop paywall kinds.
+         *  "none" counts as gated because the worker's gate refuses it too. */
+        const troubleFor = (userId_: string, subState: string): Trouble | null => {
+            const gated = subState === "blocked" || subState === "none";
+            let worst: Trouble | null = null;
+            let kinds = 0;
+            for (const i of incidentsByUser.get(userId_) ?? []) {
+                if (gated && PAYWALL_KINDS.has(i.kind)) continue;
+                kinds++;
+                const rank = SEVERITY_RANK[i.severity] ?? 0;
+                const worstRank = worst ? (SEVERITY_RANK[worst.severity] ?? 0) : -1;
+                if (worst && (rank < worstRank
+                    || (rank === worstRank && String(i.last_seen_at ?? "") <= String(worst.last_seen_at ?? "")))) continue;
+                worst = {
+                    kind: i.kind,
+                    severity: i.severity,
+                    occurrences: Number(i.n ?? 0),
+                    last_seen_at: i.last_seen_at ?? null,
+                    kinds: 0,
+                    scope: i.connection_id ? "connection" : "account",
+                };
+            }
+            return worst ? { ...worst, kinds } : null;
+        };
 
         /**
          * What to call an account whose `users` row is gone.
@@ -270,6 +291,7 @@ export async function GET() {
             const hasDestination = c.destination_kind === "invoicexpress"
                 ? (connIxReady || !!ixCreds?.ready)
                 : !!Number(c.has_destination);
+            const subState = subStateFor(c.user_id, key, u?.role ?? null);
             entries.push({
                 kind: "connection",
                 id: c.id,
@@ -297,9 +319,9 @@ export async function GET() {
                 invoice_cutoff: c.invoice_cutoff ?? null,
                 created_at: c.created_at ?? null,
                 updated_at: c.updated_at ?? null,
-                sub_state: subStateFor(c.user_id, key, u?.role ?? null),
+                sub_state: subState,
                 legacy_price: legacyFor(c.user_id, key),
-                trouble: troubleByUser.get(c.user_id) ?? null,
+                trouble: troubleFor(c.user_id, subState),
                 can_delete: true,
             });
         }
@@ -320,6 +342,7 @@ export async function GET() {
             const u = usersById.get(i.user_id);
             const shopifyOk = Number(i.shopify_authorized) === 1;
             const ixOk = Number(i.ix_authorized) === 1;
+            const subState = subStateFor(i.user_id, LEGACY_KEY, u?.role ?? null);
             entries.push({
                 kind: "legacy",
                 id: `legacy::${i.user_id}`,
@@ -343,9 +366,9 @@ export async function GET() {
                     ?? docsByPipe.get(`${i.user_id}::null::null`) ?? 0,
                 created_at: i.created_at ?? null,
                 updated_at: i.updated_at ?? null,
-                sub_state: subStateFor(i.user_id, LEGACY_KEY, u?.role ?? null),
+                sub_state: subState,
                 legacy_price: legacyFor(i.user_id, LEGACY_KEY),
-                trouble: troubleByUser.get(i.user_id) ?? null,
+                trouble: troubleFor(i.user_id, subState),
                 // Its verbs mean something different — see connection-lifecycle:
                 // reset keeps the fiscal settings, delete takes them with it.
                 can_delete: true,

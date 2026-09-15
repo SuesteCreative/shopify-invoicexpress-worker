@@ -155,7 +155,18 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
       const remaining = shops.slice(shops.findIndex((s) => s.shopify_domain === shopify_domain)).map((s) => s.shopify_domain);
       skippedForBudget.push(...remaining);
       console.warn(`[ReconSweep] time budget (${budgetMs}ms) reached; ${remaining.length} shop(s) not scanned this run: ${remaining.join(", ")}`);
-      for (const dom of remaining) await markSweep(env, dom, "skipped_budget", { budgetMs });
+      for (const dom of remaining) {
+        // A shop the paywall refuses is recorded as such even when the budget
+        // ran out before reaching it. Marked `skipped_budget`, the starvation
+        // alert would email about a sweep that would have skipped it anyway,
+        // which is the false alarm isStarved exists to stop (review, 15/09/2026).
+        let gated = false;
+        try {
+          const cfg = await new AppStorage(env, dom).loadConfig();
+          gated = !!cfg && !(await checkSubscriptionGate(env, cfg, { source: "shopify", destination: "invoicexpress" })).allowed;
+        } catch { /* unknown stays a budget skip, which alerts: the safe side */ }
+        await markSweep(env, dom, gated ? "skipped_no_subscription" : "skipped_budget", { budgetMs });
+      }
       break;
     }
     const config = await new AppStorage(env, shopify_domain).loadConfig();
@@ -256,7 +267,8 @@ export async function runReconciliationSweep(env: Env, options: ReconSweepOption
         await reportIncident(env, {
           user_id: config.user_id,
           severity: "error",
-          kind: "queue_retry_exhausted",
+          // One nightly re-emit failed; nothing was retried until exhaustion.
+          kind: "auto_heal_failed",
           summary: `Reconciliation sweep: ${row.errors} order(s) could not be auto-invoiced for ${row.displayName}`.slice(0, 500),
           detail: {
             shop: shopify_domain, merchant: row.displayName, window: { from: fromIso, to: toIso }, errors: row.errorSamples,
@@ -372,6 +384,20 @@ export function countsAsCompletion(status: SweepStatus): boolean {
   return status === "ok" || status === "error";
 }
 
+/**
+ * Whether a shop has gone too long without a full pass.
+ *
+ * A shop the paywall refuses is not starved: the gate skipped it on purpose, and
+ * the payment column on the fleet page already says BLOQUEADA. On 15/09/2026 all
+ * four starvation alarms in the fleet (Artway eka0xw-nq, Arandis f5c33a, DO IT
+ * BRAVELY uz00mf-xv, Pleasant Venture 50xbtj-vv) were shops skipped this way,
+ * each a critical email about a sweep doing exactly what it should.
+ */
+export function isStarved(last: string | null, status: string | null, cutoff: string): boolean {
+  if (status === "skipped_no_subscription") return false;
+  return !(last && last >= cutoff);
+}
+
 async function markSweep(env: Env, shop: string, status: SweepStatus, detail: unknown): Promise<void> {
   const nowIso = new Date().toISOString();
   try {
@@ -382,8 +408,9 @@ async function markSweep(env: Env, shop: string, status: SweepStatus, detail: un
          last_started_at   = excluded.last_started_at,
          -- Only a full pass counts as a completion. A budget skip, a partial
          -- drain and a paywall skip all keep the previous timestamp, so the shop
-         -- keeps ageing and eventually trips the starvation alert instead of
-         -- reading as healthy while it is quietly never finished.
+         -- keeps ageing. The first two trip the starvation alert instead of
+         -- reading as healthy while quietly never finished; a paywall skip
+         -- deliberately does not (isStarved), the gate refused it on purpose.
          last_completed_at = CASE WHEN excluded.last_status IN ('skipped_budget','partial','skipped_no_subscription')
                                   THEN sweep_state.last_completed_at
                                   ELSE excluded.last_completed_at END,
@@ -397,7 +424,8 @@ async function markSweep(env: Env, shop: string, status: SweepStatus, detail: un
 
 /**
  * The part that makes the sweep trustworthy rather than best-effort: any live
- * shop that has not completed a pass in STALE_HOURS raises a critical incident.
+ * shop that has not completed a pass in STALE_HOURS raises a critical incident,
+ * unless the paywall is what skipped it (isStarved).
  * Without this, a shop the budget never reaches heals nothing and says nothing.
  */
 async function reportStarvedShops(
@@ -408,19 +436,21 @@ async function reportStarvedShops(
 ): Promise<void> {
   const staleHours = Number(env.RECON_SWEEP_STALE_HOURS) || 48;
   const cutoff = new Date(Date.now() - staleHours * 3600000).toISOString();
-  const rows = await env.DB.prepare("SELECT shopify_domain, last_completed_at FROM sweep_state").all();
-  const completed = new Map<string, string | null>();
-  for (const r of (rows.results ?? []) as any[]) completed.set(String(r.shopify_domain), r.last_completed_at ?? null);
+  // last_status is exact for a gated shop: markSweep wrote it earlier this run.
+  const rows = await env.DB.prepare("SELECT shopify_domain, last_completed_at, last_status FROM sweep_state").all();
+  const state = new Map<string, { last: string | null; status: string | null }>();
+  for (const r of (rows.results ?? []) as any[]) state.set(String(r.shopify_domain), { last: r.last_completed_at ?? null, status: r.last_status ?? null });
 
   for (const shop of shops) {
     if (!domains.includes(shop.shopify_domain)) continue;
-    const last = completed.get(shop.shopify_domain) ?? null;
-    if (last && last >= cutoff) continue;
+    const s = state.get(shop.shopify_domain);
+    const last = s?.last ?? null;
+    if (!isStarved(last, s?.status ?? null, cutoff)) continue;
     const displayName = (shop.user_id && nameByUser.get(shop.user_id)) || shop.shopify_domain;
     await reportIncident(env, {
       user_id: shop.user_id ?? undefined,
       severity: "critical",
-      kind: "queue_retry_exhausted",
+      kind: "reconcile_sweep_stale",
       summary: `Sweep de reconciliação não completa há mais de ${staleHours}h para ${displayName} — faturas em falta podem não estar a ser recuperadas.`,
       detail: {
         shop: shop.shopify_domain, last_completed_at: last, stale_hours: staleHours,
@@ -683,6 +713,20 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
     const config: any = resolved.ok
       ? resolved.ctx.config
       : { user_id: conn.user_id, shopify_domain: null, b2b_reverse_charge: 0, ix_send_email: 0, auto_finalize: 0 };
+
+    // Same paywall as the live path, the sweep and the incident heal. Without it
+    // the pipeline's gate returned silently on every payment, the backfill read
+    // each one as a silent skip, and a gated Stripe connection raised a heal
+    // incident every night on top of its subscription_inactive (15/09/2026 review).
+    const gate = await checkSubscriptionGate(env, config, { source: conn.source_kind ?? "stripe", destination: conn.destination_kind });
+    if (!gate.allowed) {
+      row.note = `skipped: ${gate.reason}`;
+      result.totals.connectionsSkipped++;
+      result.perConnection.push(row);
+      continue;
+    }
+
+    const failedIds: string[] = [];
     try {
       const r: any = await processStripeBackfill(env, config, {
         from: effFromIso, to: toIso, dry_run: dryRun,
@@ -704,7 +748,10 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
         row.errors += r.errors ?? 0;
         row.wouldCreate += r.would_create ?? 0;
         for (const res of (r.results ?? [])) {
-          if (res.status === "error") row.errorSamples.push(`${res.external_id}: ${res.message}`.slice(0, 300));
+          if (res.status === "error") {
+            row.errorSamples.push(`${res.external_id}: ${res.message}`.slice(0, 300));
+            failedIds.push(String(res.external_id));
+          }
         }
       }
     } catch (e: any) {
@@ -719,13 +766,19 @@ export async function runStripeHeal(env: Env, options: { dryRun?: boolean; days?
         await reportIncident(env, {
           user_id: conn.user_id,
           severity: "error",
-          kind: "queue_retry_exhausted",
+          kind: "auto_heal_failed",
           summary: `Stripe auto-heal: ${row.errors} payment(s) could not be auto-invoiced for ${displayName}`.slice(0, 500),
           detail: {
             user_id: conn.user_id, merchant: displayName, destination: conn.destination_kind,
             window: { from: fromIso, to: toIso }, errors: row.errorSamples,
             message: summarizeErrorSamples(row.errorSamples),
           },
+          // Per sale, so the incident closes when each document exists. With no
+          // ids it closed on 24h of silence: Diogo Acabado's heal incident
+          // f5473168 was auto-resolved on 15/09/2026 while
+          // pi_3UEruPLRr9ut1iRi0AseOQaa was still unbilled. A connection-level
+          // failure names no payment and stays on the clock (NULL, not []).
+          affected_ids: failedIds.length ? failedIds : undefined,
           connection_label: `${conn.source_kind} → ${conn.destination_kind}`,
           merchant_name: displayName,
           bucket: "daily",

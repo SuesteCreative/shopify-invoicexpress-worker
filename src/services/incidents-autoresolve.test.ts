@@ -14,6 +14,7 @@ import { autoResolveStaleIncidents, isVerifiableOrderRef } from "./incidents";
  * incidents auto_resolved with no document anywhere.
  */
 
+/** Ids with a document through the storage fallback (a hand match): invoiced, nothing to certify. */
 const invoiced = new Set<string>();
 vi.mock("../storage", () => ({
   AppStorage: class {
@@ -23,8 +24,19 @@ vi.mock("../storage", () => ({
   },
 }));
 
-/** Minimal D1 double: routes by statement text, records the auto_resolve ids. */
-function fakeDb(stale: Array<{ id: string; affected_ids_json: string }>, closed: string[]) {
+type Evidence = Partial<Record<"held" | "finalized" | "expects_finalize" | "credit_issued_since" | "credit_in_flight", number>>;
+
+/**
+ * Minimal D1 double: routes by statement text, records every close by id.
+ * `evidence` is what the processed_orders query answers for an id; an id absent
+ * from it falls through to the storage mock above.
+ */
+function fakeDb(
+  stale: Array<{ id: string; affected_ids_json: string; kind?: string; topic?: string | null; last_seen_at?: string }>,
+  closed: string[],
+  evidence: Record<string, Evidence> = {},
+) {
+  const rows = stale.map((r) => ({ kind: "destination_reject", topic: null, first_seen_at: "2026-09-15T12:00:00.000Z", ...r }));
   return {
     prepare(sql: string) {
       const stmt: any = {
@@ -32,10 +44,20 @@ function fakeDb(stale: Array<{ id: string; affected_ids_json: string }>, closed:
           stmt.args = args;
           return stmt;
         },
-        all: async () => (sql.includes("SELECT id, affected_ids_json") ? { results: stale } : { results: [] }),
+        all: async () => {
+          if (sql.includes("FROM processed_orders po")) {
+            const ids: string[] = stmt.args.slice(1);
+            return { results: ids.filter((id) => id in evidence).map((id) => ({
+              id, held: 0, finalized: 1, expects_finalize: 1, credit_issued_since: 0, credit_in_flight: 0, ...evidence[id],
+            })) };
+          }
+          if (sql.includes("FROM incidents")) return { results: rows.filter((r) => !closed.includes(r.id)) };
+          return { results: [] };
+        },
         run: async () => {
-          if (sql.includes("status = 'auto_resolved'") && sql.includes("WHERE id = ?")) {
+          if (sql.includes("UPDATE incidents") && sql.includes("WHERE id = ?")) {
             closed.push(String(stmt.args[1]));
+            return { meta: { changes: 1 } };
           }
           return { meta: { changes: 0 } };
         },
@@ -101,7 +123,7 @@ describe("autoResolveStaleIncidents — a fresh incident is verified too", () =>
     invoiced.add("7428630446300");
     const closed: string[] = [];
     const env: any = { DB: fakeDb(
-      [{ id: "inc-3", affected_ids_json: '["7428630446300"]', last_seen_at: recent } as any], closed) };
+      [{ id: "inc-3", affected_ids_json: '["7428630446300"]', last_seen_at: recent }], closed) };
 
     const res = await autoResolveStaleIncidents(env);
 
@@ -113,7 +135,7 @@ describe("autoResolveStaleIncidents — a fresh incident is verified too", () =>
     invoiced.clear();
     const closed: string[] = [];
     const env: any = { DB: fakeDb(
-      [{ id: "inc-4", affected_ids_json: '["pi_3UFUUcJwZ8gzmNr41jJejqng"]', last_seen_at: recent } as any], closed) };
+      [{ id: "inc-4", affected_ids_json: '["evt_3UFUUcJwZ8gzmNr41jJejqng"]', last_seen_at: recent }], closed) };
 
     const res = await autoResolveStaleIncidents(env);
 
@@ -127,7 +149,7 @@ describe("autoResolveStaleIncidents — a fresh incident is verified too", () =>
     invoiced.clear();
     const closed: string[] = [];
     const env: any = { DB: fakeDb(
-      [{ id: "inc-5", affected_ids_json: '["7428630446300"]', last_seen_at: recent } as any], closed) };
+      [{ id: "inc-5", affected_ids_json: '["7428630446300"]', last_seen_at: recent }], closed) };
 
     const res = await autoResolveStaleIncidents(env);
 
@@ -205,5 +227,43 @@ describe("autoResolveStaleIncidents — a Stripe reference is verified like any 
 
     expect(closed).toEqual(["inc-8"]);
     expect(res.keptUnbilled).toBe(0);
+  });
+});
+
+/**
+ * "A row exists" was the whole check, and two things it could not see closed
+ * incidents that were still real (15/09/2026 review of WHM's alarms): the row
+ * is written before the finalize call, so a finalize failure left a row and a
+ * draft; and a refund's sale is always invoiced, so a missing credit note read
+ * as done.
+ */
+describe("autoResolveStaleIncidents — closes on evidence, not on a row", () => {
+  const PI = "pi_3UFvliLXiybx6Vcz1667s22k";
+
+  it("keeps a finalize failure that left a draft open", async () => {
+    invoiced.clear();
+    const closed: string[] = [];
+    const env: any = { DB: fakeDb([{ id: "inc-9", affected_ids_json: JSON.stringify([PI]), topic: "paid" }], closed,
+      { [PI]: { finalized: 0 } }) };
+
+    const res = await autoResolveStaleIncidents(env);
+
+    expect(closed).toEqual([]);
+    expect(res.keptUnbilled).toBe(1);
+  });
+
+  it("judges a refund by its credit note, not by the sale's invoice", async () => {
+    invoiced.clear();
+    const noCredit: string[] = [];
+    await autoResolveStaleIncidents({ DB: fakeDb(
+      [{ id: "inc-10", kind: "queue_retry_exhausted", affected_ids_json: JSON.stringify([PI]), topic: "refund" }], noCredit,
+      { [PI]: {} }) } as any);
+    expect(noCredit).toEqual([]);
+
+    const credited: string[] = [];
+    await autoResolveStaleIncidents({ DB: fakeDb(
+      [{ id: "inc-10", kind: "queue_retry_exhausted", affected_ids_json: JSON.stringify([PI]), topic: "refund" }], credited,
+      { [PI]: { credit_issued_since: 1 } }) } as any);
+    expect(credited).toEqual(["inc-10"]);
   });
 });

@@ -17,7 +17,7 @@ import {
 import { bookingCollectedAmount, partialModeFrom } from "./services/lodgify-amounts";
 import { readDocumentTimeline, readMerchantTimeline, readRecentDrifts, documentEventPurgeSql, logDocumentEvent, lookupLastEmissionError } from "./services/document-log";
 import { runDocumentVerifySweep } from "./handlers/document-verify-sweep";
-import { reportIncident, runIncidentDigest, autoResolveStaleIncidents, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
+import { reportIncident, runIncidentDigest, autoResolveStaleIncidents, resolveIncidentsOnEvidence, runWeeklyMerchantDigest, explainIncidentById, runWeeklyPatternReport, sendIncidentTestEmail } from "./services/incidents";
 import { describeOrder } from "./services/order-label";
 import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
@@ -334,7 +334,8 @@ app.post("/webhooks/stripe", async (c) => {
       await reportIncident(c.env, {
         user_id: ownerRow.user_id,
         severity: "critical",
-        kind: "queue_retry_exhausted",
+        // Not a retry: the queue refused the send once and Stripe redelivers.
+        kind: "queue_enqueue_failed",
         summary: `Falha ao enfileirar evento Stripe ${eventId} (${canonical}). Evento NÃO foi processado.`,
         // `message` is the key the triage redaction reads; `error` predates it
         // and is kept so nothing already reading it breaks.
@@ -516,7 +517,8 @@ app.post("/webhooks/stripe/connect", async (c) => {
       await reportIncident(c.env, {
         user_id: ownerRow.user_id,
         severity: "critical",
-        kind: "queue_retry_exhausted",
+        // Not a retry: the queue refused the send once and Stripe redelivers.
+        kind: "queue_enqueue_failed",
         summary: `Falha ao enfileirar evento Stripe Connect ${eventId} (${canonical}). Evento NÃO foi processado.`,
         detail: { eventId, topic: canonical, stripeAccount: account, message: String(err?.message ?? err), error: String(err?.message ?? err) },
         affected_ids: [eventId],
@@ -2967,6 +2969,8 @@ app.post("/admin/test-incident-email", async (c) => {
     "auth_failure_destination", "auth_failure_source", "destination_reject",
     "normalize_fail", "nif_invalid", "nif_invalid_draft", "credit_note_on_draft", "subscription_inactive",
     "queue_retry_exhausted", "webhook_invalid_signature",
+    "reconcile_sweep_stale", "auto_heal_failed", "document_log_write_lost",
+    "queue_enqueue_failed", "lodgify_bookings_uninvoiced",
   ];
   const kind = body.kind && kinds.includes(body.kind) ? body.kind : "webhook_invalid_signature";
 
@@ -3236,6 +3240,9 @@ async function processShopifyBatch(batch: MessageBatch<QueueMessage>, env: Env) 
             // the Friday digest (the gap that let the client find the incident first).
             severity: permanent ? severity : "critical",
             kind: permanent ? kind : "queue_retry_exhausted",
+            // Refunds in their own bucket, so the evidence check never judges a
+            // refund failure by the sale's invoice (see generic-pipeline).
+            ...(/refund/i.test(String(topic)) ? { dedup_key: "refund" } : {}),
             summary: `${topic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(e as any)?.message ?? String(e)}`.slice(0, 500),
             // `raw` carries the offending address-line-2 text so the merchant
             // email can quote the exact value instead of saying "invalid NIF".
@@ -3457,6 +3464,9 @@ async function processDeadLetterBatch(batch: MessageBatch<any>, env: Env) {
         user_id: userId,
         severity: "critical",
         kind: "queue_retry_exhausted",
+        // Refunds in their own bucket, so the evidence check never judges a
+        // refund failure by the sale's invoice (see generic-pipeline).
+        ...(topic.toLowerCase().includes("refund") ? { dedup_key: "refund" } : {}),
         // A refund that dies in the DLQ leaves the SALE invoiced and the credit
         // note missing — saying "não foi facturada" there sends the merchant
         // hunting for an invoice that exists.
@@ -3563,37 +3573,52 @@ export default {
     // account's own key but only acknowledged, so bookings are polled and
     // invoiced here. Runs on its own cron so it never rides the ops sweep.
     if (event.cron === "*/30 * * * *") {
-      if (env.LODGIFY_POLL_ENABLED === "0") {
-        console.log("[Cron] Lodgify poll disabled (LODGIFY_POLL_ENABLED=0)");
-        return;
-      }
-      // Is our own egress alive, before spending the poll on it? Every Lodgify
-      // invoice depends on that one box, and the only other detector is stale
-      // ingestion at 08:00 with a six-hour floor — a Saturday-night outage
-      // would surface on Sunday morning. One request every 30 minutes buys
-      // minutes instead of hours, and skipping the poll while it is down keeps
-      // 40 pages × N connections of doomed retries out of the log.
-      const probe = await probeLodgifyRelay(env);
-      if (probe.relayed && !probe.ok) {
-        console.error(`[Cron] Lodgify relay down (${probe.base}): ${probe.error ?? probe.status}`);
-        await reportLodgifyRelayDown(env, probe);
-        return;
-      }
-
+      // The incident evidence check runs AFTER the Lodgify poll, on every way out
+      // of this branch: both share the invocation's D1 query budget, and billing
+      // comes first. It is what clears a pill the records already settle —
+      // nothing between the 08:00 runs did, so WHM's stayed red for a day over
+      // two sales that were invoiced and final (15/09/2026). A failure here only
+      // costs the next half hour.
       try {
-        const r = await pollLodgifyBookings(env);
-        console.log(`[Cron] Lodgify poll: synced=${r.synced} scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} reversed=${r.reversed} failed=${r.failed} across ${r.connections} connection(s)`);
-      } catch (e: any) {
-        // Was console-only. A throw here is the whole poll failing — a
-        // misconfigured egress, or D1 unreachable — and it used to be
-        // invisible until someone noticed the bookings had stopped.
-        console.error(`[Cron] Lodgify poll failed: ${e.message}`);
-        await reportLodgifyRelayDown(env, {
-          base: probe.relayed ? probe.base : "direct (no fixed IP)",
-          error: String(e?.message ?? e).slice(0, 500),
-        }).catch(() => { /* incident reporting must not mask the original failure */ });
+        if (env.LODGIFY_POLL_ENABLED === "0") {
+          console.log("[Cron] Lodgify poll disabled (LODGIFY_POLL_ENABLED=0)");
+          return;
+        }
+        // Is our own egress alive, before spending the poll on it? Every Lodgify
+        // invoice depends on that one box, and the only other detector is stale
+        // ingestion at 08:00 with a six-hour floor — a Saturday-night outage
+        // would surface on Sunday morning. One request every 30 minutes buys
+        // minutes instead of hours, and skipping the poll while it is down keeps
+        // 40 pages × N connections of doomed retries out of the log.
+        const probe = await probeLodgifyRelay(env);
+        if (probe.relayed && !probe.ok) {
+          console.error(`[Cron] Lodgify relay down (${probe.base}): ${probe.error ?? probe.status}`);
+          await reportLodgifyRelayDown(env, probe);
+          return;
+        }
+
+        try {
+          const r = await pollLodgifyBookings(env);
+          console.log(`[Cron] Lodgify poll: synced=${r.synced} scanned=${r.scanned} invoiced=${r.invoiced} skipped=${r.skipped} reversed=${r.reversed} failed=${r.failed} across ${r.connections} connection(s)`);
+        } catch (e: any) {
+          // Was console-only. A throw here is the whole poll failing — a
+          // misconfigured egress, or D1 unreachable — and it used to be
+          // invisible until someone noticed the bookings had stopped.
+          console.error(`[Cron] Lodgify poll failed: ${e.message}`);
+          await reportLodgifyRelayDown(env, {
+            base: probe.relayed ? probe.base : "direct (no fixed IP)",
+            error: String(e?.message ?? e).slice(0, 500),
+          }).catch(() => { /* incident reporting must not mask the original failure */ });
+        }
+        return;
+      } finally {
+        try {
+          const settled = await resolveIncidentsOnEvidence(env);
+          if (settled > 0) console.log(`[Cron] Incidents resolved on evidence: ${settled}`);
+        } catch (e: any) {
+          console.error(`[Cron] Incident evidence check failed: ${e?.message ?? e}`);
+        }
       }
-      return;
     }
 
     // Friday 16:00 UTC — weekly per-merchant "unprocessed invoices" digest only.

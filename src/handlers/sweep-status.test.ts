@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sweepStatusFor, countsAsCompletion } from "./reconciliation-sweep";
+import { sweepStatusFor, countsAsCompletion, isStarved } from "./reconciliation-sweep";
 
 /**
  * `sweep_state.last_completed_at` is the clock `reportStarvedShops` watches, so
@@ -37,5 +37,21 @@ describe("countsAsCompletion", () => {
     expect(countsAsCompletion("partial")).toBe(false);
     expect(countsAsCompletion("skipped_budget")).toBe(false);
     expect(countsAsCompletion("skipped_no_subscription")).toBe(false);
+  });
+});
+
+describe("isStarved", () => {
+  // 15/09/2026: every starvation alarm in the fleet was a shop the paywall skips.
+  const cutoff = "2026-09-13T04:00:00.000Z";
+
+  it("never flags a shop the paywall is skipping", () => {
+    expect(isStarved("2026-09-10T04:02:55.231Z", "skipped_no_subscription", cutoff)).toBe(false);
+    expect(isStarved(null, "skipped_no_subscription", cutoff)).toBe(false);
+  });
+
+  it("still flags a shop the budget or the cap keeps from finishing", () => {
+    expect(isStarved("2026-09-10T04:02:55.231Z", "skipped_budget", cutoff)).toBe(true);
+    expect(isStarved(null, "partial", cutoff)).toBe(true);
+    expect(isStarved("2026-09-15T04:02:00.000Z", "ok", cutoff)).toBe(false);
   });
 });

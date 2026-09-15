@@ -281,6 +281,11 @@ export async function runAdapterPipeline(input: RunPipelineInput): Promise<void>
         summary: `${logTopic} ${orderLabel}${clientName ? ` — ${clientName}` : ""}: ${(err as any)?.message ?? String(err)}`.slice(0, 500),
         // `raw`/`field` are set by InvalidAddressNifError so the merchant email
         // can quote the exact address-line-2 value that blocked the invoice.
+        // A refund failure gets a bucket of its own. Merged with a sale failure
+        // of the same connection and hour, the bucket took whichever topic wrote
+        // last, and the evidence check could close it on the sale's invoice with
+        // no credit note (review, 15/09/2026).
+        ...(topic === "refund" ? { dedup_key: "refund" } : {}),
         detail: { message: (err as any)?.message, http_status: httpStatusOf(err), raw: (err as any)?.raw, field: (err as any)?.field, orderRef, clientName, externalId, topic, source, destination },
         affected_ids: [externalId],
         connection_label: connectionLabel,
@@ -859,6 +864,29 @@ async function runPipelineCore(
       // applies is exactly the shape of the livemode bug above.
       if (await runInHoldsFinalize(env, source, config.user_id, destination)) {
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Rodagem por confirmar — mantido em rascunho", status: 200 });
+        return;
+      }
+
+      // Already closed: nothing left for `paid` to do.
+      //
+      // A card-paid Stripe invoice sends `invoice.paid` AFTER the
+      // `payment_intent.succeeded` that already created and finalized its
+      // document. InvoiceXpress refused the second finalize ("cannot change a
+      // InvoiceReceipt in status 'settled'") on every retry, and the dead-letter
+      // queue raised a critical "Encomenda NÃO foi facturada" for WHM on
+      // 15/09/2026 (pi_3UFvliLXiybx6Vcz1667s22k, pi_3UFwnHLXiybx6Vcz1xyyLQRY),
+      // two sales that were invoiced.
+      //
+      // Read the state instead of matching the refusal text: a draft still goes
+      // to finalize, so a genuine refusal still surfaces; canceled or deleted
+      // fall through unchanged; a failed read throws and the queue retries. And
+      // the finalized event and the buyer email below never run twice.
+      const current = destAdapter.getDocument ? await destAdapter.getDocument(invoice.invoice_id, ctx) : null;
+      // Positive evidence only: InvoiceXpress reads a missing or unknown status
+      // as final, and a document with no number has not been through a close.
+      if (current?.state === "finalized" && current.number) {
+        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+        await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: JSON.stringify({ externalId, invoiceId: invoice.invoice_id }), response: "Already finalized", status: 200 });
         return;
       }
 

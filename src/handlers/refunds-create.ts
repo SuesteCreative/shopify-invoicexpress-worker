@@ -151,6 +151,42 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
     // refund on those shops burned the full queue retry budget on an attempt IX
     // was always going to refuse.
     const ownerStatus = String((ixInvoice?.data as any)?.status ?? "").toLowerCase();
+
+    // Nothing left to credit on a document that no longer stands: a draft that
+    // was taken back reads `deleted`, an undone document `canceled`. Neither is a
+    // fiscal sale. The draft guard below only knew `draft`, so these went on to
+    // InvoiceXpress, came back refused ("Owner document must not be in draft")
+    // and, that phrase being unknown to the classifier, went round the queue
+    // again — 50xbtj-vv #1070 and #1071, 15/09/2026.
+    if (ownerStatus === "deleted" || ownerStatus === "canceled" || ownerStatus === "cancelled") {
+      const why = ownerStatus === "deleted"
+        ? `o documento ${invoice.invoice_id} foi apagado (era um rascunho) e nunca chegou a ser fiscal`
+        : `o documento ${invoice.invoice_id} está anulado`;
+      console.log(`[Rioko] Refund for order ${orderId}: nothing to credit — ${why}`);
+      if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, webhookTopic, "success");
+      await logDocumentEvent(env, {
+        externalId: String(orderId),
+        event: "skipped",
+        dedupKey: `skipped:credit_owner_${ownerStatus}:${invoice.invoice_id}`,
+        invoiceId: String(invoice.invoice_id),
+        userId: config.user_id,
+        shopifyDomain: config.shopify_domain,
+        sourceKind: "shopify",
+        destinationKind: "invoicexpress",
+        actor: "pipeline",
+        summary: `Reembolso sem nota de crédito: ${why}. Não há documento fiscal para corrigir.`,
+        detail: { invoiceId: String(invoice.invoice_id), status: ownerStatus },
+      });
+      await appStorage.saveLog({
+        shopify_domain: config.shopify_domain,
+        topic: webhookTopic,
+        payload: JSON.stringify({ orderId, invoiceId: invoice.invoice_id, status: ownerStatus }),
+        response: `Skipped credit note: ${why}`,
+        status: 200,
+      });
+      return;
+    }
+
     if (ownerStatus === "draft" || invoice.hold_reason) {
       const why = invoice.hold_reason
         ? `o documento está em rascunho retido (${invoice.hold_reason})`

@@ -404,43 +404,55 @@ async function runPipelineCore(
   // `paid` and `refund` deliveries can rebuild the same context.
   let routedDecision: NormalizedRoute | null = null;
 
+  // Is this sale ours at all?
+  //
+  // BEFORE the topic is even considered. A sale another system invoices is not
+  // ours to issue a document for, and it is not ours to CREDIT either — measured
+  // on Escola Lá Fora (14/09/2026): two subscriptions the merchant's own
+  // backoffice had invoiced in July (M/565, M/566, both closed) were refunded,
+  // and the refund reached a pipeline whose scope check only ran on `created`.
+  // It ground through ten attempts looking for an invoice Rioko never issued,
+  // gave up, and raised an incident for work that was never its own.
+  //
+  // Every gate below answers "has RIOKO done this?", and for a second system's
+  // document the answer is honestly no — which is how one payment ends up with
+  // two fiscal documents and the VAT on it declared twice.
+  //
+  // A sale Rioko has already issued a document for is settled: it is ours by
+  // evidence, so the question is not asked again and no redelivery pays for a
+  // Stripe round-trip to re-answer it.
+  const alreadyOurs = await appStorage.isInvoiceAlreadyProcessed(externalId, source);
+  const notOurs = !alreadyOurs && sourceAdapter.scopeBlocker
+    ? await sourceAdapter.scopeBlocker(body, ctx)
+    : null;
+  if (notOurs) {
+    if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
+    await logDocumentEvent(env, {
+      externalId,
+      event: "skipped",
+      dedupKey: `skipped:scope:${topic}:${externalId}`,
+      userId: config.user_id,
+      shopifyDomain: config.shopify_domain,
+      sourceKind: source,
+      destinationKind: destination,
+      actor: "pipeline",
+      summary: `Venda ${externalId} não facturada pelo Rioko: ${notOurs}.`,
+      detail: { reason: notOurs, topic },
+    });
+    await appStorage.saveLog({
+      shopify_domain: config.shopify_domain,
+      topic: logTopic,
+      payload: externalId,
+      response: `Skipped: out of scope — ${notOurs}`,
+      status: 200,
+    });
+    return;
+  }
+
   switch (topic) {
     case "created": {
-      const alreadyExists = await appStorage.isInvoiceAlreadyProcessed(externalId, source);
-      if (alreadyExists) {
+      if (alreadyOurs) {
         await appStorage.saveLog({ shopify_domain: config.shopify_domain, topic: logTopic, payload: externalId, response: "Already processed", status: 401 });
-        return;
-      }
-
-      // Is this sale ours at all?
-      //
-      // Before any of it: a sale another system already invoices must not be
-      // normalized, re-rated, or looked up at the destination. Every gate below
-      // answers "has RIOKO done this?", and for a second system's document the
-      // answer is honestly no — which is how one payment ends up with two fiscal
-      // documents and the VAT on it declared twice.
-      const notOurs = sourceAdapter.scopeBlocker ? await sourceAdapter.scopeBlocker(body, ctx) : null;
-      if (notOurs) {
-        if (webhookId) await appStorage.markWebhookAsProcessed(webhookId, logTopic as any, "success");
-        await logDocumentEvent(env, {
-          externalId,
-          event: "skipped",
-          dedupKey: `skipped:scope:${externalId}`,
-          userId: config.user_id,
-          shopifyDomain: config.shopify_domain,
-          sourceKind: source,
-          destinationKind: destination,
-          actor: "pipeline",
-          summary: `Venda ${externalId} não facturada pelo Rioko: ${notOurs}.`,
-          detail: { reason: notOurs },
-        });
-        await appStorage.saveLog({
-          shopify_domain: config.shopify_domain,
-          topic: logTopic,
-          payload: externalId,
-          response: `Skipped: out of scope — ${notOurs}`,
-          status: 200,
-        });
         return;
       }
 

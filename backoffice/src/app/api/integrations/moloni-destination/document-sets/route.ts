@@ -2,8 +2,8 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
-import { callWorker } from "@/lib/worker";
 import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
+import { listMoloniDocumentSets, moloniConnectionToken } from "@/lib/moloni-token";
 
 export const runtime = "edge";
 
@@ -14,52 +14,34 @@ async function resolveTargetUser(request: NextRequest) {
     return { userId, targetUserId };
 }
 
+/**
+ * One company's Moloni document sets, for this connection.
+ *
+ * Authenticates the way the connection does — see `moloniConnectionToken`. The
+ * password-only worker proxy it used to call could not serve an OAuth connection.
+ */
 export async function GET(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
 
     const url = new URL(request.url);
-    const companyId = url.searchParams.get("company_id");
+    const companyId = Number(url.searchParams.get("company_id") ?? 0);
     if (!companyId) return NextResponse.json({ error: "company_id is required" }, { status: 400 });
 
     const { env } = getRequestContext();
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    // Same collapse as its sibling: `stripe_connect` and `lodgify` both became
-    // `stripe`, so the series shown belonged to another integration.
     const rawSource = url.searchParams.get("source_kind");
     const sourceKind = sourceKindOrNull(rawSource, "stripe");
     if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
-    const row: any = await db.prepare(
-        `SELECT destination_config_json FROM connections
-         WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`
-    ).bind(authResult.targetUserId, sourceKind).first();
+    const conn = await moloniConnectionToken(db, authResult.targetUserId, sourceKind);
+    if (!conn.ok) return NextResponse.json({ error: conn.error }, { status: conn.status });
 
-    if (!row?.destination_config_json) {
-        return NextResponse.json({ error: "Moloni credentials not found — save Step 2 first." }, { status: 404 });
+    try {
+        return NextResponse.json({ documentSets: await listMoloniDocumentSets(conn.cfg, conn.token, companyId) });
+    } catch (e: any) {
+        return NextResponse.json({ error: String(e?.message ?? e) }, { status: 502 });
     }
-
-    const cfg = JSON.parse(row.destination_config_json);
-
-    // callWorker carries the admin key the proxy requires.
-    const workerRes = await callWorker("/moloni-proxy/document-sets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({
-            client_id: cfg.moloni_client_id,
-            client_secret: cfg.moloni_client_secret,
-            username: cfg.moloni_username,
-            password: cfg.moloni_password,
-            environment: cfg.moloni_environment ?? "production",
-            company_id: companyId,
-        }),
-    });
-
-    const data: any = await workerRes.json().catch(() => ({}));
-    if (!workerRes.ok) {
-        return NextResponse.json({ error: data?.error ?? `Worker error ${workerRes.status}` }, { status: 502 });
-    }
-    return NextResponse.json(data);
 }

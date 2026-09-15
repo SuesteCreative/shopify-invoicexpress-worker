@@ -13,30 +13,29 @@ import TrialBanner from "@/components/TrialBanner";
 import { alreadySubscribed } from "@/lib/subscription-state";
 import { useBillingPrice } from "@/lib/use-billing-price";
 import { formatMoney, annualSavingPct, monthlyEquivalent } from "@/lib/billing-display";
-import { RIOKO_CONFIG } from "@/lib/config";
 import TaxRegistrations from "@/components/TaxRegistrations";
 import InvoiceNote from "@/components/InvoiceNote";
 import type { ConnectionFiscal } from "@/lib/connection-fiscal";
 import { VAT_EXEMPTION_OPTIONS as exemptionOptions } from "@/lib/vat-exemptions";
+import MoloniOAuthStep, { type MoloniSiblingDefaults } from "@/components/MoloniOAuthStep";
+import { RETURN_SLUG_WIZARD_LODGIFY_MOLONI } from "@/lib/oauth-return";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
-
-// Moloni requires a Callback URL on the developer app to activate API access.
-// Our integration uses the OAuth password grant, which never consumes a redirect,
-// so this URL is only there to satisfy Moloni's "activate the app" requirement —
-// any reachable value works; we hand clients a stable, shared one.
-const MOLONI_CALLBACK_URL = `${RIOKO_CONFIG.workerUrl.replace(/\/$/, "")}/moloni/callback`;
 
 export default function LodgifyMoloniIntegration() {
     const t = useTranslations("lodgifyMoloniSetup");
     const tB = useTranslations("faturacao");
     const tCard = useTranslations("subscriptionCard");
+    const tConnect = useTranslations("stripeConnectMoloniSetup");
 
     // The price this page's own Subscrever button will charge, read from the
     // same Stripe price the checkout uses rather than stated in the messages.
     const prices = useBillingPrice("lodgify:moloni");
     const searchParams = useSearchParams();
     const stripeResult = searchParams.get("stripe");
+    // Set by the Moloni callback when it sends the merchant back here.
+    const moloniResult = searchParams.get("moloni");
+    const callbackDetail = searchParams.get("detail");
 
     const [sub, setSub] = useState<any>(null);
     // Only what the connection states; merging only what the merchant touches
@@ -59,17 +58,21 @@ export default function LodgifyMoloniIntegration() {
     const [webhookUrl, setWebhookUrl] = useState("");
     const [webhookManual, setWebhookManual] = useState(false);
     const [copied, setCopied] = useState(false);
-    const [callbackCopied, setCallbackCopied] = useState(false);
 
-    // Moloni creds
+    // Moloni. Every new connection authorises by OAuth (15/09/2026); a username
+    // and a password are only read, to recognise a connection set up before.
     const [clientId, setClientId] = useState("");
     const [clientSecret, setClientSecret] = useState("");
     const [username, setUsername] = useState("");
-    const [password, setPassword] = useState("");
     const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
     const [hasSavedSecret, setHasSavedSecret] = useState(false);
     const [hasSavedPassword, setHasSavedPassword] = useState(false);
+    const [moloniAuthorized, setMoloniAuthorized] = useState(false);
+    const [siblingDefaults, setSiblingDefaults] = useState<MoloniSiblingDefaults | null>(null);
     const [moloniError, setMoloniError] = useState("");
+    // What is STORED, not what is typed: a company name offered from the account's
+    // other Moloni connection would otherwise read as saved before anyone saved it.
+    const [settingsStored, setSettingsStored] = useState(false);
 
     // Settings
     const [companyId, setCompanyId] = useState("");
@@ -86,12 +89,20 @@ export default function LodgifyMoloniIntegration() {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("");
 
     const lodgifySaved = hasSavedApiKey && lodgifyStatus === "active";
-    const moloniCredsSaved = !!clientId && hasSavedSecret && !!username && hasSavedPassword;
+    // A connection set up with a password before OAuth is still a working one.
+    const legacyPassword = !moloniAuthorized && !!username && hasSavedPassword;
+    const moloniCredsSaved = moloniAuthorized || legacyPassword;
     // The série is optional — with none named, the Worker uses the account's
     // default set (active_by_default). Requiring it here left the step reading
     // PENDING forever for a merchant who correctly left it blank.
-    const settingsSaved = (!!companyId && !!documentSetId) || !!companyName;
+    const settingsSaved = settingsStored;
     const allComplete = connectionStatus === "active";
+
+    // What the Moloni callback came back with.
+    useEffect(() => {
+        if (moloniResult === "denied") setMoloniError(tConnect("moloniDenied"));
+        else if (moloniResult === "error") setMoloniError(callbackDetail || tConnect("moloniFailed"));
+    }, [moloniResult, callbackDetail, tConnect]);
 
     const handleSubscribe = async (plan: "monthly" | "annual") => {
         setSubscribing(plan);
@@ -137,6 +148,7 @@ export default function LodgifyMoloniIntegration() {
                 setHasSavedSecret(!!cfg.has_client_secret);
                 setUsername(String(cfg.moloni_username ?? ""));
                 setHasSavedPassword(!!cfg.has_password);
+                setMoloniAuthorized(!!cfg.moloni_authorized);
                 setCompanyId(cfg.moloni_company_id != null ? String(cfg.moloni_company_id) : "");
                 setCompanyName(cfg.moloni_company_name ? String(cfg.moloni_company_name) : "");
                 setDocumentSetId(cfg.moloni_document_set_id != null ? String(cfg.moloni_document_set_id) : "");
@@ -156,10 +168,26 @@ export default function LodgifyMoloniIntegration() {
                     ...(typeof cfg.custom_invoice_note === "string" ? { custom_invoice_note: cfg.custom_invoice_note } : {}),
                 });
                 setConnectionStatus(mConn.status ?? "");
-                credsOk = !!cfg.moloni_client_id && !!cfg.has_client_secret && !!cfg.moloni_username && !!cfg.has_password;
+                credsOk = !!cfg.moloni_authorized || (!!cfg.moloni_username && !!cfg.has_password);
                 setOk = (!!cfg.moloni_company_id && !!cfg.moloni_document_set_id) || !!cfg.moloni_company_name;
                 mStatus = mConn.status ?? "";
             }
+
+            // A second Moloni connection starts from the account's first: the same
+            // app and, most of the time, the same company, wherever this one states
+            // nothing. Never the tokens (it authorises on its own) and never the
+            // fiscal settings (those are this connection's own decisions).
+            const sibling: MoloniSiblingDefaults | null = moloni?.sibling_defaults ?? null;
+            setSiblingDefaults(sibling);
+            const mCfg = mConn?.destination_config ?? {};
+            if (sibling && !mCfg.moloni_client_id && sibling.moloni_client_id) {
+                setClientId(String(sibling.moloni_client_id));
+                if (sibling.moloni_environment === "sandbox") setEnvironment("sandbox");
+            }
+            if (sibling && !mCfg.moloni_company_name && sibling.moloni_company_name) {
+                setCompanyName(String(sibling.moloni_company_name));
+            }
+            setSettingsStored(setOk);
 
             if (mStatus === "active") setStep(5);
             else if (lodgifyOk && credsOk && setOk) setStep(4);
@@ -196,49 +224,6 @@ export default function LodgifyMoloniIntegration() {
         }
     };
 
-    const handleMoloniStep = async () => {
-        setMoloniError("");
-        if (!clientId.trim() || !username.trim()) { setMoloniError(t("errorMoloniRequired")); return; }
-        if (!clientSecret && !hasSavedSecret) { setMoloniError(t("errorMissingSecret")); return; }
-        if (!password && !hasSavedPassword) { setMoloniError(t("errorMissingPassword")); return; }
-        setSaving(true);
-        try {
-            const body: Record<string, unknown> = {
-                source_kind: "lodgify",
-                moloni_client_id: clientId,
-                moloni_username: username,
-                moloni_environment: environment,
-                status: "draft",
-            };
-            if (clientSecret) body.moloni_client_secret = clientSecret;
-            if (password) body.moloni_password = password;
-            const res = await fetch("/api/integrations/moloni-destination", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-            });
-            if (!res.ok) { const json: any = await res.json().catch(() => ({})); setMoloniError(json.error ?? `HTTP ${res.status}`); return; }
-            if (clientSecret) setHasSavedSecret(true);
-            if (password) setHasSavedPassword(true);
-            setClientSecret("");
-            setPassword("");
-            // Validate the credentials actually authenticate against Moloni (a
-            // background grant via the companies proxy) before advancing — instant
-            // ✓/✗ instead of discovering a bad login at invoice time.
-            const valRes = await fetch("/api/integrations/moloni-destination/companies?source_kind=lodgify");
-            if (!valRes.ok) {
-                const vjson: any = await valRes.json().catch(() => ({}));
-                setMoloniError(vjson.error ?? t("errorMoloniAuth"));
-                return;
-            }
-            setStep(3);
-        } catch (e: any) {
-            setMoloniError(e?.message ?? "Unknown error");
-        } finally {
-            setSaving(false);
-        }
-    };
-
     const handleSaveSettings = async () => {
         // Company only. The série is optional (blank ⇒ the account's default set),
         // and demanding it while the message named the company sent merchants
@@ -269,6 +254,7 @@ export default function LodgifyMoloniIntegration() {
                 }),
             });
             if (!res.ok) { const json: any = await res.json().catch(() => ({})); setGlobalError(json.error ?? `HTTP ${res.status}`); return; }
+            setSettingsStored(true);
             setStep(4);
         } catch (e: any) {
             setGlobalError(e?.message ?? "Unknown error");
@@ -299,10 +285,6 @@ export default function LodgifyMoloniIntegration() {
     const copyWebhookUrl = () => {
         if (!webhookUrl) return;
         navigator.clipboard.writeText(webhookUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
-    };
-
-    const copyCallbackUrl = () => {
-        navigator.clipboard.writeText(MOLONI_CALLBACK_URL).then(() => { setCallbackCopied(true); setTimeout(() => setCallbackCopied(false), 2000); });
     };
 
     if (loading) {
@@ -404,53 +386,26 @@ export default function LodgifyMoloniIntegration() {
             isAuthorized: moloniCredsSaved,
             errorMsg: moloniError,
             body: (
-                <div className="grid md:grid-cols-2 gap-8">
-                    <div className="md:col-span-2 flex items-start gap-4 bg-soon/5 border border-soon/20 rounded-2xl px-6 py-4">
-                        <Info className="w-5 h-5 text-soon shrink-0 mt-0.5" />
-                        <div className="min-w-0 flex-1">
-                            <p className="text-sm font-bold text-soon">{t("moloniCallbackTitle")}</p>
-                            <p className="text-[11px] text-fg-60 mt-1 leading-relaxed">{t("moloniCallbackBody")}</p>
-                            <div className="flex items-center gap-2 bg-surface-2 border border-hairline rounded-xl px-4 py-3 mt-3">
-                                <code className="flex-1 text-xs text-fg font-mono break-all">{MOLONI_CALLBACK_URL}</code>
-                                <button type="button" onClick={copyCallbackUrl} className="p-2 rounded-lg hover:bg-surface transition-colors flex-shrink-0">
-                                    {callbackCopied ? <Check className="w-4 h-4 text-accent-hot" /> : <Copy className="w-4 h-4 text-fg-60" />}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="space-y-3">
-                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("clientIdLabel")}</label>
-                        <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="rioko-app" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
-                    </div>
-                    <div className="space-y-3">
-                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("clientSecretLabel")}</label>
-                        <input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={hasSavedSecret ? "••••••••••••" : ""} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40 font-mono" />
-                        {hasSavedSecret && <p className="text-[10px] text-fg-40 ml-1">{t("secretStoredHint")}</p>}
-                    </div>
-                    <div className="space-y-3">
-                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("usernameLabel")}</label>
-                        <input type="email" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="rioko@minhaempresa.pt" className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
-                    </div>
-                    <div className="space-y-3">
-                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("passwordLabel")}</label>
-                        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={hasSavedPassword ? "••••••••••••" : ""} className="w-full bg-surface-2/50 border border-hairline rounded-2xl px-5 py-4 text-sm font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-fg-40" />
-                        {hasSavedPassword && <p className="text-[10px] text-fg-40 ml-1">{t("passwordStoredHint")}</p>}
-                    </div>
-                    <div className="md:col-span-2 space-y-3">
-                        <label className="text-[10px] text-fg-40 font-black uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><span className="w-1 h-1 rounded-full bg-accent" />{t("environmentLabel")}</label>
-                        <div className="flex gap-3">
-                            <button type="button" onClick={() => setEnvironment("production")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envProduction")}</button>
-                            <button type="button" onClick={() => setEnvironment("sandbox")} className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}>{t("envSandbox")}</button>
-                        </div>
-                    </div>
-                    <div className="md:col-span-2 pt-4 flex items-center gap-4">
-                        <button onClick={() => setStep(1)} className="text-fg-40 hover:text-fg text-[10px] font-black uppercase tracking-widest transition-all px-4">{t("back")}</button>
-                        <button onClick={handleMoloniStep} disabled={saving} className="flex-1 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500 transform active:scale-95 shadow-xl bg-fg text-surface hover:bg-accent hover:text-on-accent disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
-                            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t("saveMoloni")} <ChevronRight className="w-4 h-4" /></>}
-                        </button>
-                    </div>
-                    {moloniError && <p className="md:col-span-2 text-[11px] text-destructive font-bold text-center">{moloniError}</p>}
-                </div>
+                <>
+                    <MoloniOAuthStep
+                        sourceKind="lodgify"
+                        returnSlug={RETURN_SLUG_WIZARD_LODGIFY_MOLONI}
+                        clientId={clientId}
+                        onClientId={setClientId}
+                        clientSecret={clientSecret}
+                        onClientSecret={setClientSecret}
+                        environment={environment}
+                        onEnvironment={setEnvironment}
+                        hasSavedSecret={hasSavedSecret}
+                        authorized={moloniAuthorized}
+                        legacyPassword={legacyPassword}
+                        sibling={siblingDefaults}
+                        onError={setMoloniError}
+                        onBack={() => setStep(1)}
+                        onContinue={() => setStep(3)}
+                    />
+                    {moloniError && <p className="mt-6 text-[11px] text-destructive font-bold text-center">{moloniError}</p>}
+                </>
             ),
         },
         {
@@ -642,6 +597,12 @@ export default function LodgifyMoloniIntegration() {
                 <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-accent-hot/12 border border-accent-hot/30 text-accent-hot">
                     <CheckCheck className="w-5 h-5 shrink-0" />
                     <p className="font-mono text-xs uppercase tracking-[0.18em]">{tB("stripeSuccess")}</p>
+                </motion.div>
+            )}
+            {moloniResult === "connected" && (
+                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-accent-hot/12 border border-accent-hot/30 text-accent-hot">
+                    <CheckCheck className="w-5 h-5 shrink-0" />
+                    <p className="font-mono text-xs uppercase tracking-[0.18em]">{tConnect("moloniConnectedBanner")}</p>
                 </motion.div>
             )}
 

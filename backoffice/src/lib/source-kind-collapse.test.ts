@@ -154,26 +154,66 @@ describe("the rule those routes use instead", () => {
     });
 });
 
-describe("Moloni OAuth is offered through its two doors and no others", () => {
-    // Which authentication a Moloni connection uses is decided by the door, not
-    // by the date: Stripe Connect and the public Lodgify onboarding authorise by
-    // OAuth; the three dashboard wizards use the password grant, by decision of
-    // 10/09/2026. This gate has been wrong both ways — first collapsing every
-    // other kind onto the Connect row, then accepting any known kind at all — so
-    // the allowed set is pinned rather than trusted.
-    const route = codeOnly(readFileSync(
+describe("every Moloni connection authorises by OAuth, and no route assumes a password", () => {
+    // 15/09/2026: every new Moloni integration, from any door — onboarding or
+    // dashboard — authorises by OAuth v2. The username-and-password grant survives
+    // only for the connections that already had it. That makes two things easy to
+    // get wrong again, and both are pinned here.
+    const startRoute = codeOnly(readFileSync(
         resolve(SRC_ROOT, "app/api/integrations/moloni-oauth/start/route.ts"), "utf8",
     ));
+    const apiRoutes = scannedFiles(resolve(SRC_ROOT, "app/api")).filter((f) => f.endsWith("route.ts"));
+    const offendersOf = (re: RegExp) => apiRoutes
+        .filter((f) => re.test(codeOnly(readFileSync(f, "utf8"))))
+        .map((f) => relative(SRC_ROOT, f).replace(/\\/g, "/"));
 
-    it("names exactly stripe_connect and lodgify", () => {
-        const m = route.match(/MOLONI_OAUTH_SOURCES\s*=\s*\[([^\]]*)\]/);
-        expect(m, "the allowed set must be stated, not implied").not.toBeNull();
-        const kinds = m![1].split(",").map((s) => s.trim().replace(/["']/g, "")).filter(Boolean).sort();
-        expect(kinds).toEqual(["lodgify", "stripe_connect"]);
+    it("does not keep a list of source kinds allowed to authorise", () => {
+        // It was pinned to stripe_connect and lodgify for a day. A list here means
+        // a new wizard silently cannot authorise.
+        expect(startRoute).not.toMatch(/MOLONI_OAUTH_SOURCES/);
+        expect(startRoute).not.toMatch(/is not offered for/);
     });
 
-    it("actually refuses a kind outside it", () => {
-        // A stated set nobody checks is decoration.
-        expect(route).toMatch(/!\s*\(MOLONI_OAUTH_SOURCES[^)]*\)\.includes\(sourceKind\)/);
+    it("still refuses a source kind that does not exist", () => {
+        expect(startRoute).toMatch(/sourceKindOrNull\(body\.source_kind/);
+        expect(startRoute).toMatch(/unknownSourceKindError/);
+    });
+
+    it("never lends a connection another connection's tokens", () => {
+        // A Moloni refresh token rotates on every use. Two connections holding the
+        // same one kill each other, so a second connection may borrow the app, not
+        // the authorisation.
+        //
+        // Reading its OWN row's token is allowed, and needed: a connection that
+        // still invoices on a password is recognised by having no refresh token,
+        // and that is what keeps the route from switching it to OAuth before the
+        // merchant has been through the consent screen. What may not happen is a
+        // token being SELECTed out of another row, or written by this route.
+        expect(startRoute).not.toMatch(/json_extract\([^)]*moloni_(refresh|access)_token/);
+        expect(startRoute).not.toMatch(/moloni_(refresh|access)_token['"]?\s*:/);
+    });
+
+    it("does not switch a password connection to OAuth before Moloni answers", () => {
+        // `moloni_auth_mode` alone tells the worker how to authenticate. Written
+        // at the start of the round trip, it pointed a working connection at a
+        // token that did not exist yet, and a merchant who closed the consent tab
+        // silently stopped being invoiced.
+        expect(startRoute).toMatch(/moloni_pending_client_id/);
+        expect(startRoute).toMatch(/stored\.moloni_password/);
+        // The promotion belongs to the exchange, which only runs once Moloni has
+        // handed back a token pair.
+        const exchange = codeOnly(readFileSync(resolve(SRC_ROOT, "lib/moloni-oauth.ts"), "utf8"));
+        expect(exchange).toMatch(/moloni_pending_client_id:\s*null/);
+        expect(exchange).toMatch(/moloni_password:\s*null/);
+    });
+
+    it("has no route calling Moloni through the password-only worker proxy", () => {
+        expect(offendersOf(/moloni-proxy\//)).toEqual([]);
+    });
+
+    it("has no route running a Moloni password grant of its own", () => {
+        // The only place that may still do it is `@/lib/moloni-token`, for the
+        // connections that were set up with a password.
+        expect(offendersOf(/grant_type["']\s*,\s*["']password["']/)).toEqual([]);
     });
 });

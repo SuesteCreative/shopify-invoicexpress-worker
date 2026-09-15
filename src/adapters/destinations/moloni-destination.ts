@@ -315,11 +315,21 @@ export async function getMoloniCfg(ctx: AdapterCtx): Promise<MoloniCfg> {
 
   // Password-grant connections keep the exact key they have always had. An
   // OAuth connection has no username, and several merchants could share one
-  // Rioko-owned client_id, so those get the company appended — otherwise two
-  // shops with a série of the same name would read each other's resolved ids.
-  // Written as a suffix rather than a new format so the existing key is
-  // untouched for every connection that exists today.
-  const oauthDiscriminator = raw.tokenProvider ? `:${raw.companyName ?? raw.companyId}` : "";
+  // Rioko-owned client_id, so those get a discriminator — otherwise two shops
+  // with a série of the same name would read each other's resolved ids.
+  //
+  // The ACCOUNT, not only the company name. Every Moloni account is created with
+  // a company called "Empresa Demonstração", so two merchants on a shared app who
+  // both picked it, with a série of the same name, still collided — merchant B's
+  // documents then went out with merchant A's company and série ids. Moloni scopes
+  // ids by token, so the write fails rather than landing in A's account, but it
+  // fails for B every time until the worker restarts.
+  //
+  // Written as a suffix rather than a new format so the existing key is untouched
+  // for every password-grant connection that exists today.
+  const oauthDiscriminator = raw.tokenProvider
+    ? `:${ctx.config?.user_id ?? ""}:${raw.companyName ?? raw.companyId}`
+    : "";
   const cacheKey = `${raw.clientId}:${raw.username}${oauthDiscriminator}:${raw.documentSetName ?? raw.documentSetId}`;
   const cached = resolvedIdCache.get(cacheKey);
   if (cached) return { ...raw, ...cached };

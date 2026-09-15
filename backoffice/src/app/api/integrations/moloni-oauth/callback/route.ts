@@ -31,9 +31,6 @@ export async function GET(request: NextRequest) {
     const code = params.get("code");
     const error = params.get("error");
 
-    if (error) return backToWizard("denied", params.get("error_description") ?? error);
-    if (!code) return backToWizard("error", "O Moloni não devolveu o código de autorização");
-
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return backToWizard("error", "A sessão expirou. Entre outra vez e repita.");
 
@@ -42,6 +39,19 @@ export async function GET(request: NextRequest) {
     if (!db) return backToWizard("error", "Database binding missing");
 
     const row = await findPendingMoloniConnection(db, authResult.targetUserId, params.get("state"));
+
+    // Read before the refusal is answered, not after. With every Moloni door on
+    // OAuth, "denied" answered from the default path put a Lodgify or Shopify
+    // merchant down on the Stripe Connect wizard, a page for an integration
+    // they do not have.
+    if (row) {
+        const startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {};
+        returnPath = resolveReturnPath(startedOn.return_slug, startedOn.return_locale);
+    }
+
+    if (error) return backToWizard("denied", params.get("error_description") ?? error);
+    if (!code) return backToWizard("error", "O Moloni não devolveu o código de autorização");
+
     if (!row) {
         // Says what is actually true. It used to say the authorisation had
         // expired or been used, which for a merchant with two in flight was
@@ -56,9 +66,6 @@ export async function GET(request: NextRequest) {
     if (row.source_kind === "stripe_connect" && !isStripeConnectEnabled()) {
         return backToWizard("error", "Integração indisponível.");
     }
-
-    const startedOn = row.source_config_json ? JSON.parse(row.source_config_json) : {};
-    returnPath = resolveReturnPath(startedOn.return_slug, startedOn.return_locale);
 
     const result = await exchangeMoloniCode(db, row, code, moloniCallbackUri());
     if (!result.ok) return backToWizard("error", result.detail);

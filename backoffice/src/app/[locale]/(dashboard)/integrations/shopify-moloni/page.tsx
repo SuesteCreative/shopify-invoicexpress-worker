@@ -3,16 +3,26 @@
 export const runtime = "edge";
 
 import { useState, useEffect } from "react";
-import { Store, Loader2, Check, AlertTriangle, ArrowLeft, Lock, Info } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Loader2, Check, AlertTriangle, ArrowLeft, Lock, Info } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
+import MoloniOAuthStep, { type MoloniSiblingDefaults } from "@/components/MoloniOAuthStep";
+import { RETURN_SLUG_WIZARD_SHOPIFY_MOLONI } from "@/lib/oauth-return";
 
 type ConnectionStatus = "draft" | "active" | "paused" | "error" | "";
 
 export default function ShopifyMoloniIntegration() {
     const t = useTranslations("shopifyMoloniSetup");
     const tCommon = useTranslations("integrationsIndex");
+    const tConnect = useTranslations("stripeConnectMoloniSetup");
+    const tStep = useTranslations("moloniOAuthStep");
+
+    // Set by the Moloni callback when it sends the merchant back here.
+    const searchParams = useSearchParams();
+    const moloniResult = searchParams.get("moloni");
+    const callbackDetail = searchParams.get("detail");
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -21,19 +31,31 @@ export default function ShopifyMoloniIntegration() {
 
     const [shopifyConnected, setShopifyConnected] = useState<boolean | null>(null);
 
+    // Moloni. Every new connection authorises by OAuth (15/09/2026); a username
+    // and a password are only read, to recognise a connection set up before.
     const [clientId, setClientId] = useState("");
     const [clientSecret, setClientSecret] = useState("");
+    const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
+    const [hasSavedSecret, setHasSavedSecret] = useState(false);
     const [username, setUsername] = useState("");
-    const [password, setPassword] = useState("");
-    const [companyId, setCompanyId] = useState("");
-    const [documentSetId, setDocumentSetId] = useState("");
+    const [hasSavedPassword, setHasSavedPassword] = useState(false);
+    const [moloniAuthorized, setMoloniAuthorized] = useState(false);
+    const [siblingDefaults, setSiblingDefaults] = useState<MoloniSiblingDefaults | null>(null);
+    const [moloniError, setMoloniError] = useState("");
+
     const [companyName, setCompanyName] = useState("");
     const [documentSetName, setDocumentSetName] = useState("");
-    const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
     const [status, setStatus] = useState<ConnectionStatus>("");
 
-    const [hasSavedSecret, setHasSavedSecret] = useState(false);
-    const [hasSavedPassword, setHasSavedPassword] = useState(false);
+    // A connection set up with a password before OAuth is still a working one.
+    const legacyPassword = !moloniAuthorized && !!username && hasSavedPassword;
+    const moloniReady = moloniAuthorized || legacyPassword;
+
+    // What the Moloni callback came back with.
+    useEffect(() => {
+        if (moloniResult === "denied") setMoloniError(tConnect("moloniDenied"));
+        else if (moloniResult === "error") setMoloniError(callbackDetail || tConnect("moloniFailed"));
+    }, [moloniResult, callbackDetail, tConnect]);
 
     useEffect(() => {
         let cancelled = false;
@@ -53,19 +75,35 @@ export default function ShopifyMoloniIntegration() {
                 }
 
                 if (moloniRes.ok) {
-                    const data = await moloniRes.json() as { connection?: { status: ConnectionStatus; destination_config: Record<string, unknown> } | null };
+                    const data = await moloniRes.json() as {
+                        connection?: { status: ConnectionStatus; destination_config: Record<string, unknown> } | null;
+                        sibling_defaults?: MoloniSiblingDefaults | null;
+                    };
+                    const cfg = data.connection?.destination_config ?? {};
                     if (data.connection) {
-                        const cfg = data.connection.destination_config;
                         setClientId(String(cfg.moloni_client_id ?? ""));
                         setHasSavedSecret(!!cfg.has_client_secret);
                         setUsername(String(cfg.moloni_username ?? ""));
                         setHasSavedPassword(!!cfg.has_password);
-                        setCompanyId(String(cfg.moloni_company_id ?? ""));
-                        setDocumentSetId(String(cfg.moloni_document_set_id ?? ""));
+                        setMoloniAuthorized(!!cfg.moloni_authorized);
                         setCompanyName(String(cfg.moloni_company_name ?? ""));
                         setDocumentSetName(String(cfg.moloni_document_set_name ?? ""));
                         setEnvironment((cfg.moloni_environment as "production" | "sandbox") ?? "production");
                         setStatus(data.connection.status);
+                    }
+
+                    // A second Moloni connection starts from the account's first: the
+                    // same app and, most of the time, the same company, wherever this
+                    // one states nothing. Never the tokens (it authorises on its own)
+                    // and never the fiscal settings (those are its own decisions).
+                    const sibling = data.sibling_defaults ?? null;
+                    setSiblingDefaults(sibling);
+                    if (sibling && !cfg.moloni_client_id && sibling.moloni_client_id) {
+                        setClientId(String(sibling.moloni_client_id));
+                        if (sibling.moloni_environment === "sandbox") setEnvironment("sandbox");
+                    }
+                    if (sibling && !cfg.moloni_company_name && sibling.moloni_company_name) {
+                        setCompanyName(String(sibling.moloni_company_name));
                     }
                 }
             } finally {
@@ -80,43 +118,35 @@ export default function ShopifyMoloniIntegration() {
         setSuccess(false);
         setSaving(true);
         try {
-            const body: Record<string, unknown> = {
-                source_kind: "shopify",
-                moloni_client_id: clientId,
-                moloni_username: username,
-                moloni_company_name: companyName.trim(),
-                moloni_document_set_name: documentSetName.trim(),
-                moloni_environment: environment,
-                status: targetStatus,
-            };
-            if (clientSecret) body.moloni_client_secret = clientSecret;
-            if (password) body.moloni_password = password;
-            if (targetStatus === "active") {
-                if (!clientSecret && !hasSavedSecret) throw new Error(t("errorMissingSecret"));
-                if (!password && !hasSavedPassword) throw new Error(t("errorMissingPassword"));
-            }
+            if (targetStatus === "active" && !moloniReady) throw new Error(tStep("authorizeFirst"));
 
+            // The credential is the authorisation, written by the start route and the
+            // callback. This save is the invoicing settings, and only those.
             const res = await fetch("/api/integrations/moloni-destination", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
+                body: JSON.stringify({
+                    source_kind: "shopify",
+                    moloni_company_name: companyName.trim(),
+                    moloni_document_set_name: documentSetName.trim(),
+                    moloni_environment: environment,
+                    status: targetStatus,
+                }),
             });
             if (!res.ok) {
                 const json = await res.json().catch(() => ({})) as { error?: string };
                 throw new Error(json.error ?? `HTTP ${res.status}`);
             }
-            // Validate the Moloni credentials actually authenticate (background grant).
-            const valRes = await fetch("/api/integrations/moloni-destination/companies?source_kind=shopify");
-            if (!valRes.ok) {
-                const vjson = await valRes.json().catch(() => ({})) as { error?: string };
-                throw new Error(vjson.error ?? t("errorMoloniAuth"));
+            // Prove the credential answers, whichever way it authenticates.
+            if (moloniReady) {
+                const valRes = await fetch("/api/integrations/moloni-destination/companies?source_kind=shopify");
+                if (!valRes.ok) {
+                    const vjson = await valRes.json().catch(() => ({})) as { error?: string };
+                    throw new Error(vjson.error ?? t("errorMoloniAuth"));
+                }
             }
             setSuccess(true);
             setStatus(targetStatus);
-            if (clientSecret) setHasSavedSecret(true);
-            if (password) setHasSavedPassword(true);
-            setClientSecret("");
-            setPassword("");
         } catch (e: any) {
             setError(e?.message ?? "Unknown error");
         } finally {
@@ -178,49 +208,39 @@ export default function ShopifyMoloniIntegration() {
                 </div>
             )}
 
+            {moloniResult === "connected" && (
+                <div className="glass p-4 rounded-xl border border-accent-hot/30 bg-accent-hot/5 flex items-start gap-3">
+                    <Check className="w-4 h-4 text-accent-hot flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-accent-hot">{tConnect("moloniConnectedBanner")}</p>
+                </div>
+            )}
+
             <section className="space-y-5">
                 <h2 className="font-mono text-[10px] text-fg-40 uppercase tracking-[0.22em]">{t("credentialsSection")}</h2>
+                <MoloniOAuthStep
+                    sourceKind="shopify"
+                    returnSlug={RETURN_SLUG_WIZARD_SHOPIFY_MOLONI}
+                    clientId={clientId}
+                    onClientId={setClientId}
+                    clientSecret={clientSecret}
+                    onClientSecret={setClientSecret}
+                    environment={environment}
+                    onEnvironment={setEnvironment}
+                    hasSavedSecret={hasSavedSecret}
+                    authorized={moloniAuthorized}
+                    legacyPassword={legacyPassword}
+                    sibling={siblingDefaults}
+                    onError={setMoloniError}
+                />
+                {moloniError && (
+                    <div className="glass p-4 rounded-xl border border-destructive/30 bg-destructive/5 flex items-start gap-3">
+                        <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-destructive">{moloniError}</p>
+                    </div>
+                )}
+            </section>
 
-                <Field label={t("clientIdLabel")} hint={t("clientIdHint")}>
-                    <input
-                        type="text"
-                        value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
-                        placeholder={t("clientIdPlaceholder")}
-                        className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
-                    />
-                </Field>
-
-                <Field label={t("clientSecretLabel")} hint={hasSavedSecret ? t("secretStoredHint") : t("clientSecretHint")}>
-                    <input
-                        type="password"
-                        value={clientSecret}
-                        onChange={(e) => setClientSecret(e.target.value)}
-                        placeholder={hasSavedSecret ? "••••••••••••" : ""}
-                        className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors font-mono"
-                    />
-                </Field>
-
-                <Field label={t("usernameLabel")} hint={t("usernameHint")}>
-                    <input
-                        type="email"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        placeholder="rioko@minhaempresa.pt"
-                        className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors"
-                    />
-                </Field>
-
-                <Field label={t("passwordLabel")} hint={hasSavedPassword ? t("passwordStoredHint") : t("passwordHint")}>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder={hasSavedPassword ? "••••••••••••" : ""}
-                        className="w-full bg-surface-2 border border-hairline rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors"
-                    />
-                </Field>
-
+            <section className="space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field label={t("companyIdLabel")} hint={t("companyNameHint")}>
                         <input
@@ -241,25 +261,6 @@ export default function ShopifyMoloniIntegration() {
                         />
                     </Field>
                 </div>
-
-                <Field label={t("environmentLabel")} hint={t("environmentHint")}>
-                    <div className="flex gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setEnvironment("production")}
-                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "production" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}
-                        >
-                            {t("envProduction")}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setEnvironment("sandbox")}
-                            className={`flex-1 px-4 py-3 rounded-xl border text-sm font-mono uppercase tracking-[0.18em] transition-colors ${environment === "sandbox" ? "border-accent bg-accent/10 text-accent-ink" : "border-hairline text-fg-60 hover:border-rule"}`}
-                        >
-                            {t("envSandbox")}
-                        </button>
-                    </div>
-                </Field>
             </section>
 
             {error && (
@@ -287,7 +288,7 @@ export default function ShopifyMoloniIntegration() {
                 </button>
                 <button
                     type="button"
-                    disabled={saving || !shopifyConnected}
+                    disabled={saving || !shopifyConnected || !moloniReady}
                     onClick={() => save("active")}
                     className="px-6 py-3 rounded-2xl bg-fg text-surface font-mono text-sm uppercase tracking-[0.18em] hover:bg-accent-hot transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 w-full sm:w-auto"
                 >

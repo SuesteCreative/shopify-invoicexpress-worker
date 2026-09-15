@@ -3802,5 +3802,19 @@
         "help": {
             "body": "Any questions? Write to"
         }
+    },
+    "moloniOAuthStep": {
+        "legacyTitle": "Connected with username and password",
+        "legacyBody": "This connection was set up before OAuth and keeps invoicing normally. You can switch to OAuth whenever you like; from then on the password is no longer used.",
+        "migrate": "Switch to OAuth",
+        "migrateBody": "The Moloni application you already have still serves: only the Redirect URI changes.",
+        "siblingApp": "We will use the same Moloni application as your other integration. Confirm the Developer ID and press authorise.",
+        "authorizeFirst": "Authorise Moloni before activating.",
+        "back": "Back",
+        "migrateTitle": "Move this connection to OAuth",
+        "migrateStep1": "In Moloni, open the Client Area, go to API and pick the application you already use with Rioko.",
+        "migrateStep2": "Replace the Redirect URI with the callback URL below, character for character, and press Update to save it.",
+        "migrateStep3": "Come back here and press authorise. The Developer ID and Client Secret you already have stay as they are.",
+        "migrateStep4": "Until the authorisation is complete, this connection keeps invoicing with its password. Stopping half way breaks nothing."
     }
 }

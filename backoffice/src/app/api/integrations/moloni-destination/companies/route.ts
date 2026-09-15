@@ -2,8 +2,8 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAccountUser } from "@/lib/account";
-import { callWorker } from "@/lib/worker";
 import { sourceKindOrNull, unknownSourceKindError } from "@/lib/connection-kinds";
+import { listMoloniCompanies, moloniConnectionToken } from "@/lib/moloni-token";
 
 export const runtime = "edge";
 
@@ -14,6 +14,15 @@ async function resolveTargetUser(request: NextRequest) {
     return { userId, targetUserId };
 }
 
+/**
+ * The Moloni companies this connection can see — and, for the wizards, the proof
+ * that its credential works.
+ *
+ * It used to hand the stored username and password to a worker proxy that only
+ * knows the password grant. For an OAuth connection that could only fail, and
+ * every new Moloni connection is OAuth since 15/09/2026. The token now comes from
+ * the connection, whichever way it authenticates.
+ */
 export async function GET(request: NextRequest) {
     const authResult = await resolveTargetUser(request);
     if ("error" in authResult) return NextResponse.json({ error: authResult.error }, { status: authResult.status });
@@ -22,42 +31,16 @@ export async function GET(request: NextRequest) {
     const db = (env as any).DB;
     if (!db) return NextResponse.json({ error: "Database binding missing" }, { status: 500 });
 
-    // The parent route learned `stripe_connect`; these three siblings did not,
-    // so a Connect merchant's company list was read with the credentials of a
-    // different Moloni connection of the same account.
     const rawSource = new URL(request.url).searchParams.get("source_kind");
     const sourceKind = sourceKindOrNull(rawSource, "stripe");
     if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(rawSource) }, { status: 400 });
 
-    const row: any = await db.prepare(
-        `SELECT destination_config_json FROM connections
-         WHERE user_id = ? AND source_kind = ? AND destination_kind = 'moloni' LIMIT 1`
-    ).bind(authResult.targetUserId, sourceKind).first();
+    const conn = await moloniConnectionToken(db, authResult.targetUserId, sourceKind);
+    if (!conn.ok) return NextResponse.json({ error: conn.error }, { status: conn.status });
 
-    if (!row?.destination_config_json) {
-        return NextResponse.json({ error: "Moloni credentials not found — save Step 2 first." }, { status: 404 });
+    try {
+        return NextResponse.json({ companies: await listMoloniCompanies(conn.cfg, conn.token) });
+    } catch (e: any) {
+        return NextResponse.json({ error: String(e?.message ?? e) }, { status: 502 });
     }
-
-    const cfg = JSON.parse(row.destination_config_json);
-
-    // Proxy through the Worker — CF Pages edge functions cannot reliably reach
-    // external APIs. The Worker runtime has no such restriction. callWorker
-    // carries the admin key the proxy requires.
-    const workerRes = await callWorker("/moloni-proxy/companies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({
-            client_id: cfg.moloni_client_id,
-            client_secret: cfg.moloni_client_secret,
-            username: cfg.moloni_username,
-            password: cfg.moloni_password,
-            environment: cfg.moloni_environment ?? "production",
-        }),
-    });
-
-    const data: any = await workerRes.json().catch(() => ({}));
-    if (!workerRes.ok) {
-        return NextResponse.json({ error: data?.error ?? `Worker error ${workerRes.status}` }, { status: 502 });
-    }
-    return NextResponse.json(data);
 }

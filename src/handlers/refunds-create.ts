@@ -11,7 +11,8 @@ import { loadProductOverrides } from "../services/product-overrides";
 import { reportIncident } from "../services/incidents";
 import { refundReference } from "../services/document-references";
 import { ixEnvelopeError, ixRelatedDocuments } from "../adapters/destinations/ix-destination";
-import { isAlreadyFinalizedIxError } from "../adapters/destinations/ix-finalize";
+import { isAlreadyFinalizedIxError, isIxValidationRefusal } from "../adapters/destinations/ix-finalize";
+import { mirrorItemsFromIxDocument, moneyRefunded, planRefundCredit, type LineSource } from "../ix/credit-mirror";
 import { logDocumentEvent } from "../services/document-log";
 
 /**
@@ -189,44 +190,50 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
       return;
     }
 
-    // Get existing credit notes
-    const { data: creditNotesData } = await IxApi.v2.documents.byId.related.get({
+    // What InvoiceXpress already holds against this invoice — ADVISORY now.
+    //
+    // This read used to be the only thing standing between a retry and a second
+    // credit note, and its error was discarded, so a failed read meant "there
+    // are none". That is how one Bikini Books refund became 22 credit notes on
+    // 2026-09-14. The authority is now the local ledger (`credit_notes`), and
+    // this stays only because it still catches a note issued by another path
+    // (an admin cancel, a previous integrator) that the ledger never saw.
+    const { data: creditNotesData, error: relatedError } = await IxApi.v2.documents.byId.related.get({
       headers: ixHeaders,
       path: {
         id: Number(invoice.invoice_id)
       }
     });
+    if (relatedError || ixEnvelopeError(creditNotesData)) {
+      console.warn(
+        `[Rioko] Could not read related documents of ${invoice.invoice_id}: `
+        + JSON.stringify(relatedError ?? ixEnvelopeError(creditNotesData)).slice(0, 300)
+        + " — continuing on the local ledger",
+      );
+    }
 
     const creditNotes = ixRelatedDocuments(creditNotesData)
-      .filter((document: any) => document.type === "CreditNote");
+      .filter((document: any) => document.type === "CreditNote")
+      .filter((document: any) => {
+        const s = String(document?.status ?? "").toLowerCase();
+        return s !== "canceled" && s !== "cancelled" && s !== "deleted";
+      });
 
-    // Process each credit/refund
-    const credits = normalizedOrderResponse.normalized.credits.map(credit => {
-      const lineItems = credit.line_items;
-      // GROSS sum of the returned lines. `credit.amount` is tax-INCLUSIVE, and
-      // the item lines we rebuild below already carry their own tax, so the
-      // "extra" amount to bill separately is only what the refund covers BEYOND
-      // the returned lines (shipping / a discretionary cash amount) — i.e.
-      // amount − Σ(subtotal + total_tax). Using the net subtotal here (the old
-      // bug) left Σtax as a phantom extra line, inflating the credit note by the
-      // tax and tripping the reconcile guard so no credit note was ever emitted
-      // for a normal line-item refund.
-      const sum = lineItems.reduce((acc, item) => acc + item.subtotal + (item.total_tax ?? 0), 0);
-      const amount = credit.amount;
-
-      return {
-        refundId: credit.refund_id,
-        itemsIds: lineItems.map(item => item.id),
-        // Carry the refunded lines through so the credit note is built from the
-        // amounts ACTUALLY refunded (qty/subtotal/total_tax), not the order's
-        // full-price lines — see buildCreditItemsFromRefund below.
-        lineItems,
-        amountToRefund: amount - sum,
-        // Carry the gross refund amount through so the credit-note total can be
-        // reconciled against it before POST (see guard below).
-        amount,
-      };
-    }).filter(credit =>
+    // The credit note mirrors the invoice, so all a refund has to carry is which
+    // articles came back and how much money went out. The arithmetic that used
+    // to live here — Σ(subtotal + total_tax), and an `amountToRefund` remainder
+    // billed as an extra line — is gone: on a VAT-inclusive shop it counted the
+    // tax twice, and closing the gap it opened is what produced a 23% "Refund
+    // amount" line in place of a 6% book.
+    const rawRefunds = Array.isArray(normalizedOrderResponse.normalized.raw_order?.refunds)
+      ? normalizedOrderResponse.normalized.raw_order.refunds
+      : [];
+    const credits = normalizedOrderResponse.normalized.credits.map(credit => ({
+      refundId: credit.refund_id,
+      lineItems: credit.line_items,
+      amount: credit.amount,
+      rawRefund: rawRefunds.find((r: any) => String(r?.id) === String(credit.refund_id)) ?? null,
+    })).filter(credit =>
       !creditNotes.some(note => note.reference === refundReference(credit.refundId))
     );
 
@@ -261,121 +268,149 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
     }
     const invoiceBuildResult = { invoice: build.invoice, requestTaxExemptionReason: build.requestTaxExemptionReason };
 
-    // Build one credit-note line per REFUNDED line item, from the refund's own
-    // numbers (qty, net subtotal, total_tax) — NOT the order's full-price lines.
-    // This is what makes partial refunds (partial quantity, discounted lines,
-    // multi-line orders) reconcile to the amount actually refunded: line gross =
-    // subtotal + total_tax, so Σ lines + (non-line-item remainder) = credit.amount.
-    // The order item is looked up only for the human name / SKU. reverseCharge
-    // forces the rate to 0 (M16 exemption stamped separately).
-    const orderItemsById = new Map(
-      normalizedOrderResponse.normalized.order.items.map(it => [it.id, it]),
-    );
-    const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
-    const round2 = (n: number) => Math.round(n * 100) / 100;
-    const buildCreditItemsFromRefund = (
-      refundLines: Array<{ id: number; quantity: number; subtotal: number; total_tax: number }>,
-      forceZeroTax: boolean,
-    ): any[] => {
-      const out: any[] = [];
-      for (const li of refundLines) {
-        const qty = Number(li.quantity) || 1;
-        const net = Number(li.subtotal);        // net amount refunded for this line
-        const tax = Number(li.total_tax ?? 0);  // tax refunded for this line
-        if (!(net > 0) && !(tax > 0)) continue;
-        const rate = forceZeroTax ? 0 : (net > 0 ? round2((tax / net) * 100) : 0);
-        const oi: any = orderItemsById.get(li.id);
-        const name = (oi
-          ? (oi.variant_title ? `${oi.title} / ${oi.variant_title}` : oi.title)
-          : `Item devolvido #${li.id}`) || "Item devolvido";
-        const line: any = { quantity: qty, tax: rate, unit_price: round4(net / qty), name: String(name).slice(0, 200) };
-        if (oi?.sku) line.description = `SKU: ${oi.sku}`.slice(0, 200);
-        out.push(line);
-      }
-      return out;
-    };
+    // The document as InvoiceXpress actually holds it, and the rebuild of the
+    // order through the same builder that produced it. The first is what the
+    // credit note mirrors; the second only says which line of it corresponds to
+    // each returned article, and is cross-checked against the first so an
+    // invoice edited by hand after issue cannot silently mis-attach a refund.
+    const trace: LineSource[] = [];
+    const rebuilt = normalizedOrderResponse.normalized.raw_order
+      ? ixBuilder.buildInvoiceItemsFromRaw(normalizedOrderResponse.normalized.raw_order, {
+          forceZeroTax: build.reverseCharge,
+          trace,
+        })
+      : undefined;
+    const taxesIncluded = normalizedOrderResponse.normalized.raw_order?.taxes_included === true;
+    // What the order is worth NOW, in Shopify's own terms — the floor no credit
+    // note may take the invoice below. Only comparable with an invoice in euros.
+    const rawOrderNow = normalizedOrderResponse.normalized.raw_order;
+    const orderCurrentTotal = rawOrderNow?.currency === "EUR" && Number.isFinite(Number(rawOrderNow?.current_total_price))
+      ? Number(rawOrderNow.current_total_price)
+      : null;
+    const ownerTotal = Number((ixInvoice?.data as any)?.total);
+    // The ledger is keyed per account, not per shop: a connection may have no
+    // shop domain, and the credit note belongs to the account either way.
+    const ledgerScope = config.user_id || config.shopify_domain || "";
 
-    // Create credit notes for each refund
-    await Promise.all(
-      credits.map(async credit => {
-        const items = buildCreditItemsFromRefund(credit.lineItems as any, build.reverseCharge);
+    // Sequentially, NOT Promise.all: two refunds of the same order arrive in one
+    // batch and both have to be measured against what the other one has already
+    // taken off the invoice. Which is exactly this order — 15 € of shipping and
+    // 42 € of book against a 57 € invoice.
+    for (const credit of credits) {
+        // May we issue this one at all? Local, durable and fail-closed — see
+        // AppStorage.claimRefundCredit.
+        // What the transactions paid back — for the ledger and for every message
+        // below. Never the normalizer's `amount`, which can count the tax twice
+        // (it called a 0,00 € refund "103,07 €").
+        const paidBack = moneyRefunded(credit.rawRefund, Number(credit.amount));
+        const claim = await appStorage.claimRefundCredit(
+          ledgerScope, credit.refundId, String(invoice.invoice_id), paidBack,
+        );
+        if (claim.status === "blocked") {
+          throw new Error(
+            `Não consegui ler o registo de notas de crédito para o reembolso ${credit.refundId} — `
+            + `não emito às cegas. A fila volta a tentar.`,
+          );
+        }
+        if (claim.status === "done") {
+          console.log(`[Rioko] Refund ${credit.refundId} already ${claim.state} (credit note ${claim.creditNoteId ?? "—"}) — nothing to do`);
+          continue;
+        }
+        if (claim.status === "held") {
+          console.log(`[Rioko] Refund ${credit.refundId} is being issued elsewhere${claim.creditNoteId ? ` (document ${claim.creditNoteId})` : ""} — leaving it alone`);
+          continue;
+        }
 
-        // Reconcile the reconstructed lines to the GROSS actually refunded.
-        // Recompute the lines' gross with IX's own round-once model, then close
-        // the gap to credit.amount:
-        //   • remainder > 0  → the refund covered something beyond the returned
-        //     lines (shipping / discretionary cash): add one extra line for it.
-        //   • remainder < 0  → the refund gave back LESS than the returned lines'
-        //     value (restocking fee / partial-value refund): scale the lines down
-        //     with a uniform positive discount so the note totals what was paid.
-        const grossLines = items.length > 0 ? ixBuilder.computeIxExpectedTotal(items as any) : 0;
-        const remainder = round2(Number(credit.amount) - grossLines);
-        if (remainder > 0.01) {
-          const taxes = invoiceBuildResult.invoice.items.map(item => item.tax);
-          const maxTax = build.reverseCharge ? 0 : (taxes.reduce((a, b) =>
-            (typeof a === "number" ? a : a.value) >= (typeof b === "number" ? b : b.value) ? a : b
-          ) ?? 0);
+        const alreadyCredited = await appStorage.creditedTotalForInvoice(ledgerScope, String(invoice.invoice_id));
+        if (alreadyCredited == null) {
+          await appStorage.releaseRefundCredit(ledgerScope, credit.refundId);
+          throw new Error(
+            `Não consegui somar as notas de crédito já emitidas sobre ${invoice.invoice_id} — `
+            + `não emito sem saber quanto já foi creditado.`,
+          );
+        }
 
-          const taxPercentage = (typeof maxTax === "number" ? maxTax : maxTax.value) / 100;
-
-          items.push({
-            quantity: 1,
-            tax: maxTax,
-            unit_price: remainder / (1 + taxPercentage),
-            description: `Refund amount of ${remainder}`,
-            name: `Refund amount (#${credit.refundId})`,
+        // Refusing is a real outcome, not an error: it means no credit note can
+        // mirror this refund, and a person has to decide. It must never throw —
+        // a throw is what sent the whole order back through the queue 42 times.
+        // `incident: false` is for a refund with nothing to credit (no money went
+        // back): recorded once so redeliveries stay quiet, but nobody is alerted,
+        // because there is nothing for anyone to do.
+        const refuse = async (reason: string, detailExtra: Record<string, unknown> = {}, opts: { incident?: boolean } = {}) => {
+          console.warn(`[Rioko] Refund ${credit.refundId} on order ${orderId}: ${reason}`);
+          await appStorage.markRefundCreditRefused(ledgerScope, credit.refundId, reason);
+          if (opts.incident !== false) await reportIncident(env, {
+            user_id: config.user_id,
+            severity: "warning",
+            kind: "credit_note_not_mirrored",
+            dedup_key: String(credit.refundId),
+            summary: `Reembolso de ${paidBack.toFixed(2)} € na encomenda `
+              + `${normalizedOrderResponse.normalized.order.order_number ?? orderId} sem nota de crédito: ${reason}. `
+              + `O documento ${invoice.invoice_id} tem de ser creditado à mão.`,
+            detail: { orderId: String(orderId), invoiceId: String(invoice.invoice_id), refundId: String(credit.refundId), amount: paidBack, ...detailExtra },
+            affected_ids: [String(orderId)],
+            connection_label: "shopify → invoicexpress",
+            order_ref: normalizedOrderResponse.normalized.order.order_number != null ? `#${normalizedOrderResponse.normalized.order.order_number}` : undefined,
           });
-        } else if (remainder < -0.01 && grossLines > 0) {
-          const discountPct = round4(Math.max(0, (1 - Number(credit.amount) / grossLines) * 100));
-          for (const it of items) {
-            (it as any).discount = discountPct;
-          }
+          await logDocumentEvent(env, {
+            externalId: String(orderId),
+            event: "skipped",
+            dedupKey: `skipped:credit_not_mirrored:${credit.refundId}`,
+            invoiceId: String(invoice.invoice_id),
+            userId: config.user_id,
+            shopifyDomain: config.shopify_domain,
+            sourceKind: "shopify",
+            destinationKind: "invoicexpress",
+            actor: "pipeline",
+            summary: opts.incident === false
+              ? `Reembolso ${credit.refundId} sem nota de crédito: ${reason}.`
+              : `Reembolso ${credit.refundId} sem nota de crédito: ${reason}. `
+                + `Uma nota de crédito é o espelho da fatura, e este reembolso não se espelha nela — decisão para uma pessoa.`,
+            detail: { refundId: String(credit.refundId), amount: paidBack, reason },
+          });
+          await appStorage.saveLog({
+            shopify_domain: config.shopify_domain,
+            topic: webhookTopic,
+            payload: JSON.stringify({ orderId, refundId: credit.refundId, invoiceId: invoice.invoice_id }),
+            response: `Skipped credit note: ${reason}`,
+            status: 200,
+          });
+        };
+
+        // The invoice's own lines. If the read-back cannot even reproduce the
+        // document's total, there is nothing safe to mirror.
+        let docItems;
+        try {
+          docItems = mirrorItemsFromIxDocument(ixInvoice?.data).items;
+        } catch (e) {
+          await refuse(String((e as Error)?.message ?? e));
+          continue;
         }
 
-        // Guard: the credit-note total MUST equal the amount actually refunded
-        // (credit.amount = gross refunded, verified against live refunds). The
-        // invoice path reconciles; this path historically did not, so a wrong
-        // total — e.g. the `amountToRefund` line double-counting tax on a partial
-        // line-item refund, or a dropped discount (IX ignores items[].discount_amount)
-        // — would ship a fiscally-wrong credit note. Abort instead: the queue
-        // retries and the DLQ raises an incident, rather than issuing a bad doc.
-        // Uses IX's round-once model (computeIxExpectedTotal) so it agrees with
-        // what IX will actually compute.
-        const refundAmount = Number(credit.amount);
-        if (Number.isFinite(refundAmount) && refundAmount > 0) {
-          const expectedCredit = ixBuilder.computeIxExpectedTotal(items as any);
-          const creditDrift = Math.abs(expectedCredit - refundAmount);
-          if (creditDrift > 0.01) {
-            throw new Error(
-              `[Shopify→IX credit note #${credit.refundId}] invoice total mismatch: refund=${refundAmount.toFixed(2)} expected=${expectedCredit.toFixed(2)} drift=${creditDrift.toFixed(2)}. Items=${JSON.stringify(items)}`,
-            );
-          }
+        const plan = planRefundCredit({
+          docTotal: ownerTotal,
+          docItems,
+          sources: trace,
+          refund: { refundId: credit.refundId, amount: Number(credit.amount), lineItems: credit.lineItems as any },
+          rawRefund: credit.rawRefund,
+          taxesIncluded,
+          alreadyCredited,
+          orderCurrentTotal,
+          rebuilt: rebuilt as any,
+        });
+
+        if (!plan.ok) {
+          await refuse(plan.reason, plan.detail, { incident: !plan.nothingToCredit });
+          continue;
         }
 
-        // A credit note can never be worth more than the document it credits,
-        // and InvoiceXpress enforces that at FINALIZE, not at create — so
-        // without this the note is created, refused on the way to becoming
-        // fiscal, and the retry creates another. Estrela left ELEVEN drafts
-        // that way on 2026-09-14, one every six minutes.
-        //
-        // It is a real mismatch and not a rounding one: the sale was invoiced
-        // exempt (M05, 89.49 €) while Shopify refunded tax-inclusive (85.00 +
-        // 18.07 = 103.07 €). Crediting 103.07 against an 89.49 € invoice is
-        // wrong whichever of the two documents turns out to be at fault, so it
-        // stops here, says both numbers, and leaves the decision to a human.
-        const ownerTotal = Number((ixInvoice?.data as any)?.total);
-        if (Number.isFinite(ownerTotal) && ownerTotal > 0) {
-          const creditTotal = ixBuilder.computeIxExpectedTotal(items as any);
-          if (creditTotal - ownerTotal > 0.01) {
-            throw new Error(
-              `[Shopify→IX credit note #${credit.refundId}] credit exceeds the invoice it credits: `
-              + `credit=${creditTotal.toFixed(2)} invoice=${ownerTotal.toFixed(2)} (doc ${invoice.invoice_id}). `
-              + `Refund is tax-inclusive while the invoice was issued exempt, or the invoice is understated. `
-              + `Nothing was created.`,
-            );
-          }
-        }
+        const items = plan.items as any[];
 
+        // A 0% line can only be here because the invoice itself carries one, so
+        // the code that goes with it is the document's own — which is what
+        // resolveExemptionCode prefers. Reverse charge needs no special case any
+        // more: a reverse-charge invoice is already all-zero-rated, and its
+        // mirror inherits that.
         const requireTaxExemption = items.some(item =>
           typeof item.tax === "number" ? item.tax === 0 : item.tax.value === 0
         );
@@ -421,6 +456,14 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         if (error || creditEnvelopeError || !creditNoteId) {
           const detail = JSON.stringify(error ?? creditEnvelopeError ?? "no id in response").slice(0, 500);
           console.error(`[Rioko] Credit note refused for refund ${credit.refundId} (invoice ${invoice.invoice_id}): ${detail}`);
+          // Nothing was created, so a later delivery may legitimately try again
+          // — unless InvoiceXpress refused the document itself, in which case it
+          // will refuse it identically for ever and the ledger says so once.
+          if (isIxValidationRefusal(detail)) {
+            await refuse(`o InvoiceXpress recusou a nota de crédito: ${detail}`);
+            continue;
+          }
+          await appStorage.releaseRefundCredit(ledgerScope, credit.refundId);
           throw new Error(`InvoiceXpress credit create failed for refund ${credit.refundId}: ${detail}`);
         }
 
@@ -451,24 +494,55 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
             // this can do, and the finalize error is the one worth reporting.
             // `changeState` to "deleted" is how a draft is withdrawn here —
             // there is no REST delete for a document (see IxDestination.deleteDraft).
+            let withdrawn = false;
             try {
-              const { error: cnDeleteError } = await IxApi.v2.changeState.post({
+              const { data: cnDeleteData, error: cnDeleteError } = await IxApi.v2.changeState.post({
                 body: { type: "credit_note", id: Number(creditNoteId), state: "deleted" },
                 headers: ixHeaders,
               });
-              if (cnDeleteError) {
-                console.error(`[Rioko] Could not remove unfinalized credit note ${creditNoteId}: ${JSON.stringify(cnDeleteError).slice(0, 300)}`);
+              const deleteProblem = cnDeleteError ?? ixEnvelopeError(cnDeleteData);
+              if (deleteProblem) {
+                console.error(`[Rioko] Could not remove unfinalized credit note ${creditNoteId}: ${JSON.stringify(deleteProblem).slice(0, 300)}`);
+              } else {
+                withdrawn = true;
               }
             } catch (deleteError) {
               console.error(`[Rioko] Could not remove unfinalized credit note ${creditNoteId}: ${deleteError}`);
+            }
+
+            // Whether a retry may make another one depends entirely on whether
+            // this one is really gone. Withdrawn → give the ledger row back.
+            // Still there → write its id into the row, which is what makes the
+            // claim untakeable, so the next delivery reports the stranded draft
+            // instead of putting a twin beside it.
+            if (withdrawn && isIxValidationRefusal(detail)) {
+              // Gone from the account, and refused for its content — "O total não
+              // pode ser superior ao total dos documentos relacionados" when the
+              // invoice is already credited by notes this ledger never saw. The
+              // next delivery would be refused identically, so say it once and stop.
+              await refuse(`o InvoiceXpress recusou certificar a nota de crédito: ${detail}`);
+              continue;
+            } else if (withdrawn) {
+              await appStorage.releaseRefundCredit(ledgerScope, credit.refundId);
+            } else {
+              await appStorage.noteRefundCreditDraft(
+                ledgerScope, credit.refundId, creditNoteId,
+                `rascunho ${creditNoteId} não certificado e não removido: ${detail}`,
+              );
             }
 
             throw new Error(`InvoiceXpress finalize failed for credit note ${creditNoteId}: ${detail}`);
           }
         }
 
-        // Written before the email block, whose missing-address path returns
-        // early — the credit note exists and is finalized at this point.
+        // The document is fiscal from here on. The ledger is written BEFORE the
+        // log and before the email, because everything after this point may fail
+        // without making the credit note any less issued — and a retry that
+        // found the row missing would issue a second one.
+        await appStorage.markRefundCredited(ledgerScope, credit.refundId, creditNoteId, plan.total);
+
+        // Written before the email block, whose missing-address path skips the
+        // rest — the credit note exists and is finalized at this point.
         await logDocumentEvent(env, {
           externalId: String(orderId),
           event: "credit_issued",
@@ -479,8 +553,8 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           sourceKind: "shopify",
           destinationKind: "invoicexpress",
           actor: "pipeline",
-          summary: `Nota de crédito ${creditNoteId} emitida e fechada por ${Number(credit.amount).toFixed(2)} € sobre o documento ${invoice.invoice_id} (reembolso ${credit.refundId}).`,
-          detail: { creditNoteId, refundId: credit.refundId, amount: credit.amount },
+          summary: `Nota de crédito ${creditNoteId} emitida e fechada por ${plan.total.toFixed(2)} € sobre o documento ${invoice.invoice_id} (reembolso ${credit.refundId}).`,
+          detail: { creditNoteId, refundId: credit.refundId, amount: plan.total },
         });
 
         if (config.ix_send_email) {
@@ -488,7 +562,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
             if (!creditNote.client.email) {
               // console.error(`[Rioko] Refund has no email address or nif`);
               console.error(`[Rioko] Refund has no email address`);
-              return;
+              continue;
             }
 
             const { error } = await IxApi.v2.documents.byId.email.post({
@@ -518,8 +592,7 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
         }
 
         console.log(`[Rioko] Credit note ${creditNoteId} issued and finalized for refund ${credit.refundId}`);
-      })
-    );
+    }
 
     console.log(`[Rioko] Refund processed for order ${orderId}`);
 

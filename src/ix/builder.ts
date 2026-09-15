@@ -6,6 +6,7 @@ import { isCrossBorderEU, EU_COUNTRIES, isPlausibleEuVatLength } from "./eu-coun
 import { buildExemptionMention } from "./exemption-mentions";
 import { ossCountry } from "./order-country";
 import { classifyExemption, type FiscalClassification } from "./fiscal-classification";
+import type { LineSource } from "./credit-mirror";
 import type { ViesChecker } from "./vies";
 import { type ReconcileLine } from "../adapters/reconcile";
 import { documentReference } from "../services/document-references";
@@ -300,7 +301,15 @@ export class IxBuilder {
     );
   }
 
-  buildInvoiceItemsFromRaw(rawOrder: any, opts?: { forceZeroTax?: boolean }): IxInvoice["items"] {
+  /**
+   * `opts.trace`, when given, is filled with one entry per emitted item saying
+   * which source line produced it. The refund path needs it to know which line
+   * of the issued invoice a returned article corresponds to — the credit note
+   * mirrors that line rather than rebuilding one from the refund's own numbers
+   * (see src/ix/credit-mirror.ts). Index-aligned with the returned items:
+   * `absorbReconcileResidual` edits in place and never changes the length.
+   */
+  buildInvoiceItemsFromRaw(rawOrder: any, opts?: { forceZeroTax?: boolean; trace?: LineSource[] }): IxInvoice["items"] {
     const forceTaxProducts = this.config.force_tax_rate;
     const forceTaxShipping = this.config.force_shipping_tax_rate;
     const forceZeroTax = opts?.forceZeroTax === true;
@@ -413,7 +422,7 @@ export class IxBuilder {
         this.assertForcedRateApplied(effectiveRate, forceTaxProducts, "produto", name);
       }
       const item = buildLine(grossUnit, quantity, grossLineDiscount, effectiveRate, effectiveRate, name, description, lineIncluded);
-      if (item) items.push(item);
+      if (item) { items.push(item); opts?.trace?.push({ kind: "line", id: li?.id == null ? null : Number(li.id) }); }
     }
 
     const shippingLines = Array.isArray(rawOrder?.shipping_lines) ? rawOrder.shipping_lines : [];
@@ -518,16 +527,16 @@ export class IxBuilder {
           const portionGross = effectiveShipIncluded ? t.basisNet + t.taxAmt : t.basisNet; // buildLine wants gross when included, net when not
           const subName = `${name} (${t.rate % 1 === 0 ? t.rate : t.rate.toFixed(2)}%)`.slice(0, 200);
           const item = buildLine(portionGross, 1, 0, t.rate, t.rate, subName, undefined, effectiveShipIncluded);
-          if (item) items.push(item);
+          if (item) { items.push(item); opts?.trace?.push({ kind: "shipping", id: sl?.id == null ? null : Number(sl.id) }); }
         }
         if (hasUntaxedShip) {
           // Rate 0 either way, so the net remainder is also its gross.
           const item = buildLine(untaxedShipNet, 1, 0, 0, 0, `${name} (0%)`.slice(0, 200), undefined, effectiveShipIncluded);
-          if (item) items.push(item);
+          if (item) { items.push(item); opts?.trace?.push({ kind: "shipping", id: sl?.id == null ? null : Number(sl.id) }); }
         }
       } else {
         const item = buildLine(grossUnit, 1, grossLineDiscount, shipEffectiveRate, shipEffectiveRate, name, undefined, shipIncluded);
-        if (item) items.push(item);
+        if (item) { items.push(item); opts?.trace?.push({ kind: "shipping", id: sl?.id == null ? null : Number(sl.id) }); }
       }
     }
 

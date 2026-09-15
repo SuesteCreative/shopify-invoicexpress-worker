@@ -72,3 +72,33 @@ describe("classifyPipelineError — the guards that must not regress", () => {
     expect(got.permanent).toBe(true);
   });
 });
+
+describe("classifyPipelineError — an InvoiceXpress validation refusal is permanent", () => {
+  // 2026-09-14: InvoiceXpress refused one refund's credit note for a missing
+  // exemption reason. The message carries no HTTP status — the proxy forwards
+  // IX's own wording inside a 200 envelope — so `looksPermanent4xx` saw nothing,
+  // the queue spent its whole budget, and every attempt created another credit
+  // note for the OTHER refund on the same order. 22 documents out of one refusal.
+  it("stops retrying a create InvoiceXpress will never accept", () => {
+    const got = classifyPipelineError(new Error(
+      'InvoiceXpress credit create failed for refund 1041494901012: {"error":{"message":"Razão de isenção deve ter uma opção selecionada"}}',
+    ));
+    expect(got.permanent).toBe(true);
+    expect(got.severity).toBe("critical");
+  });
+
+  it("stops retrying a finalize InvoiceXpress will never accept", () => {
+    const got = classifyPipelineError(new Error(
+      'InvoiceXpress finalize failed for credit note 270277803: {"error":{"message":"O total não pode ser superior ao total dos documentos relacionados"}}',
+    ));
+    expect(got.permanent).toBe(true);
+    expect(got.severity).toBe("critical");
+  });
+
+  it("leaves a destination that is merely down with its full retry budget", () => {
+    const got = classifyPipelineError(new Error(
+      'InvoiceXpress credit create failed for refund 1: {"error":{"message":"Bad Gateway upstream"}}',
+    ));
+    expect(got.permanent).toBe(false);
+  });
+});

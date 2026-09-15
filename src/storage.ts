@@ -1541,6 +1541,153 @@ export class AppStorage {
     }
   }
 
+  // ── Credit-note ledger (one row per refund) ────────────────────────────────
+
+  /**
+   * May I issue the credit note for this refund?
+   *
+   * The answer has to be local. The refund path used to ask InvoiceXpress —
+   * "does this invoice already have a note with this reference?" — and that read
+   * silently answered "no credit notes" whenever it failed, which is how one
+   * Bikini Books refund became 22 credit notes in an hour on 2026-09-14.
+   *
+   * FAIL-CLOSED, like `claimSettlement` and unlike `claimOrder`: a ledger we
+   * cannot reach means "do not issue". A refund credited late is recoverable; a
+   * second certified credit note is not.
+   *
+   *   won     — the row is ours, go ahead
+   *   done    — already issued, or refused for good; do nothing, quietly
+   *   held    — another delivery is mid-flight, or a draft of ours is sitting at
+   *             the destination; do nothing and let that one finish
+   *   blocked — the ledger did not answer; the caller must throw so the queue
+   *             retries rather than issue blind
+   */
+  async claimRefundCredit(
+    scope: string,
+    refundId: string | number,
+    invoiceId: string,
+    amount: number,
+    // Ten minutes: a create plus a finalize plus an email against a proxy on
+    // shared hosting outlives a short window, and losing the claim costs a
+    // duplicate fiscal document while holding it too long only defers the work.
+    staleAfterMs = 10 * 60_000,
+  ): Promise<{ status: "won" | "held" | "done" | "blocked"; creditNoteId?: string | null; state?: string }> {
+    const now = new Date();
+    const token = now.toISOString();
+    const key = String(refundId);
+    try {
+      const res = await this.db.prepare(
+        `INSERT OR IGNORE INTO credit_notes
+           (scope, refund_id, invoice_id, amount, state, claimed_at, updated_at)
+         VALUES (?, ?, ?, ?, 'issuing', ?, ?)`
+      ).bind(scope, key, String(invoiceId), Number.isFinite(amount) ? amount : null, token, token).run();
+      if ((res.meta?.changes ?? 0) > 0) return { status: "won" };
+
+      const row = await this.db.prepare(
+        "SELECT state, credit_note_id, claimed_at FROM credit_notes WHERE scope = ? AND refund_id = ?"
+      ).bind(scope, key).first<{ state: string; credit_note_id: string | null; claimed_at: string }>();
+      if (!row) return { status: "blocked" };
+      if (row.state === "issued" || row.state === "refused") {
+        return { status: "done", creditNoteId: row.credit_note_id, state: row.state };
+      }
+      // A row that already names a document is never taken over: the draft is
+      // real, and a second attempt would put a twin beside it rather than
+      // finish it. That is exactly the 19 drafts this incident left behind.
+      if (row.credit_note_id) return { status: "held", creditNoteId: row.credit_note_id, state: row.state };
+
+      const cutoff = new Date(now.getTime() - staleAfterMs).toISOString();
+      const steal = await this.db.prepare(
+        `UPDATE credit_notes SET claimed_at = ?, updated_at = ?
+          WHERE scope = ? AND refund_id = ? AND credit_note_id IS NULL AND claimed_at < ?`
+      ).bind(token, token, scope, key, cutoff).run();
+      return (steal.meta?.changes ?? 0) > 0 ? { status: "won" } : { status: "held", state: row.state };
+    } catch (e) {
+      console.error("[Rioko] claimRefundCredit failed — refusing to issue a credit note:", e);
+      return { status: "blocked" };
+    }
+  }
+
+  /** The credit note exists at the destination, finalized. Nothing repeats this refund. */
+  async markRefundCredited(scope: string, refundId: string | number, creditNoteId: string | number, amount: number): Promise<void> {
+    const now = new Date().toISOString();
+    try {
+      await this.db.prepare(
+        `UPDATE credit_notes SET state = 'issued', credit_note_id = ?, amount = ?, updated_at = ?, last_message = NULL
+          WHERE scope = ? AND refund_id = ?`
+      ).bind(String(creditNoteId), Number.isFinite(amount) ? amount : null, now, scope, String(refundId)).run();
+    } catch (e) {
+      // The document is already fiscal at this point; losing the write only
+      // means the next delivery asks the destination again.
+      console.error("[Rioko] markRefundCredited failed:", e);
+    }
+  }
+
+  /** This refund will never become a credit note by retrying. Say so, once. */
+  async markRefundCreditRefused(scope: string, refundId: string | number, message: string): Promise<void> {
+    const now = new Date().toISOString();
+    try {
+      await this.db.prepare(
+        `UPDATE credit_notes SET state = 'refused', updated_at = ?, last_message = ?
+          WHERE scope = ? AND refund_id = ?`
+      ).bind(now, String(message).slice(0, 500), scope, String(refundId)).run();
+    } catch (e) {
+      console.error("[Rioko] markRefundCreditRefused failed:", e);
+    }
+  }
+
+  /**
+   * A document was created at the destination but could not be certified, and we
+   * could not take it back either. Recording its id is what stops the next
+   * delivery from making a twin: a claimed row naming a document is never
+   * taken over.
+   */
+  async noteRefundCreditDraft(scope: string, refundId: string | number, creditNoteId: string | number, message: string): Promise<void> {
+    const now = new Date().toISOString();
+    try {
+      await this.db.prepare(
+        `UPDATE credit_notes SET credit_note_id = ?, updated_at = ?, last_message = ?
+          WHERE scope = ? AND refund_id = ?`
+      ).bind(String(creditNoteId), now, String(message).slice(0, 500), scope, String(refundId)).run();
+    } catch (e) {
+      console.error("[Rioko] noteRefundCreditDraft failed:", e);
+    }
+  }
+
+  /**
+   * Give the row back after a failure that left nothing behind at the
+   * destination, so a later delivery may legitimately try again.
+   * Only ever deletes a row still `issuing` and still nameless.
+   */
+  async releaseRefundCredit(scope: string, refundId: string | number): Promise<void> {
+    try {
+      await this.db.prepare(
+        "DELETE FROM credit_notes WHERE scope = ? AND refund_id = ? AND state = 'issuing' AND credit_note_id IS NULL"
+      ).bind(scope, String(refundId)).run();
+    } catch (e) {
+      console.warn("[Rioko] releaseRefundCredit failed:", e);
+    }
+  }
+
+  /**
+   * What this invoice has already had credited, from our own ledger.
+   *
+   * `null` means the ledger did not answer — NOT zero. The caller must refuse:
+   * reading it as zero is how a fourth credit note gets issued against an
+   * invoice that is already fully credited.
+   */
+  async creditedTotalForInvoice(scope: string, invoiceId: string): Promise<number | null> {
+    try {
+      const row = await this.db.prepare(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM credit_notes
+          WHERE scope = ? AND invoice_id = ? AND state = 'issued'`
+      ).bind(scope, String(invoiceId)).first<{ total: number }>();
+      return Number(row?.total ?? 0);
+    } catch (e) {
+      console.error("[Rioko] creditedTotalForInvoice failed:", e);
+      return null;
+    }
+  }
+
   /**
    * Every booking of this user that the instalment ledger knows about.
    *

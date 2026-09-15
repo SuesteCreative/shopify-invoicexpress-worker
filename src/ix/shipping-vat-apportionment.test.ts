@@ -125,4 +125,27 @@ describe("shipping VAT is only charged on the part Shopify taxed", () => {
       .buildInvoiceItemsFromRaw(mixedRateOrder(apportioned)) as any[];
     expect(items.filter(i => i.name.startsWith("Portes de envio"))).toHaveLength(1);
   });
+
+  // The refund path matches a returned article to its invoice line BY POSITION,
+  // using this trace. Shipping that splits into several lines from ONE source
+  // line is the only place that alignment could slip — and a slip attaches a
+  // refund to the wrong article at the wrong rate.
+  it("traces every emitted line back to the order line that produced it", () => {
+    const raw = mixedRateOrder([{ rate: 0.21, price: "1.05" }]);
+    raw.shipping_lines[0].price = "12.00";
+    raw.shipping_lines[0].id = 55501;
+    raw.line_items[0].id = 900;
+    raw.line_items[1].id = 901;
+    const trace: any[] = [];
+    const items = new IxBuilder(shopConfig()).buildInvoiceItemsFromRaw(raw, { trace }) as any[];
+
+    expect(trace).toHaveLength(items.length);
+    items.forEach((item, i) => {
+      const isShipping = String(item.name).startsWith("Portes de envio");
+      expect(trace[i].kind).toBe(isShipping ? "shipping" : "line");
+      expect(trace[i].id).toBe(isShipping ? 55501 : (i === 0 ? 900 : 901));
+    });
+    // Two shipping lines out of one source line, both pointing at it.
+    expect(trace.filter(t => t.kind === "shipping")).toHaveLength(2);
+  });
 });

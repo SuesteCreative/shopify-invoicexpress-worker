@@ -34,6 +34,7 @@ export type IncidentKind =
   // note only exists to correct a finalized document, so the remedy is to edit
   // or delete the draft — a decision only the merchant can make.
   | "credit_note_on_draft"
+  | "credit_note_not_mirrored"
   // A booking was cancelled after we had already issued a FINALIZED document
   // for it. Drafts are deleted automatically; a closed document is AT-hashed and
   // only a credit note undoes it, which is the merchant's call to make.
@@ -945,6 +946,47 @@ export function tplCreditNoteOnDraft(input: IncidentTemplateInput): RenderedTemp
   };
 }
 
+/**
+ * The refund cannot be expressed as a mirror of the invoice, so no credit note
+ * was issued and a person has to decide what the right one is.
+ *
+ * It says which refund, how much, and why — because the alternative this
+ * replaces was the system picking a VAT rate to make the total come out right,
+ * which is how a 6% book came back as a 23% "Refund amount" service line.
+ */
+export function tplCreditNoteNotMirrored(input: IncidentTemplateInput): RenderedTemplate {
+  const d = (input.detail ?? {}) as Record<string, any>;
+  const body = `
+    ${paragraph(escapeHtml(input.summary))}
+    ${calloutBox(
+    T("Porque não foi emitida", "Why none was issued"),
+    T("Uma nota de crédito é o espelho da factura que corrige: as mesmas linhas, os mesmos preços e as mesmas taxas de IVA. "
+      + "Este reembolso não corresponde às linhas da factura, e atribuir-lhe uma taxa de IVA por conta própria seria declarar "
+      + "um imposto que ninguém escolheu — por isso paramos aqui em vez de adivinhar.",
+      "A credit note mirrors the invoice it corrects: the same lines, the same prices, the same VAT rates. "
+      + "This refund does not match the invoice's lines, and picking a VAT rate for it on our own would declare a tax "
+      + "nobody chose — so this stops here instead of guessing."),
+    P().warning,
+  )}
+    ${stepsList([
+    T("Confirme na loja o que foi efectivamente devolvido ao comprador.", "Check in the shop what was actually returned to the buyer."),
+    T("Emita a nota de crédito na InvoiceXpress com as linhas da factura que correspondem a esse reembolso.", "Issue the credit note in InvoiceXpress with the invoice lines that match that refund."),
+    T("Se o reembolso for de um valor parcial de uma linha (e não de unidades devolvidas), diga-nos — esse caso ainda não se espelha sozinho.", "If the refund is for part of a line's value (rather than returned units), tell us — that case does not mirror on its own yet."),
+  ])}
+    ${orderClientBlock(input.orderRef, input.clientName)}
+    ${d.invoiceId ? paragraph(T(`Documento: <strong>${escapeHtml(String(d.invoiceId))}</strong>`, `Document: <strong>${escapeHtml(String(d.invoiceId))}</strong>`)) : ""}
+    ${affectedIdsBlock(input.affectedIds)}
+  `;
+  return {
+    subject: T("[Rioko 2.0] Reembolso sem nota de crédito — não corresponde à factura", "[Rioko 2.0] Refund with no credit note — it does not match the invoice"),
+    html: shell({
+      title: T("Reembolso por creditar", "Refund still to be credited"),
+      bodyHtml: body,
+      ...baseInput(input),
+    }),
+  };
+}
+
 export function tplBookingCancelledAfterInvoice(input: IncidentTemplateInput): RenderedTemplate {
   const d = (input.detail ?? {}) as Record<string, any>;
   const finalized: string[] = Array.isArray(d.finalized) ? d.finalized.map(String) : [];
@@ -1305,6 +1347,7 @@ export function renderIncidentTemplate(kind: IncidentKind, input: IncidentTempla
     case "nif_invalid": return tplNifInvalid(input);
     case "nif_invalid_draft": return tplNifInvalidDraft(input);
     case "credit_note_on_draft": return tplCreditNoteOnDraft(input);
+    case "credit_note_not_mirrored": return tplCreditNoteNotMirrored(input);
     case "booking_cancelled_after_invoice": return tplBookingCancelledAfterInvoice(input);
     case "lodgify_payment_not_marked": return tplLodgifyPaymentNotMarked(input);
     case "subscription_inactive": return tplSubscriptionInactive(input);

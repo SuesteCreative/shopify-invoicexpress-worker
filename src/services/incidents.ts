@@ -607,6 +607,28 @@ function parseEmailList(s: string | undefined): string[] {
  * fact from a thing that went quiet, and reportIncident's ON CONFLICT reopens
  * only the human kind.
  */
+/**
+ * Can this reference be looked up in the order tables at all?
+ *
+ * It decides which alarms get closed on evidence and which get closed on a
+ * 24h clock, so being wrong in either direction costs something real. Too
+ * narrow and a checkable incident is closed unverified — which is how the
+ * Stripe half of the fleet was being treated: `^\d{10,}$` matches a Shopify
+ * order id and nothing else, so every `pi_` incident skipped the verification
+ * entirely and aged out as if nothing had happened. Too wide and an alarm that
+ * can never verify stays open forever, drowning the ones that mean something.
+ *
+ * So the list is exactly the key shapes `processed_orders` actually holds,
+ * counted in production on 2026-09-15: 15110 numeric, 1267 `pi_`, 23 `in_`,
+ * 2 `cs_`. `evt_` is deliberately absent — a Stripe event id is never an order
+ * key, never verifies, and is the shape behind the MY VAN phantom digest.
+ */
+export function isVerifiableOrderRef(ref: string): boolean {
+  // The underscore in the body is not optional: a real Checkout Session reads
+  // `cs_live_b1gteTEq…`, so `[A-Za-z0-9]` after the prefix rejects every one.
+  return /^\d{10,}$/.test(ref) || /^(pi|in|cs)_[A-Za-z0-9_]{8,}$/.test(ref);
+}
+
 export async function autoResolveStaleIncidents(
   env: Env,
   opts: { staleHours?: number } = {},
@@ -649,7 +671,7 @@ export async function autoResolveStaleIncidents(
       let ids: string[] = [];
       try {
         ids = (JSON.parse(row.affected_ids_json || "[]") as unknown[])
-          .map(String).filter((x) => /^\d{10,}$/.test(x));
+          .map(String).filter(isVerifiableOrderRef);
       } catch { /* malformed: nothing to verify against */ }
 
       // Nothing checkable (a refund reference, a Lodgify booking, an empty list)

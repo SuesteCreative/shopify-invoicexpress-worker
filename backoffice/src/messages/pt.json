@@ -3807,9 +3807,14 @@
         "legacyTitle": "Ligado com utilizador e password",
         "legacyBody": "Esta ligação foi configurada antes do OAuth e continua a faturar normalmente. Pode mudar para OAuth quando quiser; a partir daí a password deixa de ser usada.",
         "migrate": "Mudar para OAuth",
-        "migrateBody": "Antes de autorizar, altere o Redirect URI da sua aplicação Moloni para o URL abaixo. Enquanto a autorização não estiver concluída, a ligação continua a usar a password.",
+        "migrateBody": "A aplicação Moloni que já tem continua a servir: só muda o Redirect URI.",
         "siblingApp": "Vamos usar a mesma aplicação Moloni da sua outra integração. Confirme o Developer ID e carregue em autorizar.",
         "authorizeFirst": "Autorize o Moloni antes de ativar.",
-        "back": "Voltar"
+        "back": "Voltar",
+        "migrateTitle": "Mudar esta ligação para OAuth",
+        "migrateStep1": "No Moloni, abra a Área de Cliente, vá a API e escolha a aplicação que já usa com a Rioko.",
+        "migrateStep2": "Substitua o Redirect URI pelo URL de callback abaixo, igual carácter a carácter, e carregue em Atualizar para gravar.",
+        "migrateStep3": "Volte aqui e carregue em autorizar. O Developer ID e o Client Secret que já tem ficam como estão.",
+        "migrateStep4": "Até a autorização estar concluída, esta ligação continua a facturar com a password. Parar a meio não estraga nada."
     }
 }

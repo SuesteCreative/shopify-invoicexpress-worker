@@ -146,17 +146,36 @@ export default function MoloniOAuthStep({
                 </div>
             ) : (
                 <>
+                    {/* A merchant who already has the Moloni API active does not
+                        create anything: they open the app they have, replace its
+                        Redirect URI with ours and press Atualizar in Moloni. Told
+                        to "activate the API as Developer" instead, they go looking
+                        for a second app and end up with a Developer ID that does
+                        not match the credentials this connection invoices with. */}
                     <div className="md:col-span-2 flex items-start gap-4 bg-accent/5 border border-accent/20 rounded-2xl px-6 py-4">
                         <Info className="w-5 h-5 text-accent-ink shrink-0 mt-0.5" />
                         <div className="space-y-1">
-                            <p className="text-sm font-bold text-accent-ink">{t("moloniIntroTitle")}</p>
+                            <p className="text-sm font-bold text-accent-ink">
+                                {legacyPassword ? tStep("migrateTitle") : t("moloniIntroTitle")}
+                            </p>
                             {legacyPassword && (
                                 <p className="text-[11px] text-soon leading-relaxed">{tStep("migrateBody")}</p>
                             )}
                             <ol className="text-[11px] text-fg-60 mt-2 leading-relaxed list-decimal pl-4 space-y-1">
-                                <li>{t("moloniStep1")}</li>
-                                <li>{t("moloniStep2")}</li>
-                                <li>{t("moloniStep3")}</li>
+                                {legacyPassword ? (
+                                    <>
+                                        <li>{tStep("migrateStep1")}</li>
+                                        <li>{tStep("migrateStep2")}</li>
+                                        <li>{tStep("migrateStep3")}</li>
+                                        <li>{tStep("migrateStep4")}</li>
+                                    </>
+                                ) : (
+                                    <>
+                                        <li>{t("moloniStep1")}</li>
+                                        <li>{t("moloniStep2")}</li>
+                                        <li>{t("moloniStep3")}</li>
+                                    </>
+                                )}
                             </ol>
                         </div>
                     </div>

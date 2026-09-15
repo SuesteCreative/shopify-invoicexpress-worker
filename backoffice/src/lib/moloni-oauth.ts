@@ -1,4 +1,5 @@
-import { RIOKO_CONFIG } from "@/lib/config";
+import { RIOKO_CONFIG } from "./config";
+import { listMoloniCompanies, type MoloniNamedId } from "./moloni-token";
 
 /**
  * The Moloni OAuth round trip, in one place.
@@ -108,6 +109,26 @@ export async function findPendingMoloniConnection(
 export type MoloniExchange = { ok: true } | { ok: false; detail: string };
 
 /**
+ * A migration that must not go through: record why, touch nothing else.
+ *
+ * The round trip is over either way, so the pending marker is cleared — left
+ * standing it would make the merchant's next attempt read as ambiguous. The
+ * password, the app and the auth mode stay exactly as they were.
+ */
+async function refuseMigration(db: any, id: string, detail: string): Promise<MoloniExchange> {
+    await db.prepare(
+        `UPDATE connections
+            SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
+                oauth_state = NULL, oauth_state_expires_at = NULL, updated_at = ?
+          WHERE id = ?`
+    ).bind(
+        JSON.stringify({ moloni_oauth_error: detail.slice(0, 300), moloni_oauth_pending_at: null }),
+        new Date().toISOString(), id,
+    ).run();
+    return { ok: false, detail };
+}
+
+/**
  * Trades the one-time code for a token pair and stores it on the connection.
  *
  * `redirectUri` has to be the same string the authorisation was started with,
@@ -164,6 +185,35 @@ export async function exchangeMoloniCode(
         // An access token with no refresh token would work for one hour and then
         // strand the connection with no way back.
         return { ok: false, detail: "O Moloni não devolveu um refresh token." };
+    }
+
+    // Migrating off a password: prove the account that just authorised is the one
+    // this connection invoices into, BEFORE the credential it replaces is gone.
+    //
+    // A merchant with two Moloni logins — their own and a client's, or a personal
+    // one beside the company's — picks the wrong one on the consent screen and
+    // Moloni answers with a perfectly valid token pair for the wrong account.
+    // Written through, that leaves a working connection authenticated against an
+    // account that cannot see its company, with the password already deleted.
+    //
+    // Fails closed: anything short of a match leaves the connection exactly as it
+    // is, still invoicing on its password.
+    const migrating = !!cfg.moloni_password && !cfg.moloni_refresh_token;
+    const wantedId = Number(cfg.moloni_company_id ?? 0);
+    const wantedName = String(cfg.moloni_company_name ?? "").trim().toLowerCase();
+    if (migrating && (wantedId || wantedName)) {
+        let seen: MoloniNamedId[];
+        try {
+            seen = await listMoloniCompanies({ moloni_environment: environment }, accessToken);
+        } catch (e: any) {
+            return refuseMigration(db, row.id, `Não foi possível confirmar no Moloni a empresa desta ligação: ${e?.message ?? e}. Nada foi alterado; tente autorizar outra vez.`);
+        }
+        const match = seen.some((c) => (wantedId
+            ? c.id === wantedId
+            : c.name.trim().toLowerCase() === wantedName));
+        if (!match) {
+            return refuseMigration(db, row.id, `A conta Moloni autorizada não tem acesso a "${cfg.moloni_company_name || wantedId}". A ligação continua a facturar como estava — autorize com a conta Moloni dessa empresa.`);
+        }
     }
 
     const now = Date.now();

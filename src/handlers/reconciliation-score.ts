@@ -1,5 +1,7 @@
 export interface ScoreInput {
   amount: number;
+  /** ISO 4217 `amount` is denominated in. Defaults to EUR when absent. */
+  currency?: string | null;
   date: string;
   customerName?: string | null;
   reference?: string | null;
@@ -7,10 +9,19 @@ export interface ScoreInput {
 
 export interface ScoreCandidate {
   amount: number;
+  /** ISO 4217 the DOCUMENT is valued in — not the sale's. InvoiceXpress always
+   * issues in euros, so a foreign sale legitimately faces a euro document. */
+  currency?: string | null;
   date: string;
   clientName?: string | null;
   reference?: string | null;
 }
+
+const CURRENCY_SYMBOL: Record<string, string> = { EUR: "€", USD: "$", GBP: "£" };
+const money = (amount: number, currency: string) =>
+  CURRENCY_SYMBOL[currency]
+    ? `${CURRENCY_SYMBOL[currency]}${amount.toFixed(2)}`
+    : `${amount.toFixed(2)} ${currency}`;
 
 const tokenize = (s: string) =>
   new Set(
@@ -39,15 +50,33 @@ export function scoreHeuristicMatch(order: ScoreInput, invoice: ScoreCandidate):
   const reasons: string[] = [];
   let score = 0;
 
-  const diff = Math.abs(order.amount - invoice.amount);
-  if (diff < 0.01) {
-    score += 40;
-    reasons.push(`valor €${order.amount.toFixed(2)}`);
+  const orderCurrency = (order.currency || "EUR").toUpperCase();
+  const invoiceCurrency = (invoice.currency || "EUR").toUpperCase();
+
+  // Two figures in different currencies are not comparable, and subtracting them
+  // is worse than not trying: 187,60 USD against its own correct 162,41 EUR
+  // document reads as a 13% gap and scores zero on the strongest signal there
+  // is. So the amount simply abstains — no points either way — and the date,
+  // name and reference decide. Converting here was the alternative and it is not
+  // worth an FX lookup inside a scorer, nor a rate this side would have to
+  // agree with the one the document was actually issued at.
+  //
+  // ponytail: abstaining costs the 40-point amount signal on a foreign sale, so
+  // those lean harder on name+date. Give ScoreCandidate the document's real
+  // currency (Moloni issues in the paid one) before trying anything cleverer.
+  if (orderCurrency !== invoiceCurrency) {
+    reasons.push(`valor em ${orderCurrency}, documento em ${invoiceCurrency}`);
   } else {
-    const pct = order.amount === 0 ? 1 : diff / Math.abs(order.amount);
-    if (pct <= 0.1) {
-      score += Math.round(40 * (1 - pct / 0.1));
-      reasons.push(`valor próximo`);
+    const diff = Math.abs(order.amount - invoice.amount);
+    if (diff < 0.01) {
+      score += 40;
+      reasons.push(`valor ${money(order.amount, orderCurrency)}`);
+    } else {
+      const pct = order.amount === 0 ? 1 : diff / Math.abs(order.amount);
+      if (pct <= 0.1) {
+        score += Math.round(40 * (1 - pct / 0.1));
+        reasons.push(`valor próximo`);
+      }
     }
   }
 

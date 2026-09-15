@@ -33,6 +33,17 @@ export interface ReconOrder {
   invoice_reference?: string | null;
   name: string;
   total: number;
+  /** ISO 4217 the buyer actually paid in, uppercase. REQUIRED of every source —
+   * it is not an optional nicety and a new fetcher must not default it blindly.
+   *
+   * `total` is denominated in THIS currency and is never converted here: a
+   * Stripe account holding a balance per currency settles USD in USD. The
+   * document beside it is in whatever the destination issues in (euros for
+   * InvoiceXpress, which restates at the ECB rate — see ix/foreign-currency.ts),
+   * so the two sides legitimately differ. Labelling this side "€" regardless is
+   * what made WHM's 187,60 USD → 162,41 € pair read as a 25 € discrepancy on a
+   * row the matcher had already marked "Match exato". */
+  currency: string;
   paid_at: string;
   customer_name: string | null;
   email: string | null;
@@ -256,6 +267,9 @@ async function fetchShopifyReconOrders(ctx: ReconContext, from: string, to: stri
       order_number: order.order_number,
       name: order.name,
       total: parseFloat(order.total_price ?? "0"),
+      // `total_price` is in the SHOP's currency; `presentment_currency` is what
+      // the buyer saw, which is a different number we do not read here.
+      currency: String(order.currency ?? "EUR").toUpperCase(),
       paid_at: order.processed_at ?? order.created_at,
       customer_name: customerName,
       email: order.customer?.email ?? order.email ?? null,
@@ -439,6 +453,8 @@ async function fetchLodgifyReconOrders(env: Env, ctx: ReconContext, from: string
       order_number: numericFromId(id),
       name: `LOD-${id}`,
       total: Number(totalRaw) || 0,
+      // v1 nests it under the amount, v2 exposes `currency_code` (aliased above).
+      currency: String(b.currency_code ?? b.total_amount?.currency ?? "EUR").toUpperCase(),
       // Sort/display by booking date so freshly-made bookings surface at the top.
       paid_at: (b.created_at ? String(b.created_at) : null) ?? (arrival ? `${arrival}T12:00:00Z` : new Date().toISOString()),
       customer_name: guestName ? String(guestName) : null,
@@ -512,6 +528,7 @@ async function fetchStripeReconOrders(env: Env, ctx: ReconContext, from: string,
         invoice_reference: saleReference(String(pi.id)),
         name: String(pi.id),
         total: Number(pi.amount ?? 0) / 100,
+        currency: String(pi.currency ?? "eur").toUpperCase(),
         paid_at: new Date(Number(pi.created ?? 0) * 1000).toISOString(),
         customer_name: name ? String(name) : null,
         email: email ? String(email) : null,
@@ -1275,7 +1292,10 @@ export async function getReconciliation(
       .filter(im => im.order_id_link !== orderId)
       .map(im => {
         const { score, reasons } = scoreHeuristicMatch(
-          { amount: totalNum, date: orderBlock.paid_at, customerName, reference: `${orderBlock.order_number}` },
+          { amount: totalNum, currency: orderBlock.currency, date: orderBlock.paid_at, customerName, reference: `${orderBlock.order_number}` },
+          // No currency on the document side yet — the destinations we read back
+          // don't surface one, and IX (the only one that can face a foreign
+          // sale) always issues in euros. See the note in scoreHeuristicMatch.
           { amount: im.total, date: im.date, clientName: im.client_name, reference: im.reference }
         );
         return { im, score, reasons };

@@ -43,6 +43,9 @@ export type Row = {
         order_number: number;
         name: string;
         total: number;
+        /** ISO 4217 the buyer paid in, when it is not the euro. `total` is in
+         * this currency; the document beside it is in the destination's. */
+        currency?: string | null;
         paid_at: string;
         customer_name: string | null;
         email: string | null;
@@ -122,7 +125,11 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
     const t = useTranslations("conciliacao");
     const locale = useLocale();
     const intlLocale = locale === "en" ? "en-GB" : "pt-PT";
-    const fmt = (n: number) => n.toLocaleString(intlLocale, { style: "currency", currency: "EUR" });
+    // The order side is in the currency the buyer paid; the document side is in
+    // whatever the destination issued in (euros, for InvoiceXpress). Labelling
+    // both "€" turned a correct 187,60 USD → 162,41 € pair into a phantom gap.
+    const fmt = (n: number, currency?: string | null) =>
+        n.toLocaleString(intlLocale, { style: "currency", currency: currency || "EUR" });
     const fmtDate = (s: string | null | undefined) => {
         if (!s) return "—";
         const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
@@ -225,11 +232,11 @@ export function ReconciliationRow({ row, onChanged, source, destination }: { row
                         </span>
                     )}
                     {row.order.declined ? (
-                        <span className="text-xs font-bold text-fg-60">{fmt(row.order.total)}</span>
+                        <span className="text-xs font-bold text-fg-60">{fmt(row.order.total, row.order.currency)}</span>
                     ) : row.order.financial_status === "paid" ? (
-                        <span className="text-xs font-bold text-accent-hot">{t("paid")} · {fmt(row.order.total)}</span>
+                        <span className="text-xs font-bold text-accent-hot">{t("paid")} · {fmt(row.order.total, row.order.currency)}</span>
                     ) : (
-                        <span className="text-xs font-bold text-soon">{t("unpaid")} · {fmt(row.order.total)}</span>
+                        <span className="text-xs font-bold text-soon">{t("unpaid")} · {fmt(row.order.total, row.order.currency)}</span>
                     )}
                     {row.order.refund_state && (
                         <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${REFUND_CHIP[row.order.refund_state].cls}`}>

@@ -127,8 +127,9 @@ export async function exportReconciliationToExcel(
             "",
         ]);
 
-        // Currency formatting
-        row.getCell(5).numFmt = '#,##0.00 "€"';
+        // Currency formatting. The paid column carries the buyer's currency, the
+        // document column the destination's — a foreign sale is not a mismatch.
+        row.getCell(5).numFmt = `#,##0.00 "${r.order.currency && r.order.currency !== "EUR" ? r.order.currency : "€"}"`;
         row.getCell(11).numFmt = '#,##0.00 "€"';
 
         // Match status pill

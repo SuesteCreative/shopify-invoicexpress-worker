@@ -56,6 +56,13 @@ export interface SourceAdapter {
 6. **Add a queue + binding** in `wrangler.jsonc`, and a batch handler in `src/index.ts` modeled on `processStripeBatch` (line 792). The handler resolves the active `connections` row, parses `source_config_json`, loads the legacy `integrations` row for IX credentials, and calls `runAdapterPipeline({ env, config, source, destination, topic, webhookId, body, sourceConfig })`.
 7. **SQL migration** under `migrations/`. The schema for source credentials is the `connections` table (see `migrations/0007_connections.sql`); credentials go into `source_config_json` as opaque JSON. If you need new columns on `processed_orders` or `webhook_info` add them via additive ALTER (those tables already track `source_kind` since 0007).
 8. **Backoffice UI** under `backoffice/src/app/api/integrations/<kind>-source/route.ts` plus a connect/install route (Stripe has `stripe-source/install-webhook/route.ts` as a reference) and the React components that drive the connect flow.
+9. **Reconciliation fetcher** — add a case to `getSourceOrders` in `src/handlers/reconciliation.ts` returning `ReconOrder[]`, or the merchant's Conciliação page says they sold nothing.
+
+> **Money carries its currency. Always, on every source.**
+>
+> `ReconOrder.currency` is a **required** field precisely so a new fetcher cannot forget it — and it must be the currency the money actually arrived in, read from the payload, never defaulted to `"EUR"` because the merchant is Portuguese. `total` is denominated in it and is never converted on this side.
+>
+> This is not cosmetic. The payment side and the document side are in genuinely different currencies whenever the destination cannot issue in the paid one: InvoiceXpress is a Portuguese account issuing in euros by law, so it restates the sale at the ECB rate for the date (`src/ix/foreign-currency.ts`), while Moloni issues natively in the paid currency. Labelling both sides `€` turned WHM's correct `187,60 USD → 162,41 €` pair into a phantom 25 € discrepancy on a row already marked *Match exato*. Same rule downstream: `scoreHeuristicMatch` abstains on the amount when the two currencies differ rather than subtracting figures that are not comparable, and the UI formats each side in its own currency.
 
 > TODO: There is currently no `tests/` directory in the repo, so step "add unit tests" has no home — see *Testing a new adapter* below.
 

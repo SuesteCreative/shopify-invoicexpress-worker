@@ -153,3 +153,27 @@ describe("the rule those routes use instead", () => {
         expect(destinationKindOrNull("invoicexpres", "invoicexpress")).toBeNull();
     });
 });
+
+describe("Moloni OAuth is offered through its two doors and no others", () => {
+    // Which authentication a Moloni connection uses is decided by the door, not
+    // by the date: Stripe Connect and the public Lodgify onboarding authorise by
+    // OAuth; the three dashboard wizards use the password grant, by decision of
+    // 10/09/2026. This gate has been wrong both ways — first collapsing every
+    // other kind onto the Connect row, then accepting any known kind at all — so
+    // the allowed set is pinned rather than trusted.
+    const route = codeOnly(readFileSync(
+        resolve(SRC_ROOT, "app/api/integrations/moloni-oauth/start/route.ts"), "utf8",
+    ));
+
+    it("names exactly stripe_connect and lodgify", () => {
+        const m = route.match(/MOLONI_OAUTH_SOURCES\s*=\s*\[([^\]]*)\]/);
+        expect(m, "the allowed set must be stated, not implied").not.toBeNull();
+        const kinds = m![1].split(",").map((s) => s.trim().replace(/["']/g, "")).filter(Boolean).sort();
+        expect(kinds).toEqual(["lodgify", "stripe_connect"]);
+    });
+
+    it("actually refuses a kind outside it", () => {
+        // A stated set nobody checks is decoration.
+        expect(route).toMatch(/!\s*\(MOLONI_OAUTH_SOURCES[^)]*\)\.includes\(sourceKind\)/);
+    });
+});

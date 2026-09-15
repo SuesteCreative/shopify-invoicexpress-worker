@@ -14,6 +14,20 @@ export const runtime = "edge";
 const MOLONI_AUTHORIZE_URL = "https://www.moloni.pt/ac/root/oauth/";
 
 /**
+ * The connections Moloni OAuth v2 is offered to, and no others.
+ *
+ * Which authentication a Moloni connection uses is decided by the door it came
+ * in through, not by how new it is: Stripe Connect (since the flow existed) and
+ * the public Lodgify onboarding (added later) authorise by OAuth; the dashboard
+ * wizards for stripe, lodgify and shopify → Moloni use the password grant, by
+ * decision of 10/09/2026.
+ *
+ * Deliberately not exported — a Next route file may only export its handlers
+ * and route config, and anything else fails the build.
+ */
+const MOLONI_OAUTH_SOURCES = ["stripe_connect", "lodgify"] as const;
+
+/**
  * Saves the merchant's Moloni developer credentials and returns the consent URL.
  *
  * The credentials are still typed by hand because Moloni's documentation
@@ -38,13 +52,21 @@ export async function POST(request: NextRequest) {
     // Moloni: the row exists, the flow just refused to look at it. Absent still
     // means stripe_connect, so every link already sent out keeps working.
     //
-    // A NAMED kind now has to be one we know. Widening it to "lodgify or else
-    // stripe_connect" left every other value pointing at the Connect row, so a
-    // request naming `stripe` wrote that merchant's Moloni client id, client
-    // secret and single-use `oauth_state` onto a connection they had not asked
-    // to authorise — and the state is what the callback matches on.
+    // A NAMED kind has to be one of the two this flow serves. It has been wrong
+    // in both directions. "lodgify or else stripe_connect" left every other
+    // value pointing at the Connect row, so a request naming `stripe` wrote that
+    // merchant's Moloni client id, client secret and single-use `oauth_state`
+    // onto a connection they had not asked to authorise. The fix for that then
+    // accepted ANY known kind, which quietly opened OAuth to the three dashboard
+    // wizards the 10/09 decision keeps on the password grant. Neither collapsed
+    // nor widened: refused.
     const sourceKind = sourceKindOrNull(body.source_kind, "stripe_connect");
     if (!sourceKind) return NextResponse.json({ error: unknownSourceKindError(body.source_kind) }, { status: 400 });
+    if (!(MOLONI_OAUTH_SOURCES as readonly string[]).includes(sourceKind)) {
+        return NextResponse.json({
+            error: `Moloni OAuth is not offered for ${sourceKind} → moloni; that connection uses the Moloni username and password`,
+        }, { status: 400 });
+    }
 
     // The kill switch belongs to Stripe Connect, not to Moloni. Flipping Connect
     // off must not take a Lodgify merchant's invoicing with it.

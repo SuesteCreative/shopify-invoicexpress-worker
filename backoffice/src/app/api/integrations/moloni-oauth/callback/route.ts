@@ -43,7 +43,11 @@ export async function GET(request: NextRequest) {
 
     const row = await findPendingMoloniConnection(db, authResult.targetUserId, params.get("state"));
     if (!row) {
-        return backToWizard("error", "A autorização expirou ou já foi usada. Carregue outra vez em autorizar.");
+        // Says what is actually true. It used to say the authorisation had
+        // expired or been used, which for a merchant with two in flight was
+        // neither — both were live and intact — and it told them to press the
+        // button again, which was the one thing that could not help.
+        return backToWizard("error", "Não foi possível identificar a ligação a autorizar. Volte ao passo do Moloni e recomece, uma ligação de cada vez.");
     }
 
     // The kill switch is Stripe Connect's, and it is checked here rather than at

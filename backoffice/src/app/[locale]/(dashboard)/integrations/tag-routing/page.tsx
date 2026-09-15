@@ -6,8 +6,8 @@ import { useState, useEffect } from "react";
 import { Loader2, AlertTriangle, ArrowLeft, Trash2, Plus, Save, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { useSearchParams } from "next/navigation";
-import { kindLabel } from "@/lib/connection-kinds";
+import { useSearchParams, notFound } from "next/navigation";
+import { kindLabel, sourceKindOrNull, destinationKindOrNull } from "@/lib/connection-kinds";
 
 type Sequence = { id: number; serie: string };
 
@@ -34,9 +34,23 @@ export default function TagRoutingPage() {
     const t = useTranslations("tagRouting");
     const searchParams = useSearchParams();
 
-    const rawSource = searchParams?.get("source_kind") ?? "shopify";
-    const sourceKind = (["shopify", "stripe", "stripe_connect", "lodgify", "eupago"].includes(rawSource) ? rawSource : "shopify") as "shopify" | "stripe" | "stripe_connect" | "lodgify" | "eupago";
-    const destinationKind = (searchParams?.get("destination_kind") === "moloni" ? "moloni" : "invoicexpress") as "invoicexpress" | "moloni";
+    // The URL names the connection. A kind this page does not recognise is a
+    // broken link, not a reason to show the merchant somebody else's data: the
+    // whitelist here quietly answered "shopify" for anything it had not been
+    // told about, and it had not been told about stripe_connect. The API route
+    // refuses an unknown kind with a 400 — but only if the page lets one reach it.
+    const rawSource = searchParams?.get("source_kind");
+    const maybeSource = sourceKindOrNull(rawSource, "shopify");
+    // Same on the destination axis: `vendus` used to become `invoicexpress`,
+    // and the rule was saved against a pipeline the merchant never chose.
+    const rawDestination = searchParams?.get("destination_kind");
+    const maybeDestination = destinationKindOrNull(rawDestination, "invoicexpress");
+
+    // An unrecognised kind in the URL is a broken link. Rendering anyway is
+    // how a merchant ends up reading — and editing — another integration.
+    if (!maybeSource || !maybeDestination) notFound();
+    const sourceKind = maybeSource;
+    const destinationKind = maybeDestination;
     const isMoloni = destinationKind === "moloni";
 
     const [loading, setLoading] = useState(true);

@@ -10,6 +10,7 @@ import { getCompanyRulesNotes } from "./company-rules";
 import { redactSecrets, redactDeep } from "./redact";
 import { isInactiveAccount } from "./inactive-accounts";
 import { resolveAccountIdentity, type AccountIdentity } from "./account-label";
+import { prettyConnectionLabel } from "./platform-names";
 
 export type Severity = "info" | "warning" | "error" | "critical";
 
@@ -84,7 +85,16 @@ export function bucketKeyFor(input: ReportIncidentInput, now: Date): string {
   // nobody fills would have made this a no-op for most of them. An absent label
   // leaves the key exactly as it was, so nothing regroups for a caller that
   // names no connection.
-  const connectionPart = input.connection_label ? `:${input.connection_label}` : "";
+  //
+  // SPELLED, because the callers do not agree on how to write it. Most pass the
+  // raw identifiers (`stripe → invoicexpress`); a handful go through
+  // `connectionLabelOf`, which prettifies (`Stripe → InvoiceXpress`). Keying on
+  // the string as given would make those two DIFFERENT buckets for the same
+  // connection — and `queue_retry_exhausted`, which is critical and reported
+  // from eight places in both spellings, would raise two alerts for one failure.
+  // `prettyConnectionLabel` looks its tokens up in lowercase, so it is
+  // idempotent and both spellings land on the same key.
+  const connectionPart = input.connection_label ? `:${prettyConnectionLabel(input.connection_label)}` : "";
   // `dedup_key` splits the time bucket per subject — see ReportIncidentInput.
   const subjectPart = input.dedup_key ? `:${input.dedup_key}` : "";
   return `${userPart}:${input.kind}${connectionPart}:${bucketPart}${subjectPart}`;

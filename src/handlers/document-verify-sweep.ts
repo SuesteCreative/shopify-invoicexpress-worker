@@ -227,11 +227,18 @@ export async function runDocumentVerifySweep(
     // The pair the document was issued under, when the row states one. Rows
     // written before `document_events` carried the pair state neither, and those
     // keep the old behaviour: ask for the merchant and take the latest.
+    // `shop` short-circuits `resolveConnectionContext` to legacy
+    // Shopify→InvoiceXpress and DISCARDS the source and destination asked for
+    // below. So it may only be offered for a document that pair actually issued:
+    // the shop domain is stamped on rows that have nothing to do with the shop,
+    // and a `shopify → moloni` document handed over with it would be read back
+    // through the InvoiceXpress adapter.
+    const isLegacyShopifyPair =
+      (!first.sourceKind || first.sourceKind === "shopify")
+      && (!first.destinationKind || first.destinationKind === "invoicexpress");
+
     const resolved = await resolveConnectionContext(env, {
-      // `shop` short-circuits to legacy Shopify→InvoiceXpress, so it must not be
-      // offered for a document another integration issued: the shop domain is
-      // stamped on rows that have nothing to do with the shop.
-      shop: first.sourceKind && first.sourceKind !== "shopify" ? null : first.shopifyDomain,
+      shop: isLegacyShopifyPair ? first.shopifyDomain : null,
       userId: first.userId,
       source: (first.sourceKind as any) ?? undefined,
       destination: (first.destinationKind as any) ?? undefined,
@@ -239,7 +246,15 @@ export async function runDocumentVerifySweep(
     });
     if (!resolved.ok) {
       result.contextsFailed++;
-      console.warn(`[DocVerify] no connection context for ${scopeKey} — ${group.length} document(s) left unverified`);
+      // Naming the pair is what makes this legible. A document whose connection
+      // was since paused, deleted or pointed at another destination has no
+      // active connection to be read back through — it is not verified, and the
+      // difference between "not verified" and "verified fine" has to be visible
+      // rather than inferred from a counter.
+      console.warn(
+        `[DocVerify] no active connection for ${first.sourceKind ?? "?"}→${first.destinationKind ?? "?"}`
+        + ` (${scopeKey}) — ${group.length} document(s) left unverified`,
+      );
       continue;
     }
 

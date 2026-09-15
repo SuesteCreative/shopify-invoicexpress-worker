@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve, relative } from "node:path";
-import { sourceKindOrNull, destinationKindOrNull, SOURCE_KINDS } from "./connection-kinds";
+import { sourceKindOrNull, destinationKindOrNull, SOURCE_KINDS, DESTINATION_KINDS } from "./connection-kinds";
 
 /**
  * A route may not decide, on its own, which connection a request meant.
@@ -38,14 +38,26 @@ import { sourceKindOrNull, destinationKindOrNull, SOURCE_KINDS } from "./connect
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const API_ROOT = resolve(HERE, "../app/api");
+const SRC_ROOT = resolve(HERE, "..");
 
-function routeFiles(dir: string): string[] {
+/**
+ * Routes AND the pages that call them.
+ *
+ * Scanning `app/api/**​/route.ts` alone was half a guard. A route that refuses an
+ * unknown kind protects nothing when the PAGE collapses the value before
+ * sending: the route then receives a perfectly valid kind — the wrong one — and
+ * the 400 never fires. `ix-overrides/page.tsx` had a whitelist missing
+ * `stripe_connect`, so a Connect merchant reaching that screen would have had
+ * their product overrides written onto the account's Shopify products, through a
+ * route this very file certifies as safe.
+ */
+function scannedFiles(dir: string): string[] {
     const out: string[] = [];
     for (const entry of readdirSync(dir)) {
+        if (entry === "node_modules" || entry === ".next") continue;
         const full = resolve(dir, entry);
-        if (statSync(full).isDirectory()) out.push(...routeFiles(full));
-        else if (entry === "route.ts") out.push(full);
+        if (statSync(full).isDirectory()) out.push(...scannedFiles(full));
+        else if (entry === "route.ts" || entry === "page.tsx" || /\.tsx$/.test(entry)) out.push(full);
     }
     return out;
 }
@@ -70,28 +82,43 @@ const COLLAPSE = new RegExp(
     `===\\s*["'](${SOURCE_KINDS.join("|")})["']\\s*\\?\\s*["']\\1["']\\s*:\\s*["'](${SOURCE_KINDS.join("|")})["']`,
 );
 
+/**
+ * The same shape on the DESTINATION axis.
+ *
+ * `destination_kind === "moloni" ? "moloni" : "invoicexpress"` turned the
+ * Stripe→Vendus wizard's stated destination into InvoiceXpress, and left the
+ * tag-routing page saving a Vendus merchant's rule against their InvoiceXpress
+ * pipeline. The source-side regex could never have seen it.
+ */
+const COLLAPSE_DESTINATION = new RegExp(
+    `===\\s*["'](${DESTINATION_KINDS.join("|")})["']\\s*\\?\\s*["']\\1["']\\s*:\\s*["'](${DESTINATION_KINDS.join("|")})["']`,
+);
+
 /** An `includes([...]) ? raw : "<kind>"` whitelist, which goes stale the same way. */
 const STALE_WHITELIST = /\[[^\]]*["'](?:shopify|stripe|lodgify|eupago)["'][^\]]*\]\s*\.includes\([^)]*\)\s*\?[^:]*:\s*["'](?:shopify|stripe|stripe_connect|lodgify|eupago)["']/;
 
-describe("no API route silently redirects one connection kind to another", () => {
-    const files = routeFiles(API_ROOT);
+describe("nothing silently redirects one connection kind to another", () => {
+    const files = scannedFiles(SRC_ROOT);
+    const offendersOf = (re: RegExp) => files
+        .filter((f) => re.test(codeOnly(readFileSync(f, "utf8"))))
+        .map((f) => relative(SRC_ROOT, f).replace(/\\/g, "/"));
 
-    it("finds the route files at all, so a passing run means something", () => {
-        expect(files.length).toBeGreaterThan(20);
+    it("scans the routes AND the pages that call them", () => {
+        // A guard that reads only one side of the call certifies the wrong half.
+        expect(files.filter((f) => f.endsWith("route.ts")).length).toBeGreaterThan(20);
+        expect(files.filter((f) => f.endsWith("page.tsx")).length).toBeGreaterThan(10);
     });
 
     it("has no `=== \"a\" ? \"a\" : \"b\"` source-kind collapse left", () => {
-        const offenders = files
-            .filter((f) => COLLAPSE.test(codeOnly(readFileSync(f, "utf8"))))
-            .map((f) => relative(API_ROOT, f).replace(/\\/g, "/"));
-        expect(offenders).toEqual([]);
+        expect(offendersOf(COLLAPSE)).toEqual([]);
+    });
+
+    it("has no destination-kind collapse left", () => {
+        expect(offendersOf(COLLAPSE_DESTINATION)).toEqual([]);
     });
 
     it("has no hand-maintained kind whitelist with a fallback left", () => {
-        const offenders = files
-            .filter((f) => STALE_WHITELIST.test(codeOnly(readFileSync(f, "utf8"))))
-            .map((f) => relative(API_ROOT, f).replace(/\\/g, "/"));
-        expect(offenders).toEqual([]);
+        expect(offendersOf(STALE_WHITELIST)).toEqual([]);
     });
 });
 

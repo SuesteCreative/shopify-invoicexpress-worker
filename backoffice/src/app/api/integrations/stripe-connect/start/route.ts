@@ -5,6 +5,7 @@ import { newOAuthState } from "@/lib/oauth-state";
 import { normalizeReturnSlug, RETURN_SLUG_WIZARD } from "@/lib/oauth-return";
 import { isStripeConnectEnabled, resolveTargetUser, stripeConnectRedirectUri, stripeConnectCredentials } from "@/lib/stripe-connect";
 import { isAdmin } from "@/lib/admin";
+import { destinationKindOrNull } from "@/lib/connection-kinds";
 
 export const runtime = "edge";
 
@@ -27,7 +28,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({})) as {
         destination_kind?: string; return_slug?: string; return_locale?: string; mode?: string;
     };
-    const destinationKind = body.destination_kind === "invoicexpress" ? "invoicexpress" : "moloni";
+    // This value goes straight into an INSERT: `=== "invoicexpress" ? … : "moloni"`
+    // meant a request naming any other destination CREATED a `stripe_connect →
+    // moloni` connection and started an authorisation against it. Absent still
+    // means Moloni, which is what every caller that predates the parameter means.
+    const destinationKind = destinationKindOrNull(body.destination_kind, "moloni");
+    if (!destinationKind) {
+        return NextResponse.json({ error: `Unknown destination_kind ${JSON.stringify(body.destination_kind)}` }, { status: 400 });
+    }
 
     // Which page this round trip started on, so the callback can end it there.
     // Always written, never inherited: a row left over from a run that started

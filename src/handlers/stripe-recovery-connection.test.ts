@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { loadStripeConnectionFull } from "./admin-stripe";
+import { resolveStripeConnection } from "./stripe-admin";
 
 /**
  * Which Stripe connection a recovery route acts on.
@@ -159,5 +160,103 @@ describe("the Stripe connection a recovery route acts on", () => {
     );
 
     expect(conn?.destinationKind).toBe("vendus");
+  });
+});
+
+/**
+ * The SECOND resolver, and the reason this block exists.
+ *
+ * `resolveStripeConnection` serves the webhook-endpoint tools and the event
+ * replay. It was fixed to read both Stripe kinds at the same time as its
+ * sibling above — and kept `LIMIT 1` plus "give up if that row has no
+ * credential", which is precisely the defect the sibling had been fixed for.
+ * The two have to agree, so they are tested side by side.
+ */
+function opsEnv(rows: Array<Row & { id?: string }>) {
+  return {
+    STRIPE_PLATFORM_SECRET_KEY: "sk_live_platform",
+    STRIPE_PLATFORM_SECRET_KEY_TEST: "sk_test_platform",
+    DB: {
+      prepare(sql: string) {
+        let binds: any[] = [];
+        const api = {
+          bind(...b: any[]) { binds = b; return api; },
+          async all() {
+            let out = rows.map((r, i) => ({ id: r.id ?? `c${i}`, ...r }));
+            if (/source_kind IN \('stripe', 'stripe_connect'\)/.test(sql)) {
+              out = out.filter((r) => r.source_kind === "stripe" || r.source_kind === "stripe_connect");
+            }
+            // `(? IS NULL OR destination_kind = ?)` — the destination narrowing.
+            if (/destination_kind = \?/.test(sql)) {
+              const wanted = binds[1] ?? null;
+              if (wanted !== null) out = out.filter((r) => r.destination_kind === wanted);
+            }
+            if (/ORDER BY CASE status WHEN 'active'/.test(sql)) {
+              out = [...out].sort((a, b) =>
+                ((a.status === "active" ? 0 : 1) - (b.status === "active" ? 0 : 1))
+                || ((a.source_kind === "stripe" ? 0 : 1) - (b.source_kind === "stripe" ? 0 : 1)));
+            } else {
+              out = [...out].reverse();
+            }
+            return { results: out };
+          },
+        };
+        return api;
+      },
+    },
+  } as any;
+}
+
+describe("the Stripe connection the ops tooling acts on", () => {
+  it("does not give up because the first row has no credential", async () => {
+    // An active `stripe` row whose restricted key was never saved, or was
+    // rotated away, sorts first. Answering null there told a merchant with a
+    // healthy Stripe Connect connection that they had none at all — and the
+    // replay is the tool you reach for when documents are missing.
+    const conn = await resolveStripeConnection(
+      opsEnv([
+        row({ source_kind: "stripe", source_config_json: JSON.stringify({}) }),
+        row({ source_kind: "stripe_connect", destination_kind: "moloni", source_config_json: connectAccount("acct_live") }),
+      ]),
+      "user_1",
+    );
+
+    expect(conn?.sourceKind).toBe("stripe_connect");
+    expect(conn?.auth?.connectAccount).toBe("acct_live");
+    // Connect merchants have no endpoint of their own; the webhook tools say so
+    // instead of pretending the connection is missing.
+    expect(conn?.restrictedKey).toBeNull();
+  });
+
+  it("agrees with the recovery resolver on the same fleet", async () => {
+    const fleet = [
+      row({ source_kind: "stripe", status: "draft", source_config_json: restrictedKey("rk_abandoned") }),
+      row({ source_kind: "stripe_connect", destination_kind: "moloni", source_config_json: connectAccount("acct_live") }),
+    ];
+    const recovery = await loadStripeConnectionFull(fakeEnv(fleet), "user_1");
+    const ops = await resolveStripeConnection(opsEnv(fleet), "user_1");
+
+    expect(ops?.sourceKind).toBe(recovery?.sourceKind);
+    expect(ops?.destinationKind).toBe(recovery?.destinationKind);
+  });
+
+  it("narrows to the destination the caller names, so a replay files where it is told", async () => {
+    // `/admin/stripe/replay` stamps this row's destination on the queue message.
+    const fleet = [
+      row({ source_kind: "stripe", destination_kind: "invoicexpress", source_config_json: restrictedKey("rk_a") }),
+      row({ source_kind: "stripe", destination_kind: "moloni", source_config_json: restrictedKey("rk_b") }),
+    ];
+
+    expect((await resolveStripeConnection(opsEnv(fleet), "user_1", "moloni"))?.destinationKind).toBe("moloni");
+    expect((await resolveStripeConnection(opsEnv(fleet), "user_1", "invoicexpress"))?.destinationKind).toBe("invoicexpress");
+  });
+
+  it("still answers nothing when no connection can authenticate", async () => {
+    const conn = await resolveStripeConnection(
+      opsEnv([row({ source_kind: "stripe", source_config_json: JSON.stringify({}) })]),
+      "user_1",
+    );
+
+    expect(conn).toBeNull();
   });
 });

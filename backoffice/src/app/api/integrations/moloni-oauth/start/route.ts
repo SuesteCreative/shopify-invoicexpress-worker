@@ -100,6 +100,31 @@ export async function POST(request: NextRequest) {
         ? JSON.stringify({ return_slug: returnSlug, return_locale: body.return_locale === "en" ? "en" : "pt" })
         : null;
 
+    // One Moloni round trip in flight at a time, for this account.
+    //
+    // Moloni does not echo the `state` parameter back, so the callback cannot be
+    // told which connection a code belongs to — it has to find the row whose
+    // authorisation is in flight. With two in flight there is no honest answer,
+    // and starting a second one left the first standing for its full fifteen
+    // minutes: pressing "autorizar" again refreshed one and left the other, so
+    // retrying — which is exactly what the error message tells the merchant to
+    // do — could not get them out of it.
+    //
+    // The marker is `moloni_oauth_pending_at`, in this connection's own
+    // destination config, NOT the shared `oauth_state` column. That column is
+    // also the Stripe Connect round trip's, on the very same row for a
+    // `stripe_connect → moloni` connection, so clearing it to disambiguate one
+    // flow would silently break the other.
+    await db.prepare(
+        `UPDATE connections
+            SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),
+                updated_at = ?
+          WHERE user_id = ? AND destination_kind = 'moloni' AND id <> ?
+            AND json_extract(destination_config_json, '$.moloni_oauth_pending_at') IS NOT NULL`
+    ).bind(JSON.stringify({ moloni_oauth_pending_at: null }), now, authResult.targetUserId, row.id).run();
+
+    patch.moloni_oauth_pending_at = now;
+
     await db.prepare(
         `UPDATE connections
             SET destination_config_json = json_patch(COALESCE(destination_config_json, '{}'), ?),

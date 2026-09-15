@@ -813,9 +813,12 @@ app.post("/admin/stripe/webhooks/delete", async (c) => {
 app.post("/admin/stripe/replay", async (c) => {
   const unauth = await requireAdminAuth(c);
   if (unauth) return unauth;
-  const body = await c.req.json<{ userId: string; event_id?: string; type?: string; from?: number; to?: number; limit?: number }>();
+  const body = await c.req.json<{ userId: string; event_id?: string; type?: string; from?: number; to?: number; limit?: number; destination_kind?: string }>();
   if (!body.userId) return c.json({ error: "Missing userId" }, 400);
-  const conn = await resolveStripeConnection(c.env, body.userId);
+  // The destination is stamped on the queue message below, so an account running
+  // two Stripe connections into different destinations needs a way to say which
+  // one is being replayed instead of having it picked for them.
+  const conn = await resolveStripeConnection(c.env, body.userId, body.destination_kind);
   if (!conn) return c.json({ error: "No Stripe connection with usable credentials for this user" }, 404);
 
   try {

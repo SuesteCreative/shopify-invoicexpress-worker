@@ -72,7 +72,7 @@ export async function loadStripeConnectionFull(env: Env, userId: string): Promis
     `SELECT source_kind, destination_kind, source_config_json, destination_config_json, invoice_cutoff, created_at
        FROM connections
       WHERE user_id = ? AND source_kind IN ('stripe', 'stripe_connect') AND status = 'active'
-      ORDER BY CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END`
+      ORDER BY CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END, updated_at DESC`
   ).bind(userId).all();
 
   const parse = (s: string | null): Record<string, any> | undefined => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };

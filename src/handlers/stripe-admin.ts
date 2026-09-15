@@ -50,32 +50,57 @@ export interface StripeConnection {
  *
  * The credential comes from `resolveStripeAuth`, which is where the difference
  * between the two kinds actually lives (`auth_mode`, not `source_kind`).
+ *
+ * A connection that can actually TALK to Stripe beats one that cannot, exactly
+ * as in `loadStripeConnectionFull`. `LIMIT 1` plus "give up if that one has no
+ * credential" is the same defect that function was fixed for, one file over: an
+ * active `stripe` row whose restricted key was never saved (or was rotated away)
+ * sorted first, failed `resolveStripeAuth`, and every tool here answered 404 to
+ * a merchant whose Stripe Connect connection was perfectly healthy.
+ *
+ * `destinationKind` narrows when the caller names it, because `/admin/stripe/replay`
+ * stamps this row's destination on the queue message: with two `stripe`
+ * connections into different destinations, an unnarrowed pick invoices a
+ * replayed payment into the wrong one.
  */
-export async function resolveStripeConnection(env: Env, userId: string): Promise<StripeConnection | null> {
-  const row: any = await env.DB.prepare(
+export async function resolveStripeConnection(
+  env: Env,
+  userId: string,
+  destinationKind?: string | null,
+): Promise<StripeConnection | null> {
+  const res = await env.DB.prepare(
     `SELECT id, source_kind, source_config_json, destination_kind FROM connections
      WHERE user_id = ? AND source_kind IN ('stripe', 'stripe_connect')
+       AND (? IS NULL OR destination_kind = ?)
      ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
-              CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END
-     LIMIT 1`
-  ).bind(userId).first();
-  if (!row) return null;
+              CASE WHEN source_kind = 'stripe' THEN 0 ELSE 1 END,
+              updated_at DESC`
+  ).bind(userId, destinationKind ?? null, destinationKind ?? null).all();
 
-  let cfg: Record<string, any> = {};
-  try { cfg = row.source_config_json ? JSON.parse(row.source_config_json) : {}; } catch { cfg = {}; }
-  const auth = resolveStripeAuth(env, cfg);
-  if (!auth) return null;
+  const rows = ((res.results as any[]) ?? []).map((row) => {
+    let cfg: Record<string, any> = {};
+    try { cfg = row.source_config_json ? JSON.parse(row.source_config_json) : {}; } catch { cfg = {}; }
+    const sourceKind = row.source_kind === "stripe_connect" ? "stripe_connect" : "stripe";
+    return {
+      connectionId: row.id as string,
+      sourceKind: sourceKind as "stripe" | "stripe_connect",
+      auth: resolveStripeAuth(env, cfg),
+      restrictedKey: sourceKind === "stripe" ? ((cfg.restricted_key as string) ?? null) : null,
+      webhookEndpointId: cfg.webhook_endpoint_id ?? null,
+      sourceConfig: cfg,
+      destinationKind: (row.destination_kind as DestinationKind) ?? null,
+    };
+  });
 
-  const sourceKind = row.source_kind === "stripe_connect" ? "stripe_connect" : "stripe";
-  return {
-    connectionId: row.id,
-    sourceKind,
-    auth,
-    restrictedKey: sourceKind === "stripe" ? (cfg.restricted_key as string) : null,
-    webhookEndpointId: cfg.webhook_endpoint_id ?? null,
-    sourceConfig: cfg,
-    destinationKind: (row.destination_kind as DestinationKind) ?? null,
-  };
+  const chosen = rows.find((r) => r.auth);
+  if (!chosen) return null;
+
+  if (rows.length > 1) {
+    console.warn(
+      `[Stripe] ${userId} has ${rows.length} Stripe connections (${rows.map((r) => `${r.sourceKind}→${r.destinationKind}`).join(", ")}); ops tooling picked ${chosen.sourceKind}→${chosen.destinationKind}`,
+    );
+  }
+  return { ...chosen, auth: chosen.auth! };
 }
 
 /**

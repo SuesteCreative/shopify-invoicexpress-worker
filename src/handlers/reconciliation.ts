@@ -1124,6 +1124,12 @@ export async function getReconciliation(
   // 2b. Stripe→Moloni: link invoices raised by a PREVIOUS integrator (absent
   //     from processed_orders) via the PaymentIntent id stamped on the Moloni
   //     doc's your_reference. Only fills gaps — never overrides our own mapping.
+  //
+  //     A link made here is an IDENTITY match, not a guess: the document names
+  //     the processor's own payment id. It still used to render "heurístico",
+  //     because the exact test below compares `our_reference` with our own
+  //     "Order #pi_…" convention, which a previous integrator never wrote.
+  const linkedByPaymentId = new Set<string>();
   if ((ctx.source === "stripe" || ctx.source === "stripe_connect")
     && ctx.destination === "moloni" && orderIds.length > 0) {
     const unmapped = orderIds.filter((oid) => !orderToInvoice.has(oid));
@@ -1131,7 +1137,7 @@ export async function getReconciliation(
       const refIndex = await getStripeMoloniRefIndex(env, ctx, dateOnly(from));
       for (const oid of unmapped) {
         const docId = refIndex.get(oid);
-        if (docId) orderToInvoice.set(oid, docId);
+        if (docId) { orderToInvoice.set(oid, docId); linkedByPaymentId.add(oid); }
       }
     }
   }
@@ -1224,7 +1230,8 @@ export async function getReconciliation(
       const expectedRef = orderBlock.invoice_reference ?? saleReference(orderBlock.order_number);
       // Exact if any mapped invoice carries the booking reference or an
       // "Order #N-<seq>" instalment reference.
-      const isExact = invs.some(x => x.reference === expectedRef || (x.reference ?? "").startsWith(`${expectedRef}-`));
+      const isExact = linkedByPaymentId.has(orderId)
+        || invs.some(x => x.reference === expectedRef || (x.reference ?? "").startsWith(`${expectedRef}-`));
       const type: ReconciliationRow["match"]["type"] = manualMatch
         ? "approved"
         : isExact ? "exact" : "heuristic";

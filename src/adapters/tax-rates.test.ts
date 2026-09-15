@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { decideVat, ossRateFor, ossCountry, ptRegionalRate, EU_STANDARD_VAT_RATES } from "./tax-rates";
 import { computeExpectedGross } from "./reconcile";
+import { buildAnyExemptionMention } from "../ix/exemption-mentions";
 import type { AdapterCtx } from "./types";
 
 /** What a destination does to money: two decimals, half up. */
@@ -189,6 +190,23 @@ describe("the money does not move when the rate does", () => {
     const n = normalized("CH");
     const c = ctx({ dest: { oss_export_exemption_code: "M05" } });
     expect((await decideVat(n, c, "invoicexpress")).exemptionCode).toBe("M05");
+  });
+
+  it("puts the stated export code on the classification the document is built from", async () => {
+    // Wim Hof Method, 14/09/2026. The new Connect connection declares the
+    // reverse-charge registration, which is what switches the per-sale
+    // classifier on, and states M40 for exports. The decision said M40; the
+    // classification handed to IxBuilder still said M05, and the builder reads
+    // the classification. Three US and Canadian sales of an online course went
+    // out declaring the art. 14.º goods-export article.
+    const n = normalized("US");
+    const c = ctx({ dest: { b2b_reverse_charge_pipeline: true, oss_export_exemption_code: "M40" } });
+
+    const out = await decideVat(n, c, "invoicexpress");
+
+    expect(out.exemptionCode).toBe("M40");
+    expect(out.fiscal?.exemptionCode).toBe("M40");
+    expect(out.fiscal?.mention).toBe(buildAnyExemptionMention("M40"));
   });
 });
 

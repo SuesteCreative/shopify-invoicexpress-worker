@@ -60,6 +60,7 @@ import type { AdapterCtx, DestinationKind } from "./types";
 import { EU_COUNTRIES, SELLER_COUNTRY } from "../ix/eu-countries";
 import { deriveProductReference } from "./destinations/moloni-destination";
 import { classifyExemption, type FiscalClassification } from "../ix/fiscal-classification";
+import { buildAnyExemptionMention } from "../ix/exemption-mentions";
 import { IxBuilder } from "../ix/builder";
 
 /**
@@ -477,6 +478,17 @@ export async function decideVat(
     : (regime === "export" && statedExportCode)
       ? statedExportCode
       : (classifiedCode ?? (regime === "export" ? ossExemptionCode(ctx) : null));
+
+  // The classification travels on to IxBuilder, which reads IT and not the code
+  // decided above. When the merchant's stated export code overrode the
+  // classifier, the classification has to say so too, or the document goes out
+  // under the article this decision just rejected: Wim Hof Method, 14/09/2026,
+  // M40 decided and M05 issued on three course sales to the US and Canada.
+  // Only a differing code is rewritten, so an intra-Community classification
+  // keeps its mention with the buyer's VAT number.
+  if (fiscal && exemptionCode && fiscal.exemptionCode !== exemptionCode) {
+    fiscal = { ...fiscal, exemptionCode, mention: buildAnyExemptionMention(exemptionCode) };
+  }
 
   if (exemptionCode) {
     // Stamped onto the two per-run config objects the three destinations already

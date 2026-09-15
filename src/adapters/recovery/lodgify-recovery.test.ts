@@ -116,6 +116,26 @@ describe("blockerFor — OTA opt-in", () => {
 });
 
 /**
+ * `lodgify_ota_invoice_on = "booking"` — Farracemota, which invoices a booking
+ * as soon as it exists in Lodgify and never marks anything paid.
+ */
+describe("blockerFor — billed on reservation", () => {
+  it("bills a future stay nobody marked paid", () => {
+    expect(blockerFor(ota({ arrival: "2099-01-01", departure: "2099-01-05" }), { on: "booking" })).toBeNull();
+  });
+
+  it("bills any channel, deposit or not", () => {
+    expect(blockerFor(ota({ source: "Manual", amount_paid: 300, amount_due: 463.16 }), { on: "booking" })).toBeNull();
+  });
+
+  it("still refuses what is not a confirmed sale", () => {
+    expect(blockerFor(ota({ status: "Open" }), { on: "booking" })).toMatch(/não confirmada/);
+    expect(blockerFor(ota({ status: "Declined" }), { on: "booking" })).toMatch(/reserva/i);
+    expect(blockerFor(ota({ total_amount: 0 }), { on: "booking" })).toMatch(/sem valor/);
+  });
+});
+
+/**
  * `invoice_plus_receipts` — the mode Origos runs.
  *
  * A part-paid stay is invoiced in FULL as a Fatura (which states a debt, not a

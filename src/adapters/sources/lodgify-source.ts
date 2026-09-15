@@ -1,7 +1,7 @@
 import type { SourceAdapter, AdapterCtx } from "../types";
 import type { Normalized, Order } from "../../api/normalize-shopify";
 import {
-  parseBookingSubtotals,
+  parseBookingSubtotals, touristTaxGross,
   splitStayAndExtras, bookingCollectedAmount, isOtaStayCollected, otaPolicyFrom } from "../../services/lodgify-amounts";
 import { channelReference } from "../../services/lodgify-booking";
 import { assertSafeBookingId, lodgifyFetch, type LodgifyGateway } from "../../services/lodgify-api";
@@ -327,6 +327,28 @@ export class LodgifySource implements SourceAdapter {
     // accommodation rate, which is the behaviour every other connection keeps.
     const extrasRate = Number(ctx.destinationConfig?.lodgify_extras_vat_rate ?? 0);
     const wantsSplit = extrasRate > 0 && !partial && !isDeclined;
+    // The tourist tax, on its own line and outside VAT, when the merchant asked.
+    //
+    // Lodgify's total carries the municipal tourist tax inside it, and that tax
+    // is not consideration for the stay, so it is not subject to VAT. One line at
+    // 6% over the whole total charges VAT on it. Measured on Farracemota's own
+    // invoices: FARRACEMOTAUNIPES/141 is 311,00 € = Room rate 282,08 € at 6% +
+    // tourist tax 12,00 € isento, where one line would have declared 17,60 € of
+    // VAT against the 16,92 € due.
+    //
+    // Unlike the extras split this is not best-effort. Without the breakdown the
+    // only document left to issue is the one with VAT on the tax, so an opted-in
+    // connection refuses and the next poll tries again. The exempt line takes
+    // the connection's exemption code, like any 0% line.
+    const wantsTaxSplit = ctx.destinationConfig?.lodgify_split_taxes === true && !partial && !isDeclined;
+    if (wantsTaxSplit && ctx.config.force_tax_rate != null) {
+      // A forced rate is applied to every line by the destination, the exempt
+      // one included, which would put the tax back under VAT without a word.
+      throw new Error(
+        `Lodgify: lodgify_split_taxes com force_tax_rate=${ctx.config.force_tax_rate} nesta ligação — `
+        + `a taxa forçada apanharia também a linha da taxa turística. Retirar force_tax_rate.`,
+      );
+    }
     // The breakdown lives on the v2 booking and NOWHERE else. The v1 list the
     // poll reads reports one `total_amount`, and the v1 detail the enricher
     // reads reports the same — so without this call the split could never fire,
@@ -335,30 +357,46 @@ export class LodgifySource implements SourceAdapter {
     // 115,00 € on its own site), which only showed up when someone finally read
     // a v2 payload.
     //
-    // One extra call, only for a connection that configured a rate for extras,
-    // and only for a booking about to be billed. Best-effort: no breakdown means
-    // one line at the accommodation rate, which is what every other connection
-    // gets.
-    const subtotals = wantsSplit
-      ? parseBookingSubtotals(
-          (booking as any).subtotals
-          ?? await fetchBookingSubtotals(bookingId, apiKey, requireLodgifyGateway(ctx)),
-        )
+    // One extra call, only for a connection that asked for a split, and only for
+    // a booking about to be billed.
+    const rawSubtotals = wantsSplit || wantsTaxSplit
+      ? ((booking as any).subtotals
+        ?? await fetchBookingSubtotals(bookingId, apiKey, requireLodgifyGateway(ctx)))
       : null;
+    if (wantsTaxSplit && rawSubtotals == null) {
+      throw new Error(
+        `Lodgify: sem decomposição (v2 subtotals) da reserva ${bookingId} — a taxa turística não pode ser `
+        + `separada do alojamento. Não emito com IVA sobre a taxa; o próximo poll tenta de novo.`,
+      );
+    }
+    const subtotals = parseBookingSubtotals(rawSubtotals);
+    const taxesGross = wantsTaxSplit ? touristTaxGross(grossTotal, subtotals) : 0;
+    if (taxesGross == null) {
+      throw new Error(
+        `Lodgify: a decomposição da reserva ${bookingId} não soma o total de ${grossTotal.toFixed(2)} € `
+        + `(${JSON.stringify(subtotals)}) — não sei que parte é taxa turística, não emito.`,
+      );
+    }
     const split = splitStayAndExtras(grossTotal, subtotals, extrasRate);
     const extrasGross = split?.extrasGross ?? 0;
-    const stayGross = split?.stayGross ?? grossTotal;
+    const stayGross = taxesGross > 0
+      ? Math.round(((split?.stayGross ?? grossTotal) - taxesGross) * 100) / 100
+      : (split?.stayGross ?? grossTotal);
 
-    const lineItems = split
-      ? [
-          makeLine(1, lineTitle, stayGross, taxRate),
+    const lineItems = [
+      makeLine(1, lineTitle, stayGross, taxRate),
+      ...(split
+        ? [
           // Its own SKU, and therefore its own Moloni product: the destination
           // derives the product reference from the SKU, so sharing one would
           // put the cleaning fee on a product named after the stay and carrying
           // the accommodation's 6% tax rule.
           makeLine(2, "Limpeza e extras", extrasGross, extrasRate, `${refStr}-LIM`.slice(0, 30)),
         ]
-      : [makeLine(1, lineTitle, grossTotal, taxRate)];
+        : []),
+      // Own SKU for the same reason as the extras.
+      ...(taxesGross > 0 ? [makeLine(3, "Taxa turística", taxesGross, 0, `${refStr}-TT`.slice(0, 30))] : []),
+    ];
 
     // Populate note_attributes so tag routing rules can match on booking fields.
     // Merchants route by property_id (multi-property) or booking source (channel).

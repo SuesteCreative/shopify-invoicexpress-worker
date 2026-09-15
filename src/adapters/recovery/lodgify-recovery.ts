@@ -79,6 +79,10 @@ export function blockerFor(
       // must not use a Fatura/Recibo. The Recibos are a separate, later pass:
       // Moloni can only associate one to a CLOSED document.
       if (mode === "invoice_plus_receipts") return null;
+      // A connection that bills on reservation does not wait for the balance.
+      // For the stay-date policies this is always false: they stand back as soon
+      // as any money is recorded.
+      if (isOtaStayCollected(item, policy)) return null;
       // Otherwise deliberate: a part-paid booking is billed in instalments, and
       // that ledger (lodgify_partial_invoices) belongs to the poll. Issuing one
       // document for the whole total here would bill money nobody has received.
@@ -103,7 +107,10 @@ function toRecord(
   // An opted-in OTA stay has no recorded payment by definition, so report the
   // booking total as what will be billed — otherwise the dry-run preview shows
   // "would bill ? €" for exactly the records this policy exists to bill.
-  const otaTotal = settlement.collected <= 0 && isOtaStayCollected(item, policy)
+  // A connection that bills on reservation can also have a deposit recorded:
+  // the document is still for the whole stay. The stay-date policies only ever
+  // answer true with nothing collected, so for them this is the old condition.
+  const otaTotal = settlement.basis !== "paid_in_full" && isOtaStayCollected(item, policy)
     ? Number(item?.total_amount ?? item?.total ?? 0)
     : 0;
   // On `invoice_plus_receipts` the document is for the WHOLE stay, not for what

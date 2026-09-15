@@ -47,7 +47,7 @@ import { runReconciliationSweep, runIncidentDrivenHeal, runStripeHeal } from "./
 import { refreshMoloniConnections } from "./handlers/moloni-token-refresh";
 import { saleReference, partialSaleReference } from "./services/document-references";
 import { resolveConnectionContext, synthLegacyConfig, projectConnectionBehaviour, pickStripeConnection, applyConnectionEmailPref, connectionLabelOf } from "./services/connection-context";
-import { stampInvoicePaymentIntent, listStripeInvoices } from "./services/stripe";
+import { stampInvoicePaymentIntent, listStripeInvoices, listStripeRefunds } from "./services/stripe";
 import { resolveStripeAuth, livemodeMatches } from "./services/stripe-auth";
 import { toPreloadedFromItem, channelReference, firstStr, ymd } from "./services/lodgify-booking";
 import { takeBackLodgifyDocuments } from "./handlers/lodgify-billing";
@@ -2311,7 +2311,20 @@ app.get("/admin/stripe/invoices", async (c) => {
     if (!auth) return c.json({ error: "No usable Stripe credential on this connection" }, 400);
 
     const { invoices, truncated } = await listStripeInvoices(auth.apiKey, from, to, limit, auth.connectAccount);
-    return c.json({ source_kind: row.source_kind, from, to, count: invoices.length, truncated, invoices });
+
+    // `include=refunds` adds the reversals in the same window. A refund is what
+    // a credit note answers, so asking "was every reversal credited" needs both
+    // sides from one call rather than two round trips through the admin key.
+    const wantRefunds = /^(1|true|refunds)$/i.test(String(c.req.query("include") ?? ""));
+    const refunded = wantRefunds
+      ? await listStripeRefunds(auth.apiKey, from, to, limit, auth.connectAccount)
+      : null;
+
+    return c.json({
+      source_kind: row.source_kind, from, to,
+      count: invoices.length, truncated, invoices,
+      ...(refunded ? { refunds_count: refunded.refunds.length, refunds_truncated: refunded.truncated, refunds: refunded.refunds } : {}),
+    });
   } catch (e) {
     return errorResponse(c, e, "Failed to list Stripe invoices");
   }

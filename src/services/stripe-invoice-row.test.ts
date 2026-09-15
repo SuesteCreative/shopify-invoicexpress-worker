@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toStripeInvoiceRow } from "./stripe";
+import { toStripeInvoiceRow, toStripeRefundRow } from "./stripe";
 
 /**
  * Flattening an invoice for reconciliation.
@@ -52,5 +52,23 @@ describe("toStripeInvoiceRow", () => {
   it("does not invent fields for a sparse invoice", () => {
     const row = toStripeInvoiceRow({ id: "in_5" });
     expect(row).toMatchObject({ number: null, payment_intent: null, customer_tax_id: null, total: 0, currency: "" });
+  });
+});
+
+describe("toStripeRefundRow", () => {
+  it("names the payment it reversed, expanded or not", () => {
+    expect(toStripeRefundRow({ id: "re_1", payment_intent: "pi_1", charge: "ch_1", amount: 1500, currency: "eur", created: 1_767_225_600, status: "succeeded", reason: "requested_by_customer" }))
+      .toMatchObject({ payment_intent: "pi_1", charge: "ch_1", amount: 15, currency: "EUR", status: "succeeded" });
+    expect(toStripeRefundRow({ id: "re_2", payment_intent: { id: "pi_2" } }).payment_intent).toBe("pi_2");
+  });
+
+  it("keeps a partial refund at its own amount, not the charge total", () => {
+    // The reason this list exists: charge.amount_refunded is a running total
+    // with no date, so a partial reversal cannot be matched to a credit note.
+    expect(toStripeRefundRow({ id: "re_3", charge: "ch_3", amount: 500 }).amount).toBe(5);
+  });
+
+  it("does not invent fields for a sparse refund", () => {
+    expect(toStripeRefundRow({ id: "re_4" })).toMatchObject({ payment_intent: null, charge: null, amount: 0, status: null, reason: null });
   });
 });

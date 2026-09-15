@@ -165,6 +165,80 @@ export async function listStripeInvoices(
   return { invoices: out.slice(0, limit), truncated: out.length >= limit && moreOnServer };
 }
 
+/** One refund, flattened for matching against the credit notes a merchant issued. */
+export interface StripeRefundRow {
+  id: string;
+  payment_intent: string | null;
+  charge: string | null;
+  amount: number;
+  currency: string;
+  created: string;
+  status: string | null;
+  reason: string | null;
+}
+
+export function toStripeRefundRow(r: any): StripeRefundRow {
+  const pi = r?.payment_intent;
+  const ch = r?.charge;
+  return {
+    id: String(r?.id ?? ""),
+    // Either can be an id or an expanded object, depending on who asked.
+    payment_intent: pi ? String(typeof pi === "object" ? pi.id : pi) : null,
+    charge: ch ? String(typeof ch === "object" ? ch.id : ch) : null,
+    amount: Number(r?.amount ?? 0) / 100,
+    currency: String(r?.currency ?? "").toUpperCase(),
+    created: new Date(Number(r?.created ?? 0) * 1000).toISOString(),
+    status: r?.status ?? null,
+    reason: r?.reason ?? null,
+  };
+}
+
+/**
+ * The refunds in a window, each naming the payment it reversed.
+ *
+ * A refund is the event a credit note answers, and `charge.amount_refunded` is
+ * a running total with no date on it — useless for asking "was this reversal
+ * ever credited". The refund list has the date and the amount, one row per
+ * reversal, including the partial ones.
+ *
+ * Same truncation contract as the invoice list above: says when it stopped.
+ */
+export async function listStripeRefunds(
+  apiKey: string,
+  fromIso: string,
+  toIso: string,
+  limit: number,
+  stripeAccount?: string | null,
+): Promise<{ refunds: StripeRefundRow[]; truncated: boolean }> {
+  const fromUnix = Math.floor(new Date(fromIso).getTime() / 1000);
+  const toUnix = Math.floor(new Date(toIso).getTime() / 1000);
+  const out: StripeRefundRow[] = [];
+  let startingAfter: string | null = null;
+  let moreOnServer = false;
+
+  while (out.length < limit) {
+    const query = new URLSearchParams();
+    query.set("created[gte]", String(fromUnix));
+    query.set("created[lte]", String(toUnix));
+    query.set("limit", "100");
+    if (startingAfter) query.set("starting_after", startingAfter);
+
+    const res = await stripeFetch("refunds", apiKey, { stripeAccount, query });
+    if (!res.ok) {
+      throw new Error(`Stripe refunds.list ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+    const body: any = await res.json();
+    const page: any[] = body.data ?? [];
+    for (const r of page) out.push(toStripeRefundRow(r));
+    moreOnServer = !!body.has_more;
+    if (!moreOnServer || page.length === 0) break;
+    startingAfter = page[page.length - 1]?.id ?? null;
+    if (!startingAfter) break;
+  }
+
+  return { refunds: out.slice(0, limit), truncated: out.length >= limit && moreOnServer };
+}
+
 /**
  * The PaymentIntent that actually paid a Stripe invoice, or null when no
  * PaymentIntent did.

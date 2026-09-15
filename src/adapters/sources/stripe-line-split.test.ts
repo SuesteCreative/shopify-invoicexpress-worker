@@ -214,3 +214,25 @@ describe("an option's own commas are not item separators", () => {
     expect(parseDescriptionItems("Subscription creation")).toEqual([{ label: "Subscription creation", qty: 1 }]);
   });
 });
+
+describe("the line keeps the option's whole name", () => {
+  it("does not cut an option at its own dash", () => {
+    // The first document with meals came out billing "5 dias" — the option's own
+    // " - " was read as the form-title separator, so the family would have been
+    // shown a line saying nothing about what they bought.
+    const lines = splitStripePayment(19792,
+      "Inscrição Verão Lá Fora 2026 - Verão Lá Fora - 7 a 11 de setembro (x1), Refeições Férias Lá Fora Lisboa/Almada 2025/2026 - 5 dias (x1)",
+      parseLineSplit(JSON.stringify({
+        base: { sku: "ELF-UNI", rate: 0 },
+        fee: { sku: "ELF-TAXA", rate: 23, title: "Taxa", rules: [{ pct: 1.5, fixed_cents: 0, trunc: true }] },
+        classify: [{ match: "refei", sku: "ELF-REF", rate: 13 }],
+        forms: ["Inscrição Verão Lá Fora 2026"],
+        prices: { "Verão Lá Fora - 7 a 11 de setembro": 16500, "Refeições Férias Lá Fora Lisboa/Almada 2025/2026 - 5 dias": 3000 },
+      }))!)!;
+    expect(lines.map((l) => l.title)).toEqual([
+      "Verão Lá Fora - 7 a 11 de setembro",
+      "Refeições Férias Lá Fora Lisboa/Almada 2025/2026 - 5 dias",
+      "Taxa",
+    ]);
+  });
+});

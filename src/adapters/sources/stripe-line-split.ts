@@ -201,12 +201,22 @@ function treatmentFor(label: string, cfg: LineSplitConfig): Treatment {
   return cfg.base;
 }
 
-/** The label without the form title the description prefixes onto the first
- *  item. Falls back to the first " - " for a form the recipe does not name. */
+/**
+ * The label without the form title the description prefixes onto the first item.
+ *
+ * The fallback — cut at the first " - " for a form the recipe does not name —
+ * only applies when what is left is itself a known option. Option names contain
+ * " - " too, and cutting blindly billed a family for "5 dias" instead of
+ * "Refeições Férias Lá Fora Lisboa/Almada 2025/2026 - 5 dias".
+ */
 function bareLabel(label: string, cfg: LineSplitConfig): string {
   for (const t of cfg.formTitles) if (label.startsWith(t + " - ")) return label.slice(t.length + 3);
   const i = label.indexOf(" - ");
-  return i > 0 ? label.slice(i + 3) : label;
+  if (i > 0) {
+    const bare = label.slice(i + 3);
+    if (cfg.prices.has(bare)) return bare;
+  }
+  return label;
 }
 
 /** The declared price(s) of an item, as written and then without the prefix. */

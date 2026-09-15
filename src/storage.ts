@@ -1616,8 +1616,19 @@ export class AppStorage {
    */
   async getResolvedOrderIds(orderIds: string[], scope: string): Promise<Set<string>> {
     const resolved = await this.getProcessedOrderIds(orderIds);
-    for (let i = 0; i < orderIds.length; i += 50) {
-      const chunk = orderIds.slice(i, i + 50);
+    // THIRTY, not fifty. The statement below repeats the chunk THREE times, so a
+    // chunk of 50 binds 152 variables and D1 refuses at 100 — the whole chunk
+    // throws, the catch swallows it, and every hand-made resolution in it is
+    // silently lost. Measured on Escola Lá Fora (15/09/2026): four payments
+    // marked "não necessária", of which a 52-candidate backfill honoured the two
+    // that happened to land in the short trailing chunk and re-billed the rest.
+    //
+    // The consequence was fleet-wide and invisible: any backfill with more than
+    // ~33 candidates ignored every operator exclusion and every hand-match it
+    // was given, because the only chunk small enough to survive was the last.
+    const CHUNK = 30; // 30 × 3 + 2 = 92 bound variables
+    for (let i = 0; i < orderIds.length; i += CHUNK) {
+      const chunk = orderIds.slice(i, i + CHUNK);
       const ph = chunk.map(() => "?").join(",");
       try {
         const res = await this.db.prepare(
@@ -1632,7 +1643,8 @@ export class AppStorage {
         ).bind(scope, ...chunk, scope, ...chunk, ...chunk).all();
         for (const row of res.results) resolved.add(String((row as any).oid));
       } catch (e) {
-        console.warn("[Rioko] getResolvedOrderIds aux lookup failed (processed_orders still applied):", e);
+        // Loud, because the cost of this failing is a document nobody wanted.
+        console.error("[Rioko] getResolvedOrderIds aux lookup FAILED — manual resolutions in this chunk are being ignored:", e);
       }
     }
     return resolved;

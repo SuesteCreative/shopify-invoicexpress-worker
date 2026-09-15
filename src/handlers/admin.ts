@@ -1413,3 +1413,79 @@ async function adminFinalizeOrder(
     return { order_id: order.id, order_number: order.order_number, status: "error", message: String(e) };
   }
 }
+
+/**
+ * Take back the credit-note drafts a retry loop left on one invoice.
+ *
+ * InvoiceXpress refuses a credit note worth more than the document it credits,
+ * but only at FINALIZE — so a refund whose total was wrong created a draft, was
+ * refused, and the next retry created another. Estrela's invoice 268938986
+ * ended 2026-09-14 carrying nine of them for a single refund.
+ *
+ * The create-side guard added alongside this stops new ones being made; this
+ * clears the ones already there, and stays available because the same shape
+ * recurs whenever a destination refuses late.
+ *
+ * Deliberately narrow, because it deletes: ONE invoice's related documents,
+ * only where the document is a CreditNote AND its state is draft. A finalized
+ * credit note is a fiscal document and is never touched — it is reported back
+ * untouched instead. `dryRun` lists what it would remove and removes nothing.
+ */
+export async function deleteDraftCreditNotes(
+  env: Env,
+  config: IRequestConfig,
+  invoiceId: string,
+  options: { reason?: string | null; triggered_by?: string | null; dryRun?: boolean } = {},
+) {
+  const appStorage = new AppStorage(env, config.shopify_domain!);
+  const jobId = crypto.randomUUID();
+  await appStorage.startDevJob({
+    id: jobId, type: "delete_draft_credit_notes", params: { invoice_id: invoiceId, dry_run: !!options.dryRun },
+    triggered_by: options.triggered_by ?? null, reason: options.reason ?? null,
+  });
+
+  const ixHeaders = {
+    "x-account-name": config.ix_account_name!,
+    "x-api-key": config.ix_api_key!,
+    "x-env": config.ix_environment === "production" ? "prod" as const : "dev" as const,
+  };
+
+  const { data: relatedData, error: relatedError } = await IxApi.v2.documents.byId.related.get({
+    headers: ixHeaders, path: { id: Number(invoiceId) },
+  });
+  if (relatedError) {
+    const err = `IX related lookup failed for ${invoiceId}: ${JSON.stringify(relatedError).slice(0, 300)}`;
+    await appStorage.finishDevJob(jobId, "error", { error: err }, []);
+    return { job_id: jobId, status: "error", error: err };
+  }
+
+  const related = ixRelatedDocuments(relatedData).filter((d: any) => d.type === "CreditNote");
+  const isDraft = (d: any) => String(d?.status ?? d?.state ?? "").toLowerCase() === "draft";
+  const drafts = related.filter(isDraft);
+  const kept = related.filter((d: any) => !isDraft(d)).map((d: any) => String(d.id));
+
+  if (options.dryRun) {
+    const summary = {
+      invoice_id: invoiceId, dry_run: true,
+      would_delete: drafts.map((d: any) => String(d.id)), kept_finalized: kept,
+    };
+    await appStorage.finishDevJob(jobId, "success", summary, [summary]);
+    return { job_id: jobId, status: "success", ...summary };
+  }
+
+  const deleted: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+  for (const draft of drafts) {
+    const id = String(draft.id);
+    const { error } = await IxApi.v2.changeState.post({
+      body: { type: "credit_note", id: Number(id), state: "deleted" },
+      headers: ixHeaders,
+    });
+    if (error) failed.push({ id, error: JSON.stringify(error).slice(0, 200) });
+    else deleted.push(id);
+  }
+
+  const summary = { invoice_id: invoiceId, deleted, failed, kept_finalized: kept };
+  await appStorage.finishDevJob(jobId, failed.length ? "error" : "success", summary, [summary]);
+  return { job_id: jobId, status: failed.length ? "error" : "success", ...summary };
+}

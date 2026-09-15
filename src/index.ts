@@ -23,7 +23,7 @@ import { handleOrderCreated } from "./handlers/orders-created";
 import { handleOrderUpdated } from "./handlers/orders-updated";
 import { handleOrderPaid } from "./handlers/orders-paid";
 import { handleRefundCreate } from "./handlers/refunds-create";
-import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber } from "./handlers/admin";
+import { getUnprocessedOrders, processOrders, reemitOrder, finalizeDrafts, deleteDraftByOrderNumber, issueCreditNoteByOrderNumber, deleteDraftCreditNotes } from "./handlers/admin";
 import { checkSubscriptionGate } from "./services/subscription-gate";
 import { runRenewalReminders, runEarlyBirdEndingReminders } from "./services/subscription-reminders";
 import { runSubscriptionPausedNotices } from "./services/subscription-paused-notice";
@@ -1850,6 +1850,32 @@ app.post("/admin/delete-draft", async (c) => {
     return c.json(result);
   } catch (e) {
     return errorResponse(c, e, "Failed to delete draft");
+  }
+})
+
+/**
+ * Clear the credit-note drafts a retry loop left on one invoice.
+ *
+ * `dry_run: true` lists them without touching anything, which is how this
+ * should be used first — it deletes, and a finalized credit note is a fiscal
+ * document. It refuses to touch one: only `type: CreditNote` in state `draft`
+ * is removed, and anything finalized comes back in `kept_finalized`.
+ */
+app.post("/admin/delete-draft-credit-notes", async (c) => {
+  const unauth = await requireAdmin(c);
+  if (unauth) return unauth;
+  const body = await c.req.json<{ shop: string; invoice_id: string; reason?: string; triggered_by?: string; dry_run?: boolean }>();
+  if (!body.shop || !body.invoice_id) return c.json({ error: "Missing shop or invoice_id" }, 400);
+  const appStorage = new AppStorage(c.env, body.shop);
+  const config = await appStorage.loadConfig();
+  if (!config) return c.json({ error: `No config found for ${body.shop}` }, 404);
+  try {
+    const result = await deleteDraftCreditNotes(c.env, config, String(body.invoice_id), {
+      reason: body.reason ?? null, triggered_by: body.triggered_by ?? null, dryRun: body.dry_run === true,
+    });
+    return c.json(result, result.status === "error" ? 422 : 200);
+  } catch (e) {
+    return errorResponse(c, e, "Failed to delete draft credit notes");
   }
 })
 

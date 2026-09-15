@@ -47,6 +47,14 @@ interface FeeRule {
   fixedCents: number;
   /** The merchant's checkout truncates instead of rounding. */
   trunc: boolean;
+  /**
+   * Only for payments whose description matches — tried BEFORE the general
+   * rules. One form can compute its fee on a different field than the amount
+   * charged: Escola Lá Fora's "Explorar Lá Fora" charges 2,95 € on a 50,00 €
+   * inscription, because its formula reads a 180,00 € reference price. A global
+   * rule of that shape would fit other forms' payments by accident.
+   */
+  match?: RegExp;
 }
 
 interface Treatment {
@@ -108,7 +116,17 @@ export function parseLineSplit(raw: unknown): LineSplitConfig | null {
   if (feeT) {
     const rules: FeeRule[] = [];
     for (const r of Array.isArray(doc.fee.rules) ? doc.fee.rules : []) {
-      rules.push({ pct: num(r?.pct, 0), fixedCents: Math.round(num(r?.fixed_cents, 0)), trunc: r?.trunc === true });
+      const rule: FeeRule = { pct: num(r?.pct, 0), fixedCents: Math.round(num(r?.fixed_cents, 0)), trunc: r?.trunc === true };
+      const pattern = String(r?.match ?? "").trim();
+      if (pattern) {
+        try {
+          rule.match = new RegExp(pattern, "i");
+        } catch {
+          console.warn(`[Stripe] stripe_line_split: bad fee regex ${pattern} — skipping that rule`);
+          continue;
+        }
+      }
+      rules.push(rule);
     }
     // A recipe that names the fee but no rule still has one: charge nothing.
     if (rules.length === 0) rules.push({ pct: 0, fixedCents: 0, trunc: false });
@@ -250,7 +268,13 @@ export function splitStripePayment(
   // split between them is precisely the guess this module refuses to make.
   if (unknown.length > 1) return null;
 
-  const rules = cfg.fee?.rules ?? [{ pct: 0, fixedCents: 0, trunc: false }];
+  // Form-specific rules first, when the description is theirs; the general ones
+  // after. A rule scoped to another form is never tried at all.
+  const declared = cfg.fee?.rules ?? [{ pct: 0, fixedCents: 0, trunc: false }];
+  const rules = [
+    ...declared.filter((r) => r.match?.test(description)),
+    ...declared.filter((r) => !r.match),
+  ];
   const freeChoices = unknown.length === 1 ? [unknown[0]] : [-1, ...items.map((_, i) => i)];
 
   let best: { lines: SplitLine[]; feeCents: number; round: boolean } | null = null;

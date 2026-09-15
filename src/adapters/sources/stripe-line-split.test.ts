@@ -261,3 +261,32 @@ describe("a payment that cannot be solved still lands on the right article", () 
     expect(line).toMatchObject({ sku: "ELF-REF", rate: 13, grossCents: 4085 });
   });
 });
+
+describe("a fee rule can belong to one form", () => {
+  // "Explorar Lá Fora" charges 2,95 € on a 50,00 € inscription: its formula
+  // reads a 180,00 € reference price, not the amount charged. Declared as a
+  // global rule, a fixed 2,95 would fit other forms' payments by accident.
+  const scoped = parseLineSplit(JSON.stringify({
+    base: { sku: "ELF-UNI", rate: 0 },
+    fee: {
+      sku: "ELF-TAXA", rate: 23, title: "Taxa",
+      rules: [
+        { match: "^Inscrição Explorar Lá Fora", pct: 0, fixed_cents: 295 },
+        { pct: 1.5, fixed_cents: 25 },
+      ],
+    },
+    forms: ["Inscrição Explorar Lá Fora Lisboa 2025/2026", "Inscrição Sábados Lá Fora"],
+    prices: { "Inscrição Explorar Lá Fora Lisboa 2025/2026": 5000, "Sessão Sábados Lá Fora": 2000 },
+  }))!;
+
+  it("uses the form's own rule for its payments", () => {
+    const lines = splitStripePayment(5295,
+      "Inscrição Explorar Lá Fora Lisboa 2025/2026 - Inscrição Explorar Lá Fora Lisboa 2025/2026 (x1)", scoped)!;
+    expect(lines.map((l) => [l.sku, l.grossCents])).toEqual([["ELF-UNI", 5000], ["ELF-TAXA", 295]]);
+  });
+
+  it("never tries it on another form's payment", () => {
+    const lines = splitStripePayment(2055, "Inscrição Sábados Lá Fora - Sessão Sábados Lá Fora (x1)", scoped)!;
+    expect(lines.map((l) => [l.sku, l.grossCents])).toEqual([["ELF-UNI", 2000], ["ELF-TAXA", 55]]);
+  });
+});

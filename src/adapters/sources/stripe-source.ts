@@ -197,11 +197,19 @@ async function fetchStripeCustomer(customerId: string, restrictedKey: string, st
  */
 async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string, stripeAccount?: string): Promise<any | null> {
   try {
-    // `latest_charge.balance_transaction` comes along for the ride: it is the
-    // only place Stripe states what the payment became in the account's own
-    // currency, and at which rate. A foreign-currency sale cannot be invoiced
-    // without it (see convertToSettlementCurrency).
-    const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge.balance_transaction`;
+    // Two expansions on the call we already make, both for things the payment
+    // alone cannot say.
+    //
+    // `latest_charge.balance_transaction` is the only place Stripe states what
+    // the payment became in the account's own currency, and at which rate. A
+    // foreign-currency sale cannot be invoiced without it (see
+    // convertToSettlementCurrency).
+    //
+    // `latest_charge.invoice` carries `status_transitions.paid_at`, the moment
+    // the money was CONFIRMED — see the date block in `toNormalized` for why
+    // nothing else on the charge answers that.
+    const url = `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`
+      + `?expand[]=latest_charge.balance_transaction&expand[]=latest_charge.invoice`;
     const res = await fetch(url, {
       headers: stripeApiHeaders(restrictedKey, stripeAccount),
     });
@@ -214,6 +222,34 @@ async function fetchLatestCharge(paymentIntentId: string, restrictedKey: string,
     return charge && typeof charge === "object" ? charge : null;
   } catch (e: any) {
     console.warn(`[Stripe] latest_charge expand network error for ${paymentIntentId}: ${e?.message ?? e}`);
+    return null;
+  }
+}
+
+/**
+ * One Stripe invoice, for the single field only it can answer: when the money
+ * arrived. See the date block in `toNormalized`.
+ *
+ * Only ever called for a CHARGE-shaped event, where `charge.invoice` is a bare
+ * id. A PI-shaped event gets the same object expanded onto the call
+ * `fetchLatestCharge` already makes, at no extra cost.
+ *
+ * Failures are swallowed: the caller falls back to `charge.created`, which is
+ * what it used before this existed.
+ */
+async function fetchStripeInvoice(invoiceId: string, restrictedKey: string, stripeAccount?: string): Promise<any | null> {
+  try {
+    const res = await fetch(
+      `https://api.stripe.com/v1/invoices/${encodeURIComponent(invoiceId)}`,
+      { headers: stripeApiHeaders(restrictedKey, stripeAccount) },
+    );
+    if (!res.ok) {
+      console.warn(`[Stripe] invoice fetch failed (${res.status}) for ${invoiceId}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e: any) {
+    console.warn(`[Stripe] invoice fetch network error for ${invoiceId}: ${e?.message ?? e}`);
     return null;
   }
 }
@@ -1381,15 +1417,50 @@ export class StripeSource implements SourceAdapter {
       }
     }
 
-    // The document is dated by the PAYMENT, not by the intent to pay. `pi.created`
-    // is when the payment was STARTED: for a card that is the same second the
-    // money moves, but a Multibanco reference is generated on day one and paid
-    // days later (12 days apart on pi_3Tz3w0…). Dating the invoice from the PI
-    // asked Moloni for a date well before the series' last document, which then
-    // clamped it to the series floor — a date that was neither the intent nor the
-    // payment. The charge's `created` is the moment the money arrived.
-    if (isPI && Number.isFinite(Number(charge?.created)) && Number(charge.created) > 0) {
-      const paidAt = new Date(Number(charge.created) * 1000).toISOString();
+    // The document is dated by the moment the MONEY ARRIVED, not by the intent
+    // to pay and not by the moment the charge object was made.
+    //
+    // `pi.created` is when the payment was started, and the fix for that was to
+    // read `charge.created` instead. For a card the three are the same second.
+    // For a direct debit they are not, and `charge.created` is still day one:
+    // the charge object is made when the debit is submitted, and the money
+    // clears days later. Measured on Bestisafil, 15/09/2026 — an account billed
+    // monthly by SEPA, where 66 of 81 September payments are debits:
+    //
+    //   pi.created          2026-09-05 01:01   the debit is instructed
+    //   charge.created      2026-09-05 01:01   the charge object is made
+    //   balance_transaction 2026-09-07 06:46   submitted to the bank
+    //   invoice paid_at     2026-09-15 01:15   THE MONEY ARRIVES
+    //
+    // Sixty-six documents were dated eight to eleven days before the payment
+    // they acknowledge. On a fatura-recibo that is not a cosmetic slip: the
+    // document states that the money was received on that date, and it lands in
+    // the wrong VAT period.
+    //
+    // `status_transitions.paid_at` is the only field that answers it, which the
+    // invoice-shaped branch of `stripeToNormalized` has always known — it dates
+    // from exactly this. The PI- and charge-shaped branches did not, and all
+    // three dedup onto the same PaymentIntent, so which webhook Stripe delivered
+    // first decided whether the document carried the right date.
+    //
+    // A payment with no invoice behind it keeps `charge.created`: there is no
+    // paid_at to read, and for the card payments that shape describes it is the
+    // right answer anyway.
+    let invoiceBehind = charge?.invoice && typeof charge.invoice === "object" ? charge.invoice : null;
+    // A charge-shaped event carries the invoice as a bare id. Fetched rather
+    // than skipped, because the three shapes dedup onto one PaymentIntent and
+    // only one of them builds the document: leaving this branch out would make
+    // the date depend on which webhook Stripe happened to deliver first, which
+    // is the whole class of bug being closed here.
+    if (!invoiceBehind && restrictedKey && typeof charge?.invoice === "string" && charge.invoice) {
+      invoiceBehind = await fetchStripeInvoice(charge.invoice, restrictedKey, connectAccount);
+    }
+    const paidAtSecs = Number(invoiceBehind?.status_transitions?.paid_at);
+    const settledSecs = Number.isFinite(paidAtSecs) && paidAtSecs > 0
+      ? paidAtSecs
+      : Number(charge?.created);
+    if ((isPI || isCharge) && Number.isFinite(settledSecs) && settledSecs > 0) {
+      const paidAt = new Date(settledSecs * 1000).toISOString();
       normalized.order.created_at = paidAt;
       if (normalized.order.meta) normalized.order.meta.processed_at = paidAt;
     }

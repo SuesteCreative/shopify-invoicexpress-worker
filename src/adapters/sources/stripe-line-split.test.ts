@@ -196,3 +196,21 @@ describe("StripeSource emits the split as NET price + tax amount", () => {
     expect(normalized!.order.items).toHaveLength(1);
   });
 });
+
+describe("an option's own commas are not item separators", () => {
+  it("keeps a date range that contains commas as one option", () => {
+    // 19 payments — every Inverno sale this merchant made — refused because
+    // "29, 30 de dezembro e 2 de janeiro" was split into three items that
+    // priced to nothing. The submission says it is one option at 140,00 €.
+    expect(parseDescriptionItems(
+      "Inscrição Inverno Lá Fora Lisboa 2025 - Inverno Lá Fora Lisboa - 29, 30 de dezembro e 2 de janeiro (x1), Refeições Férias Lá Fora Lisboa 2025/2026 - 3 dias (x1)",
+    )).toEqual([
+      { label: "Inscrição Inverno Lá Fora Lisboa 2025 - Inverno Lá Fora Lisboa - 29, 30 de dezembro e 2 de janeiro", qty: 1 },
+      { label: "Refeições Férias Lá Fora Lisboa 2025/2026 - 3 dias", qty: 1 },
+    ]);
+  });
+
+  it("treats a description with no quantities as one unnamed item", () => {
+    expect(parseDescriptionItems("Subscription creation")).toEqual([{ label: "Subscription creation", qty: 1 }]);
+  });
+});

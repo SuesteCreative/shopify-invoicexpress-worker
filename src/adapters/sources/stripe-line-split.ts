@@ -147,19 +147,26 @@ export function parseLineSplit(raw: unknown): LineSplitConfig | null {
  * The items a forms app names in the payment's description.
  *
  * `"<form> - <option> (xN), <option> (xN)"` — the form's own title prefixes only
- * the FIRST item. The split on commas ignores commas inside brackets, because
- * option labels contain them ("Carnaval (16, 17 e 18)").
+ * the FIRST item.
+ *
+ * Found by the `(xN)` that ends each one, NOT by splitting on commas: option
+ * labels contain commas of their own, and not only inside brackets. "Inverno Lá
+ * Fora Lisboa - 29, 30 de dezembro e 2 de janeiro (x1)" is ONE option, and
+ * splitting it produced three items that priced to nothing — 19 payments, all of
+ * this merchant's Inverno sales, refused for a punctuation mark.
+ *
+ * A description with no `(xN)` at all is one unnamed item, which is what a
+ * manually created payment looks like.
  */
 export function parseDescriptionItems(description: string): Array<{ label: string; qty: number }> {
+  const text = String(description ?? "").trim();
+  if (!text) return [];
   const out: Array<{ label: string; qty: number }> = [];
-  for (const part of String(description ?? "").split(/,(?![^(]*\))/)) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const m = trimmed.match(/^(.*?)\s*\(x(\d+)\)\s*$/);
-    if (m) out.push({ label: m[1].trim(), qty: Math.max(1, Number(m[2])) });
-    else out.push({ label: trimmed, qty: 1 });
+  for (const m of text.matchAll(/\s*(.+?)\s*\(x(\d+)\)\s*(?:,|$)/g)) {
+    const label = m[1].trim();
+    if (label) out.push({ label, qty: Math.max(1, Number(m[2])) });
   }
-  return out;
+  return out.length ? out : [{ label: text, qty: 1 }];
 }
 
 const feeOf = (baseCents: number, rule: FeeRule): number =>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { autoResolveStaleIncidents } from "./incidents";
+import { autoResolveStaleIncidents, isVerifiableOrderRef } from "./incidents";
 
 /**
  * The regression this file exists for.
@@ -72,7 +72,11 @@ describe("autoResolveStaleIncidents", () => {
   it("still falls back to closing what it cannot check (a Lodgify booking, a refund ref)", async () => {
     invoiced.clear();
     const closed: string[] = [];
-    const env: any = { DB: fakeDb([{ id: "inc-2", affected_ids_json: '["pi_3UFUUcJwZ8gzmNr41jJejqng"]' }], closed) };
+    // A PaymentIntent used to stand here as the example of an uncheckable
+    // reference. It never was one — `processed_orders` is keyed by `pi_` for
+    // every Stripe source — so the example moved to a reference that genuinely
+    // cannot be looked up anywhere.
+    const env: any = { DB: fakeDb([{ id: "inc-2", affected_ids_json: '["riokohc-2026-09"]' }], closed) };
 
     const res = await autoResolveStaleIncidents(env);
 
@@ -129,5 +133,77 @@ describe("autoResolveStaleIncidents — a fresh incident is verified too", () =>
 
     expect(closed).toEqual([]);
     expect(res.keptUnbilled).toBe(1);
+  });
+});
+
+/**
+ * Which references are worth verifying.
+ *
+ * `^\d{10,}$` is a Shopify order id and nothing else, so every Stripe-sourced
+ * alarm fell into the "cannot check" branch and was closed unverified on the
+ * 24h clock — the exact behaviour this file's first test exists to prevent,
+ * applied to half the fleet without anyone noticing. Counted in production on
+ * 2026-09-15, `processed_orders` is keyed by four shapes and no others.
+ */
+describe("isVerifiableOrderRef", () => {
+  it("takes the four key shapes processed_orders actually holds", () => {
+    expect(isVerifiableOrderRef("13460130824517")).toBe(true);
+    expect(isVerifiableOrderRef("pi_3UF8FQJNp2FcbLOX0rD1lZCz")).toBe(true);
+    expect(isVerifiableOrderRef("in_1TUXK7BTTqGjulMGabcdefgh")).toBe(true);
+    expect(isVerifiableOrderRef("cs_test_a1b2c3d4e5f6g7h8")).toBe(true);
+  });
+
+  it("refuses a Stripe event id, which is never an order key", () => {
+    // The shape behind the MY VAN phantom digest: it can never verify, so
+    // treating it as checkable would keep a meaningless alarm open forever.
+    expect(isVerifiableOrderRef("evt_3UF8FQJNp2FcbLOX0rD1lZCz")).toBe(false);
+  });
+
+  it("refuses free text and short numbers", () => {
+    expect(isVerifiableOrderRef("riokohc")).toBe(false);
+    expect(isVerifiableOrderRef("LLJCSSOJ-0042")).toBe(false);
+    expect(isVerifiableOrderRef("12345")).toBe(false);
+    expect(isVerifiableOrderRef("")).toBe(false);
+  });
+});
+
+describe("autoResolveStaleIncidents — a Stripe reference is verified like any other", () => {
+  it("keeps a pi_ incident open while its payment is still unbilled", async () => {
+    invoiced.clear();
+    const closed: string[] = [];
+    const env: any = { DB: fakeDb(
+      [{ id: "inc-6", affected_ids_json: '["pi_3UF8FQJNp2FcbLOX0rD1lZCz"]' }], closed) };
+
+    const res = await autoResolveStaleIncidents(env);
+
+    // Before this, the id failed the filter, the incident counted as
+    // "unverifiable" and was closed after 24h with the sale still uninvoiced.
+    expect(closed).toEqual([]);
+    expect(res.keptUnbilled).toBe(1);
+  });
+
+  it("closes it once that payment has a document", async () => {
+    invoiced.clear();
+    invoiced.add("pi_3UF8FQJNp2FcbLOX0rD1lZCz");
+    const closed: string[] = [];
+    const env: any = { DB: fakeDb(
+      [{ id: "inc-7", affected_ids_json: '["pi_3UF8FQJNp2FcbLOX0rD1lZCz"]' }], closed) };
+
+    const res = await autoResolveStaleIncidents(env);
+
+    expect(closed).toEqual(["inc-7"]);
+    expect(res.keptUnbilled).toBe(0);
+  });
+
+  it("still closes an evt_ reference on the clock, since it can never verify", async () => {
+    invoiced.clear();
+    const closed: string[] = [];
+    const env: any = { DB: fakeDb(
+      [{ id: "inc-8", affected_ids_json: '["evt_3UF8FQJNp2FcbLOX0rD1lZCz"]' }], closed) };
+
+    const res = await autoResolveStaleIncidents(env);
+
+    expect(closed).toEqual(["inc-8"]);
+    expect(res.keptUnbilled).toBe(0);
   });
 });

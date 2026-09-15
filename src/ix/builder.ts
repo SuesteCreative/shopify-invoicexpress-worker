@@ -427,6 +427,12 @@ export class IxBuilder {
 
     const shippingLines = Array.isArray(rawOrder?.shipping_lines) ? rawOrder.shipping_lines : [];
     for (const sl of shippingLines) {
+      // A shipping line removed by an order edit stays in `shipping_lines` with
+      // `is_removed: true` and its full price. Billing it charges shipping
+      // twice: Estrela #1331 and #1292 were invoiced 2,49 € above what was
+      // collected, each carrying the method the buyer switched away from beside
+      // the one they actually paid for.
+      if (sl?.is_removed === true) continue;
       // Same effective-rate rule as product lines: trust collected tax, not
       // declared rate. Reverse-charge shipping reports rate but price=0.
       const shipTaxLines = Array.isArray(sl?.tax_lines) ? sl.tax_lines : [];

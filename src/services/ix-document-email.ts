@@ -102,6 +102,14 @@ export async function sendIxDocumentEmail(
      * Callers that move a date MUST pass the date they moved it from.
      */
     saleDate?: string;
+    /**
+     * The InvoiceXpress collection the document lives in, when it is not the
+     * connection's own sale document. A credit note is always `credit_notes` —
+     * and it goes through this function, age gate included, like any other
+     * document: the refund path used to post the email on its own and so mailed
+     * buyers about refunds of any age.
+     */
+    collection?: "invoices" | "invoice_receipts" | "credit_notes";
   },
 ): Promise<IxEmailOutcome> {
   if (Number(config.ix_send_email) !== 1) return { sent: false, reason: "disabled" };
@@ -168,7 +176,7 @@ export async function sendIxDocumentEmail(
         },
       },
       path: { id },
-      query: { type: ixCollection(config) },
+      query: { type: opts?.collection ?? ixCollection(config) },
       headers,
     }),
     { isOk: (r) => !r.error, label: `email ${id}` },

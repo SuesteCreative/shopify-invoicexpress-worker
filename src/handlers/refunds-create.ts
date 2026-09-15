@@ -14,6 +14,7 @@ import { ixEnvelopeError, ixRelatedDocuments } from "../adapters/destinations/ix
 import { isAlreadyFinalizedIxError, isIxValidationRefusal } from "../adapters/destinations/ix-finalize";
 import { mirrorItemsFromIxDocument, moneyRefunded, planRefundCredit, type LineSource } from "../ix/credit-mirror";
 import { logDocumentEvent } from "../services/document-log";
+import { sendIxDocumentEmail, describeIxEmailOutcome } from "../services/ix-document-email";
 
 /**
  * Whether a refund arriving with no invoice behind it is simply nothing to do.
@@ -419,8 +420,16 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           ? (config.ix_b2b_exemption_reason ?? "M16")
           : null;
 
+        // Dated the day it is issued, as the cancel path's credit notes already
+        // are. It inherited the ORDER's date before: a refund processed weeks
+        // after the sale produced a note dated before the refund itself, and one
+        // replayed months later sits behind the series' last credit note, which
+        // InvoiceXpress refuses.
+        const issuedOn = new Date().toISOString().slice(0, 10);
         const creditNote: IxCreditNote = {
           ...invoiceBuildResult.invoice,
+          date: issuedOn,
+          due_date: issuedOn,
           items: items,
           reference: refundReference(credit.refundId),
           tax_exemption_reason: reverseChargeReason
@@ -557,39 +566,17 @@ export async function handleRefundCreate(env: Env, config: IRequestConfig, webho
           detail: { creditNoteId, refundId: credit.refundId, amount: plan.total },
         });
 
-        if (config.ix_send_email) {
-            // if (!creditNote.client.email || !creditNote.client.fiscal_id) {
-            if (!creditNote.client.email) {
-              // console.error(`[Rioko] Refund has no email address or nif`);
-              console.error(`[Rioko] Refund has no email address`);
-              continue;
-            }
-
-            const { error } = await IxApi.v2.documents.byId.email.post({
-              body: {
-                message: {
-                  client: {
-                    email: creditNote.client.email,
-                    save: "0"
-                  },
-                  body: config.ix_email_body ?? undefined,
-                  subject: config.ix_email_subject ?? undefined
-                }
-              },
-              path: {
-                id: Number(creditNoteId)
-              },
-              query: {
-                type: "credit_notes"
-              },
-              headers: ixHeaders
-            });
-
-            if (error) {
-              console.error(`[Rioko] Failed to send invoice by id ${invoice.invoice_id}:`, error);
-              throw new Error(`Failed to send credit note email for invoice ${invoice.invoice_id}`);
-            }
-        }
+        // Through the one sender, age gate included: a buyer hears about a
+        // refund that just happened, never about one replayed months later. This
+        // posted the email on its own before, outside that gate — and threw on a
+        // failed send, sending an already-certified credit note back through the
+        // queue. sendIxDocumentEmail never throws.
+        const refundDay = String(credit.rawRefund?.created_at ?? "").slice(0, 10);
+        const emailOutcome = await sendIxDocumentEmail(config, creditNoteId, {
+          collection: "credit_notes",
+          ...(/^\d{4}-\d{2}-\d{2}$/.test(refundDay) ? { saleDate: refundDay } : {}),
+        });
+        console.log(`[Rioko] ${describeIxEmailOutcome(creditNoteId, emailOutcome)}`);
 
         console.log(`[Rioko] Credit note ${creditNoteId} issued and finalized for refund ${credit.refundId}`);
     }

@@ -80,9 +80,21 @@ describe("StripeSource.scopeBlocker", () => {
 });
 
 describe("crossSystemReferences", () => {
-  it("finds the bare payment id the other system files under", () => {
-    expect(crossSystemReferences(saleReference("pi_3Tp77GBp3wyQk8MN2nx5PfwL")))
-      .toEqual(["pi_3Tp77GBp3wyQk8MN2nx5PfwL", "#stripe_pi_3Tp77GBp3wyQk8MN2nx5PfwL"]);
+  it("finds every spelling the other systems file under", () => {
+    expect(crossSystemReferences(saleReference("pi_3Tp77GBp3wyQk8MN2nx5PfwL"))).toEqual([
+      "pi_3Tp77GBp3wyQk8MN2nx5PfwL",
+      "#stripe_pi_3Tp77GBp3wyQk8MN2nx5PfwL",
+      "#stripe_3Tp77GBp3wyQk8MN2nx5PfwL",
+    ]);
+  });
+
+  it("includes the form that drops Stripe's own type prefix", () => {
+    // Every document Escola Lá Fora's previous connector issued in August 2025
+    // reads `#stripe_3S1rXX…` for the payment `pi_3S1rXX…`. Not generating that
+    // spelling made a backfill over an already-invoiced month issue 48
+    // duplicates, because nothing it searched for was on any of the documents.
+    expect(crossSystemReferences("Order #pi_3S1rXXBp3wyQk8MN1Vl48FbV"))
+      .toContain("#stripe_3S1rXXBp3wyQk8MN1Vl48FbV");
   });
 
   it("refuses to guess from a bare order number", () => {

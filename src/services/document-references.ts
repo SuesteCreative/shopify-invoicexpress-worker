@@ -67,8 +67,20 @@ export function documentReference(order: { invoice_reference?: string | null; or
 export function crossSystemReferences(reference: string): string[] {
   const bare = reference.replace(/^Order #/i, "").trim();
   if (!bare || bare === reference) return [];
-  if (!/^(pi|ch|cs|in|py|seti)_[A-Za-z0-9]+$/.test(bare)) return [];
-  return [bare, `#stripe_${bare}`];
+  const m = bare.match(/^(pi|ch|cs|in|py|seti)_([A-Za-z0-9]+)$/);
+  if (!m) return [];
+  // Three spellings, and the third is the one that matters most.
+  //
+  // The merchant's own backoffice writes the id as Stripe gives it. The older
+  // connectors prefixed `#stripe_`, and SOME of them dropped Stripe's own type
+  // prefix first — measured on Escola Lá Fora, every one of the 52 documents
+  // issued in August 2025 reads `#stripe_3S1rXXBp3wyQk8MN1Vl48FbV` for the
+  // payment `pi_3S1rXXBp3wyQk8MN1Vl48FbV`.
+  //
+  // Missing that form cost 48 duplicate drafts on 15/09/2026: a backfill over a
+  // month that was already fully invoiced found no match for any of them and
+  // issued the lot again.
+  return [bare, `#stripe_${bare}`, `#stripe_${m[2]}`];
 }
 
 /**
